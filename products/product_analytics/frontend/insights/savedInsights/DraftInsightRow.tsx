@@ -8,9 +8,8 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { SavedInsightListItem, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
-
-import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 function draftAgeSeconds(item: SavedInsightListItem): number {
     return Math.max(0, dayjs().diff(dayjs(item.created_at), 'second'))

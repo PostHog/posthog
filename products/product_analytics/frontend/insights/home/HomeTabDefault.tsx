@@ -9,16 +9,10 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-
-import { HomeTabExplore } from 'products/product_analytics/frontend/insights/home/HomeTabExplore'
-import { homeTabLoadTimeLogic } from 'products/product_analytics/frontend/insights/home/homeTabLoadTimeLogic'
-import {
-    homeTabChartInsightId,
-    homeTabStatKey,
-} from 'products/product_analytics/frontend/insights/home/homeTabQueryKeys'
 
 import { HomeTabChartCard } from './HomeTabChartCard'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
@@ -28,8 +22,10 @@ import {
     getHomeTabChartOptions,
     getHomeTabStatQueries,
 } from './homeTabDefaultTiles'
+import { HomeTabExplore } from './HomeTabExplore'
+import { homeTabLoadTimeLogic } from './homeTabLoadTimeLogic'
+import { homeTabChartInsightId, homeTabStatKey } from './homeTabQueryKeys'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
-import { savedInsightsLogic } from './savedInsightsLogic'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
 

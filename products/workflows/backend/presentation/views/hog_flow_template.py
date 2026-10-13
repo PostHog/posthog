@@ -29,6 +29,7 @@ from products.workflows.backend.facade.templates import (
     list_templates,
     update_template,
 )
+from products.workflows.backend.facade.workflows import WORKFLOW_SAFE_INTERNAL_EVENTS
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
@@ -94,11 +95,31 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     def validate(self, data):
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
+            trigger_type = data.get("config", {}).get("type")
+            if trigger_type in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
-            elif data.get("config", {}).get("type") == "event":
+            elif trigger_type == "schedule":
+                # The schedule itself lives on a separate row, so the trigger carries nothing to validate.
+                pass
+            elif trigger_type in ["event", "internal-event"]:
                 filters = data.get("config", {}).get("filters", {})
                 if filters:
+                    if trigger_type == "internal-event":
+                        filters["source"] = "internal-events"
+                        events = filters.get("events")
+                        disallowed = sorted(
+                            {
+                                event["id"]
+                                for event in (events if isinstance(events, list) else [])
+                                if isinstance(event, dict)
+                                and isinstance(event.get("id"), str)
+                                and event["id"] not in WORKFLOW_SAFE_INTERNAL_EVENTS
+                            }
+                        )
+                        if disallowed:
+                            raise serializers.ValidationError(
+                                {"filters": f"These events cannot trigger a workflow: {', '.join(disallowed)}."}
+                            )
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
