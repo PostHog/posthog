@@ -4,7 +4,7 @@ from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -1564,7 +1564,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 
-class TestEventLevelDedupe(TestCase):
+class TestEventLevelDedupe(SimpleTestCase):
     """Verify that the workflow ID format supports event-level deduplication."""
 
     def test_same_event_id_produces_same_workflow_id(self):

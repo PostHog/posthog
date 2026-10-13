@@ -13,7 +13,7 @@ import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneL
 describe('dataWarehouseSceneLogic', () => {
     let logic: ReturnType<typeof dataWarehouseSceneLogic.build>
     let flagsLogic: ReturnType<typeof featureFlagLogic.build>
-    let warehouseStatusResponse: [number, Record<string, string>]
+    let warehouseStatusResponse: [number, Record<string, unknown>]
 
     const mountScene = (): void => {
         logic = dataWarehouseSceneLogic()
@@ -65,6 +65,55 @@ describe('dataWarehouseSceneLogic', () => {
 
         expect(logic.values.availableTabs).toEqual(expectedTabs)
         expect(logic.values.activeTab).toBe(expectedTabs[0])
+    })
+
+    const useOnlyTheTrinoFlag = (): void => {
+        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO], {
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]: true,
+        })
+    }
+
+    it('gives the DuckDB variant on the existing flag', async () => {
+        mountScene()
+        await waitForWarehouseStatus()
+
+        expect(logic.values.dataOpsVariant).toBe('duckdb')
+    })
+
+    it('prefers the Trino variant when both flags are on', async () => {
+        flagsLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE, FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
+            { [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true, [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]: true }
+        )
+        mountScene()
+        await waitForWarehouseStatus()
+
+        expect(logic.values.dataOpsVariant).toBe('trino')
+    })
+
+    // A Trino organization has nothing to query until Trino itself is ready, so the warehouse
+    // being ready is not enough to show Overview and Monitoring.
+    it.each([
+        { name: 'Trino ready', trinoState: 'ready', expectsDataTabs: true },
+        { name: 'Trino provisioning', trinoState: 'provisioning', expectsDataTabs: false },
+        { name: 'Trino not enabled', trinoState: 'not_enabled', expectsDataTabs: false },
+        { name: 'Trino failed', trinoState: 'failed', expectsDataTabs: false },
+        { name: 'Trino status unavailable', trinoState: 'unavailable', expectsDataTabs: false },
+    ])('Trino variant on the Trino flag alone: $name', async ({ trinoState, expectsDataTabs }) => {
+        useOnlyTheTrinoFlag()
+        warehouseStatusResponse = [
+            200,
+            { state: 'ready', trino: { state: trinoState, ready_at: null, connection: null } },
+        ]
+        mountScene()
+        await waitForWarehouseStatus()
+
+        expect(logic.values.dataOpsVariant).toBe('trino')
+        expect(logic.values.availableTabs).toEqual(
+            expectsDataTabs
+                ? [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS]
+                : [DataWarehouseTab.SETTINGS]
+        )
     })
 
     it('leaves the tab set unresolved until the warehouse status lands', () => {

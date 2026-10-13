@@ -15,6 +15,7 @@ import xgboost as xgb
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
+from sklearn.metrics import roc_auc_score
 
 from posthog import settings
 
@@ -160,6 +161,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     unseen_pool,
     with_model_names,
 )
+from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
 EMBEDDINGS_MODEL_NAME = REPORT_EMBEDDINGS_MODEL_NAME
 # The two renderings' sets. Every rule about a vector holds for both, because they are one class
@@ -254,7 +256,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     open_head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=open_head.horizon_days)
     ids = ["a", "b", "c", "d"]
-    state = _state(ids, report_created_at=[BEFORE_THE_WINDOW] * 4)
+    state = _state(ids, report_created_at=[BEFORE_THE_WINDOW] * 4, report_team_id=[1, 1, 2, None])
     snapshots = {
         # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
         # b: already opened at D0 -> excluded; c: never opened -> negative;
@@ -275,6 +277,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     examples = build_examples(snapshots, open_head, _at_grain(STATE_FEATURE_SET, SCORING_MOMENT_GRAIN))
     assert list(examples.columns) == list(example_columns(STATE_FEATURE_SET))
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0, "d": 1}
+    assert examples.set_index("report_id")["team_id"].fillna(-1).to_dict() == {"a": 1, "c": 2, "d": -1}
     assert (examples["snapshot_date"] == D0).all()
     assert (examples["age_hours"] == 12.0).all()
 
@@ -584,6 +587,7 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     examples.insert(1, "report_id", [f"r{i}" for i in range(n)])
     examples.insert(2, "snapshot_date", D0)
     examples.insert(3, "report_created_at", created)
+    examples.insert(4, "team_id", rng.integers(1, 4, n))
     examples["label"] = (signal_count > 25).astype(int)
 
     trained = train_head(examples, head, feature_names=STATE_FEATURE_SET.feature_names, holdout_days=7)
@@ -607,8 +611,11 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert sum(count or 0 for count in counts) == trained.metrics.holdout_rows
     assert holdout.precision is not None and holdout.precision > 0.8
     assert holdout.recall is not None and holdout.recall > 0.8
+    within_team = trained.metrics.holdout_within_team
+    assert within_team.teams == 3 and within_team.auc is not None and within_team.auc > 0.9
     metadata_head = trained.metrics.as_dict()
     assert metadata_head["holdout_classification_threshold"] == holdout.threshold
+    assert metadata_head.items() >= within_team.as_dict(prefix="holdout_").items()
     assert classification_thresholds({"heads": [metadata_head]}) == {
         head.name: trained.metrics.refit_classification_threshold
     }
@@ -954,6 +961,42 @@ def test_grading_a_status_label_head_drops_a_newborn_outcome_from_the_scoring_da
     assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
 
 
+@pytest.mark.parametrize(
+    "outcomes,scores,team_ids,expected",
+    [
+        # Team 3 has no positive, so it adds no team and no pair, whatever its scores.
+        (
+            [1, 0, 0, 0, 0, 0],
+            [0.9, 0.1, 0.1, 0.1, 0.99, 0.0],
+            [1, 1, 1, 1, 3, 3],
+            WithinTeamAuc(auc=1.0, macro=1.0, teams=1, pairs=3),
+        ),
+        # Team 1 ranks its one pair right, team 2 ranks its four pairs wrong.
+        (
+            [1, 0, 1, 1, 0, 0],
+            [0.9, 0.1, 0.1, 0.2, 0.8, 0.9],
+            [1, 1, 2, 2, 2, 2],
+            WithinTeamAuc(auc=0.2, macro=0.5, teams=2, pairs=5),
+        ),
+        # A row without a team is left out, even when it would make a pair.
+        ([1, 0, 0], [0.9, 0.1, 0.95], [1, 1, None], WithinTeamAuc(auc=1.0, macro=1.0, teams=1, pairs=1)),
+        ([1, 0], [0.9, float("nan")], [1, 1], NO_TEAMS),
+    ],
+)
+def test_within_team_auc_counts_only_pairs_inside_one_team(outcomes, scores, team_ids, expected):
+    result = within_team_auc(np.array(outcomes), np.array(scores), np.array(team_ids, dtype=object))
+    assert result.as_dict() == pytest.approx(expected.as_dict())
+
+
+def test_within_team_auc_gives_chance_to_a_team_base_rate_that_pooled_auc_rewards():
+    outcomes = np.array([1, 0, 0, 0, 1, 1, 1, 0])
+    base_rates = np.array([0.25] * 4 + [0.75] * 4)
+    assert roc_auc_score(outcomes, base_rates) > 0.5
+    assert within_team_auc(outcomes, base_rates, np.array([1] * 4 + [2] * 4)) == WithinTeamAuc(
+        auc=0.5, macro=0.5, teams=2, pairs=6
+    )
+
+
 def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
@@ -976,6 +1019,8 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     )
     assert newest_first.recency_auc == 1.0
     assert grade.null_auc is not None
+    assert (grade.within_team.auc, grade.within_team.pairs) == (1.0, 1)
+    assert grade.as_dict()["recency_within_team_auc"] == 0.5
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(
         graded_rows(_scores(["e"], model_version=["2026-08-11"]), _labels(["e"], open_count=[0]), head, pool=POOL_NAME),
@@ -2141,7 +2186,15 @@ def test_build_examples_carries_the_columns_of_the_set_it_is_given():
         later: Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[2])),
     }
     examples = build_examples(snapshots, HEADS_BY_NAME["open"], _AgeOnlyFeatureSet())
-    assert list(examples.columns) == ["head", "report_id", "snapshot_date", "report_created_at", "age_hours", "label"]
+    assert list(examples.columns) == [
+        "head",
+        "report_id",
+        "snapshot_date",
+        "report_created_at",
+        "team_id",
+        "age_hours",
+        "label",
+    ]
     assert examples["age_hours"].tolist() == [12.0]
 
 
