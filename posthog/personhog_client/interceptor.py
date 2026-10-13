@@ -176,10 +176,7 @@ def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Coll
 
 
 def _is_db_timeout(exc: grpc.RpcError) -> bool:
-    trailing_metadata = getattr(exc, "trailing_metadata", None)
-    if not callable(trailing_metadata):
-        return False
-    return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in trailing_metadata() or ())
+    return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in exc.trailing_metadata() or ())
 
 
 def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
@@ -187,7 +184,7 @@ def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode
 
     Follows ``__cause__`` so a caller that wrapped the RpcError (``personhog_call(reraise_as=...)``)
     still classifies the underlying transport failure. ``codes`` defaults to the in-process
-    RetryInterceptor's code set; a caller that retries at a slower tier passes its own set.
+    RetryInterceptor's code set. A caller that retries at a slower tier passes its own set.
     """
     current: BaseException | None = exc
     while current is not None:
