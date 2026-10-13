@@ -627,6 +627,17 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
     ticket_id?: string
 }
 
+export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
     /**
      * File path returned by the repository search.
@@ -650,17 +661,6 @@ export type BusinessKnowledgeRepositoriesSearchParams = {
      * Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.
      */
     repo?: string
-}
-
-export type BusinessKnowledgePlaygroundChatsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type BusinessKnowledgeSourcesListParams = {
