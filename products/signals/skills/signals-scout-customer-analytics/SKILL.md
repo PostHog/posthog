@@ -16,6 +16,9 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: customer_analytics
+scout-precheck-query: |
+  SELECT count() AS accounts
+  FROM system.accounts
 ---
 
 # Signals scout: customer analytics (account health)
@@ -41,6 +44,8 @@ You can't score 1,000 accounts every run. Your leverage is a **durable watchlist
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a confirmed per-account engagement risk on a commercially-staked account you'd stand behind as a standalone inbox item a CSM or AE will act on. A risk the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the customer-analytics-specific framing — do not restate the generic mechanics.
 
 ## Quick close-out: is there an account roster worth scoring?
+
+A scheduled run can start with a `<precheck_result>` block. Its one row counts the accounts in `system.accounts`, and a run starts only when that count is above zero. When the block is present, skip the empty-roster check. The `products_in_use` check and the join check still apply.
 
 Close out empty (after one scratchpad entry) if any of these hold:
 

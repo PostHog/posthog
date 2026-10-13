@@ -99,7 +99,11 @@ from products.signals.backend.scout_harness.lifecycle_lock import (
     resolve_auth_kind,
     user_holds_scout_lifecycle_claim,
 )
-from products.signals.backend.scout_harness.precheck import dry_run_scout_precheck
+from products.signals.backend.scout_harness.precheck import (
+    dry_run_scout_precheck,
+    resolve_effective_precheck,
+    scout_skill_is_canonical,
+)
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -238,8 +242,10 @@ from products.signals.backend.scout_harness.tools.runs import (
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
+    NOT_IN_USE_KEY_PREFIX,
     InvalidScratchpadError,
     forget,
+    record_not_in_use_write,
     remember,
     search_scratchpad,
 )
@@ -1324,6 +1330,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["signal_scout_report:write"],
         pagination_class=None,
     )
+    @trial_state_errors()
     def emit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
         data = request.validated_data
@@ -1402,6 +1409,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["signal_scout_report:write"],
         pagination_class=None,
     )
+    @trial_state_errors()
     def edit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
         data = request.validated_data
@@ -2088,8 +2096,14 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # bound to. A scout copies `run_id` out of its prompt by hand and a share of those copies
         # arrive truncated, which used to cost the entry its run link; the token binding is the
         # server's own record of which run is writing, so lineage survives the typo.
+        is_not_in_use = data["key"].startswith(NOT_IN_USE_KEY_PREFIX)
+        sandbox_run_id = (
+            run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
+            if run_id is None or is_not_in_use
+            else None
+        )
         if run_id is None:
-            run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
+            run_id = sandbox_run_id
         try:
             entry = remember(
                 team_id=team_id,
@@ -2104,6 +2118,10 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        # Attributed to the token's run, not the body's: a body `run_id` can name any run on the
+        # project, including a sibling scout's.
+        if is_not_in_use and sandbox_run_id is not None:
+            record_not_in_use_write(run_id=sandbox_run_id, team_id=team_id)
         return Response(ScratchpadEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
 
     @validated_request(
@@ -3152,12 +3170,17 @@ def guard_scout_lifecycle_fields(
     requested: object,
     action: str,
 ) -> None:
-    """Apply the lock gate to a write body. A no-op unless the body changes a protected field."""
-    fields = lock_protected_changes(requested, config=config)
-    if config is None or not fields:
+    """Apply the lock gate to a write body. A no-op unless the body changes a protected field.
+
+    With no config yet, the gate checks the row the write would create. So a lock set at
+    registration asks for the same claim as a lock set afterwards.
+    """
+    target = config or SignalScoutConfig(team_id=team.id, skill_name=skill_name, created_by=cast(User, request.user))
+    fields = lock_protected_changes(requested, config=target)
+    if not fields:
         return
     assert_can_change_scout_lifecycle(
-        request=request, team=team, skill_name=skill_name, config=config, action=action, fields=fields
+        request=request, team=team, skill_name=skill_name, config=target, action=action, fields=fields
     )
 
 
@@ -3786,7 +3809,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "Run a scout's pre-check query once and return its rows, without starting a run and without "
             "saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run "
             "would get, so the result says whether that run would start or skip. Pass `precheck_query` to "
-            "try a query before you save it, or omit it to try the saved one. A query error comes back in "
+            "try a query before you save it, or omit it to try the effective one: the saved query, or the "
+            "default the scout's skill ships. A query error comes back in "
             "the `error` field with a 200, because a scheduled run treats it as a reason to run."
         ),
         operation_id="signals_scout_config_precheck_test",
@@ -3805,11 +3829,20 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id).first()
         if config is None or config.skill_name in withheld_skills_for_team(team.id):
             raise exceptions.NotFound()
-        query = request.validated_data.get("precheck_query") or config.precheck_query
+        query = request.validated_data.get("precheck_query")
+        if not query:
+            # Never saved. A scout with its pre-check turned off can still test the query it would use.
+            config.precheck_disabled = False
+            query = resolve_effective_precheck(
+                config, is_canonical=scout_skill_is_canonical(team.id, config.skill_name)
+            ).query
         if not query:
             raise exceptions.ValidationError({"precheck_query": "This scout has no pre-check query. Give one to test."})
-        result = dry_run_scout_precheck(team, config, query)
-        return Response(SignalScoutPrecheckTestSerializer(dataclasses.asdict(result)).data)
+        result = dry_run_scout_precheck(team, config, query, user=cast(User, request.user))
+        acting_user = User.objects.filter(pk=result.acting_user_id).first() if result.acting_user_id else None
+        return Response(
+            SignalScoutPrecheckTestSerializer({**dataclasses.asdict(result), "acting_user": acting_user}).data
+        )
 
     @extend_schema(
         request=None,

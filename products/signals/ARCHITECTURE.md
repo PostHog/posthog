@@ -719,7 +719,7 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 **Run provenance is stamped, not re-derived.** `harness_prompt_version` (a hash of `scout_harness/prompt.py` plus the imported constants its templates render, identifying the prompt build), `report_channel` (`none`/`emit`/`edit`/`both`, since the prompt branches on the two report capabilities separately), `skill_origin`, and `github_guidance` are written at run creation because none can be reconstructed later: the harness prompt carries no version history, `allowed_tools` is editable, and a seeded canonical skill row becomes `custom` as soon as a team edits it. Together they let a model or prompt A/B compare only runs that were given the same prompt shape. All four ride the `signals_scout_run_started` / `_finished` events too, which is where that readout happens. `triggered_by` is stamped the same way but only when it is not `schedule`, so absence reads as the default path; the workflow trigger's cooldown reads it back to tell its own prior fires apart from scheduled patrols and human "Run now" presses.
 
-**Run metadata is derived, never self-reported.** `metadata.derived` answers "what kind of run was this?" (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`) and is computed server-side at finalize by `scout_harness/derived_metadata.py` from the run's own settled output. Asking the scout to declare these instead would make each flag only as reliable as the model remembering to write it, so the column stays queryable precisely because nothing in it is agent-authored. An absent `derived` region is unknown rather than all-false: the run predates the field, never reached finalize, or its stamp failed (best-effort, logged). `MultiTurnSession` owns the `TaskRun` lifecycle; the `on_task_run_created` hook attaches the `TaskRun` to the bridge row before the agent's first turn.
+**Run metadata is derived, never self-reported.** `metadata.derived` answers "what kind of run was this?" (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, `has_not_in_use_closeout`) and is computed server-side at finalize by `scout_harness/derived_metadata.py` from the run's own settled output. Asking the scout to declare these instead would make each flag only as reliable as the model remembering to write it, so the column stays queryable precisely because nothing in it is agent-authored. An absent `derived` region is unknown rather than all-false: the run predates the field, never reached finalize, or its stamp failed (best-effort, logged). `MultiTurnSession` owns the `TaskRun` lifecycle; the `on_task_run_created` hook attaches the `TaskRun` to the bridge row before the agent's first turn.
 
 **Tasks UI cross-link.** Run serializers expose a computed `task_url` field on `scout-runs-list` and `scout-runs-retrieve` MCP responses — `/project/{team_id}/tasks/{task_run.task_id}?runId={task_run_id}`. `task_url` is `null` for rows whose `task_run` link is missing (rows aborted before `MultiTurnSession.start()` returned).
 
@@ -1225,6 +1225,8 @@ The validator ensures the returned `signal_id` and `query_index` are valid for t
 
 A second grouping-time LLM check used before broadening an existing report too aggressively.
 
+After a research pass completes on a report, the check also receives the report's summary as the researched cause. A new signal joins only when the fix that the research describes also resolves it. A shared page, HTTP status, or product area is not enough. The check can rename a report only before its first research pass. After that pass, the research owns the title, so the title and the summary continue to describe the same cause.
+
 ### Safety filter (`backend/temporal/safety_filter.py`)
 
 Per-signal safety classifier that runs in the buffer workflow before signals are flushed to object storage.
@@ -1361,7 +1363,7 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. GitHub's other field, the requested reviewer, is never written by this code — a separate app requests the owning team for review, which is why both appear on these pull requests.
+"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request, in bounded batches of 15. The worker does not request a review from the pull request author, an assignee, or an existing requested reviewer. A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 

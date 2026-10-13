@@ -48,6 +48,7 @@ import { CodeReviewTab } from './reviewHogSettingsLogic'
 
 const defaultSettings: ReviewUserSettingsApi = {
     default_review_mode: 'follow',
+    review_drafts: true,
     resolve_comments: false,
     urgency_threshold: 'consider',
     celebrate_clean_reviews: true,
@@ -55,6 +56,7 @@ const defaultSettings: ReviewUserSettingsApi = {
     stamphog_review_inbox_prs: false,
     sources: {
         default_review_mode: 'default',
+        review_drafts: 'default',
         resolve_comments: 'default',
         urgency_threshold: 'default',
         celebrate_clean_reviews: 'default',

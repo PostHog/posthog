@@ -1,11 +1,16 @@
 from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill import (
     FRILL_BASE_URL,
     PAGE_SIZE,
@@ -13,11 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.frill.fril
     FrillRetryableError,
     _handle_response,
     _next_cursor,
-    frill_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import ENDPOINTS, FRILL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.frill.source import FrillSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
 
 
 def _resp(body: Any, status: int = 200) -> Any:
@@ -42,31 +47,8 @@ def _page(
     return {"data": records, "pagination": pagination, "meta": {}}
 
 
-def _manager(resume: FrillResumeConfig | None = None) -> Any:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _drive(
-    endpoint: str, manager: Any, responses: list[Any]
-) -> tuple[list[tuple[str, dict[str, Any]]], list[list[dict[str, Any]]]]:
-    """Drive ``get_rows`` with a mocked tracked session, returning (requests, yielded_batches)."""
-    calls: list[tuple[str, dict[str, Any]]] = []
-    response_iter = iter(responses)
-
-    def fake_get(url: str, params: Any = None, timeout: Any = None, **_kwargs: Any) -> Any:
-        calls.append((url, dict(params or {})))
-        return next(response_iter)
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill.make_tracked_session"
-    ) as MockSession:
-        MockSession.return_value.get.side_effect = fake_get
-        batches = list(get_rows(api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager))
-
-    return calls, batches
+def _driver(api_key: str = "k") -> SourceDriver:
+    return SourceDriver(FrillSource(), FrillSourceConfig(api_key=api_key))
 
 
 class TestHandleResponse:
@@ -114,42 +96,35 @@ class TestNextCursor:
 
 class TestGetRows:
     def test_paginates_until_has_next_false_and_saves_after_each_page(self) -> None:
-        manager = _manager()
         responses = [
-            _resp(_page([{"idx": "idea_1"}], has_next=True, end_cursor="c1")),
-            _resp(_page([{"idx": "idea_2"}], has_next=True, end_cursor="c2")),
-            _resp(_page([{"idx": "idea_3"}], has_next=False)),
+            ScriptedResponse(json=_page([{"idx": "idea_1"}], has_next=True, end_cursor="c1")),
+            ScriptedResponse(json=_page([{"idx": "idea_2"}], has_next=True, end_cursor="c2")),
+            ScriptedResponse(json=_page([{"idx": "idea_3"}], has_next=False)),
         ]
 
-        calls, batches = _drive("ideas", manager, responses)
+        result = _driver().run("ideas", responses)
 
-        assert [params.get("after") for _, params in calls] == [None, "c1", "c2"]
-        assert all(params.get("limit") == PAGE_SIZE for _, params in calls)
-        assert batches == [[{"idx": "idea_1"}], [{"idx": "idea_2"}], [{"idx": "idea_3"}]]
+        assert result.raised is None
+        assert result.params("after") == [None, "c1", "c2"]
+        assert result.params("limit") == [str(PAGE_SIZE)] * 3
+        assert result.items == [[{"idx": "idea_1"}], [{"idx": "idea_2"}], [{"idx": "idea_3"}]]
         # State is saved after each non-terminal page so a crash re-yields rather than skips.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [FrillResumeConfig(after="c1"), FrillResumeConfig(after="c2")]
+        assert result.saved_states == [FrillResumeConfig(after="c1"), FrillResumeConfig(after="c2")]
 
     def test_session_carries_bearer_auth_redacts_key_and_disables_capture(self) -> None:
-        manager = _manager()
+        result = _driver("secret").run("ideas", [ScriptedResponse(json=_page([], has_next=False))])
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _resp(_page([], has_next=False))
-            list(get_rows(api_key="secret", endpoint="ideas", logger=MagicMock(), resumable_source_manager=manager))
-
-        _, kwargs = MockSession.call_args
-        assert kwargs["headers"]["Authorization"] == "Bearer secret"
-        assert kwargs["redact_values"] == ("secret",)
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "Bearer secret"
+        assert result.session_options[0]["headers"]["Authorization"] == "Bearer secret"
+        assert result.session_options[0]["redact_values"] == ("secret",)
         # Frill responses carry user-authored feedback/notes the scrubber can't anonymize, so
         # sample capture must stay off to keep that content out of the shared HTTP sample store.
-        assert kwargs["capture"] is False
+        assert result.session_options[0]["capture"] is False
 
 
 class TestCommentsFanOut:
     def test_fans_out_over_ideas_and_injects_parent_idx(self) -> None:
-        manager = _manager()
         ideas: list[dict[str, Any]] = [
             {"idx": "idea_a", "comment_count": 2, "note_count": 0},
             # Both counts explicitly zero — the per-idea request is skipped.
@@ -158,54 +133,62 @@ class TestCommentsFanOut:
             {"idx": "idea_c"},
         ]
         responses = [
-            _resp(_page(ideas, has_next=False)),
-            _resp(_page([{"idx": "comment_1"}, {"idx": "comment_2"}], has_next=False)),
-            _resp(_page([], has_next=False)),
+            ScriptedResponse(json=_page(ideas, has_next=False)),
+            ScriptedResponse(json=_page([{"idx": "comment_1"}, {"idx": "comment_2"}], has_next=False)),
+            ScriptedResponse(json=_page([], has_next=False)),
         ]
 
-        calls, batches = _drive("comments", manager, responses)
+        result = _driver().run("comments", responses)
 
-        assert calls[0][0] == f"{FRILL_BASE_URL}/ideas"
-        comment_calls = [(url, params) for url, params in calls if url.endswith("/comments")]
-        assert [params.get("idea_idx") for _, params in comment_calls] == ["idea_a", "idea_c"]
-        assert all(params.get("included_types") == "comments,notes" for _, params in comment_calls)
-        assert batches == [[{"idx": "comment_1", "_idea_idx": "idea_a"}, {"idx": "comment_2", "_idea_idx": "idea_a"}]]
+        assert result.raised is None
+        assert result.urls[0] == f"{FRILL_BASE_URL}/ideas?limit={PAGE_SIZE}"
+        comment_requests = [request for request in result.requests if request.path.endswith("/comments")]
+        assert [request.param("idea_idx") for request in comment_requests] == ["idea_a", "idea_c"]
+        assert all(request.param("included_types") == "comments,notes" for request in comment_requests)
+        assert result.items == [
+            [{"idx": "comment_1", "_idea_idx": "idea_a"}, {"idx": "comment_2", "_idea_idx": "idea_a"}]
+        ]
         # The single ideas page was terminal, so there is nothing to resume to.
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
 
     def test_saves_ideas_cursor_after_full_page_of_comments(self) -> None:
-        manager = _manager()
         responses = [
-            _resp(
-                _page([{"idx": "idea_a", "comment_count": 1, "note_count": 0}], has_next=True, end_cursor="ideas-c1")
+            ScriptedResponse(
+                json=_page(
+                    [{"idx": "idea_a", "comment_count": 1, "note_count": 0}], has_next=True, end_cursor="ideas-c1"
+                )
             ),
-            _resp(_page([{"idx": "comment_1"}], has_next=False)),
-            _resp(_page([{"idx": "idea_b", "comment_count": 0, "note_count": 0}], has_next=False)),
+            ScriptedResponse(json=_page([{"idx": "comment_1"}], has_next=False)),
+            ScriptedResponse(json=_page([{"idx": "idea_b", "comment_count": 0, "note_count": 0}], has_next=False)),
         ]
 
-        _, batches = _drive("comments", manager, responses)
+        result = _driver().run("comments", responses)
 
-        assert batches == [[{"idx": "comment_1", "_idea_idx": "idea_a"}]]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [FrillResumeConfig(after="ideas-c1")]
+        assert result.raised is None
+        assert result.items == [[{"idx": "comment_1", "_idea_idx": "idea_a"}]]
+        assert result.saved_states == [FrillResumeConfig(after="ideas-c1")]
 
     def test_resume_seeds_ideas_cursor(self) -> None:
-        manager = _manager(FrillResumeConfig(after="ideas-resume"))
+        result = _driver().run(
+            "comments",
+            [ScriptedResponse(json=_page([], has_next=False))],
+            resume_state=FrillResumeConfig(after="ideas-resume"),
+        )
 
-        calls, _ = _drive("comments", manager, [_resp(_page([], has_next=False))])
-
-        assert calls[0][0] == f"{FRILL_BASE_URL}/ideas"
-        assert calls[0][1].get("after") == "ideas-resume"
+        assert result.raised is None
+        assert result.requests[0].path == "/v1/ideas"
+        assert result.requests[0].param("after") == "ideas-resume"
 
 
 class TestFrillSource:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = frill_source(
-            api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json=_page([], has_next=False))])
 
         config = FRILL_ENDPOINTS[endpoint]
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.partition_key:
@@ -221,27 +204,18 @@ class TestFrillSource:
 
 
 class TestValidateCredentials:
-    def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill.make_tracked_session"
-        ) as MockSession:
-            get = MockSession.return_value.get
-            if raises is not None:
-                get.side_effect = raises
-            else:
-                get.return_value = response
-            return validate_credentials("k")
-
     def test_unauthorized_is_invalid(self) -> None:
-        assert self._validate(_resp({"success": False, "message": "Unauthorized"}, status=401)) is False
+        with scripted_network([ScriptedResponse(status=401, json={"success": False, "message": "Unauthorized"})]):
+            assert validate_credentials("k") is False
 
     def test_error_body_is_invalid(self) -> None:
-        assert self._validate(_resp({"error": True, "message": "bad key"})) is False
+        with scripted_network([ScriptedResponse(json={"error": True, "message": "bad key"})]):
+            assert validate_credentials("k") is False
 
     def test_network_error_is_invalid(self) -> None:
-        assert self._validate(raises=requests.ConnectionError("boom")) is False
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            assert validate_credentials("k") is False
 
     def test_non_json_body_is_invalid(self) -> None:
-        response = _resp({})
-        response.json.side_effect = ValueError("not json")
-        assert self._validate(response) is False
+        with scripted_network([ScriptedResponse(body=b"not json")]):
+            assert validate_credentials("k") is False

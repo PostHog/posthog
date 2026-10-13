@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import type { DefaultReviewModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
@@ -13,7 +13,10 @@ export function MyDefaultCell({ className }: { className?: string }): JSX.Elemen
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
     const { overview } = useValues(reviewHogRepositoriesLogic)
     const { setMyDefault } = useActions(reviewHogRepositoriesLogic)
+    const { updateSettings } = useActions(reviewHogSettingsLogic)
     const value = settings?.default_review_mode ?? 'follow'
+    const reviewDrafts = settings?.review_drafts ?? true
+    const disabledReason = settings === null ? 'Loading…' : settingsLoading ? 'Saving…' : undefined
     const notice = myDefaultNotice(value, overview?.my_choices_unlike_default ?? null)
 
     return (
@@ -33,9 +36,25 @@ export function MyDefaultCell({ className }: { className?: string }): JSX.Elemen
                     value={value}
                     options={DEFAULT_REVIEW_MODE_OPTIONS}
                     onChange={(mode) => mode !== value && setMyDefault(mode)}
-                    disabledReason={settings === null ? 'Loading…' : settingsLoading ? 'Saving…' : undefined}
+                    disabledReason={disabledReason}
                     data-attr="review-hog-default-review-mode"
                 />
+            </div>
+            <div className="flex flex-col gap-0.5">
+                <div className="flex flex-wrap items-center gap-1">
+                    <YouMark shown={!reviewDrafts} />
+                    <span className="text-xs text-secondary">Review my draft pull requests</span>
+                    <LemonSwitch
+                        aria-label="Review my draft pull requests"
+                        checked={reviewDrafts}
+                        onChange={(checked) => updateSettings({ review_drafts: checked })}
+                        disabledReason={disabledReason}
+                        data-attr="review-hog-review-drafts"
+                    />
+                </div>
+                <span className="pl-10 text-xs text-secondary">
+                    When off, a draft gets its first automatic review when you mark it ready for review.
+                </span>
             </div>
             {notice && (
                 <LemonBanner type="info" className="text-xs">

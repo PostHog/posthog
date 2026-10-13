@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fintoc.set
 if TYPE_CHECKING:
     import pyarrow as pa
 
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @frozen
@@ -285,7 +285,7 @@ def webhook_table(table: "pa.Table") -> "pa.Table":
 
 
 def webhook_template() -> "HogFunctionTemplateDC":
-    from posthog.cdp.templates.hog_function_template import (  # noqa: PLC0415 - keeps template dependencies off the source registry import path
+    from products.cdp.backend.templates.hog_function_template import (  # noqa: PLC0415 - keeps template dependencies off the source registry import path
         HogFunctionTemplateDC,
     )
 

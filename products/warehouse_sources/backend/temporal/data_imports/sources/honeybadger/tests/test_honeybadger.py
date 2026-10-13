@@ -9,7 +9,16 @@ from unittest.mock import MagicMock
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeybadger import (
+    HoneybadgerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger import (
     HONEYBADGER_BASE_URL,
     MAX_RATE_LIMIT_SLEEP_SECONDS,
@@ -18,11 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadge
     _build_params,
     _fetch_page,
     _to_unix_timestamp,
-    get_rows,
-    honeybadger_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import HONEYBADGER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source import HoneybadgerSource
 
 # 2023-11-14T22:13:20Z
 WATERMARK_TS = 1_700_000_000
@@ -49,51 +57,11 @@ def _response(payload: Any = None, status: int = 200, headers: dict[str, str] | 
     return response
 
 
-class FakeSession:
-    """Maps exact request URLs to canned page payloads and records the call order."""
-
-    def __init__(self, routes: dict[str, Any]) -> None:
-        self.routes = routes
-        self.calls: list[str] = []
-
-    def get(self, url: str, timeout: Any = None) -> MagicMock:
-        self.calls.append(url)
-        assert url in self.routes, f"unexpected request: {url}"
-        return _response(self.routes[url])
-
-
-def _make_manager(resume: HoneybadgerResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _run(
-    routes: dict[str, Any],
-    endpoint: str,
-    manager: MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[list[dict]], FakeSession, MagicMock]:
-    session = FakeSession(routes)
-    manager = manager if manager is not None else _make_manager()
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger._make_session",
-        return_value=session,
-    ):
-        batches = list(
-            get_rows(
-                api_key="token",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                **kwargs,
-            )
-        )
-    return batches, session, manager
-
-
 class TestHoneybadger:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(HoneybadgerSource(), HoneybadgerSourceConfig(api_key="token"))
+
     @pytest.mark.parametrize(
         ("value", "expected"),
         [
@@ -188,105 +156,102 @@ class TestHoneybadger:
 
     @pytest.mark.parametrize(("status", "expected"), [(200, True), (403, False)])
     def test_validate_credentials(self, status: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = _response({}, status=status)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger._make_session",
-            return_value=session,
-        ):
+        with scripted_network([ScriptedResponse(status=status, json={})]) as network:
             assert validate_credentials("token") is expected
+        assert [request.path for request in network.requests_log] == ["/v2/projects"]
+        assert network.session_options == [{"headers": {"Accept": "application/json"}, "capture": False}]
 
     def test_validate_credentials_swallows_connection_errors(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger._make_session",
-            return_value=session,
-        ):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             assert validate_credentials("token") is False
+        assert {request.path for request in network.requests_log} == {"/v2/projects"}
 
     def test_projects_paginates_and_checkpoints(self) -> None:
         next_url = f"{HONEYBADGER_BASE_URL}/projects?limit=25&page=2"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {
-                "results": [{"id": 1}, {"id": 2}],
-                "links": {"next": next_url},
-            },
-            next_url: {"results": [{"id": 3}], "links": {}},
-        }
+        result = self._driver().run(
+            "projects",
+            [
+                ScriptedResponse(json={"results": [{"id": 1}, {"id": 2}], "links": {"next": next_url}}),
+                ScriptedResponse(json={"results": [{"id": 3}], "links": {}}),
+            ],
+        )
 
-        batches, _, manager = _run(routes, "projects")
-
-        assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
-        manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(next_url=next_url))
+        assert result.raised is None
+        assert result.items == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert result.params("limit") == ["25", "25"]
+        assert result.params("page") == [None, "2"]
+        assert result.saved_states == [HoneybadgerResumeConfig(next_url=next_url)]
 
     def test_projects_skips_empty_page_with_next_link(self) -> None:
         # The docs allow a `next` link that resolves to an empty page; the walk must follow
         # `next` links and not yield empty batches.
         next_url = f"{HONEYBADGER_BASE_URL}/projects?limit=25&page=2"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [], "links": {"next": next_url}},
-            next_url: {"results": [{"id": 1}], "links": {}},
-        }
+        result = self._driver().run(
+            "projects",
+            [
+                ScriptedResponse(json={"results": [], "links": {"next": next_url}}),
+                ScriptedResponse(json={"results": [{"id": 1}], "links": {}}),
+            ],
+        )
 
-        batches, _, _ = _run(routes, "projects")
-
-        assert batches == [[{"id": 1}]]
+        assert result.raised is None
+        assert result.items == [[{"id": 1}]]
+        assert result.params("page") == [None, "2"]
 
     def test_fan_out_resumes_from_project_bookmark(self) -> None:
         resume_url = f"{HONEYBADGER_BASE_URL}/projects/2/faults?limit=25&page=5"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}, {"id": 2}, {"id": 3}], "links": {}},
-            resume_url: {"results": [{"id": 20, "project_id": 2}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/3/faults?limit=25": {
-                "results": [{"id": 30, "project_id": 3}],
-                "links": {},
-            },
-        }
-
-        batches, session, _ = _run(
-            routes,
+        result = self._driver().run(
             "faults",
-            manager=_make_manager(HoneybadgerResumeConfig(next_url=resume_url, project_id=2)),
+            [
+                ScriptedResponse(json={"results": [{"id": 1}, {"id": 2}, {"id": 3}], "links": {}}),
+                ScriptedResponse(json={"results": [{"id": 20, "project_id": 2}], "links": {}}),
+                ScriptedResponse(json={"results": [{"id": 30, "project_id": 3}], "links": {}}),
+            ],
+            resume_state=HoneybadgerResumeConfig(next_url=resume_url, project_id=2),
         )
 
         # Project 1 is skipped, project 2 resumes at its saved page, project 3 starts fresh.
-        assert f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25" not in session.calls
-        assert batches == [[{"id": 20, "project_id": 2}], [{"id": 30, "project_id": 3}]]
+        assert result.raised is None
+        assert result.urls[1] == resume_url
+        assert result.paths == ["/v2/projects", "/v2/projects/2/faults", "/v2/projects/3/faults"]
+        assert result.items == [[{"id": 20, "project_id": 2}], [{"id": 30, "project_id": 3}]]
 
     def test_affected_users_fan_out_injects_fault_columns_and_bounds_faults(self) -> None:
-        faults_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&occurred_after={WATERMARK_TS}"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            faults_url: {
-                "results": [
-                    {"id": 10, "last_notice_at": "2023-11-15T00:00:00Z"},
-                    {"id": 11, "last_notice_at": "2023-11-16T00:00:00Z"},
-                ],
-                "links": {},
-            },
-            # Bare arrays with no paging, and the endpoint takes no time filter.
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/affected_users": [
-                {
-                    "project_id": 999,
-                    "fault_id": 999,
-                    "fault_last_notice_at": "2020-01-01T00:00:00Z",
-                    "user": "bob@example.com",
-                    "count": 4,
-                }
-            ],
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults/11/affected_users": [],
-        }
-
-        batches, _, manager = _run(
-            routes,
+        result = self._driver().run(
             "affected_users",
+            [
+                ScriptedResponse(json={"results": [{"id": 1}], "links": {}}),
+                ScriptedResponse(
+                    json={
+                        "results": [
+                            {"id": 10, "last_notice_at": "2023-11-15T00:00:00Z"},
+                            {"id": 11, "last_notice_at": "2023-11-16T00:00:00Z"},
+                        ],
+                        "links": {},
+                    }
+                ),
+                # Bare arrays with no paging, and the endpoint takes no time filter.
+                ScriptedResponse(
+                    json=[
+                        {
+                            "project_id": 999,
+                            "fault_id": 999,
+                            "fault_last_notice_at": "2020-01-01T00:00:00Z",
+                            "user": "bob@example.com",
+                            "count": 4,
+                        }
+                    ]
+                ),
+                ScriptedResponse(json=[]),
+            ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=WATERMARK,
             incremental_field="fault_last_notice_at",
         )
 
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {
                     "project_id": 1,
@@ -297,46 +262,57 @@ class TestHoneybadger:
                 }
             ]
         ]
-        manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(project_id=1, fault_id=11))
+        assert result.paths == [
+            "/v2/projects",
+            "/v2/projects/1/faults",
+            "/v2/projects/1/faults/10/affected_users",
+            "/v2/projects/1/faults/11/affected_users",
+        ]
+        assert result.params("occurred_after") == [None, str(WATERMARK_TS), None, None]
+        assert result.saved_states == [HoneybadgerResumeConfig(project_id=1, fault_id=11)]
 
     def test_alarm_history_reads_triggers_and_resumes_from_alarm_bookmark(self) -> None:
         next_url = f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-b/history?limit=25&page=2"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/alarms?limit=25": {
-                "results": [{"id": "alarm-a"}, {"id": "alarm-b"}],
-                "links": {},
-            },
-            # History pages wrap their rows in `triggers`, not `results`.
-            f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-b/history?limit=25": {
-                "triggers": [{"id": "trigger-2", "state": "alarm"}],
-                "links": {"next": next_url},
-            },
-            next_url: {"triggers": [{"id": "trigger-1", "state": "ok"}], "links": {}},
-        }
-
-        batches, session, manager = _run(
-            routes, "alarm_history", manager=_make_manager(HoneybadgerResumeConfig(project_id=1, alarm_id="alarm-b"))
+        result = self._driver().run(
+            "alarm_history",
+            [
+                ScriptedResponse(json={"results": [{"id": 1}], "links": {}}),
+                ScriptedResponse(json={"results": [{"id": "alarm-a"}, {"id": "alarm-b"}], "links": {}}),
+                # History pages wrap their rows in `triggers`, not `results`.
+                ScriptedResponse(
+                    json={"triggers": [{"id": "trigger-2", "state": "alarm"}], "links": {"next": next_url}}
+                ),
+                ScriptedResponse(json={"triggers": [{"id": "trigger-1", "state": "ok"}], "links": {}}),
+            ],
+            resume_state=HoneybadgerResumeConfig(project_id=1, alarm_id="alarm-b"),
         )
 
-        assert f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-a/history?limit=25" not in session.calls
-        assert batches == [
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/projects",
+            "/v2/projects/1/alarms",
+            "/v2/projects/1/alarms/alarm-b/history",
+            "/v2/projects/1/alarms/alarm-b/history",
+        ]
+        assert result.params("page") == [None, None, None, "2"]
+        assert result.items == [
             [{"project_id": 1, "alarm_id": "alarm-b", "id": "trigger-2", "state": "alarm"}],
             [{"project_id": 1, "alarm_id": "alarm-b", "id": "trigger-1", "state": "ok"}],
         ]
-        manager.save_state.assert_called_once_with(
-            HoneybadgerResumeConfig(next_url=next_url, project_id=1, alarm_id="alarm-b")
-        )
+        assert result.saved_states == [HoneybadgerResumeConfig(next_url=next_url, project_id=1, alarm_id="alarm-b")]
 
     def test_occurrences_maps_time_series_pairs_to_rows(self) -> None:
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/occurrences?period=month": [[1510963200, 3], [1511049600, 0]],
-        }
+        result = self._driver().run(
+            "occurrences",
+            [
+                ScriptedResponse(json={"results": [{"id": 1}], "links": {}}),
+                ScriptedResponse(json=[[1510963200, 3], [1511049600, 0]]),
+            ],
+        )
 
-        batches, _, _ = _run(routes, "occurrences")
-
-        assert batches == [
+        assert result.raised is None
+        assert result.params("period") == [None, "month"]
+        assert result.items == [
             [
                 {"project_id": 1, "bucket_start": datetime(2017, 11, 18, tzinfo=UTC), "count": 3},
                 {"project_id": 1, "bucket_start": datetime(2017, 11, 19, tzinfo=UTC), "count": 0},
@@ -345,29 +321,24 @@ class TestHoneybadger:
 
     def test_mid_fault_checkpoint_saved_after_yield(self) -> None:
         next_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&page=2"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25": {
-                "results": [{"id": 10, "project_id": 1}],
-                "links": {"next": next_url},
-            },
-            next_url: {"results": [{"id": 11, "project_id": 1}], "links": {}},
-        }
-        manager = _make_manager()
-        session = FakeSession(routes)
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger._make_session",
-            return_value=session,
-        ):
-            rows = get_rows(api_key="token", endpoint="faults", logger=MagicMock(), resumable_source_manager=manager)
-            # State is only saved AFTER the first batch is yielded (it runs when the consumer
-            # pulls again), so a crash re-yields the batch instead of skipping it.
-            next(rows)
-            manager.save_state.assert_not_called()
-            next(rows)
-            manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(next_url=next_url, project_id=1))
-            list(rows)
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v2/projects":
+                return ScriptedResponse(json={"results": [{"id": 1}], "links": {}})
+            if request.param("page") is None:
+                return ScriptedResponse(json={"results": [{"id": 10, "project_id": 1}], "links": {"next": next_url}})
+            raise requests.ConnectionError("connection lost on page 2")
+
+        result = self._driver().run("faults", answer)
+
+        # The first batch reaches the pipeline before the source saves its next-page state.
+        # A failed next request must not commit that state and skip the first batch on retry.
+        assert isinstance(result.raised, requests.ConnectionError)
+        assert result.items == [[{"id": 10, "project_id": 1}]]
+        assert result.saved_states == [HoneybadgerResumeConfig(next_url=next_url, project_id=1)]
+        assert result.committed_states == []
+        assert result.final_state is None
+        assert result.params("page")[0:2] == [None, None]
 
     @pytest.mark.parametrize(
         ("endpoint", "expected_primary_keys", "expected_partition_keys"),
@@ -382,13 +353,11 @@ class TestHoneybadger:
     def test_source_response_shape(
         self, endpoint: str, expected_primary_keys: list[str], expected_partition_keys: list[str] | None
     ) -> None:
-        response = honeybadger_source(
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-        )
+        result = self._driver().run(endpoint, [ScriptedResponse(json={"results": [], "links": {}})])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.sort_mode == "desc"

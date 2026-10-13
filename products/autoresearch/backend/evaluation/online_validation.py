@@ -43,23 +43,23 @@ from products.autoresearch.backend.dataset.labeling import (
     build_target_condition,
 )
 from products.autoresearch.backend.evaluation.history import latest_validation_runs
-from products.autoresearch.backend.evaluation.segment_thresholds import BASE_RATE_DATES, segment_thresholds
+from products.autoresearch.backend.evaluation.maturity import matures_at
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    champion_training_base_rate,
+    segment_thresholds,
+)
+from products.autoresearch.backend.inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does one bounded query per model plus the labels query, and a scoring run
-# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
-# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
-STALE_RUN_AFTER = timedelta(hours=6)
-
-# An outcome event timestamped just before the window closes can still be in the ingestion
-# queue when the window closes. Maturity waits this long past the window end so it lands
-# first; a completed date is never revisited, so a positive that arrives later than this
-# reads as a negative.
-OUTCOME_INGESTION_GRACE = timedelta(hours=1)
+# The inference and validation workflows both end by this timeout, so a RUNNING row older than
+# this belongs to a worker that died mid-run and the exception handler never ran. Neither kind
+# may hold a date forever.
+STALE_RUN_AFTER = INFERENCE_WORKFLOW_TIMEOUT
 
 # A live run stamps its events at emission time, which can cross midnight UTC before the
 # batch goes out; a backfill stamps noon UTC of the date. Both fall within this many days
@@ -203,7 +203,9 @@ def find_pending_validation_dates(pipeline: AutoresearchPipeline) -> list[Pendin
     return [
         item
         for item in _scored_groups(pipeline)
-        if item.key not in scoring and not _is_blocked(item, state) and item.window_end + OUTCOME_INGESTION_GRACE <= now
+        if item.key not in scoring
+        and not _is_blocked(item, state)
+        and matures_at(item.prediction_date, item.horizon_days) <= now
     ]
 
 
@@ -349,7 +351,8 @@ def _validate_claimed_date(
         )
         # The cut point the Predictions tab showed for this date comes from the dates checked before it.
         thresholds = segment_thresholds(
-            latest_validation_runs(team.pk, pipeline, limit=BASE_RATE_DATES, before=pending.prediction_date)
+            latest_validation_runs(team.pk, pipeline, limit=BASE_RATE_DATES, before=pending.prediction_date),
+            training_rate=champion_training_base_rate(team.pk, pipeline),
         )
         per_model = {
             model_id: _ModelValidation(

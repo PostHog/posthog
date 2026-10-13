@@ -35,6 +35,7 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 
 from posthog.schema import ProductKey
 
@@ -1928,13 +1929,24 @@ class FeatureFlagSerializer(
     def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:
         """Translate pure validation errors into this endpoint's error envelope.
 
-        Same shape as the v1 structural tier: one detail per field error, prefixed with its
-        `filters....` path and carrying the validator's code. The validator's details never
-        echo config values, seeds or metadata.
+        Keyed by each error's path in the handler's nested-key form (`filters.rules[0].value`
+        becomes `filters__rules__0__value`, as for nested serializer errors), so the response's
+        `attr` is that path and its `detail` the bare message, with the validator's code. The
+        handler renders the first key, which is the validator's first error. The details never echo
+        config values, seeds or metadata. An unknown field's path ends in the client's key name, which
+        can itself read as a real field's path, so that error is keyed by `filters` and its path goes
+        in the detail. An error with no path, such as a repeated key, renders with `attr: null`.
         """
-        return serializers.ValidationError(
-            [ErrorDetail(f"{error.attr}: {error.detail}", code=error.code) for error in exc.errors]
-        )
+        errors: dict[str, list[ErrorDetail]] = {}
+        for error in exc.errors:
+            if error.attr is None:
+                attr, detail = api_settings.NON_FIELD_ERRORS_KEY, error.detail
+            elif error.code == "unknown_field":
+                attr, detail = "filters", f"{error.attr}: {error.detail}"
+            else:
+                attr, detail = re.sub(r"\[(\d+)\]", r"__\1", error.attr).replace(".", "__"), error.detail
+            errors.setdefault(attr, []).append(ErrorDetail(detail, code=error.code))
+        return serializers.ValidationError(errors)
 
     def _apply_v2_update(self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int) -> None:
         """Enforce the v2 row-version token and resolve the final document under the lock.

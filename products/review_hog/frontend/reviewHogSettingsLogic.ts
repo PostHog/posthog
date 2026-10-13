@@ -1391,6 +1391,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 )
                 return () => clearTimeout(expiryTimer)
             }, 'triggeredReviewWatch')
+            // Armed here too, because a failed first reload never reaches `loadReviewsSuccess`.
+            // The next successful load replaces or disposes this poll as usual.
+            cache.disposables.add(() => {
+                const pollTimer = window.setInterval(() => actions.loadReviews(), IN_PROGRESS_POLL_INTERVAL_MS)
+                return () => clearInterval(pollTimer)
+            }, 'reviewsPoll')
         },
         stopTriggeredReviewWatch: () => {
             cache.disposables.dispose('triggeredReviewWatch')

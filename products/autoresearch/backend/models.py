@@ -315,6 +315,9 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     # recorded iterations; the agent enriches recommended_next + distillation via the complete tool.
     # Read back by a new run via the training_runs/history endpoint to orient before iterating.
     summary = models.JSONField(default=dict, blank=True)
+    # Written for people who read the Agent research tab. The agent's own notes stay in `summary`.
+    reader_summary = models.TextField(null=True, blank=True)
+    next_steps = models.JSONField(null=True, blank=True)
 
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -359,6 +362,7 @@ class AutoresearchIteration(PipelineScopedModel):
     holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
     status = models.CharField(max_length=20, choices=Status.choices)
     agent_description = models.TextField(blank=True, default="")
+    summary = models.TextField(null=True, blank=True)
     agent_confidence = models.FloatField(
         null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS, help_text="Agent's self-assessed confidence 0–1"
     )

@@ -168,7 +168,7 @@ def render_context_target_block(context_target: dict | None, *, loop_id: str) ->
             f"`current_version_id` with `canvas-source-retrieve`, then publish the "
             f"complete project with `canvas-publish-create`, passing the version you "
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
-            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
+            " Read runtime state with `canvas-state-retrieve`: list keys without values, pass next_cursor as cursor, "
             "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
             "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
             "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "

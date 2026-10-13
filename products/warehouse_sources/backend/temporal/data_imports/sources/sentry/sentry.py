@@ -1289,7 +1289,7 @@ def validate_credentials(
         if response.status_code == 403:
             return (
                 False,
-                "Sentry token is missing required scopes. Create a token with these scopes and reconnect: "
+                "Your Sentry token is missing required scopes. Create a personal token with these scopes, then reconnect: "
                 + ", ".join(REQUIRED_SENTRY_SCOPES)
                 + ".",
             )

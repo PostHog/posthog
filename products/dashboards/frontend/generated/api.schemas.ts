@@ -2992,6 +2992,16 @@ export interface TrendsFormulaNodeApi {
     formula: string
 }
 
+export type CalculationApi = (typeof CalculationApi)[keyof typeof CalculationApi]
+
+export const CalculationApi = {
+    Fixed: 'fixed',
+    Mean: 'mean',
+    Median: 'median',
+    Min: 'min',
+    Max: 'max',
+} as const
+
 export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
 
 export const PositionApi = {
@@ -2999,12 +3009,23 @@ export const PositionApi = {
     End: 'end',
 } as const
 
+export type ScopeApi = (typeof ScopeApi)[keyof typeof ScopeApi]
+
+export const ScopeApi = {
+    All: 'all',
+    Series: 'series',
+} as const
+
 export interface GoalLineApi {
     borderColor?: string | null
+    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+    calculation?: CalculationApi | null
     displayIfCrossed?: boolean | null
     displayLabel?: boolean | null
     label: string
     position?: PositionApi | null
+    /** SQL chart calculations use the primary axis, across all series or separately per series. */
+    scope?: ScopeApi | null
     value: number
 }
 
@@ -9433,19 +9454,33 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export type DatePartApi = (typeof DatePartApi)[keyof typeof DatePartApi]
+
+export const DatePartApi = {
+    Month: 'month',
+    Quarter: 'quarter',
+    DayOfWeek: 'day_of_week',
+} as const
+
+export interface BILocalFieldDefinition1Api {
+    aggregate: boolean
+    expression: string
+    kind?: 'expression'
+}
+
 export interface BICategoryGroupApi {
     name: string
     values: string[]
 }
 
-export interface BILocalFieldDefinition1Api {
+export interface BILocalFieldDefinition2Api {
     expression: string
     groups: BICategoryGroupApi[]
     kind?: 'groups'
     other: string
 }
 
-export interface BILocalFieldDefinition2Api {
+export interface BILocalFieldDefinition3Api {
     expression: string
     kind?: 'bins'
     origin: number
@@ -9481,9 +9516,11 @@ export const DatabaseSerializedFieldTypeApi = {
 
 export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
+    datePart?: DatePartApi | null
     expression: string
     id: string
-    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | null
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
+    localFieldId?: string | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi
@@ -9520,6 +9557,13 @@ export interface BIFilterApi {
     value: string
     valueTo?: string | null
     values?: string[] | null
+}
+
+export interface BIHierarchyApi {
+    id: string
+    /** Ordered from the broadest dimension to the most detailed. */
+    levels: BIFieldApi[]
+    name: string
 }
 
 export type BIQueryLimitApi = (typeof BIQueryLimitApi)[keyof typeof BIQueryLimitApi]
@@ -9614,6 +9658,13 @@ export const BIAggregationApi = {
     Custom: 'custom',
 } as const
 
+export type ShelfApi = (typeof ShelfApi)[keyof typeof ShelfApi]
+
+export const ShelfApi = {
+    Rows: 'rows',
+    Columns: 'columns',
+} as const
+
 export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
 
 export const BITableCalculationTypeApi = {
@@ -9642,11 +9693,14 @@ export interface BIValueApi {
     field: BIFieldApi
     formatting?: ChartSettingsFormattingApi | null
     label?: string | null
+    /** Measures in older worksheets belong to rows. */
+    shelf?: ShelfApi | null
     tableCalculation?: BITableCalculationApi | null
 }
 
 export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
+    colorBy?: string | null
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
     /** Explore only the comparison window, using dateRange as its reference window. */
@@ -9655,6 +9709,8 @@ export interface BIConfigApi {
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
+    /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+    hierarchies?: BIHierarchyApi[] | null
     limit: BIQueryLimitApi
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIFieldApi[] | null
@@ -9766,6 +9822,8 @@ export interface MetricsQueryFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -9807,6 +9865,7 @@ export interface DashboardFilterApi {
 
 export interface TileFiltersApi {
     breakdown_filter?: BreakdownFilterApi | null
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null

@@ -18,6 +18,8 @@ pub enum Pipeline {
     SessionRecordings,
     Ai,
     ErrorTracking,
+    Heatmaps,
+    ClientWarnings,
 }
 
 impl Pipeline {
@@ -27,6 +29,8 @@ impl Pipeline {
             Self::SessionRecordings => "session_recordings",
             Self::Ai => "ai",
             Self::ErrorTracking => "errortracking",
+            Self::Heatmaps => "heatmaps",
+            Self::ClientWarnings => "clientwarnings",
         }
     }
 
@@ -36,6 +40,8 @@ impl Pipeline {
             "session_recordings" => Some(Self::SessionRecordings),
             "ai" => Some(Self::Ai),
             "errortracking" => Some(Self::ErrorTracking),
+            "heatmaps" => Some(Self::Heatmaps),
+            "clientwarnings" => Some(Self::ClientWarnings),
             _ => None,
         }
     }
@@ -383,6 +389,11 @@ mod tests {
             Pipeline::parse("errortracking"),
             Some(Pipeline::ErrorTracking)
         );
+        assert_eq!(Pipeline::parse("heatmaps"), Some(Pipeline::Heatmaps));
+        assert_eq!(
+            Pipeline::parse("clientwarnings"),
+            Some(Pipeline::ClientWarnings)
+        );
         assert_eq!(Pipeline::parse("unknown"), None);
     }
 
@@ -393,6 +404,8 @@ mod tests {
             Pipeline::SessionRecordings,
             Pipeline::Ai,
             Pipeline::ErrorTracking,
+            Pipeline::Heatmaps,
+            Pipeline::ClientWarnings,
         ] {
             assert_eq!(Pipeline::parse(pipeline.as_str()), Some(pipeline));
         }

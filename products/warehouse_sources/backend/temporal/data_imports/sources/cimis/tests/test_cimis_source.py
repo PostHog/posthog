@@ -1,12 +1,16 @@
-from typing import Any, Literal
+from typing import Literal
 
-from unittest import mock
+import time_machine
 
-import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 
 
@@ -38,52 +42,37 @@ class TestCimisGetSchemas:
 class TestCimisValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("bad", 403, False)])
     def test_validate_credentials(self, _name: str, status: int, expected: bool) -> None:
-        response = mock.Mock(spec=requests.Response)
-        response.status_code = status
-        session = mock.Mock()
-        session.get.return_value = response
-        with mock.patch.object(cimis, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             ok, _msg = CimisSource().validate_credentials(_config(), team_id=1)
         assert ok is expected
+        assert network.requests_log[0].param("appKey") == "key"
+        assert network.requests_log[0].param("targets") == "2"
 
 
 class TestCimisSourceForPipeline:
+    @time_machine.travel("2023-01-02 12:00:00", tick=False)
     def test_plumbs_config_and_inputs_into_source_response(self) -> None:
-        inputs = mock.Mock()
-        inputs.schema_name = "daily_data"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2023-01-01"
-        inputs.logger = mock.Mock()
+        result = SourceDriver(CimisSource(), _config(targets="2,8")).run(
+            "daily_data",
+            [ScriptedResponse(json={"Data": {"Providers": []}})],
+            incremental_field="Date",
+            db_incremental_field_last_value="2023-01-01",
+        )
 
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
-
-        with mock.patch.object(cimis, "cimis_source"):
-            from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import source as source_mod
-
-            with mock.patch.object(source_mod, "cimis_source", side_effect=fake_source):
-                source_mod.CimisSource().source_for_pipeline(_config(targets="2,8"), inputs)
-
-        assert captured["endpoint"] == "daily_data"
-        assert captured["app_key"] == "key"
-        assert captured["targets"] == ["2", "8"]
-        assert captured["should_use_incremental_field"] is True
-        assert captured["db_incremental_field_last_value"] == "2023-01-01"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "daily_data"
+        assert result.paths == ["/api/data"]
+        assert result.params("appKey") == ["key"]
+        assert result.params("targets") == ["2,8"]
+        assert result.params("startDate") == ["2023-01-01"]
 
     def test_incremental_value_dropped_when_not_incremental(self) -> None:
-        inputs = mock.Mock()
-        inputs.schema_name = "stations"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2023-01-01"
-        inputs.logger = mock.Mock()
+        result = SourceDriver(CimisSource(), _config()).run(
+            "daily_data",
+            always(ScriptedResponse(json={"Data": {"Providers": []}})),
+            db_incremental_field_last_value="2023-01-01",
+        )
 
-        captured: dict[str, Any] = {}
-        from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import source as source_mod
-
-        with mock.patch.object(source_mod, "cimis_source", side_effect=lambda **kw: captured.update(kw)):
-            source_mod.CimisSource().source_for_pipeline(_config(), inputs)
-
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("startDate")[0] == "1982-06-07"

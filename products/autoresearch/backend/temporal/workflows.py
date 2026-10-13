@@ -32,6 +32,12 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.access import has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
+    from products.autoresearch.backend.inference.failures import (
+        INFERENCE_WORKFLOW_TIMEOUT,
+        UNSCORABLE_AFTER_FAILED_DAYS,
+        fail_stale_inference_runs,
+        find_unscorable_champion,
+    )
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
     from products.autoresearch.backend.models import (
@@ -108,7 +114,8 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
     with the new champion instead of failing again on the archived one.
 
     A manual run (``run_id`` set) fills the row the API created, and a refusal fails that row,
-    so the caller that polls it sees the outcome.
+    so the caller that polls it sees the outcome. A retry of a scheduled run fills the row the
+    first attempt created, so a lost attempt does not leave a second row for the same date.
     """
     with HeartbeaterSync(), team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team__organization", "created_by").get(
@@ -136,7 +143,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             model=model,
             prediction_date=date.fromisoformat(inp.prediction_date),
             user=user,
-            run=manual_run,
+            run=manual_run or _open_scheduled_run(pipeline, inp.prediction_date),
             query_context=BATCH_QUERY,
             scheduled=manual_run is None,
         )
@@ -145,6 +152,22 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
         rows_scored=run.rows_scored or 0,
         status=run.status,
         error=run.error or None,
+    )
+
+
+def _open_scheduled_run(pipeline: AutoresearchPipeline, prediction_date: str) -> AutoresearchRun | None:
+    """The RUNNING row an earlier attempt of this scheduled run created, or None on the first attempt."""
+    return (
+        AutoresearchRun.objects.filter(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            scheduled=True,
+            status=AutoresearchRun.Status.RUNNING,
+            started_at__gte=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
+            metrics__prediction_date=prediction_date,
+        )
+        .order_by("-started_at")
+        .first()
     )
 
 
@@ -199,8 +222,7 @@ _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(second
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A lost worker is detected in minutes rather than at the end of a multi-hour attempt.
 _HEARTBEAT_TIMEOUT = timedelta(minutes=2)
-# Covers both attempts plus their backoff, so the child never cuts off a retry.
-_INFERENCE_WORKFLOW_TIMEOUT = timedelta(hours=5)
+# INFERENCE_WORKFLOW_TIMEOUT covers both attempts plus their backoff, so the child never cuts off a retry.
 
 
 @workflow.defn(name="autoresearch-inference")
@@ -298,7 +320,8 @@ _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(s
 # sweep, so the attempt completes instead of timing out part-way.
 _VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=2)
 _VALIDATION_DATE_RESERVE = timedelta(minutes=70)
-# Covers both attempts plus their backoff, as for inference.
+# Covers both attempts plus their backoff, as for inference. Online validation treats a RUNNING
+# row older than INFERENCE_WORKFLOW_TIMEOUT as dead, so keep this no longer than that.
 _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
 
@@ -461,7 +484,7 @@ def evaluate_pipeline_outcome(
 class KickoffTrainingResult:
     kicked_off: bool
     # "started" | "budget_exhausted" | "already_running" | "already_ran_today" | "not_eligible"
-    # | "tasks_gated" | "no_creator" | "not_launchable"
+    # | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -472,6 +495,8 @@ class KickoffTrainingResult:
 
 _COORDINATOR_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
 _KICKOFF_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10))
+# The iterations of a rescue run. It does not come out of the pipeline budget.
+RESCUE_ITERATION_BUDGET = 3
 
 
 @activity.defn(name="autoresearch-coordinator.load_active_pipelines")
@@ -483,7 +508,10 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     dispatched, because every scheduled query and training run acts as the creator. A pipeline
     outside the ``autoresearch`` rollout is skipped but stays live, so it resumes when the rollout
     reaches it again.
+
+    It also fails every inference run that its lost worker left RUNNING.
     """
+    fail_stale_inference_runs()
     today = django_timezone.now().date()
     # unscoped() because the coordinator's job is exactly to sweep every team. The
     # pipelines it returns carry their team so the downstream activities can scope.
@@ -553,9 +581,14 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 
         # The column is nullable (an admin can clear it); read that as exhausted rather
         # than refunding the budget mid-flight.
-        remaining = pipeline.iteration_budget_remaining
-        if remaining is None or remaining <= 0:
-            return KickoffTrainingResult(kicked_off=False, reason="budget_exhausted")
+        remaining = pipeline.iteration_budget_remaining or 0
+        # A champion that cannot score stops all predictions, and only a training run can replace
+        # it. So an exhausted pipeline still gets a small rescue run that spends no budget.
+        rescue = remaining <= 0
+        if rescue:
+            champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+            if find_unscorable_champion(champion) is None:
+                return KickoffTrainingResult(kicked_off=False, reason="budget_exhausted")
 
         if AutoresearchTrainingRun.objects.filter(
             pipeline=pipeline,
@@ -569,6 +602,15 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=today).exists():
             return KickoffTrainingResult(kicked_off=False, reason="already_ran_today")
 
+        # At most one rescue run in each window of UNSCORABLE_AFTER_FAILED_DAYS UTC days, so a pipeline
+        # that no candidate can fix costs a bounded amount.
+        rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
+        if (
+            rescue
+            and AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=rescue_window_start).exists()
+        ):
+            return KickoffTrainingResult(kicked_off=False, reason="rescue_throttled")
+
         # Training runs in a Tasks sandbox that requires a real owning user. CLI-created
         # pipelines have no creator, so fail before spending budget rather than launching
         # a run that would crash in the tasks facade.
@@ -580,16 +622,27 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
 
-        daily_budget = min(10, remaining)
         try:
             with transaction.atomic():
-                pipeline.iteration_budget_remaining = remaining - daily_budget
-                pipeline.save(update_fields=["iteration_budget_remaining"])
-                run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
+                if rescue:
+                    run_training(
+                        pipeline=pipeline,
+                        iteration_budget=RESCUE_ITERATION_BUDGET,
+                        user_id=pipeline.created_by_id,
+                        rescue=True,
+                    )
+                else:
+                    daily_budget = min(10, remaining)
+                    pipeline.iteration_budget_remaining = remaining - daily_budget
+                    pipeline.save(update_fields=["iteration_budget_remaining"])
+                    run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
         except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
             return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))
+    if rescue:
+        logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
+        return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
     return KickoffTrainingResult(kicked_off=True, reason="started")
 
 
@@ -710,7 +763,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
                             pipeline_id=pipeline_id, team_id=pipeline.team_id, prediction_date=run_date
                         ),
                         id=inference_workflow_id(pipeline_id, run_date),
-                        execution_timeout=_INFERENCE_WORKFLOW_TIMEOUT,
+                        execution_timeout=INFERENCE_WORKFLOW_TIMEOUT,
                     )
                 ),
             )

@@ -45,6 +45,8 @@ interface UseChartInteractionOptions<Meta> {
     /** See `TooltipConfig.resolveClickToNearestSeries`. */
     resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable`. */
+    isPointClickable?: (dataIndex: number) => boolean
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     /** 2D brush — see `ChartProps.onAreaSelect`. Receives the committed `scales` so chart-type
      *  adapters can map the y pixel range onto their own bands. */
@@ -124,6 +126,7 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     resolveClickToNearestSeries = false,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
     resolveValue = defaultResolveValue,
@@ -354,6 +357,8 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
+            const canClick = (index: number): boolean =>
+                !!onPointClick && index < labels.length && (isPointClickable?.(index) ?? true)
             let currentIndex = hoverIndexRef.current
             let clickPosition = hoverPositionRef.current
 
@@ -381,7 +386,7 @@ export function useChartInteraction<Meta = unknown>({
                             ctx &&
                             pinnable &&
                             resolveClickToNearestSeries &&
-                            onPointClick &&
+                            canClick(index) &&
                             ctx.seriesData.length > 1
                         ) {
                             const clickData = resolveNearestSeriesClickData(
@@ -393,7 +398,7 @@ export function useChartInteraction<Meta = unknown>({
                                 position
                             )
                             if (clickData) {
-                                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                                onPointClick?.(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                                 return
                             }
                         }
@@ -421,7 +426,7 @@ export function useChartInteraction<Meta = unknown>({
             if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
                 // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
                 // and fire onPointClick directly instead of making the user pin then pick a row.
-                if (resolveClickToNearestSeries && onPointClick && clickPosition) {
+                if (resolveClickToNearestSeries && canClick(currentIndex) && clickPosition) {
                     const clickData = resolveNearestSeriesClickData(
                         currentIndex,
                         series,
@@ -431,7 +436,7 @@ export function useChartInteraction<Meta = unknown>({
                         clickPosition
                     )
                     if (clickData) {
-                        onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                        onPointClick?.(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                         return
                     }
                 }
@@ -439,15 +444,16 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            if (onPointClick) {
+            if (canClick(currentIndex)) {
                 const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, clickPosition)
                 if (clickData) {
-                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                    onPointClick?.(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                 }
             }
         },
         [
             onPointClick,
+            isPointClickable,
             series,
             labels,
             resolveValue,

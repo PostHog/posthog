@@ -32,6 +32,7 @@ import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/fr
 import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
+import { DashboardsSceneMenuBar } from './DashboardsSceneMenuBar'
 import { DashboardsTableContainer } from './DashboardsTable'
 import { NewDashboardMenu } from './NewDashboardMenu'
 
@@ -84,6 +85,7 @@ export function Dashboards(): JSX.Element {
             <DashboardTemplateEditor />
             <DashboardTemplateModal />
 
+            <DashboardsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Dashboards].name}
                 description={sceneConfigurations[Scene.Dashboards].description}

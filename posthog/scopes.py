@@ -269,6 +269,13 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    # A project's own usage and share of spend, for a service that watches one project's billing.
+    # Only someone with full billing access may grant it (see the key serializer).
+    ("billing", "read"),
+    # Lets a service start Replay Vision scans and read their results back through `vision/requests/`.
+    # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
+    ("replay_scanner", "write"),
+    ("session_recording", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
