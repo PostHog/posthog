@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,9 +20,10 @@ jest.mock('products/signals/frontend/inbox/inboxAnalytics', () => ({
 }))
 
 describe('TodayReportFeedback', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                 '/api/projects/:team_id/signals/reports/:id/': makeReport({ id: 'report-today' }),
                 '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                 '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
@@ -42,6 +43,7 @@ describe('TodayReportFeedback', () => {
         })
         jest.mocked(captureInboxReportFeedback).mockClear()
         render(<TodayReportFeedback report={makeReport({ id: 'report-today' })} />)
+        await waitFor(() => expect(screen.getByLabelText('This report was useful')).toBeEnabled())
     })
 
     afterEach(() => {
@@ -51,10 +53,16 @@ describe('TodayReportFeedback', () => {
     it('pops the hog and records the rating from the Today surface on thumbs-up', async () => {
         await userEvent.click(screen.getByLabelText('This report was useful'))
 
-        expect(document.querySelector('[data-attr="inbox-report-feedback-celebration"]')).toBeInTheDocument()
-        expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="inbox-report-feedback-celebration"]')).toBeInTheDocument()
+        )
+        await waitFor(() => expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1))
         expect(captureInboxReportFeedback).toHaveBeenCalledWith(
             expect.objectContaining({ sentiment: 'positive', surface: 'today' })
+        )
+        await userEvent.click(screen.getByLabelText('This report was useful'))
+        await waitFor(() =>
+            expect(screen.getByLabelText('This report was useful')).toHaveAttribute('aria-pressed', 'false')
         )
     })
 })

@@ -101219,11 +101219,11 @@ export namespace Schemas {
     }
 
     export interface SignalReportFeedbackRequest {
-      /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+      /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
        *
        * * `positive` - positive
        * * `negative` - negative */
-      sentiment: SentimentEnum;
+      sentiment: SentimentEnum | null;
       /**
          * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
          * @maxLength 4000
@@ -101234,6 +101234,16 @@ export namespace Schemas {
     export interface SignalReportFeedbackResponse {
       /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
       forwarded: boolean;
+    }
+
+    export interface SignalReportFeedbackState {
+      /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
+       *
+       * * `positive` - positive
+       * * `negative` - negative */
+      sentiment: SentimentEnum | null;
+      /** The current user's saved note, or an empty string. */
+      note: string;
     }
 
     export interface SignalReportMergeRequest {

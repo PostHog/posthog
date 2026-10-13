@@ -891,7 +891,8 @@ SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     sentiment = serializers.ChoiceField(
         choices=[("positive", "positive"), ("negative", "negative")],
-        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+        allow_null=True,
+        help_text="The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.",
     )
     note = serializers.CharField(
         max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
@@ -905,6 +906,15 @@ class SignalReportFeedbackRequestSerializer(serializers.Serializer):
             "scout as a steering note."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["sentiment"] is None and attrs["note"].strip():
+            raise serializers.ValidationError({"note": "Select a rating before you add a note."})
+        return attrs
+
+
+class SignalReportFeedbackStateSerializer(SignalReportFeedbackRequestSerializer):
+    note = serializers.CharField(allow_blank=True, help_text="The current user's saved note, or an empty string.")
 
 
 class SignalReportFeedbackResponseSerializer(serializers.Serializer):
@@ -1335,6 +1345,7 @@ class SignalReportViewSet(
             "signals",
             "refund",
             "feedback",
+            "feedback_state",
             "viewed",
             "pr_checks",
             "pr_comments",
@@ -2930,6 +2941,22 @@ class SignalReportViewSet(
             ).data
         )
 
+    @extend_schema(responses=SignalReportFeedbackStateSerializer)
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def feedback_state(self, request: Request, pk=None, **kwargs) -> Response:
+        report = self.get_object()
+        metadata = (
+            SignalReportAction.objects.for_team(self.team.id)
+            .filter(report=report, user=request.user, type=SignalReportAction.ActionType.FEEDBACK)
+            .values_list("metadata", flat=True)
+            .first()
+        ) or {}
+        return Response(
+            SignalReportFeedbackStateSerializer(
+                {"sentiment": metadata.get("sentiment"), "note": metadata.get("note", "")}
+            ).data
+        )
+
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
@@ -2969,10 +2996,10 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.FEEDBACK,
-                metadata={"sentiment": data["sentiment"]},
-                bump_count=not note,
+                metadata={"sentiment": data["sentiment"], **({"note": note} if note else {})},
+                bump_count=not note and data["sentiment"] is not None,
             )
-            if not note:
+            if not note and data["sentiment"] is not None:
                 capture_background_report_events(
                     team=self.team,
                     user=request.user,

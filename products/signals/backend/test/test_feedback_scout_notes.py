@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
 
@@ -180,6 +181,52 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert action.count == 2
         assert action.metadata == {"sentiment": "negative"}
 
+    @parameterized.expand([("positive", "negative", "ready"), ("negative", "positive", "suppressed")])
+    def test_feedback_can_be_read_changed_and_cleared(self, first: str, second: str, report_status: str) -> None:
+        report = self._create_report()
+        report.status = report_status
+        report.save(update_fields=["status"])
+        read_url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
+        assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+
+        self._feedback(report, sentiment=first, note="Useful evidence")
+        assert self.client.get(read_url).json() == {"sentiment": first, "note": "Useful evidence"}
+
+        self._feedback(report, sentiment=second)
+        assert self.client.get(read_url).json() == {"sentiment": second, "note": ""}
+
+        self._feedback(report, sentiment=None)
+        assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+        self._feedback(report, sentiment=None)
+        action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
+        assert action.count == 2
+
+    def test_feedback_is_private_to_each_user(self) -> None:
+        report = self._create_report()
+        self._feedback(report, sentiment="positive", note="Useful evidence")
+        other_user = User.objects.create_and_join(self.organization, "reader@example.com", "test-password")
+        self.client.force_login(other_user)
+        read_url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
+        assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+        self._feedback(report, sentiment="negative")
+        self._feedback(report, sentiment=None)
+        self.client.force_login(self.user)
+        assert self.client.get(read_url).json() == {"sentiment": "positive", "note": "Useful evidence"}
+
+    def test_feedback_cannot_be_read_from_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
+        url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
+        assert self.client.get(url).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_clearing_feedback_does_not_forward_a_note(self) -> None:
+        report = self._create_report()
+        response = self.client.post(
+            self._feedback_url(str(report.id)), {"sentiment": None, "note": "A note"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
+
     def test_a_note_following_a_rating_counts_as_one_interaction(self) -> None:
         # The inbox posts the bare rating on click and the optional note afterwards — one thumb
         # choice. The note request must amend the action row, not count a second interaction.
@@ -192,7 +239,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
         action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 1
-        assert action.metadata == {"sentiment": "positive"}
+        assert action.metadata == {"sentiment": "positive", "note": "the staging spike is a known issue"}
         assert len(self._notes()) == 1
 
     def test_a_note_carrying_rating_with_no_prior_row_still_records_the_action(self) -> None:
@@ -204,7 +251,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
         action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 1
-        assert action.metadata == {"sentiment": "negative"}
+        assert action.metadata == {"sentiment": "negative", "note": "not useful"}
 
     def test_feedback_still_succeeds_when_the_note_cannot_be_written(self) -> None:
         self._create_scout_skill()
