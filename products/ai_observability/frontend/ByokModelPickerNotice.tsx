@@ -7,8 +7,9 @@ import { modelPickerLogic } from './modelPickerLogic'
 import { providerLabel } from './settings/providerKeyStateUtils'
 
 /** Explains an empty or short model picker on the surfaces that only run on the team's own provider keys. */
-export function ByokModelPickerNotice(): JSX.Element | null {
-    const { byokModelNotice } = useValues(modelPickerLogic)
+export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation?: boolean }): JSX.Element | null {
+    const { byokModelNotice: generativeModelNotice, evaluationModelNotice } = useValues(modelPickerLogic)
+    const byokModelNotice = forEvaluation ? evaluationModelNotice : generativeModelNotice
     const { loadByokModels } = useActions(modelPickerLogic)
 
     switch (byokModelNotice?.kind) {
@@ -29,6 +30,22 @@ export function ByokModelPickerNotice(): JSX.Element | null {
                         `Couldn't load models for ${byokModelNotice.keys.length} of your API keys.`
                     )}
                 </LemonBanner>
+            )
+        }
+        case 'deployments-unlisted': {
+            const [firstKey] = byokModelNotice.keys
+            return (
+                <p className="text-xs text-secondary mt-1">
+                    {byokModelNotice.keys.length === 1 ? (
+                        <>
+                            Azure OpenAI didn't list any deployments for API key{' '}
+                            <span className="font-semibold">{firstKey.name}</span>.
+                        </>
+                    ) : (
+                        `Azure OpenAI didn't list any deployments for ${byokModelNotice.keys.length} of your API keys.`
+                    )}{' '}
+                    Type your deployment name in the model search to use it.
+                </p>
             )
         }
         case 'no-keys':

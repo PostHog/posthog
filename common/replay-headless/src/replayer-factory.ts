@@ -23,6 +23,7 @@ import { loadAllSources } from './data-loader'
 import type { HostBridge } from './host-bridge'
 import type { PlaybackWindow } from './playback-controller'
 import type { PlayerConfig, ViewportEvent } from './types'
+import { UNRECORDED_STYLE_RULES, UnrecordedContentPlugin } from './unrecorded-content'
 
 export interface ReplayerWindow extends PlaybackWindow {
     /** The element the window's replayer renders into, shown only while the window is on screen. */
@@ -161,10 +162,17 @@ export async function createReplayers(
             insertStyleRules: [
                 ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
                 ...speedDependentStyleRules(config.playbackSpeed),
+                ...UNRECORDED_STYLE_RULES,
             ],
             mouseTail: config.mouseTail,
             useVirtualDom: false,
-            plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(windowEvents)],
+            plugins: [
+                CorsPlugin,
+                HLSPlayerPlugin,
+                AudioMuteReplayerPlugin(true),
+                CanvasReplayerPlugin(windowEvents),
+                UnrecordedContentPlugin(windowEvents),
+            ],
             speed: config.playbackSpeed,
         })
         windows.push({

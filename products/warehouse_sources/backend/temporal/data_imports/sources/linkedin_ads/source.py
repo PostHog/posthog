@@ -124,6 +124,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
             # access. Retrying can't recover it, so stop syncing instead of looping the 404.
             "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a plain 404 with this generic error code (no "RESOURCE_" prefix) for
+            # the same underlying condition — a deleted account, a wrong Account ID, or lost access
+            # to it. Match the quoted JSON key/value so this never also matches "RESOURCE_NOT_FOUND"
+            # above, which carries a more specific message.
+            '"code":"NOT_FOUND"': "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
             # LinkedIn returns a 401 with this stable error code when the member who authorized the
             # integration has been restricted on LinkedIn's side (suspended / flagged account). The
             # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —

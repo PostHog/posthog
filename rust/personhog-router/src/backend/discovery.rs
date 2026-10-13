@@ -10,6 +10,8 @@ use tonic::transport::{Channel, Endpoint};
 use tower::discover::Change;
 use tracing::{info, warn};
 
+use crate::config::Http2Windows;
+
 const DISCOVERY_CHANNEL_BUFFER: usize = 64;
 
 pub struct EndpointConfig {
@@ -17,6 +19,7 @@ pub struct EndpointConfig {
     pub connect_timeout: Duration,
     pub keepalive_interval: Option<Duration>,
     pub keepalive_timeout: Option<Duration>,
+    pub http2_windows: Http2Windows,
 }
 
 /// Feeds replica endpoints into a tonic balance channel, driven by the shared
@@ -106,6 +109,7 @@ impl EndpointDiscovery {
                 connect_timeout: Duration::from_secs(2),
                 keepalive_interval: None,
                 keepalive_timeout: None,
+                http2_windows: Http2Windows::default(),
             },
             tx,
             ready_tx,
@@ -182,23 +186,27 @@ impl EndpointDiscovery {
     }
 
     fn build_endpoint(&self, addr: SocketAddr) -> Endpoint {
-        let mut ep = Endpoint::from_shared(format!("http://{addr}"))
-            .expect("valid endpoint URL")
-            .timeout(self.endpoint_config.timeout)
-            .connect_timeout(self.endpoint_config.connect_timeout)
-            .tcp_nodelay(true);
-
-        if let Some(interval) = self.endpoint_config.keepalive_interval {
-            ep = ep
-                .http2_keep_alive_interval(interval)
-                .keep_alive_while_idle(true);
-        }
-        if let Some(timeout) = self.endpoint_config.keepalive_timeout {
-            ep = ep.keep_alive_timeout(timeout);
-        }
-
-        ep
+        build_discovered_endpoint(addr, &self.endpoint_config)
     }
+}
+
+pub fn build_discovered_endpoint(addr: SocketAddr, config: &EndpointConfig) -> Endpoint {
+    let mut ep = Endpoint::from_shared(format!("http://{addr}"))
+        .expect("valid endpoint URL")
+        .timeout(config.timeout)
+        .connect_timeout(config.connect_timeout)
+        .tcp_nodelay(true);
+
+    if let Some(interval) = config.keepalive_interval {
+        ep = ep
+            .http2_keep_alive_interval(interval)
+            .keep_alive_while_idle(true);
+    }
+    if let Some(timeout) = config.keepalive_timeout {
+        ep = ep.keep_alive_timeout(timeout);
+    }
+
+    config.http2_windows.apply_to_endpoint(ep)
 }
 
 #[cfg(test)]

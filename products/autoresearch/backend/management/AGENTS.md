@@ -25,6 +25,12 @@ The real-agent path of `autoresearch_train` is the exception: its sandbox agent 
   `--pipeline-id --user-id --dry-run`
   `--dry-run` lists the matured dates waiting for validation and what each inference run emitted. `--user-id` is the person HogQL applies access control for; without it the queries run as the pipeline's creator. The command exits non-zero when any date fails, and the failed date is retried on the next pass.
 
+One more command seeds data rather than running the lifecycle:
+
+- `autoresearch_seed_demo` — seed a fresh, learnable `report_shared` narrative for local end-to-end runs.
+  `--team-id --users --days --seed --direct-clickhouse --dry-run`
+  It sends identified persons (600 by default) and their events through capture, so ingestion creates the persons personhog resolves at scoring time. `--direct-clickhouse` writes straight to ClickHouse over Kafka instead, which leaves every prediction person-less. It also creates the action "Shared a report externally" for the action-target path, reusing one only when its steps match. It refuses to run unless `DEBUG` is on.
+
 ## Running them locally
 
 Prefix with `CLICKHOUSE_DATABASE=posthog` and run inside the flox environment:

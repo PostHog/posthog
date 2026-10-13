@@ -1,13 +1,68 @@
 from typing import Any
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.schema import AssistantHogQLQuery
 
 from .. import NULL_MARKER, TRUNCATED_MARKER, SQLResultsFormatter
 
 
-class TestSQLResultsFormatter(BaseTest):
+class TestSQLResultsFormatter(SimpleTestCase):
+    @parameterized.expand([511, 512, 513])
+    def test_preview_at_total_budget_boundary(self, total_chars: int) -> None:
+        rows = [{"a": "x" * 250, "b": "y" * (total_chars - 255)}]
+        formatter = SQLResultsFormatter(AssistantHogQLQuery(query="SELECT 1"), rows, ["a", "b"], max_result_chars=512)
+        output = formatter.format()
+        self.assertLessEqual(len(output), 512)
+        if total_chars <= 512:
+            self.assertEqual(len(output), total_chars)
+            self.assertNotIn("SQL result preview", output)
+        else:
+            self.assertIn("Showing 0 of 1 returned rows", output)
+
+    @parameterized.expand(["text", "json", "unicode"])
+    def test_bounded_preview_shortens_cells_and_omits_complete_rows(self, kind: str) -> None:
+        value: str | dict[str, str] = "x" * 20000
+        if kind == "json":
+            value = {"example": "x" * 20000}
+        elif kind == "unicode":
+            value = "🦔" * 20000
+        rows = [{"id": i, "value": value} for i in range(100)]
+        formatter = SQLResultsFormatter(
+            AssistantHogQLQuery(query="SELECT 1"), rows, ["id", "value"], max_result_chars=2000
+        )
+        result = formatter.format()
+        table, notice = result.rsplit("\n", 1)
+        shown_rows = table.splitlines()[1:]
+        self.assertLessEqual(len(result), 2000)
+        self.assertEqual(len(shown_rows), 3)
+        self.assertTrue(all(len(row.split("|", 1)[1]) <= 500 for row in shown_rows))
+        self.assertIn("Showing 3 of 100 returned rows", notice)
+        self.assertIn("Some cells were shortened", notice)
+        self.assertIn("not evidence of missing data", notice)
+        self.assertEqual(rows[0]["value"], value)
+
+    @parameterized.expand(["header", "row"])
+    def test_bounded_preview_omits_oversized_table_structure(self, kind: str) -> None:
+        columns = ["x" * 600] if kind == "header" else ["a", "b"]
+        rows = [{"a": "x" * 500, "b": "y" * 500}]
+        formatter = SQLResultsFormatter(AssistantHogQLQuery(query="SELECT 1"), rows, columns, max_result_chars=512)
+        result = formatter.format()
+        self.assertLessEqual(len(result), 512)
+        self.assertIn("Showing 0 of 1 returned rows", result)
+        self.assertIn("too wide to show", result)
+
+    @parameterized.expand([0, 1, 2])
+    def test_bounded_preview_preserves_small_results(self, count: int) -> None:
+        rows = [{"id": i, "value": None} for i in range(count)]
+        query = AssistantHogQLQuery(query="SELECT 1")
+        self.assertEqual(
+            SQLResultsFormatter(query, rows, ["id", "value"], max_result_chars=512).format(),
+            SQLResultsFormatter(query, rows, ["id", "value"]).format(),
+        )
+
     def test_format_basic(self):
         query = AssistantHogQLQuery(query="SELECT 1")
         results = [

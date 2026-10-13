@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pytest
@@ -31,6 +31,12 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 )
 
 _PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_sandbox"
+
+
+@pytest.fixture(autouse=True)
+def mock_gateway_accounting() -> Iterator[None]:
+    with patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"):
+        yield
 
 
 def _context(**overrides) -> TaskProcessingContext:

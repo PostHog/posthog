@@ -99,7 +99,7 @@ class Logger:
 
     def produce(self, message: bytes) -> None:
         """Produce message to `self.queue`."""
-        if self.queue and self.loop:
+        if self.queue and self.loop and not self.loop.is_closed():
             asyncio.run_coroutine_threadsafe(self.queue.put(message), self.loop)
 
     def write(self, message: str) -> None:

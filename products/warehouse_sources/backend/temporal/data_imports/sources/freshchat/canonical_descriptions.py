@@ -77,6 +77,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_time": "Time at which the channel was last updated.",
         },
     },
+    "roles": {
+        "description": "A role configured in your Freshchat account, resolving the role IDs carried on agents.",
+        "docs_url": "https://developers.freshchat.com/api/#roles",
+        "columns": {
+            "id": "Unique identifier for the role. Built-in roles use a fixed name such as ACCOUNT_ADMIN.",
+            "name": "The role's name.",
+            "is_custom_role": "Whether the role was created for this account rather than built in.",
+            "description": "Description of what the role covers.",
+        },
+    },
+    "user_conversations": {
+        "description": (
+            "Links each user to the conversations they take part in. Freshchat lists conversations "
+            "only per user, so this table is the way to enumerate them."
+        ),
+        "docs_url": "https://developers.freshchat.com/api/#retrieve_all_conversations_for_a_user",
+        "columns": {
+            "id": "Unique identifier for the conversation.",
+            "user_id": "Identifier of the user the conversation is listed under.",
+        },
+    },
+    "conversation_messages": {
+        "description": "A single message posted to a conversation by a user, agent, bot or the system.",
+        "docs_url": "https://developers.freshchat.com/api/#message_object",
+        "columns": {
+            "id": "Unique identifier for the message.",
+            "created_time": "Time at which the message was created.",
+            "conversation_id": "Identifier of the conversation the message belongs to.",
+            "channel_id": "Identifier of the channel the message was created under.",
+            "app_id": "Identifier of the Freshchat app (widget) the message belongs to.",
+            "actor_type": "Who sent the message: user, agent, bot or system.",
+            "actor_id": "Identifier of the user or agent who sent the message.",
+            "org_actor_id": "Organisation-level identifier of the sender.",
+            "user_id": "Identifier of the user in the conversation, when the sender is a user.",
+            "message_type": "Whether the message is normal, private or system generated.",
+            "message_parts": "The content of the message, such as text, images and buttons.",
+            "reply_parts": "Response enablers attached to an agent or bot message, such as quick replies.",
+            "interaction_id": "Identifier of the interaction, reassigned each time the conversation reopens.",
+            "in_reply_to": "Identifier of the message this message replies to.",
+            "meta_data": "Extra key-value information about the message.",
+            "restrictResponse": "Whether the user is restricted to the offered reply options.",
+            "botsPrivateNote": "Whether the message is a bot note not visible to the user.",
+        },
+    },
     "accounts_configuration": {
         "description": "Account-level Freshchat configuration for your app.",
         "docs_url": "https://developers.freshchat.com/api/#accounts",

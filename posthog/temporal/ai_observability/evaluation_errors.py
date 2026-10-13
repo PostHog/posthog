@@ -31,6 +31,14 @@ class EvaluationErrorSpec:
 
 
 USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
+    "endpoint_blocked": EvaluationErrorSpec(
+        error_type="endpoint_blocked",
+        owner="user",
+        safe_message="The judge endpoint is not allowed. Check the connection settings.",
+        status_reason=EvaluationStatusReason.PROVIDER_KEY_INVALID,
+        disables_evaluation=True,
+        provider_key_state=LLMProviderKey.State.ERROR,
+    ),
     "provider_key_required": EvaluationErrorSpec(
         error_type="provider_key_required",
         owner="user",
@@ -96,6 +104,13 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         owner="user",
         safe_message="The selected model was not found. Choose an available model before re-enabling.",
         status_reason=EvaluationStatusReason.MODEL_NOT_FOUND,
+        disables_evaluation=True,
+    ),
+    "model_not_supported": EvaluationErrorSpec(
+        error_type="model_not_supported",
+        owner="user",
+        safe_message="The selected model does not support chat completions. Choose a chat model before re-enabling.",
+        status_reason=EvaluationStatusReason.MODEL_NOT_SUPPORTED,
         disables_evaluation=True,
     ),
     "hog_error": EvaluationErrorSpec(

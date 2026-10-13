@@ -1,5 +1,4 @@
 from datetime import timedelta
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from django.db import IntegrityError, connection, transaction
@@ -24,8 +23,13 @@ from products.ai_observability.backend.models.offline_evaluations import (
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 
-if TYPE_CHECKING:
-    from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+type OfflineModel = (
+    OfflineExperiment
+    | OfflineExperimentItem
+    | OfflineEvaluationResult
+    | OfflineExperimentItemPayload
+    | OfflineEvaluationResultPayload
+)
 
 
 class TestOfflineEvaluationModels(TestCase):
@@ -221,12 +225,15 @@ class TestOfflineEvaluationModels(TestCase):
             ("result_payload", OfflineEvaluationResultPayload),
         ]
     )
-    def test_reads_fail_closed_and_stay_within_the_team(self, _name: str, model: type["TeamScopedRootMixin"]) -> None:
+    def test_reads_fail_closed_and_stay_within_the_team(self, _name: str, model: type[OfflineModel]) -> None:
         _, _, other_team = Organization.objects.bootstrap(None)
         with unscoped(), self.assertRaises(TeamScopeError):
             model.objects.count()
-        with team_scope(self.team.id):
-            self.assertEqual(model.objects.count(), 1)
+        with team_scope(self.team.id), self.assertRaises(TeamScopeError):
+            model.objects.count()
+        self.assertEqual(model.objects.for_team(self.team.id).count(), 1)
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        self.assertEqual(model.objects.for_team(child.id).count(), 0)
         self.assertEqual(model.objects.for_team(other_team.id).count(), 0)
 
     @parameterized.expand(
@@ -237,9 +244,7 @@ class TestOfflineEvaluationModels(TestCase):
             ("result_payload", OfflineEvaluationResultPayload),
         ]
     )
-    def test_related_offline_rows_cannot_belong_to_different_teams(
-        self, _name: str, model: type["TeamScopedRootMixin"]
-    ) -> None:
+    def test_related_offline_rows_cannot_belong_to_different_teams(self, _name: str, model: type[OfflineModel]) -> None:
         _, _, other_team = Organization.objects.bootstrap(None)
         values: dict[str, object] = {"team": other_team}
         if model is OfflineExperimentItem:

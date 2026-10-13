@@ -28,18 +28,22 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 # The effective tool name for new-SDK events: the inner tool when the call went through the
-# single-exec wrapper, else the directly-registered tool name. Shared by every runner that
-# scopes to one tool, so the expression lives OnceAndOnlyOnce.
-EFFECTIVE_TOOL_SQL = (
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
-)
+# single-exec wrapper, including calls rejected before dispatch. Discovery verbs only
+# describe a tool, so their target must not count as an execution attempt.
+EFFECTIVE_TOOL_SQL = """coalesce(
+    nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+    if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+       nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+    toString(properties.$mcp_tool_name)
+)"""
 # The description of the *effective* tool: for single-exec calls the inner tool's
 # $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
 # Without this, an inner tool's description would resolve to the exec wrapper's text
 # (another tool's description) — a tool-level disclosure.
 EFFECTIVE_DESCRIPTION_SQL = (
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
-    "toString(properties.$mcp_tool_description))"
+    f"if(({EFFECTIVE_TOOL_SQL}) = toString(properties.$mcp_tool_name), "
+    "toString(properties.$mcp_tool_description), NULL))"
 )
 # One MCP conversation: the SDK's own session id, falling back to the PostHog session id.
 CONVERSATION_ID_SQL = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"

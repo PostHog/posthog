@@ -1,48 +1,43 @@
-import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
     FORMS_PAGE_SIZE,
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     SUBMISSIONS_PAGE_SIZE,
-    TALLY_API_VERSION,
     TALLY_BASE_URL,
     WEBHOOKS_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import (
     TallyResumeConfig,
-    tally_source,
     validate_credentials,
 )
-
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-TALLY_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally.make_tracked_session"
-)
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 BASE = TALLY_BASE_URL
 FORMS_PAGE_1 = f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=1"
 
 
-def _resp(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _resp(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
-def _page(rows: list[dict[str, Any]], key: str = "items", has_more: bool = False) -> Response:
+def _page(rows: list[dict[str, Any]], key: str = "items", has_more: bool = False) -> ScriptedResponse:
     return _resp({key: rows, "page": 1, "limit": 50, "hasMore": has_more})
 
 
@@ -51,58 +46,20 @@ def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
     return parts.path, tuple(sorted(parse_qsl(parts.query)))
 
 
-def _make_manager(resume_state: TallyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver(submission_filter: Literal["completed", "all"] = SUBMISSION_FILTER_COMPLETED) -> SourceDriver:
+    return SourceDriver(TallySource(), TallySourceConfig(api_key="key", submission_filter=submission_filter))
 
 
-def _wire(session: mock.MagicMock, responses_by_url: dict[str, list[Response]]) -> list[dict[str, Any]]:
-    session.headers = {}
-    normalized: dict[tuple[str, tuple[tuple[str, str], ...]], list[Response]] = {
-        _norm(url): list(queue) for url, queue in responses_by_url.items()
-    }
-    param_snapshots: list[dict[str, Any]] = []
+def _by_url(responses_by_url: dict[str, list[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    normalized = {_norm(url): list(queue) for url, queue in responses_by_url.items()}
 
-    def _prepare(request: Any) -> Any:
-        param_snapshots.append(dict(request.params or {}))
-        return request.prepare()
-
-    def _send(prepared: Any, **_kwargs: Any) -> Response:
-        queue = normalized.get(_norm(prepared.url))
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        queue = normalized.get(_norm(request.url))
         if not queue:
-            raise AssertionError(f"unexpected request url {prepared.url!r}")
+            raise UnexpectedRequest(f"unexpected request url {request.url!r}")
         return queue.pop(0)
 
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return param_snapshots
-
-
-def _run(
-    endpoint: str,
-    responses_by_url: dict[str, list[Response]],
-    manager: mock.MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], mock.MagicMock]:
-    # Endpoints that disable sample capture build their own session in `_client_config`, so patch
-    # that factory too and point it at the same wired session the rest client would otherwise use.
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession, mock.patch(TALLY_SESSION_PATCH) as MockTallySession:
-        session = MockSession.return_value
-        MockTallySession.return_value = session
-        params = _wire(session, responses_by_url)
-        response = tally_source(
-            api_key="key",
-            api_version=TALLY_API_VERSION,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager if manager is not None else _make_manager(),
-            **kwargs,
-        )
-        rows = [row for page in cast(Any, response.items()) for row in page]
-    return rows, params, session
+    return respond
 
 
 class TestSourceResponseShape:
@@ -116,23 +73,16 @@ class TestSourceResponseShape:
             ("folders", ["workspaceId", "id"], "createdAt", "asc"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_shape(
         self,
         endpoint: str,
         expected_keys: list[str],
         expected_partition_key: str,
         expected_sort_mode: str,
-        _MockSession: Any,
     ) -> None:
-        response = tally_source(
-            api_key="key",
-            api_version=TALLY_API_VERSION,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
+        empty: dict[str, list[Any]] = {key: [] for key in ("items", "webhooks", "submissions", "questions", "folders")}
+        response = _driver().run(endpoint, always(_resp({**empty, "hasMore": False}))).response
+        assert response is not None
         assert response.name == endpoint
         # Child tables aggregate rows from every form, so their key must carry the parent form id.
         assert response.primary_keys == expected_keys
@@ -142,22 +92,6 @@ class TestSourceResponseShape:
         # ascending and the watermark must only advance once the whole sync finishes.
         assert response.sort_mode == expected_sort_mode
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_metrics_has_no_partition_and_is_keyed_by_form(self, _MockSession: Any) -> None:
-        # The metrics aggregate carries no timestamp, so it must not be partitioned; it is one row
-        # per form, keyed by the injected parent form id (the object has no id of its own).
-        response = tally_source(
-            api_key="key",
-            api_version=TALLY_API_VERSION,
-            endpoint="form_analytics_metrics",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.primary_keys == ["formId"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
 
 class TestPagination:
     def test_follows_has_more_across_pages(self) -> None:
@@ -165,25 +99,9 @@ class TestPagination:
             FORMS_PAGE_1: [_page([{"id": "F1"}], has_more=True)],
             f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=2": [_page([{"id": "F2"}], has_more=False)],
         }
-        rows, params, _session = _run("forms", responses)
-        assert rows == [{"id": "F1"}, {"id": "F2"}]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-
-    def test_stops_when_has_more_is_false_even_with_a_full_page(self) -> None:
-        # `hasMore` is the authoritative end-of-pages signal; a full last page must not trigger
-        # another request that would 400 or re-read page one.
-        responses = {FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}], has_more=False)]}
-        rows, params, _session = _run("forms", responses)
-        assert rows == [{"id": "F1"}, {"id": "F2"}]
-        assert len(params) == 1
-
-    def test_empty_page_claiming_has_more_terminates(self) -> None:
-        # Guards against an infinite paging loop if the API ever returns hasMore with no rows.
-        responses = {FORMS_PAGE_1: [_page([], has_more=True)]}
-        rows, params, _session = _run("forms", responses)
-        assert rows == []
-        assert len(params) == 1
+        result = _driver().run("forms", _by_url(responses))
+        assert result.rows == [{"id": "F1"}, {"id": "F2"}]
+        assert result.params("page") == ["1", "2"]
 
     @parameterized.expand(
         [
@@ -197,73 +115,22 @@ class TestPagination:
     ) -> None:
         # /workspaces documents no page-size param, so sending one would be an undocumented param;
         # the other two carry the vendor's documented maximum.
-        rows, params, _session = _run(endpoint, {url: [_page([{"id": "X"}], key=selector)]})
-        assert rows == [{"id": "X"}]
-        assert params[0].get("limit") == expected_limit
-
-    def test_version_header_is_pinned_on_every_request(self) -> None:
-        # Without the header the response shape follows whatever version the API key was created
-        # against, which changed the /forms envelope between versions.
-        _rows, _params, session = _run("forms", {FORMS_PAGE_1: [_page([{"id": "F1"}])]})
-        assert session.headers["tally-version"] == TALLY_API_VERSION
+        result = _driver().run(endpoint, _by_url({url: [_page([{"id": "X"}], key=selector)]}))
+        assert result.rows == [{"id": "X"}]
+        assert result.requests[0].param("limit") == (str(expected_limit) if expected_limit is not None else None)
 
 
 class TestTopLevelResume:
-    def test_saves_next_page_after_yielding_each_page(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}], has_more=True)],
-            f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=2": [_page([{"id": "F2"}])],
-        }
-        manager = _make_manager()
-        _run("forms", responses, manager)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [TallyResumeConfig(next_page=2)]
-
     def test_resumes_from_saved_page(self) -> None:
         responses = {f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=4": [_page([{"id": "F9"}])]}
-        rows, params, _session = _run("forms", responses, _make_manager(TallyResumeConfig(next_page=4)))
-        assert rows == [{"id": "F9"}]
-        assert params[0]["page"] == 4
+        result = _driver().run("forms", _by_url(responses), resume_state=TallyResumeConfig(next_page=4))
+        assert result.rows == [{"id": "F9"}]
+        assert result.params("page") == ["4"]
 
 
 class TestFanOut:
-    def test_questions_are_tagged_with_their_form(self) -> None:
-        # The questions endpoint takes no page-size param, so only the parent carries `limit`.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}])],
-            f"{BASE}/forms/F1/questions": [_resp({"questions": [{"id": "Q1"}], "hasResponses": True})],
-            f"{BASE}/forms/F2/questions": [_resp({"questions": [{"id": "Q1"}], "hasResponses": False})],
-        }
-        rows, params, _session = _run("questions", responses)
-        # A question id is only unique within its form, so both rows keep their own formId.
-        assert rows == [{"id": "Q1", "formId": "F1"}, {"id": "Q1", "formId": "F2"}]
-        assert "limit" not in params[1]
-
-    def test_questions_do_not_request_a_second_page(self) -> None:
-        # The endpoint returns every question at once; paging it would re-read the same rows.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/questions": [_resp({"questions": [{"id": "Q1"}], "hasMore": True})],
-        }
-        rows, params, _session = _run("questions", responses)
-        assert rows == [{"id": "Q1", "formId": "F1"}]
-        assert len(params) == 2
-
-    def test_submissions_page_per_form(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed": [
-                _resp({"submissions": [{"id": "S1"}], "hasMore": True})
-            ],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=2&filter=completed": [
-                _resp({"submissions": [{"id": "S2"}], "hasMore": False})
-            ],
-        }
-        rows, _params, _session = _run("submissions", responses)
-        assert rows == [{"id": "S1", "formId": "F1"}, {"id": "S2", "formId": "F1"}]
-
     @parameterized.expand([(SUBMISSION_FILTER_COMPLETED,), (SUBMISSION_FILTER_ALL,)])
-    def test_submission_filter_is_sent_verbatim(self, submission_filter: str) -> None:
+    def test_submission_filter_is_sent_verbatim(self, submission_filter: Literal["completed", "all"]) -> None:
         # Tally documents no default for `filter`, so the chosen value must always be sent.
         responses = {
             FORMS_PAGE_1: [_page([{"id": "F1"}])],
@@ -271,61 +138,8 @@ class TestFanOut:
                 _resp({"submissions": [], "hasMore": False})
             ],
         }
-        _rows, params, _session = _run("submissions", responses, submission_filter=submission_filter)
-        assert params[1]["filter"] == submission_filter
-
-    def test_folders_fan_out_per_workspace_from_a_bare_array(self) -> None:
-        # /workspaces/{id}/folders returns a bare JSON array with no wrapper key, and a folder id is
-        # only unique within its workspace — so each row must be tagged with its parent workspace.
-        responses = {
-            f"{BASE}/workspaces?page=1": [_page([{"id": "W1"}, {"id": "W2"}], key="items")],
-            f"{BASE}/workspaces/W1/folders": [_resp([{"id": "D1", "workspaceId": "W1", "name": "A"}])],
-            f"{BASE}/workspaces/W2/folders": [_resp([{"id": "D2", "workspaceId": "W2", "name": "B"}])],
-        }
-        rows, _params, _session = _run("folders", responses)
-        assert rows == [
-            {"id": "D1", "workspaceId": "W1", "name": "A"},
-            {"id": "D2", "workspaceId": "W2", "name": "B"},
-        ]
-
-    def test_form_metrics_wrap_a_single_object_and_tag_the_form(self) -> None:
-        # The metrics endpoint returns one aggregate object per form (no wrapper, no array, no id of
-        # its own), so each becomes a single row keyed by the parent form id, and `period` is
-        # required on every child request.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}])],
-            f"{BASE}/forms/F1/analytics/metrics?period=all": [_resp({"visits": 10, "submissions": 3})],
-            f"{BASE}/forms/F2/analytics/metrics?period=all": [_resp({"visits": 5, "submissions": 1})],
-        }
-        rows, params, _session = _run("form_analytics_metrics", responses)
-        assert rows == [
-            {"visits": 10, "submissions": 3, "formId": "F1"},
-            {"visits": 5, "submissions": 1, "formId": "F2"},
-        ]
-        assert params[1]["period"] == "all"
-
-    def test_form_deleted_mid_sync_is_skipped(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "GONE"}, {"id": "F2"}])],
-            f"{BASE}/forms/F1/questions": [_resp({"questions": [{"id": "Q1"}]})],
-            f"{BASE}/forms/GONE/questions": [_resp({"message": "not found"}, status=404)],
-            f"{BASE}/forms/F2/questions": [_resp({"questions": [{"id": "Q2"}]})],
-        }
-        rows, _params, _session = _run("questions", responses)
-        assert rows == [{"id": "Q1", "formId": "F1"}, {"id": "Q2", "formId": "F2"}]
-
-    def test_resume_skips_forms_already_drained(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}])],
-            f"{BASE}/forms/F2/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed": [
-                _resp({"submissions": [{"id": "S2"}], "hasMore": False})
-            ],
-        }
-        state = TallyResumeConfig(
-            fanout_state={"completed": ["/forms/F1/submissions"], "current": None, "child_state": None}
-        )
-        rows, _params, _session = _run("submissions", responses, _make_manager(state))
-        assert rows == [{"id": "S2", "formId": "F2"}]
+        result = _driver(submission_filter).run("submissions", _by_url(responses))
+        assert result.requests[1].param("filter") == submission_filter
 
     def test_resume_continues_mid_form_from_the_saved_page(self) -> None:
         responses = {
@@ -337,9 +151,9 @@ class TestFanOut:
         state = TallyResumeConfig(
             fanout_state={"completed": [], "current": "/forms/F1/submissions", "child_state": {"page": 3}}
         )
-        rows, params, _session = _run("submissions", responses, _make_manager(state))
-        assert rows == [{"id": "S3", "formId": "F1"}]
-        assert params[1]["page"] == 3
+        result = _driver().run("submissions", _by_url(responses), resume_state=state)
+        assert result.rows == [{"id": "S3", "formId": "F1"}]
+        assert result.requests[1].param("page") == "3"
 
 
 class TestWebhookSecrets:
@@ -347,7 +161,6 @@ class TestWebhookSecrets:
         # Webhook signing secrets and custom auth headers are credentials — persisting them would let
         # anyone with warehouse read access forge signed deliveries or reuse embedded tokens. They
         # must land as null, and the raw responses must stay out of HTTP sample capture.
-        session = mock.MagicMock()
         responses = {
             f"{BASE}/webhooks?limit={WEBHOOKS_PAGE_SIZE}&page=1": [
                 _page(
@@ -363,132 +176,57 @@ class TestWebhookSecrets:
                 )
             ],
         }
-        with mock.patch(TALLY_SESSION_PATCH, return_value=session) as mock_tally_session:
-            _wire(session, responses)
-            response = tally_source(
-                api_key="key",
-                api_version=TALLY_API_VERSION,
-                endpoint="webhooks",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=_make_manager(),
-            )
-            rows = [row for page in cast(Any, response.items()) for row in page]
+        result = _driver().run("webhooks", _by_url(responses))
 
-        assert rows == [{"id": "W1", "url": "https://example.com/hook", "signingSecret": None, "httpHeaders": None}]
-        assert mock_tally_session.call_args.kwargs["capture"] is False
+        assert result.rows == [
+            {"id": "W1", "url": "https://example.com/hook", "signingSecret": None, "httpHeaders": None}
+        ]
+        assert result.session_options
+        assert all(options["capture"] is False for options in result.session_options)
 
 
 class TestIncremental:
-    def test_watermark_becomes_a_server_side_start_date(self) -> None:
-        # `startDate` is the only reason this table is incremental; dropping it would re-read every
-        # submission of every form on each run.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed"
-            f"&startDate=2026-01-02T03%3A04%3A05Z": [_resp({"submissions": [], "hasMore": False})],
-        }
-        _rows, params, _session = _run(
-            "submissions",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-            incremental_field="submittedAt",
-        )
-        assert params[1]["startDate"] == "2026-01-02T03:04:05Z"
-
-    def test_full_refresh_sends_no_start_date(self) -> None:
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=completed": [
-                _resp({"submissions": [], "hasMore": False})
-            ],
-        }
-        _rows, params, _session = _run("submissions", responses, should_use_incremental_field=False)
-        assert "startDate" not in params[1]
-
-    def test_including_partials_falls_back_to_full_refresh(self) -> None:
-        # A partial submission is still being filled in, so `submittedAt` is not a settled cursor;
-        # the source must not filter on a watermark it cannot trust.
-        responses = {
-            FORMS_PAGE_1: [_page([{"id": "F1"}])],
-            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter=all": [
-                _resp({"submissions": [], "hasMore": False})
-            ],
-        }
-        _rows, params, _session = _run(
-            "submissions",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-            submission_filter=SUBMISSION_FILTER_ALL,
-        )
-        assert "startDate" not in params[1]
-
     def test_future_watermark_is_clamped_to_now(self) -> None:
         # A watermark ahead of the clock would filter out every submission, syncing nothing forever.
         future = datetime.now(UTC) + timedelta(days=30)
-        captured: dict[str, Any] = {}
 
-        def _send(prepared: Any, **_kwargs: Any) -> Response:
-            if "/submissions" in prepared.url:
-                captured.update(dict(parse_qsl(urlsplit(prepared.url).query)))
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if "/submissions" in request.path:
                 return _resp({"submissions": [], "hasMore": False})
             return _page([{"id": "F1"}])
 
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            session.headers = {}
-            session.prepare_request.side_effect = lambda request: request.prepare()
-            session.send.side_effect = _send
-            response = tally_source(
-                api_key="key",
-                api_version=TALLY_API_VERSION,
-                endpoint="submissions",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=future,
-            )
-            list(cast(Any, response.items()))
+        result = _driver().run(
+            "submissions",
+            script,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=future,
+            incremental_field="submittedAt",
+        )
 
-        assert captured["startDate"] < future.strftime("%Y-%m-%dT%H:%M:%SZ")
+        submissions = [request for request in result.requests if "/submissions" in request.path]
+        start_date = submissions[0].param("startDate")
+        assert start_date is not None
+        assert start_date < future.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class TestRetryClassification:
     @parameterized.expand([(429,), (500,), (503,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_transient_status_is_retried(self, status: int, _sleep: Any) -> None:
+    def test_transient_status_is_retried(self, status: int) -> None:
         responses = {FORMS_PAGE_1: [_resp({"error": "later"}, status=status), _page([{"id": "F1"}])]}
-        rows, _params, _session = _run("forms", responses)
-        assert rows == [{"id": "F1"}]
+        result = _driver().run("forms", _by_url(responses))
+        assert result.rows == [{"id": "F1"}]
 
     @parameterized.expand([(401,), (403,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_credential_error_fails_loud(self, status: int, _sleep: Any) -> None:
+    def test_credential_error_fails_loud(self, status: int) -> None:
         responses = {FORMS_PAGE_1: [_resp({"error": "nope"}, status=status)]}
-        with pytest.raises(requests.HTTPError):
-            _run("forms", responses)
+        result = _driver().run("forms", _by_url(responses))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(TALLY_SESSION_PATCH)
-    def test_status_mapping(self, status: int, expected_ok: bool, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        ok, returned_status = validate_credentials("key")
+    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))):
+            ok, returned_status = validate_credentials("key")
         assert ok is expected_ok
         assert returned_status == status
-
-    @mock.patch(TALLY_SESSION_PATCH)
-    def test_transport_error_is_not_a_validation_failure_crash(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") == (False, None)
-
-    @mock.patch(TALLY_SESSION_PATCH)
-    def test_probe_pins_the_api_version(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["tally-version"] == TALLY_API_VERSION

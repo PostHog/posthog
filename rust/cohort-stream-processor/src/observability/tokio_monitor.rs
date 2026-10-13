@@ -269,8 +269,11 @@ mod tests {
     // Covers the unstable delta path (poll/steal/overflow), which runs in production because
     // `tokio_unstable` is enabled workspace-wide: a wrong `saturating_sub` order or a missed
     // `prev_*` update would emit silently wrong deltas that the stable-path test cannot catch.
+    // A current-thread runtime publishes worker metrics before it resumes this test.
+    // A multi-thread worker publishes them only when it parks or runs maintenance.
+    // Either can happen after the test reads them.
     #[cfg(tokio_unstable)]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
     async fn poll_and_busy_deltas_advance_after_work() {
         let handle = tokio::runtime::Handle::current();
         let metrics = handle.metrics();

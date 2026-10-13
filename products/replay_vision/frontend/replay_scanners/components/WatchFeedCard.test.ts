@@ -1,5 +1,13 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
-import { observationClipRange, watchCardHeadline, watchReasonCopy } from './WatchFeedCard'
+import {
+    watchFeedRowSentence,
+    watchFeedRowTitle,
+    observationKeyMomentMs,
+    watchCardHeadline,
+    watchFeedRowWhy,
+    watchReasonCopy,
+    watchStartSeconds,
+} from './WatchFeedCard'
 
 describe('WatchFeedCard helpers', () => {
     describe('watchReasonCopy', () => {
@@ -127,26 +135,124 @@ describe('WatchFeedCard helpers', () => {
         })
     })
 
+    describe('watchFeedRowWhy', () => {
+        it.each<{ name: string; reason: WatchFeedReasonApi; expected: string }>([
+            {
+                name: "leads with Jev's pick when it gave one",
+                reason: {
+                    kind: 'jev_watchable',
+                    jev_probability: 0.9,
+                    watch_reason: 'churn_signal',
+                } as WatchFeedReasonApi,
+                expected: 'The user showed signs of churn or downgrading in this session.',
+            },
+            {
+                name: "explains a weighted-score row from its reason kind, never repeating the title's sentence",
+                reason: {
+                    kind: 'outlier_score',
+                    score: 9.5,
+                    window_mean: 5,
+                    notability_reason: 'The card form rejected a valid card three times.',
+                } as WatchFeedReasonApi,
+                expected: "Scored 9.5, far from this scanner's recent average of 5.",
+            },
+            {
+                name: 'falls back to the kind copy for a reason this build does not know',
+                reason: { kind: 'jev_watchable', watch_reason: 'some_future_reason' } as unknown as WatchFeedReasonApi,
+                expected: 'The decision model judged this session worth watching.',
+            },
+        ])('$name', ({ reason, expected }) => {
+            expect(watchFeedRowWhy(reason)).toBe(expected)
+        })
+    })
+
     const observation = (scannerType: string | undefined, output: Record<string, unknown>): ReplayObservationApi =>
         ({
             scanner_snapshot: scannerType ? { scanner_type: scannerType } : undefined,
             scanner_result: { model_output: output },
         }) as unknown as ReplayObservationApi
 
-    describe('observationClipRange', () => {
-        it('reads the summary citation when the snapshot type is summarizer, even if the result omits scanner_type', () => {
-            const range = observationClipRange(
-                observation('summarizer', {
-                    summary: 'Wrapped up (t 30) cleanly.',
-                    reasoning: 'Debugged (t 90) at length.',
-                })
+    describe('observationKeyMomentMs', () => {
+        it.each<{ name: string; output: Record<string, unknown>; expected: number | null }>([
+            { name: 'reads the key moment', output: { key_moment_ms: 42_000 }, expected: 42_000 },
+            { name: 'keeps a key moment at the very start', output: { key_moment_ms: 0 }, expected: 0 },
+            { name: 'is null on a scan from before key moments', output: {}, expected: null },
+            { name: 'is null when the scan skipped the pick', output: { key_moment_ms: null }, expected: null },
+            { name: 'ignores a value that is not a number', output: { key_moment_ms: '42' }, expected: null },
+        ])('$name', ({ output, expected }) => {
+            expect(observationKeyMomentMs(observation('monitor', output))).toBe(expected)
+        })
+    })
+
+    describe('watchStartSeconds', () => {
+        it.each<{ name: string; keyMomentMs: number | null; expected: number }>([
+            { name: 'starts from the beginning without a key moment', keyMomentMs: null, expected: 0 },
+            { name: 'starts a few seconds before the key moment', keyMomentMs: 42_900, expected: 39 },
+            { name: 'never starts before the recording', keyMomentMs: 1_000, expected: 0 },
+        ])('$name', ({ keyMomentMs, expected }) => {
+            expect(watchStartSeconds(keyMomentMs)).toBe(expected)
+        })
+    })
+
+    describe('watchFeedRowSentence', () => {
+        it("prefers the scan's notability sentence over the derived headline", () => {
+            const sentence = watchFeedRowSentence(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                {
+                    kind: 'jev_watchable',
+                    jev_probability: 0.9,
+                    notability_reason: 'The card form rejected a valid card three times.',
+                } as WatchFeedReasonApi
             )
-            expect(range).toEqual({ startMs: 30_000, endMs: 30_000 })
+            expect(sentence).toBe('The card form rejected a valid card three times.')
         })
 
-        it('reads the reasoning citation for a non-summarizer type', () => {
-            const range = observationClipRange(observation('monitor', { reasoning: 'Retried (t 45) twice.' }))
-            expect(range).toEqual({ startMs: 45_000, endMs: 45_000 })
+        it('derives the headline when the reason carries no notability sentence', () => {
+            const sentence = watchFeedRowSentence(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                { kind: 'jev_watchable', jev_probability: 0.9 } as WatchFeedReasonApi
+            )
+            expect(sentence).toBe('Retried the form twice.')
+        })
+
+        it('falls back to the scanner name when the scan wrote no prose', () => {
+            const bare = {
+                scanner_snapshot: { name: 'Confused checkout', scanner_type: 'monitor' },
+                scanner_result: { model_output: {} },
+            } as unknown as ReplayObservationApi
+            expect(watchFeedRowSentence(bare, { kind: 'unviewed_recent' } as WatchFeedReasonApi)).toBe(
+                'Confused checkout'
+            )
+        })
+    })
+
+    describe('watchFeedRowTitle', () => {
+        const notable = {
+            kind: 'jev_watchable',
+            jev_probability: 0.9,
+            notability_reason: 'The card form rejected a valid card three times.',
+        } as WatchFeedReasonApi
+        it.each<{ name: string; scannerType: string; output: Record<string, unknown>; expected: string }>([
+            {
+                name: "leads with a summarizer's authored title over the scan's sentence",
+                scannerType: 'summarizer',
+                output: { title: 'Checkout card rejected', summary: 'Tried the card three times. Left.' },
+                expected: 'Checkout card rejected',
+            },
+            {
+                name: 'falls back to the card sentence for an untitled summarizer',
+                scannerType: 'summarizer',
+                output: { title: '', summary: 'Tried the card three times. Left.' },
+                expected: 'The card form rejected a valid card three times.',
+            },
+            {
+                name: 'leads other scan types with the card sentence',
+                scannerType: 'monitor',
+                output: { reasoning: 'Retried the form twice. The submit then failed.' },
+                expected: 'The card form rejected a valid card three times.',
+            },
+        ])('$name', ({ scannerType, output, expected }) => {
+            expect(watchFeedRowTitle(observation(scannerType, output), notable)).toBe(expected)
         })
     })
 

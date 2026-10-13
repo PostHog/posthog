@@ -1,5 +1,5 @@
 import hashlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ApiKeyAuthConfig,
     ClientConfig,
@@ -54,6 +55,9 @@ MAX_RETRY_ATTEMPTS = 8
 # sync never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
+# The waits of the report attempts above add up to about 1,100 seconds, which is more than the
+# shared client's default budget for one request.
+REPORT_RETRY_BUDGET_SECONDS = 1200.0
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -815,7 +819,7 @@ def anthropic_source(
         # schema and pauses its schedule instead of retrying a KeyError forever.
         raise ValueError(f"{ENDPOINT_RETIRED_ERROR}: {endpoint}")
     # Set only where the rows come from something other than iterating `resource` once.
-    items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
+    items: Optional[Callable[[], Iterable[list[dict[str, Any]]]]] = None
 
     # The report endpoints page the rate-limited Admin API; the entity lists do not. Give the reports
     # a wider retry budget so it can outlast the organization rate-limit window.
@@ -828,6 +832,7 @@ def anthropic_source(
     }
     if is_report_endpoint:
         client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
+        client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -968,10 +973,15 @@ def anthropic_source(
                         "data_selector": config.data_selector,
                         "paginator": _list_paginator(config),
                         # A parent that does not serve this sub-resource, or that was archived or
-                        # deleted between enumeration and the child fetch, answers 404. Skip that
-                        # parent instead of failing the whole schema. 429/5xx are retried by the
-                        # client before hooks run, and any other 4xx still raises.
-                        "response_actions": [{"status_code": 404, "action": "ignore"}],
+                        # deleted between enumeration and the child fetch, answers 404 or 400 (the
+                        # organization's Default Workspace, for one, "has no member list of its own"
+                        # and answers 400 for workspace_members). Skip that parent instead of failing
+                        # the whole schema. 429/5xx are retried by the client before hooks run, and
+                        # any other 4xx still raises.
+                        "response_actions": [
+                            {"status_code": 404, "action": "ignore"},
+                            {"status_code": 400, "action": "ignore"},
+                        ],
                     },
                     "include_from_parent": ["id"],
                     "data_map": fan_out_data_map,
@@ -1009,9 +1019,8 @@ def anthropic_source(
             initial_paginator_state = {"cursor": resume.cursor}
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist only while a next page remains; the checkpoint is saved AFTER a page is
-            # yielded, pointing at the next page, so a crash resumes from a page whose predecessors
-            # were all yielded — the overlap merge dedupes on the primary key.
+            # Persist only while a next page remains. The checkpoint points at the next page, so a
+            # crash resumes from a page whose predecessors were all yielded.
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
 
@@ -1063,7 +1072,18 @@ def anthropic_source(
 
         if endpoint == "usage_report":
             resource = build_resource(USAGE_GROUP_BY_FALLBACKS[0], initial_paginator_state)
-            items = partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state)
+            # The fallback loop hands each page on unchanged and holds no rows. As a `Resource` it
+            # keeps the framework's checkpoints, so a run that waits on a rate limit can hand off.
+            narrowing = Resource(
+                partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state),
+                name=endpoint,
+                hints=resource._hints,
+            )
+
+            def narrowed_items() -> Iterable[list[dict[str, Any]]]:
+                return narrowing
+
+            items = narrowed_items
         else:
             resource = build_resource(config.group_by, initial_paginator_state)
 

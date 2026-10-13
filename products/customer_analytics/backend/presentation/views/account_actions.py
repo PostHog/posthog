@@ -24,6 +24,7 @@ from products.customer_analytics.backend.facade import (
 from products.customer_analytics.backend.presentation.views.ownership_serializers import (
     ExternalAccountOwnershipSerializer,
 )
+from products.customer_analytics.backend.presentation.views.serializers import AccountPropertiesField
 
 ACCOUNT_ACTION_AUTH_COUNTER = Counter(
     "posthog_customer_analytics_account_action_auth_total",
@@ -158,7 +159,25 @@ class ExternalAccountCreateSerializer(serializers.Serializer):
         max_length=400,
         help_text=(
             "External ID (group key) for the account. An account with this ID already existing is a no-op. "
-            "The account name is derived from the matching group's `name` property, falling back to this ID."
+            "Without a `name`, the account name is derived from the matching group's `name` property, "
+            "falling back to this ID."
+        ),
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Name for a new account. Ignored when the account already exists. Blank means no name.",
+    )
+    properties = AccountPropertiesField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, "
+            "metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account "
+            "already exists."
         ),
     )
 
@@ -246,8 +265,12 @@ def handle_account_create(request: Request, team: Team) -> Response:
         account, created = facade.create_external_account(
             team,
             external_id=external_id,
+            name=data.get("name") or None,
+            properties=data.get("properties"),
             workflow_id=_workflow_id_from_request(request),
         )
+    except facade.AccountPropertiesValidationError as exc:
+        return Response({"error": f"Invalid account properties: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
     except facade.AccountConflictError:
         # Lost a concurrent-create race; the account exists now, so honor no-op semantics.
         existing = facade.get_external_account(team.id, external_id)

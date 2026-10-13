@@ -1014,6 +1014,24 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('manual person selection for static cohort creation', () => {
+        it('keeps the display name so it can be shown in the selected list, and forgets it on remove', async () => {
+            await initCohortLogic({ id: 'new' })
+
+            await expectLogic(logic, () => {
+                logic.actions.addPersonToCreateStaticCohort('person-1', 'Jane Doe')
+            }).toMatchValues({
+                personsToCreateStaticCohort: { 'person-1': 'Jane Doe' },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removePersonFromCreateStaticCohort('person-1')
+            }).toMatchValues({
+                personsToCreateStaticCohort: {},
+            })
+        })
+    })
+
     describe('mutate filters', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
@@ -1331,6 +1349,19 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(expectedSelect)
+        })
+
+        it('pins the cohort filter to the saved cohort after a draft is saved', async () => {
+            await initCohortLogic({ id: 'new' })
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, id: 42 })
+            }).toDispatchActions(['setCohort'])
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
         })
 
         it('does not carry columns from one unsaved draft cohort over to the next', async () => {

@@ -46,7 +46,6 @@ import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import StrEnum
 from typing import Optional
 
 from django.utils import timezone
@@ -59,6 +58,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.enums import LabeledStrEnum
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.data_retention import retention_period_in_days
@@ -72,6 +72,7 @@ from products.access_control.backend.property_access_control import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.metric_events import (
     MetricEventSource,
@@ -151,12 +152,13 @@ FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON = (
 )
 
 
-class SessionBucket(StrEnum):
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentSessionBucket(LabeledStrEnum):
     """Which question the returned session set answers."""
 
-    FIRED_ANY = "fired_any"
-    NO_METRIC_ACTIVITY = "no_metric_activity"
-    FUNNEL_DROPOFF = "funnel_dropoff"
+    FIRED_ANY = "fired_any", "fired_any"
+    NO_METRIC_ACTIVITY = "no_metric_activity", "no_metric_activity"
+    FUNNEL_DROPOFF = "funnel_dropoff", "funnel_dropoff"
 
 
 class SessionBucketUnavailable(Exception):
@@ -233,7 +235,7 @@ def get_experiment_session_bucket(
     user: User,
     experiment: Experiment,
     *,
-    bucket: SessionBucket,
+    bucket: ExperimentSessionBucket,
     metric_uuids: list[str],
     variant: Optional[str],
     limit: int,
@@ -269,7 +271,7 @@ def get_experiment_session_bucket(
 
     run_end = experiment.end_date or timezone.now()
     criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
-    filter_test_accounts = bool(criteria.filterTestAccounts) if criteria else False
+    filter_test_accounts = resolve_filter_test_accounts(criteria)
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
@@ -392,7 +394,7 @@ def _cache_key(
     team: Team,
     user: User,
     experiment: Experiment,
-    bucket: SessionBucket,
+    bucket: ExperimentSessionBucket,
     considered: list[MetricEventSource],
     variant: Optional[str],
     run_start: datetime,
@@ -423,7 +425,7 @@ def _cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_v5_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_v6_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 def _anchor_cache_key(
@@ -454,7 +456,7 @@ def _anchor_cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_anchor_v1_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_anchor_v2_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 @dataclass(frozen=True)
@@ -598,7 +600,7 @@ def _resolve_requested_metrics(experiment: Experiment, metric_uuids: list[str]) 
 
 
 def _partition_metrics(
-    requested: list[MetricEventSource], bucket: SessionBucket, never_linked: frozenset[str]
+    requested: list[MetricEventSource], bucket: ExperimentSessionBucket, never_linked: frozenset[str]
 ) -> tuple[list[MetricEventSource], list[ExcludedBucketMetric]]:
     """Split the requested metrics into the ones the bucket is computed over and the ones that
     can't be matched to a recording at all, with the reason.
@@ -634,7 +636,7 @@ def _partition_metrics(
             f"These metrics count {source_count} events between them, more than the {MAX_BUCKET_SOURCES} "
             "one scan can cover. Ask for fewer metrics."
         )
-    if bucket == SessionBucket.FUNNEL_DROPOFF:
+    if bucket == ExperimentSessionBucket.FUNNEL_DROPOFF:
         if len(considered) != 1:
             raise SessionBucketUnavailable("The drop-off bucket takes exactly one funnel metric.")
         completion_reason = _funnel_completion_reason(considered[0], never_linked)
@@ -740,7 +742,7 @@ def _query_bucket_sessions(
     user: User,
     experiment: Experiment,
     *,
-    bucket: SessionBucket,
+    bucket: ExperimentSessionBucket,
     considered: list[MetricEventSource],
     variant_keys: list[str],
     window_start: datetime,
@@ -762,11 +764,11 @@ def _query_bucket_sessions(
     def count_if(condition: ast.Expr) -> ast.Expr:
         return ast.Call(name="countIf", args=[condition])
 
-    if bucket == SessionBucket.FIRED_ANY:
+    if bucket == ExperimentSessionBucket.FIRED_ANY:
         bucket_predicate: ast.Expr = ast.CompareOperation(
             op=ast.CompareOperationOp.Gt, left=count_if(any_metric_condition()), right=ast.Constant(value=0)
         )
-    elif bucket == SessionBucket.NO_METRIC_ACTIVITY:
+    elif bucket == ExperimentSessionBucket.NO_METRIC_ACTIVITY:
         bucket_predicate = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq, left=count_if(any_metric_condition()), right=ast.Constant(value=0)
         )

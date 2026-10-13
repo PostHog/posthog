@@ -111,6 +111,7 @@ class TestDisplayNames:
     @parameterized.expand(
         [
             ("amazon_ads", "Amazon Ads"),
+            ("rokt_ads", "Rokt Ads"),
             ("apple_ads", "Apple Ads"),
             ("openai_ads", "OpenAI Ads"),
             ("google_ads", "Google Ads"),
@@ -143,15 +144,16 @@ class TestStructuralInvariants:
             assert isinstance(source_type, str)
 
     def test_every_oauth_kind_is_one_the_authorize_endpoint_accepts(self):
-        # Spelled out means it can drift, and a kind `authorize` rejects is a Connect button
-        # that 400s. `supported_kinds` is what that endpoint validates against.
-        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - set(OauthIntegration.supported_kinds)
+        # X Ads uses a separate OAuth 1.0a branch in IntegrationViewSet.authorize.
+        supported_kinds = set(OauthIntegration.supported_kinds) | {"twitter-ads"}
+        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - supported_kinds
 
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
 
     def test_only_credential_based_integrations_lack_an_oauth_kind(self) -> None:
         assert set(NativeMarketingSource) - set(OAUTH_KIND_BY_NATIVE) == {
             NativeMarketingSource.AMAZON_ADS,
+            NativeMarketingSource.ROKT_ADS,
             NativeMarketingSource.APPLE_SEARCH_ADS,
             NativeMarketingSource.OPEN_AI_ADS,
         }
@@ -163,6 +165,8 @@ class TestNativeSourceFeatureFlags:
             (source, flag, enabled)
             for source, flag in [
                 ("AmazonAds", "marketing-analytics-amazon-ads"),
+                ("RoktAds", "marketing-analytics-rokt-ads"),
+                ("TwitterAds", "marketing-analytics-twitter-ads"),
                 ("AppleSearchAds", "marketing-analytics-apple-ads"),
                 ("OpenAIAds", "marketing-analytics-openai-ads"),
             ]

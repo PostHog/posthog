@@ -1,0 +1,96 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Applying a sunburst portrait edit",
+  "scenario": "GlowEdit runs a user's portrait photo through an image-editing model to add a warm sunset silhouette look with a soft sunburst glow, then hands back the edited photo.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "custom-llm-logger"
+    ],
+    "providers": [
+      "fal"
+    ],
+    "frameworks": [
+      "fal"
+    ],
+    "models": [
+      "openai/gpt-image-2.5/sunburst/edit"
+    ],
+    "content_types": [
+      "image_url",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "step": "edit_photo",
+        "$ai_input_tokens": 0,
+        "revision_count": 1,
+        "$ai_lib": "custom-llm-logger",
+        "$lib_version": "5.49.1",
+        "$ai_provider": "fal",
+        "$ai_latency": 48.602,
+        "result_variant": "final",
+        "$is_server": true,
+        "$ai_output_tokens": 0,
+        "$ai_model": "openai/gpt-image-2.5/sunburst/edit",
+        "$ai_http_status": 200,
+        "$geoip_disable": true,
+        "$ai_trace_id": "9ebecffe-0a77-750b-14f9-b6de228d254e",
+        "$ai_framework": "fal",
+        "trace": "9ebecffe-0a77-750b-14f9-b6de228d254e",
+        "$groups": {
+          "team": "cbccee1b-2953-7c5f-e1b1-33058a18ce9e"
+        },
+        "team_ref": "cbccee1b-2953-7c5f-e1b1-33058a18ce9e",
+        "$lib": "posthog-node",
+        "$group_0": "cbccee1b-2953-7c5f-e1b1-33058a18ce9e",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "Turn this into a warm sunset silhouette with a soft sunburst glow behind me.",
+                "type": "text"
+              },
+              {
+                "image_url": {
+                  "url": "https://media.example.com/fal_image_url_portrait_edit__W1521795.jpg"
+                },
+                "type": "image_url"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "Here's your edit:",
+                "type": "text"
+              },
+              {
+                "image_url": {
+                  "url": "https://media.example.com/fal_image_url_portrait_edit__W7391311.jpg"
+                },
+                "type": "image_url"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

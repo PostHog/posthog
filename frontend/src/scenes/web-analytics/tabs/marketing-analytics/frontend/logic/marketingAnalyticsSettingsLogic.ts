@@ -155,8 +155,10 @@ export interface marketingAnalyticsSettingsLogicActions {
             | 'OpenAIAds'
             | 'PinterestAds'
             | 'RedditAds'
+            | 'RoktAds'
             | 'SnapchatAds'
             | 'TikTokAds'
+            | 'TwitterAds'
     }
     removeConversionGoal: (goalId: string) => {
         goalId: string

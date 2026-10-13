@@ -1,0 +1,156 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config": {
+            "description": "Metric threshold configuration, including a bounded query and comparison.",
+            "properties": {
+                "baseline_value": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The value observed when the check was written, recorded on each result for context."
+                },
+                "comparison": {
+                    "description": "What the measured value must satisfy to pass.",
+                    "properties": {
+                        "bounds": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "lower": {
+                                            "type": "number"
+                                        },
+                                        "upper": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["lower", "upper"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The inclusive range for `between`; unused by `lte` and `gte`."
+                        },
+                        "operator": {
+                            "description": "`lte`, `gte`, or `between`.",
+                            "enum": ["lte", "gte", "between"],
+                            "type": "string"
+                        },
+                        "value": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The bound for `lte` and `gte`; unused by `between`."
+                        }
+                    },
+                    "required": ["operator"],
+                    "type": "object"
+                },
+                "metric_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                },
+                "metric_kind": {
+                    "anyOf": [
+                        {
+                            "enum": [
+                                "affected_users",
+                                "affected_sessions",
+                                "occurrences",
+                                "conversion_rate",
+                                "error_rate",
+                                "duration",
+                                "revenue",
+                                "custom"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How to draw this measurement; copied from a referenced metric."
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already."
+                },
+                "unit": {
+                    "anyOf": [
+                        {
+                            "maxLength": 40,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional value suffix."
+                },
+                "value_format": {
+                    "anyOf": [
+                        {
+                            "enum": ["number", "count", "percentage", "percentage_scaled", "duration", "currency"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How to format measured values; copied from a referenced metric."
+                }
+            },
+            "required": ["comparison"],
+            "type": "object"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal report check.",
+            "type": "string"
+        },
+        "rationale": {
+            "description": "Why this check is better.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "report_id": {
+            "type": "string"
+        },
+        "title": {
+            "description": "Label for the new metric check.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["id", "report_id", "title", "config"],
+    "type": "object"
+}

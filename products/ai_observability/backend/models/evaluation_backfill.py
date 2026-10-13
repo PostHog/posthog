@@ -44,10 +44,17 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     cursor_timestamp = models.DateTimeField(null=True, blank=True)
     cursor_unit_id = models.TextField(blank=True, default="")
 
-    total_count = models.PositiveIntegerField(help_text="Units matched at creation; the ceiling on dispatched_count.")
+    total_count = models.PositiveIntegerField(
+        help_text="Units matched at creation. Units that land in the window later can take the run past it."
+    )
     dispatched_count = models.PositiveIntegerField(default=0)
     skipped_count = models.PositiveIntegerField(
         default=0, help_text="Units whose child workflow already existed, so the live path had them."
+    )
+    failed_count = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="Units whose evaluation failed to start. They stay without a result and count as remaining.",
     )
     remaining_count = models.PositiveIntegerField(
         null=True,

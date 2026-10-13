@@ -1,6 +1,6 @@
 """Drain person_pg_cleanup_queue into Postgres hard deletes.
 
-The ClickHouse sweep (clickhouse_cleanup.py) removes a deleted person's rows from ClickHouse and
+The ClickHouse sweep (clickhouse_cleanup.py) removes a deleted person's rows from ClickHouse, then
 queues the person here. Postgres still holds the tombstoned posthog_person row and its dependent
 rows (distinct ids, hash key overrides, cohort memberships) until this job asks personhog to
 delete them.
@@ -8,6 +8,8 @@ delete them.
 The queue is advisory. A person can be revived in Postgres after it was queued, so the job never
 deletes on the queue's word: it hands each batch to personhog's DeleteTombstonedPersons, which
 deletes a person only while it is still tombstoned, under row locks, and reports the rest back.
+It also deletes only at or below max_version, the highest ClickHouse version the sweep removed, so a
+person tombstoned again after that sweep stays. A row without max_version is never deleted.
 Every call does a bounded amount of work: persons that fit the call's row budget are deleted
 whole, and a person with more dependent rows than that gives up a bounded slice per call and
 comes back as pending until it fits. The job sends pending persons again until none come back, so
@@ -20,6 +22,9 @@ reopened and the statement run again), a fatal gRPC code, or more blocked person
 max_blocked. The one state the job parks is a tombstoned person that still owns a live distinct
 id: personhog reports it as blocked, and its row is stamped blocked_at and skipped for a retry
 interval, because ingestion can still reach that person and no delete may resolve it.
+
+The drain stops before each page, request and retry when a sweep executes, and the sweep waits for
+it to stop, so the two never run together.
 """
 
 import math
@@ -42,12 +47,22 @@ from prometheus_client import Gauge
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
-from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE, PublishedGauge
-from posthog.dags.common import JobOwners
+from posthog.dags.clickhouse_cleanup import (
+    DRAIN_STOP_POLL_SECONDS,
+    PERSON_PG_CLEANUP_DRAIN_JOB,
+    PG_CLEANUP_QUEUE_TABLE,
+    PublishedGauge,
+    clickhouse_deletion_sweep_job,
+)
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
-from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse
+from posthog.personhog_client.proto import (
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
+    VersionBoundedPerson,
+)
 
 logger = dagster.get_dagster_logger(__name__)
 
@@ -56,8 +71,13 @@ PG_APPLICATION_NAME = "person_pg_cleanup_drain"
 # Pushing replaces every gauge stored under this name, so one push carries the whole set.
 DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 
-# Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
+# Server-side cap on DeleteTombstonedPersonsRequest.bounded_persons.
 RPC_MAX_UUIDS = 1000
+
+# The sweep polls for the drain this often, so checking for the sweep more often only loads
+# Dagster's run storage.
+SWEEP_CHECK_INTERVAL_SECONDS = DRAIN_STOP_POLL_SECONDS
+STOPPED_EARLY = frozenset({"max_runtime", "sweep_running"})
 
 # tonic takes min(client deadline, personhog-router's BACKEND_TIMEOUT_MS), which is 15 s, so this
 # deadline is what bounds a request.
@@ -204,6 +224,7 @@ class QueueRow:
     team_id: int
     person_uuid: str
     deleted_at: datetime
+    max_version: int | None
 
 
 @frozen
@@ -219,6 +240,7 @@ class Chunk:
     team_id: int
     deleted_at: datetime
     person_uuids: tuple[str, ...]
+    max_versions: Mapping[str, int]
 
 
 @frozen(frozen=False)
@@ -232,10 +254,12 @@ class DrainTotals:
     requests_pending_resent: int = 0
     persons_deleted: int = 0
     persons_skipped_live: int = 0
+    persons_skipped_version: int = 0
     persons_not_found: int = 0
     persons_blocked: int = 0
     rows_deleted: int = 0
     rows_stamped_blocked: int = 0
+    rows_unversioned: int = 0
     blocked_sample: list[str] = field(default_factory=list)
     queue_rows_deleted: int = 0
     step_rows_min: int = 0
@@ -263,10 +287,12 @@ class DrainTotals:
             "requests_pending_resent": dagster.MetadataValue.int(self.requests_pending_resent),
             "persons_deleted": dagster.MetadataValue.int(self.persons_deleted),
             "persons_skipped_live": dagster.MetadataValue.int(self.persons_skipped_live),
+            "persons_skipped_version": dagster.MetadataValue.int(self.persons_skipped_version),
             "persons_not_found": dagster.MetadataValue.int(self.persons_not_found),
             "persons_blocked": dagster.MetadataValue.int(self.persons_blocked),
             "rows_deleted": dagster.MetadataValue.int(self.rows_deleted),
             "rows_stamped_blocked": dagster.MetadataValue.int(self.rows_stamped_blocked),
+            "rows_unversioned": dagster.MetadataValue.int(self.rows_unversioned),
             "blocked_sample": dagster.MetadataValue.text(", ".join(self.blocked_sample) or "none"),
             "queue_rows_deleted": dagster.MetadataValue.int(self.queue_rows_deleted),
             "step_rows_min": dagster.MetadataValue.int(self.step_rows_min),
@@ -283,8 +309,8 @@ class DrainTotals:
         }
 
 
-class _OutOfTime(Exception):
-    """The run's deadline passed while a request or statement was being retried."""
+class _Stopped(Exception):
+    """The run's deadline passed, or a sweep started, while a request or statement was being retried."""
 
 
 def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk]:
@@ -292,15 +318,26 @@ def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk
 
     Grouping by deleted_at as well as team_id is what lets the queue delete carry a deleted_at
     guard, so a row the sweep re-queued between the read and the delete is left for the next run.
+    A row without max_version goes in no request.
     """
-    grouped: dict[tuple[int, datetime], list[str]] = defaultdict(list)
+    grouped: dict[tuple[int, datetime], dict[str, int]] = defaultdict(dict)
     for row in rows:
-        grouped[(row.team_id, row.deleted_at)].append(row.person_uuid)
-    return [
-        Chunk(team_id=team_id, deleted_at=deleted_at, person_uuids=tuple(uuids[start : start + rpc_batch_size]))
-        for (team_id, deleted_at), uuids in grouped.items()
-        for start in range(0, len(uuids), rpc_batch_size)
-    ]
+        if row.max_version is not None:
+            grouped[(row.team_id, row.deleted_at)][row.person_uuid] = row.max_version
+    chunks: list[Chunk] = []
+    for (team_id, deleted_at), max_versions in grouped.items():
+        uuids = list(max_versions)
+        for start in range(0, len(uuids), rpc_batch_size):
+            batch = tuple(uuids[start : start + rpc_batch_size])
+            chunks.append(
+                Chunk(
+                    team_id=team_id,
+                    deleted_at=deleted_at,
+                    person_uuids=batch,
+                    max_versions={uuid: max_versions[uuid] for uuid in batch},
+                )
+            )
+    return chunks
 
 
 PgRecovery = Literal["retry", "reconnect"]
@@ -385,7 +422,7 @@ def _read_page(
     cursor_filter = "AND (team_id, person_uuid) > (%(after_team)s, %(after_uuid)s::uuid)" if after else ""
     cursor.execute(
         f"""
-        SELECT team_id, person_uuid, deleted_at
+        SELECT team_id, person_uuid, deleted_at, max_version
         FROM {PG_CLEANUP_QUEUE_TABLE}
         WHERE (blocked_at IS NULL OR blocked_at < %(blocked_before)s)
           {cursor_filter}
@@ -400,8 +437,8 @@ def _read_page(
         },
     )
     return [
-        QueueRow(team_id=team_id, person_uuid=str(person_uuid), deleted_at=deleted_at)
-        for team_id, person_uuid, deleted_at in cursor.fetchall()
+        QueueRow(team_id=team_id, person_uuid=str(person_uuid), deleted_at=deleted_at, max_version=max_version)
+        for team_id, person_uuid, deleted_at, max_version in cursor.fetchall()
     ]
 
 
@@ -488,6 +525,7 @@ class _Drain:
         self.totals.step_rows_min = self.totals.step_rows_max = self.step_rows
         self.successes_at_step = 0
         self.deadline = math.inf if config.max_runtime_seconds == 0 else _now_monotonic() + config.max_runtime_seconds
+        self.next_sweep_check = 0.0
         self.blocked_before = datetime.now(UTC) - timedelta(hours=config.blocked_retry_hours)
 
     def out_of_time(self) -> bool:
@@ -546,8 +584,8 @@ class _Drain:
                     self.close()
                 elif pg_is_queue_conflict(exc):
                     self.totals.pg_queue_conflict_retries += 1
-                if self.out_of_time():
-                    raise _OutOfTime from exc
+                if self.should_stop():
+                    raise _Stopped from exc
                 pause = backoff_seconds(PG_RETRY_BACKOFF_SECONDS, failures)
                 self.context.log.warning(
                     "persons Postgres %s (%s); attempt %d in %.1fs",
@@ -562,9 +600,36 @@ class _Drain:
             self.totals.pg_seconds_total += time.perf_counter() - started
             return result
 
+    def yield_to_sweep(self) -> bool:
+        """Stop when a sweep run executes, so the drain never runs while the sweep does.
+
+        Unresolved rows stay queued, and checking before every page, request and retry keeps the sweep's
+        wait to one attempt.
+        """
+        if self.totals.stopped_reason == "sweep_running":
+            return True
+        now = time.monotonic()
+        if now < self.next_sweep_check:
+            return False
+        self.next_sweep_check = now + SWEEP_CHECK_INTERVAL_SECONDS
+        sweeps = describe_runs(
+            self.context.instance,
+            (clickhouse_deletion_sweep_job.name,),
+            statuses=EXECUTING_RUN_STATUSES,
+            exclude_run_id=self.context.run_id,
+        )
+        if not sweeps:
+            return False
+        self.context.log.warning("stopping for the ClickHouse sweep: %s", "; ".join(sweeps))
+        self.totals.stopped_reason = "sweep_running"
+        return True
+
+    def should_stop(self) -> bool:
+        return self.out_of_time() or self.yield_to_sweep()
+
     def pages(self) -> Iterator[list[QueueRow]]:
         after: QueueCursor | None = None
-        while not self.out_of_time():
+        while not self.should_stop():
             limit = self.page_limit()
             if limit <= 0:
                 self.totals.stopped_reason = "max_persons"
@@ -588,7 +653,12 @@ class _Drain:
         """
         assert self.client is not None
         client = self.client
-        request = DeleteTombstonedPersonsRequest(team_id=chunk.team_id, person_uuids=list(uuids))
+        request = DeleteTombstonedPersonsRequest(
+            team_id=chunk.team_id,
+            bounded_persons=[
+                VersionBoundedPerson(person_uuid=uuid, max_version=chunk.max_versions[uuid]) for uuid in uuids
+            ],
+        )
         spent = 0.0
         failures = 0
         while True:
@@ -632,8 +702,8 @@ class _Drain:
                             "grpc_code": dagster.MetadataValue.text(_code_name(code)),
                         },
                     ) from exc
-                if self.out_of_time():
-                    raise _OutOfTime from exc
+                if self.should_stop():
+                    raise _Stopped from exc
                 pause = backoff_seconds(self.config.retry_backoff_seconds, failures)
                 self.context.log.warning(
                     "personhog delete of %d persons failed (%s); attempt %d in %.1fs with a %d-row budget",
@@ -651,6 +721,14 @@ class _Drain:
             self.totals.rpc_seconds_total += elapsed
             self.totals.rpc_seconds_max = max(self.totals.rpc_seconds_max, elapsed)
             self.totals.rpc_seconds_last = elapsed
+            if not response.version_guard_applied:
+                # A replica that predates bounded_persons reads an empty person_uuids and answers
+                # with nothing deleted. Applying that answer would drop every queue row as not found.
+                raise dagster.Failure(
+                    "personhog did not apply the version bounds; deploy personhog-replica with bounded_persons "
+                    "support before running the drain",
+                    metadata={**self.totals.as_metadata(), **_request_metadata(chunk, uuids)},
+                )
             self.grow_step()
             return response
 
@@ -672,7 +750,7 @@ class _Drain:
         self.totals.chunks += 1
         pending: Sequence[str] = chunk.person_uuids
         while pending:
-            if self.out_of_time():
+            if self.should_stop():
                 # Rows of the persons still pending stay queued; the next run continues them.
                 return
             response = self.send(chunk, pending)
@@ -687,10 +765,15 @@ class _Drain:
         unresolved = set(blocked) | set(response.pending_person_uuids)
         resolved = [uuid for uuid in sent if uuid not in unresolved]
         # Skipped-live rows go too: the queue row is stale, and the sweep queues the person again
-        # if it is ever tombstoned again.
+        # if it is ever tombstoned again. So do rows skipped above their version bound: the newer
+        # tombstone has its own ClickHouse rows, and the sweep that removes them queues the person
+        # again with a higher bound.
         self.totals.persons_deleted += response.deleted_count
         self.totals.persons_skipped_live += response.skipped_live_count
-        self.totals.persons_not_found += len(resolved) - response.deleted_count - response.skipped_live_count
+        self.totals.persons_skipped_version += response.skipped_version_count
+        self.totals.persons_not_found += (
+            len(resolved) - response.deleted_count - response.skipped_live_count - response.skipped_version_count
+        )
         self.totals.persons_blocked += len(blocked)
         self.totals.rows_deleted += response.rows_deleted
         self.totals.queue_rows_deleted += self.timed_pg(lambda cursor: _delete_queue_rows(cursor, chunk, resolved))
@@ -716,6 +799,7 @@ class _Drain:
         for outcome, delta in (
             ("deleted", after.persons_deleted - before.persons_deleted),
             ("skipped_live", after.persons_skipped_live - before.persons_skipped_live),
+            ("skipped_version", after.persons_skipped_version - before.persons_skipped_version),
             ("not_found", after.persons_not_found - before.persons_not_found),
             ("blocked", after.persons_blocked - before.persons_blocked),
         ):
@@ -745,6 +829,7 @@ class _Drain:
         return DrainTotals(
             persons_deleted=self.totals.persons_deleted,
             persons_skipped_live=self.totals.persons_skipped_live,
+            persons_skipped_version=self.totals.persons_skipped_version,
             persons_not_found=self.totals.persons_not_found,
             persons_blocked=self.totals.persons_blocked,
             rows_deleted=self.totals.rows_deleted,
@@ -761,20 +846,21 @@ class _Drain:
         emitted = self.snapshot()
         try:
             for page in self.pages():
+                self.totals.rows_unversioned += sum(row.max_version is None for row in page)
                 if self.config.dry_run:
                     continue
                 for chunk in chunks_for_page(page, self.config.rpc_batch_size):
                     self.resolve(chunk)
-                    if self.totals.stopped_reason == "max_runtime":
+                    if self.totals.stopped_reason in STOPPED_EARLY:
                         break
                 if self.totals.pages % LOG_EVERY_PAGES == 0:
                     self.emit_counters_since(emitted)
                     emitted = self.snapshot()
                     self.log_progress()
-                if self.totals.stopped_reason == "max_runtime":
+                if self.totals.stopped_reason in STOPPED_EARLY:
                     # Requests left in this page were never sent, so their rows stay queued.
                     break
-        except _OutOfTime:
+        except _Stopped:
             # Raised inside a retry, so the rows of that request stay queued for the next run.
             pass
         except Exception:
@@ -787,12 +873,15 @@ class _Drain:
     def log_progress(self) -> None:
         totals = self.totals
         self.context.log.info(
-            "%d pages, %d rows: deleted=%d skipped_live=%d not_found=%d blocked=%d rows_deleted=%d, "
-            "%d pending re-sends, step %d rows (%d..%d), rpc mean %.3fs, %d rpc errors, %d pg reconnects",
+            "%d pages, %d rows (%d unversioned): deleted=%d skipped_live=%d skipped_version=%d not_found=%d "
+            "blocked=%d rows_deleted=%d, %d pending re-sends, step %d rows (%d..%d), rpc mean %.3fs, %d rpc errors, "
+            "%d pg reconnects",
             totals.pages,
             totals.rows_read,
+            totals.rows_unversioned,
             totals.persons_deleted,
             totals.persons_skipped_live,
+            totals.persons_skipped_version,
             totals.persons_not_found,
             totals.persons_blocked,
             totals.rows_deleted,
@@ -861,6 +950,16 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
             value=totals.persons_skipped_live,
         ),
         PublishedGauge(
+            name=f"{prefix}persons_skipped_version",
+            help_text="Queued persons tombstoned again above their version bound, so the drain left them alone",
+            value=totals.persons_skipped_version,
+        ),
+        PublishedGauge(
+            name=f"{prefix}rows_unversioned",
+            help_text="Queue rows without a version bound, which the drain leaves queued",
+            value=totals.rows_unversioned,
+        ),
+        PublishedGauge(
             name=f"{prefix}persons_not_found",
             help_text="Queued persons with no Postgres row, so the queue row was already stale",
             value=totals.persons_not_found,
@@ -898,7 +997,7 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
         ),
         PublishedGauge(
             name=f"{prefix}pg_queue_conflict_retries",
-            help_text="Queue statements retried after a lock or serialization conflict, mostly with the sweep",
+            help_text="Queue statements retried after a lock or serialization conflict",
             value=totals.pg_queue_conflict_retries,
         ),
         PublishedGauge(
@@ -914,10 +1013,14 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
     """Publish what the run measured, so alerting and dashboards can read it.
 
     A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
-    ad-hoc run from the Dagster UI mask a drain that has stopped working.
+    ad-hoc run from the Dagster UI mask a drain that has stopped working. A run that stopped for
+    the sweep publishes nothing for the same reason: a sweep that never finishes stops every drain.
     """
     if totals.dry_run:
         context.log.info("dry run: publishing no metrics")
+        return totals
+    if totals.stopped_reason == "sweep_running":
+        context.log.info("stopped for the sweep: publishing no metrics")
         return totals
 
     gauges = _drain_gauges(totals, time.time())
@@ -930,6 +1033,7 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
 
 
 @dagster.job(
+    name=PERSON_PG_CLEANUP_DRAIN_JOB,
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
         # Limit 1 in charts (argocd/dagster/deployment_settings), so a second drain queues rather

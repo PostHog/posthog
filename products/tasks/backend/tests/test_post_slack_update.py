@@ -25,20 +25,14 @@ class TestPostSlackUpdate(TestCase):
             "thread_ts": "1111.0000",
             "user_message_ts": "2222.0000",
         }
-        # The footer, and the access gate behind its links, is built in slack_app and
-        # tested there. Here it only decides whether the cards carry a url, so default to
-        # "linkable" and let the deny-path test re-patch it.
+        # The footer is built in slack_app and tested there. Here it only decides whether
+        # the cards carry a url.
         self._footer_patcher = patch(
             "products.slack_app.backend.slack_thread.load_run_footer",
             return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/10?runId=run-1"),
         )
         self._footer_patcher.start()
         self.addCleanup(self._footer_patcher.stop)
-        # The gate is patched on the class so it answers without a Slack identity lookup;
-        # the deny-path test flips it to prove the web url does not hang off this answer.
-        self._access_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=True)
-        self._access_patcher.start()
-        self.addCleanup(self._access_patcher.stop)
         # The PR-opened notification path resolves the reply target from a live
         # SlackThreadTaskMapping. Default that lookup to "no mapping" so tests
         # that don't exercise multiplayer tagging aren't forced to seed the
@@ -588,86 +582,6 @@ class TestPostSlackUpdate(TestCase):
             reply_target_slack_user_id=None,
             bot_authored=False,
         )
-
-    @patch.object(SlackThreadHandler, "post_completion")
-    @patch.object(SlackThreadHandler, "post_or_update_progress")
-    @patch.object(SlackThreadHandler, "post_error")
-    @patch.object(SlackThreadHandler, "post_pr_opened")
-    @patch.object(SlackThreadHandler, "update_reaction")
-    @patch("products.tasks.backend.models.TaskRun")
-    def test_user_without_posthog_code_access_still_gets_task_url(
-        self,
-        mock_task_run_class,
-        _mock_update_reaction,
-        mock_post_pr_opened,
-        mock_post_error,
-        mock_post_progress,
-        mock_post_completion,
-    ):
-        # The web task link is never withheld — the task page enforces access
-        # itself — so every handler call (including the progress handler)
-        # receives the task url even when the reader fails the access check.
-        self._access_patcher.stop()
-        deny_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=False)
-        deny_patcher.start()
-        self.addCleanup(deny_patcher.stop)
-
-        scenarios: list[tuple[MagicMock, MagicMock]] = []
-
-        completed_no_pr = self._make_mock_run(mock_task_run_class.Status.COMPLETED, output={})
-        scenarios.append((completed_no_pr, mock_post_completion))
-
-        completed_with_pr = self._make_mock_run(
-            mock_task_run_class.Status.COMPLETED, output={"pr_url": "https://github.com/org/repo/pull/1"}, state={}
-        )
-        scenarios.append((completed_with_pr, mock_post_pr_opened))
-
-        failed = self._make_mock_run(mock_task_run_class.Status.FAILED, error_message="boom")
-        scenarios.append((failed, mock_post_error))
-
-        in_progress = self._make_mock_run(mock_task_run_class.Status.IN_PROGRESS, stage="Building")
-        scenarios.append((in_progress, mock_post_progress))
-
-        in_progress_with_pr = self._make_mock_run(
-            mock_task_run_class.Status.IN_PROGRESS,
-            stage="Opening PR",
-            output={"pr_url": "https://github.com/org/repo/pull/2"},
-            state={},
-        )
-        scenarios.append((in_progress_with_pr, mock_post_pr_opened))
-
-        for run, handler_mock in scenarios:
-            handler_mock.reset_mock()
-            mock_task_run_class.objects.select_related.return_value.get.return_value = run
-            post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
-            handler_mock.assert_called_once()
-            # ``task_url`` is the second positional argument on ``post_pr_opened``
-            # and the trailing positional argument on every other handler — the
-            # contract is "no access ⇒ the web link still flows through".
-            task_url_arg = (
-                handler_mock.call_args.args[1]
-                if handler_mock is mock_post_pr_opened
-                else handler_mock.call_args.args[-1]
-            )
-            assert task_url_arg == "http://localhost:8000/project/1/tasks/10?runId=run-1"
-
-        mock_post_pr_opened.reset_mock()
-        cleaned_with_pr = self._make_mock_run(
-            mock_task_run_class.Status.COMPLETED,
-            output={"pr_url": "https://github.com/org/repo/pull/3"},
-            state={},
-        )
-        mock_task_run_class.objects.select_related.return_value.get.return_value = cleaned_with_pr
-        post_slack_update(
-            PostSlackUpdateInput(
-                run_id="run-1",
-                slack_thread_context=self.slack_thread_context,
-                sandbox_cleaned=True,
-            )
-        )
-        mock_post_pr_opened.assert_called_once()
-        # task_url is the second positional argument on post_pr_opened.
-        assert mock_post_pr_opened.call_args.args[1] == "http://localhost:8000/project/1/tasks/10?runId=run-1"
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")

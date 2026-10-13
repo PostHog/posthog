@@ -31,6 +31,8 @@ const MARKETING_SOURCE_ICONS: Record<
         caption: 'Apple Ads',
     },
     OpenAIAds: { name: 'OpenAIAds', iconPath: '/static/services/openai_ads.svg', fields: [], caption: 'OpenAI Ads' },
+    TwitterAds: { name: 'TwitterAds', iconPath: '/static/services/twitter_ads.png', fields: [], caption: 'X Ads' },
+    RoktAds: { name: 'RoktAds', iconPath: '/static/services/rokt_ads.png', fields: [], caption: 'Rokt Ads' },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',
@@ -92,6 +94,7 @@ const meta: Meta<LemonMenuOverlayProps> = {
             FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
         ],
         docs: {
             description: {

@@ -54,6 +54,7 @@ import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPersonScopeFilter,
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
@@ -143,7 +144,7 @@ export interface cohortEditLogicValues {
     isCohortValid: boolean
     isPendingCalculation: boolean
     persistedColumns: string[] | null
-    personsToCreateStaticCohort: Record<string, boolean>
+    personsToCreateStaticCohort: Record<string, string | null>
     pollTimeout: number | null
     query: DataTableNode
     showCohortErrors: boolean
@@ -165,7 +166,11 @@ export interface cohortEditLogicActions {
     addFilter: (groupIndex?: number) => {
         groupIndex: number | undefined
     }
-    addPersonToCreateStaticCohort: (personId: string) => {
+    addPersonToCreateStaticCohort: (
+        personId: string,
+        displayName: string | null
+    ) => {
+        displayName: string | null
         personId: string
     }
     armRealtimeReadinessPoll: () => {
@@ -529,6 +534,14 @@ export type cohortEditLogicType = MakeLogicType<
     cohortEditLogicMeta
 >
 
+// A draft cohort has no id, so the persons table gets no cohort filter until `setCohort` supplies
+// a saved id. A filter with a missing id serializes to null, which the API rejects.
+function cohortFixedProperties(id: CohortType['id'] | undefined): AnyPersonScopeFilter[] {
+    return typeof id === 'number'
+        ? [{ type: PropertyFilterType.Cohort, key: 'id', value: id, operator: PropertyOperator.In }]
+        : []
+}
+
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
@@ -568,7 +581,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
         setCreationPersonQuery: (query: ActorsQuery) => ({ query }),
-        addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
+        addPersonToCreateStaticCohort: (personId: string, displayName: string | null) => ({ personId, displayName }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
         resetPersonsToCreateStaticCohort: true,
@@ -693,9 +706,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [
-                        { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
-                    ],
+                    fixedProperties: cohortFixedProperties(props.id),
                 },
                 full: true,
                 showPropertyFilter: false,
@@ -716,6 +727,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         source: {
                             ...source,
                             select: source.select ?? defaultSelect,
+                            fixedProperties: cohortFixedProperties(cohort.id),
                         },
                     }
                 },
@@ -756,11 +768,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         personsToCreateStaticCohort: [
-            {} as Record<string, boolean>,
+            {} as Record<string, string | null>,
             {
-                addPersonToCreateStaticCohort: (state, { personId }) => ({
+                addPersonToCreateStaticCohort: (state, { personId, displayName }) => ({
                     ...state,
-                    [personId]: true,
+                    [personId]: displayName,
                 }),
                 removePersonFromCreateStaticCohort: (state, { personId }) => {
                     const newState = { ...state }

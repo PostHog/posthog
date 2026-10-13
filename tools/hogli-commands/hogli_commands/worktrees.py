@@ -28,7 +28,7 @@ import re
 import time
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -852,35 +852,31 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
 
     for wt in worktrees:
         if mode == "deps":
-            _, failures = _delete_paths(wt.deps_items, wt.deps_sizes)
-            if failures:
+            if _delete_paths(wt.deps_items):
                 failed += 1
             else:
                 removed += 1
             continue
 
         if wt.registered:
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "worktree", "remove", "--force", "--", str(wt.path)],
                 cwd=repo_root,
                 capture_output=True,
-                text=True,
             )
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                click.echo(f"  ⚠️  git worktree remove failed for {_display_path(wt.path)}: {stderr}")
-                shutil.rmtree(wt.path, ignore_errors=True)
-            # Either path may have removed it; prune any dangling admin entry.
+            # git cannot delete read-only directories, so `_rmtree` below removes what it leaves
+            # behind. Prune the admin entry that can remain in that case.
             need_prune = True
-        else:
-            shutil.rmtree(wt.path, ignore_errors=True)
 
-        if wt.path.exists():
-            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}")
+        try:
+            _rmtree(wt.path)
+        except OSError as err:
+            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}: {err}")
             failed += 1
-        else:
-            removed += 1
-            _cleanup_empty_parent(wt.path)
+            continue
+
+        removed += 1
+        _cleanup_empty_parent(wt.path)
 
     if need_prune:
         subprocess.run(["git", "worktree", "prune"], cwd=repo_root, capture_output=True)
@@ -919,22 +915,51 @@ def _reclaimed_bytes(before: dict[int, int], after: dict[int, int]) -> float:
     return float(sum(max(0, after[device] - before[device]) for device in common))
 
 
-def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
-    """Remove deps directories; return (bytes actually freed, paths that failed)."""
+def _rmtree(path: Path) -> None:
+    """Remove a directory tree, including entries inside read-only directories.
 
-    freed = 0.0
+    Go creates its module cache without write permission, and every worktree has
+    one in `.flox/cache/go`. `shutil.rmtree` alone cannot delete entries from a
+    directory that is not writable.
+
+    Removal continues past an entry that cannot be deleted, so one stuck entry
+    does not keep the rest of the tree on disk. The first such error is raised
+    at the end. A path that does not exist is already removed, so it is not an
+    error.
+    """
+
+    unresolved: list[BaseException] = []
+
+    def make_parent_writable_and_retry(function: Callable[..., object], failed: str, error: BaseException) -> None:
+        if isinstance(error, FileNotFoundError):
+            return
+        parent = Path(failed).parent
+        # A parent outside `path` is not part of the tree, so its permissions stay as they are.
+        if isinstance(error, PermissionError) and function in (os.unlink, os.rmdir) and parent.is_relative_to(path):
+            try:
+                parent.chmod(0o700)
+                function(failed)
+                return
+            except OSError:
+                pass
+        unresolved.append(error)
+
+    shutil.rmtree(path, onexc=make_parent_writable_and_retry)
+    if unresolved:
+        raise unresolved[0]
+
+
+def _delete_paths(paths: Sequence[Path]) -> int:
+    """Remove deps directories; return how many could not be removed."""
+
     failures = 0
     for path in paths:
         try:
-            shutil.rmtree(path)
-        except FileNotFoundError:
-            continue  # already gone — not a failure
+            _rmtree(path)
         except OSError as err:
             click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
             failures += 1
-            continue
-        freed += sizes.get(str(path), 0.0)
-    return freed, failures
+    return failures
 
 
 def _cleanup_empty_parent(path: Path) -> None:

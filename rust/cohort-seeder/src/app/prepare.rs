@@ -486,6 +486,7 @@ fn record_condition_census(
         property_projectable_fraction = census.property_projectable_fraction(),
         eligible_events = census.projection_eligible_event_names().len(),
         blocked_events = %census.render_blocked_events(),
+        row_filtered_conditions = analyses.row_filtered_conditions(),
         "condition bytecode analysis census",
     );
     // The read sets and the uncapped blocked list carry customer-defined event names and property

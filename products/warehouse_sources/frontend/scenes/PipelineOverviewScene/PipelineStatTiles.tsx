@@ -47,6 +47,9 @@ export function PipelineStatTiles(): JSX.Element {
         healthIssuesLoading,
         failingSyncCount,
         issuesBySeverity,
+        syncingTableCount,
+        sources,
+        sourcesLoading,
     } = useValues(pipelineOverviewSceneLogic)
 
     // `job_stats` reports syncs and materialized view runs separately, and every count here
@@ -65,14 +68,20 @@ export function PipelineStatTiles(): JSX.Element {
                     // otherwise wrap out of the tile.
                     value={humanFriendlyLargeNumber(rowsStats?.total_rows ?? 0)}
                     exact={humanFriendlyNumber(rowsStats?.total_rows ?? 0)}
-                    sub={rowsStats?.billing_available ? undefined : 'Billing is unavailable, so this may be behind'}
+                    // Only once the answer is in: a null `rowsStats` is still loading, and
+                    // reading it as "unavailable" put a warning under a spinner.
+                    sub={
+                        rowsStats && !rowsStats.billing_available
+                            ? 'Billing is unavailable, so this may be behind'
+                            : undefined
+                    }
                     loading={rowsStatsLoading && rowsStats === null}
                 />
                 <StatTile
-                    label="Sync runs"
-                    value={humanFriendlyNumber(syncJobs?.total ?? 0)}
-                    sub={`${humanFriendlyNumber(syncJobs?.successful ?? 0)} succeeded`}
-                    loading={jobStatsLoading && jobStats === null}
+                    label="Tables syncing"
+                    value={humanFriendlyNumber(syncingTableCount)}
+                    sub="Switched on across every source"
+                    loading={sourcesLoading && sources === null}
                 />
                 <StatTile
                     label="Needs attention"

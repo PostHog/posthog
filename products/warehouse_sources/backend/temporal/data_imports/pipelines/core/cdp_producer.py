@@ -33,11 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     emitted_rows_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_read,
     aretry_staged_write,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.api import has_active_workflow_for_warehouse_table
 
 # Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
 # is silently dropped rows. The outcome label is what makes that visible to alerting.
@@ -180,8 +181,10 @@ class CDPProducer:
                     id=self.table.id, team_id=self.team_id
                 )
 
-            schema = ExternalDataSchema.objects.get(id=self.table.id, team_id=self.team_id)
-            raw_table_name = build_table_name(schema.source, schema.name)
+            schema = ExternalDataSchema.objects.select_related("source", "table").get(
+                id=self.table.id, team_id=self.team_id
+            )
+            raw_table_name = schema.table.name if schema.table else build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
         self._table_name_cache = await _resolve()
@@ -254,12 +257,9 @@ class CDPProducer:
 
                 # Also gate on active workflows (HogFlows) triggered by this table - without this the
                 # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
-                return HogFlow.objects.filter(
-                    team_id=self.team_id,
-                    status=HogFlow.State.ACTIVE,
-                    trigger__type=trigger_source,
-                    trigger__table_name=dot_notated_table_name,
-                ).exists()
+                return has_active_workflow_for_warehouse_table(
+                    team_id=self.team_id, trigger_source=trigger_source, table_name=dot_notated_table_name
+                )
             except (DjangoOperationalError, OSError) as e:
                 # This queries PostHog's own database, not the source being synced. A transient
                 # failure reaching it (e.g. a DNS blip resolving our host) stringifies with the
@@ -344,8 +344,12 @@ class CDPProducer:
 
                 row_index = 0
 
+                async def _open_staged_file(path: str = file_path) -> pa.NativeFile:
+                    return await asyncio.to_thread(fs.open_input_file, path)
+
                 try:
-                    with fs.open_input_file(file_path) as f:
+                    input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
+                    with input_file as f:
                         pf = pq.ParquetFile(f)
 
                         for batch in pf.iter_batches(batch_size=10_000):

@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class TwitterAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    twitter_ads_integration_id: int = config.value(converter=config.str_to_int)

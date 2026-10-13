@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import ProcessTaskError, SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.logic.services import sandbox as sandbox_module
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
@@ -29,6 +30,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class,
     parse_sandbox_repo_mount_map,
+    pinned_agent_version,
     redact_sandbox_command,
 )
 
@@ -253,10 +255,9 @@ class TestDockerSandboxUnit:
     def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             (tmp_path / file_name).touch()
-        (tmp_path / "patches").mkdir()
         (tmp_path / "scripts").mkdir()
         (tmp_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
             package_path = tmp_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -270,10 +271,9 @@ class TestDockerSandboxUnit:
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             monorepo_path.mkdir(exist_ok=True)
             (monorepo_path / file_name).touch()
-        (monorepo_path / "patches").mkdir()
         (monorepo_path / "scripts").mkdir()
         (monorepo_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
             package_path = monorepo_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -303,6 +303,7 @@ class TestDockerSandboxUnit:
             name="test-sandbox",
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables={
+                "LLM_GATEWAY_URL": "http://localhost:13308",
                 "POSTHOG_API_URL": "http://localhost:8000",
                 "POSTHOG_PROJECT_ID": "1",
             },
@@ -315,6 +316,7 @@ class TestDockerSandboxUnit:
         docker_args = docker_run_call[0][0]
 
         env_args = " ".join(docker_args)
+        assert "LLM_GATEWAY_URL=http://host.docker.internal:13308" in env_args
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
 
@@ -1028,9 +1030,30 @@ class TestPinnedAgentVersion:
 
         assert version is not None
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+        assert pinned_agent_version.__wrapped__() == version
 
     def test_ignores_lines_that_are_not_the_arg(self, tmp_path: Path) -> None:
         dockerfile = tmp_path / "Dockerfile"
         dockerfile.write_text("FROM scratch\nENV AGENT_VERSION=1.2.3\n# ARG AGENT_VERSION=4.5.6\n")
 
         assert _pinned_agent_version(str(dockerfile)) is None
+
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            (None, None),
+            ("FROM scratch\nARG AGENT_VERSION=9.8.7\nRUN true\n", "9.8.7"),
+        ],
+    )
+    def test_pinned_agent_version_reads_the_configured_dockerfile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str | None, expected: str | None
+    ) -> None:
+        dockerfile = tmp_path / "Dockerfile.sandbox-base"
+        if source is not None:
+            dockerfile.write_text(source)
+        monkeypatch.setattr(sandbox_module, "SANDBOX_BASE_DOCKERFILE_PATH", dockerfile)
+        pinned_agent_version.cache_clear()
+        try:
+            assert pinned_agent_version() == expected
+        finally:
+            pinned_agent_version.cache_clear()

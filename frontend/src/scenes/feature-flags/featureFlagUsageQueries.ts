@@ -5,8 +5,8 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
-import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
 import {
@@ -30,6 +30,13 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import {
+    FLAG_EVALUATIONS_RETENTION_DAYS,
+    FLAG_EVALUATIONS_TABLE,
+    flagEvaluationsRetentionStart,
+    reachesPastFlagEvaluationsRetention,
+} from './flagEvaluationsTable'
 
 export interface FlagUsageQueryOptions {
     flagKey: string
@@ -181,28 +188,19 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// Not a root table, so the `posthog.` prefix is part of the name. An organization without the
-// flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
-const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
-
-/** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
-export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
-
-// Start of the oldest day the table still holds. dateStringToDayJs resolves the ranges this is
-// compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
-// which drops the 90-day preset in a timezone ahead of UTC.
-function earliestRetainedDay(): dayjs.Dayjs {
-    return dayjs.utc().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
-}
+// The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
+// breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
+// The label is in the query because the SQL line chart names a NULL series "[No value]" and the SQL
+// table draws a NULL cell as a dash. A variant whose key equals the label merges into this bucket. The flag
+// editor rejects that key, but the API accepts it.
+const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {
-    const earliest = earliestRetainedDay()
-    const dateFrom = dateStringToDayJs(dateRange.date_from ?? null)
-    // A null start is "all time", which reaches further than any retained day.
-    if (dateFrom && !dateFrom.isBefore(earliest)) {
+    if (!reachesPastFlagEvaluationsRetention(dateRange.date_from ?? null)) {
         return dateRange
     }
+    const earliest = flagEvaluationsRetentionStart()
     const dateTo = dateStringToDayJs(dateRange.date_to ?? null)
     return {
         date_from: `-${FLAG_EVALUATIONS_RETENTION_DAYS}d`,
@@ -214,14 +212,9 @@ export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange
 
 /** The presets that stay inside the retention window, plus the custom-range entry. */
 export function flagEvaluationsDateOptions(): DateMappingOption[] {
-    const earliest = earliestRetainedDay()
     return dateMapping.filter(({ values }) => {
         const dateFrom = values[0]
-        if (dateFrom === undefined) {
-            return true
-        }
-        const parsed = dateStringToDayJs(dateFrom)
-        return !!parsed && !parsed.isBefore(earliest)
+        return dateFrom === undefined || !reachesPastFlagEvaluationsRetention(dateFrom)
     })
 }
 
@@ -294,7 +287,7 @@ export function buildFlagEvaluationsTotalVolumeChart(
 FROM (
     SELECT
         dateTrunc('${interval}', timestamp) AS period,
-        response AS variant,
+        ${FLAG_EVALUATIONS_VARIANT} AS variant,
         count() AS total
     FROM ${FLAG_EVALUATIONS_TABLE}
     WHERE ${flagEvaluationsConditions(options, '        ')}
@@ -331,7 +324,7 @@ export function buildFlagEvaluationsUniqueCallersChart(
         query: buildFlagEvaluationsQuery(
             options,
             `SELECT
-    response AS \`Variant\`,
+    ${FLAG_EVALUATIONS_VARIANT} AS \`Variant\`,
     uniq(${caller}) AS \`Unique callers\`
 FROM ${FLAG_EVALUATIONS_TABLE}
 WHERE ${flagEvaluationsConditions(options)}

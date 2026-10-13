@@ -190,6 +190,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             order_by=params["order_by"],
             date_from=params.get("date_from") or None,
             date_to=params.get("date_to") or None,
+            has_errors=params["has_errors"],
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),

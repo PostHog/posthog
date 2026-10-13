@@ -476,9 +476,9 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     if not prompt:
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
-    if evaluation["output_type"] not in ("boolean", "numeric"):
+    if evaluation["output_type"] not in ("boolean", "numeric", "categorical"):
         raise ApplicationError(
-            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric'.",
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric', 'categorical'.",
             non_retryable=True,
         )
 
@@ -562,6 +562,7 @@ class SessionHogTestResult:
     input_preview: str
     output_preview: str
     score: float | None = None
+    categories: list[str] | None = None
     applicable: bool | None = None
 
 
@@ -699,6 +700,7 @@ def run_hog_eval_over_recent_sessions(
                 session_id=session_id,
                 verdict=hog_result.get("verdict"),
                 score=hog_result.get("score"),
+                categories=hog_result.get("categories"),
                 applicable=hog_result.get("applicable"),
                 reasoning=hog_result.get("reasoning") or "",
                 error=hog_result.get("error"),

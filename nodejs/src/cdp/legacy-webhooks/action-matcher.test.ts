@@ -1104,6 +1104,7 @@ describe('ActionMatcher', () => {
             expect(checkElementsAgainstSelector(elements, ".top [data-attr='xyz']")).toBeTruthy()
 
             expect(checkElementsAgainstSelector(elements, "[data-attr='foo']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "[data-attr='foo'][data-attr='xyz']")).toBeFalsy()
             expect(checkElementsAgainstSelector(elements, "main[data-attr='xyz']")).toBeFalsy()
             expect(checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
             expect(checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
@@ -1193,6 +1194,7 @@ describe('ActionMatcher', () => {
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(1)')).toBeTruthy()
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')).toBeFalsy()
             expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-child(2)')).toBeFalsy()
         })
     })
 })

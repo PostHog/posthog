@@ -11,6 +11,7 @@ from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
 from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 
+from products.dashboards.backend.constants import MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -532,6 +533,7 @@ def create_from_template(
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 body=template_tile.get("body"),
+                agent_context=template_tile.get("agent_context"),
                 transparent_background=template_tile.get("transparent_background"),
             )
         elif tile_type == "BUTTON":
@@ -566,11 +568,16 @@ def _create_tile_for_text(
     body: str,
     layouts: dict,
     color: Optional[str],
+    agent_context: str | None = None,
     transparent_background: Optional[bool] = None,
 ) -> None:
+    if agent_context is not None and len(agent_context) > MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH:
+        raise ValueError(f"Agent context cannot exceed {MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH} characters")
+
     text = Text.objects.create(
         team=dashboard.team,
         body=body,
+        agent_context=agent_context,
     )
     DashboardTile.objects.create(
         text=text,

@@ -1,6 +1,7 @@
 from posthog.temporal.data_modeling.activities import (
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,
+    check_team_managed_warehouse_shadow_eligibility_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     enrich_view_semantics_activity,
@@ -33,6 +34,7 @@ SEMANTIC_ENRICHMENT_ACTIVITIES = [enrich_view_semantics_activity]
 ACTIVITIES = [
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,
+    check_team_managed_warehouse_shadow_eligibility_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     record_skipped_data_modeling_jobs_activity,

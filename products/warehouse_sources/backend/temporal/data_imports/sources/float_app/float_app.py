@@ -1,7 +1,10 @@
-import dataclasses
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -9,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -16,20 +20,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     DELETE_LOG_LIMIT,
     FLOAT_ENDPOINTS,
     PER_PAGE,
+    PUBLIC_HOLIDAY_YEARS_AHEAD,
+    PUBLIC_HOLIDAY_YEARS_BACK,
+    REPORT_LOOKBACK_MONTHS,
+    FloatEndpointConfig,
 )
 
 FLOAT_BASE_URL = "https://api.float.com/v3"
+REQUEST_TIMEOUT_SECONDS = 60
 # Float rejects requests without a User-Agent that identifies the app and a contact email. This is a
 # static integration identifier, not user data, so it's hardcoded rather than surfaced as a form field.
 USER_AGENT = "PostHog Data Warehouse (hey@posthog.com)"
 
 
-@dataclasses.dataclass
+@frozen
 class FloatAppResumeConfig:
     # Page-number endpoints resume from `next_page` (1-indexed); Delete Log endpoints resume from the
-    # opaque `next_cursor`. Only one is set per endpoint. None means "start from the beginning".
+    # opaque `next_cursor`; report endpoints resume from the first day of the next unfetched month.
+    # Only one is set per endpoint. None means "start from the beginning".
     next_page: int | None = None
     next_cursor: str | None = None
+    next_window_start: str | None = None
 
 
 def _non_auth_headers() -> dict[str, str]:
@@ -150,6 +161,90 @@ class FloatCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _auth_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", **_non_auth_headers()}
+
+
+def _public_holiday_window(today: date) -> dict[str, Any]:
+    start = date(today.year - PUBLIC_HOLIDAY_YEARS_BACK, 1, 1)
+    end = date(today.year + PUBLIC_HOLIDAY_YEARS_AHEAD, 12, 31)
+    return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+
+
+@frozen
+class ReportWindow:
+    start: str
+    end: str
+
+
+def _month_windows(today: date, month_count: int) -> list[ReportWindow]:
+    """The latest `month_count` calendar months, including this month, oldest first."""
+    month_index = today.year * 12 + (today.month - 1)
+    windows: list[ReportWindow] = []
+    for offset in range(max(month_count - 1, 0), -1, -1):
+        year, month = divmod(month_index - offset, 12)
+        start = date(year, month + 1, 1)
+        next_year, next_month = divmod(month_index - offset + 1, 12)
+        end = date(next_year, next_month + 1, 1) - timedelta(days=1)
+        windows.append(ReportWindow(start=start.isoformat(), end=end.isoformat()))
+    return windows
+
+
+def _report_window_pages(
+    api_key: str,
+    config: FloatEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[FloatAppResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk an unpaginated report endpoint one calendar month at a time.
+
+    Float's report endpoints take a required `start_date`/`end_date`, return the aggregate over that
+    window under a single envelope key, and expose no pagination. Each window is one request, so the
+    resume cursor is the next month still to fetch.
+    """
+    windows = _month_windows(datetime.now(UTC).date(), REPORT_LOOKBACK_MONTHS)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.next_window_start is not None:
+        windows = [window for window in windows if window.start >= resume.next_window_start]
+
+    # The envelope key matches the last path segment, e.g. `/reports/people` -> {"people": [...]}.
+    envelope_key = config.path.rsplit("/", 1)[-1]
+    session = make_tracked_session(redact_values=(api_key,))
+    headers = _auth_headers(api_key)
+
+    for index, window in enumerate(windows):
+        response = session.get(
+            f"{FLOAT_BASE_URL}{config.path}",
+            headers=headers,
+            params={"start_date": window.start, "end_date": window.end},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get(envelope_key) if isinstance(payload, dict) else None
+        # A month with no people is a valid empty list. A missing or non-list envelope is a changed
+        # response shape, and this table is full refresh, so treating it as empty drops the month.
+        if not isinstance(rows, list):
+            raise ValueError(f"Float returned no `{envelope_key}` list for {config.path} {window.start}")
+
+        # Stamp the window on every row: the figures are an aggregate over it, so without these the
+        # months are indistinguishable and every row collides on the primary key.
+        for row in rows:
+            row["start_date"] = window.start
+            row["end_date"] = window.end
+
+        if rows:
+            yield rows
+
+        remaining = windows[index + 1 :]
+        if remaining:
+            resumable_source_manager.save_state(FloatAppResumeConfig(next_window_start=remaining[0].start))
+        else:
+            # A retry after the last window would otherwise resume from the stale cursor and skip
+            # every earlier month.
+            resumable_source_manager.clear_state()
+
+
 def float_app_source(
     api_key: str,
     endpoint: str,
@@ -160,11 +255,31 @@ def float_app_source(
 ) -> SourceResponse:
     config = FLOAT_ENDPOINTS[endpoint]
 
+    if config.pagination == "report_window":
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _report_window_pages(api_key, config, resumable_source_manager),
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime",
+            partition_format="month",
+            partition_keys=[config.partition_key] if config.partition_key else None,
+        )
+
     paginator: BasePaginator
     if config.pagination == "cursor":
         paginator = FloatCursorPaginator(limit=DELETE_LOG_LIMIT)
     else:
         paginator = FloatPagePaginator(per_page=PER_PAGE)
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        # Float list endpoints return a bare JSON array; the whole body is the row list.
+        "data_selector": None,
+    }
+    if config.date_window:
+        endpoint_config["params"] = _public_holiday_window(datetime.now(UTC).date())
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -176,11 +291,7 @@ def float_app_source(
         "resources": [
             {
                 "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    # Float list endpoints return a bare JSON array; the whole body is the row list.
-                    "data_selector": None,
-                },
+                "endpoint": endpoint_config,
             }
         ],
     }
@@ -236,5 +347,5 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{FLOAT_BASE_URL}/accounts?per-page=1",
-        headers={"Authorization": f"Bearer {api_key}", **_non_auth_headers()},
+        headers=_auth_headers(api_key),
     )

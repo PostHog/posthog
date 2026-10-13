@@ -171,6 +171,9 @@ class PostgresCDCAdapter:
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
         drop_slot_and_publication(conn, slot_name, pub_name)
 
+    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+        return slot_exists(conn, slot_name)
+
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
         return get_slot_lag_bytes(conn, slot_name)
 
@@ -242,9 +245,7 @@ class PostgresCDCAdapter:
             _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
         )
 
-        # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
-        # to the legacy lane: the new slot starts on the buffer, as a new source does.
-        return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
+        return {"cdc_consistent_point": consistent_point}
 
     def setup_resources(
         self,
@@ -270,9 +271,6 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
-            # Written with the slot, before capture first runs, so no change reaches the buffer that a
-            # legacy batch already delivered.
-            "cdc_ingest_mode": "buffered",
         }
 
         if management_mode == "posthog":

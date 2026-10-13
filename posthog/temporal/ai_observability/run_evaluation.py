@@ -98,6 +98,7 @@ class WorkflowResult(TypedDict, total=False):
     skipped: Required[bool]
     verdict: NotRequired[bool | None]
     score: NotRequired[float]
+    categories: NotRequired[list[str]]
     reasoning: NotRequired[str]
     is_byok: NotRequired[bool]
     skip_reason: NotRequired[str]
@@ -141,7 +142,7 @@ async def handle_llm_judge_activity_error(
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
         }
-        if evaluation.get("output_type") != "numeric":
+        if evaluation.get("output_type") not in ("numeric", "categorical"):
             skip_result["verdict"] = None
         return skip_result
 
@@ -242,7 +243,7 @@ async def handle_terminal_user_error_result(
         "evaluation_id": evaluation["id"],
         "evaluation_type": evaluation_type,
     }
-    if evaluation.get("output_type") != "numeric":
+    if evaluation.get("output_type") not in ("numeric", "categorical"):
         workflow_result["verdict"] = None
     return workflow_result
 
@@ -469,6 +470,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         }
         if "score" in result:
             workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if "verdict" in result:
             workflow_result["verdict"] = result["verdict"]
         if result.get("skipped"):

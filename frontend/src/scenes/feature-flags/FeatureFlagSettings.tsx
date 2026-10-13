@@ -6,11 +6,10 @@ import { LemonButton, LemonDialog, LemonSwitch, LemonTag, LemonTextArea } from '
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -97,25 +96,17 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
 
 export function FlagsSecureApiKeys(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { deleteSecretTokenBackup, rotateSecretToken } = useActions(teamLogic)
 
-    const projectSecretApiKeysEnabled = !!featureFlags[FEATURE_FLAGS.PROJECT_SECRET_API_KEYS]
     const hasLegacyKey = !!(currentTeam?.secret_api_token || currentTeam?.secret_api_token_backup)
 
     const openResetDialog = (): void => {
-        const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
-        const description =
-            'This will generate a new Feature Flags secure API key' +
-            (currentTeam?.secret_api_token
-                ? ' and move the existing one to backup. The old key will remain active until you delete it.'
-                : '')
-
         LemonDialog.open({
-            title: `${verb} Flag Definitions API key?`,
-            description: description,
+            title: 'Rotate Flag Definitions API key?',
+            description:
+                'This will generate a new Feature Flags secure API key and move the existing one to backup. The old key will remain active until you delete it.',
             primaryButton: {
-                children: verb,
+                children: 'Rotate',
                 type: 'primary',
                 onClick: rotateSecretToken,
             },
@@ -144,7 +135,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
     }
 
     // Teams without a legacy key shouldn't be offered to create a deprecated credential
-    if (projectSecretApiKeysEnabled && !hasLegacyKey) {
+    if (!hasLegacyKey) {
         return (
             <LemonBanner type="warning">
                 <p className="mb-1">
@@ -159,24 +150,17 @@ export function FlagsSecureApiKeys(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            {projectSecretApiKeysEnabled && (
-                <LemonBanner type="warning">
-                    <p className="mb-1">
-                        This feature flags secure API key is deprecated. Create a{' '}
-                        <strong>project secret API key</strong> with the <strong>feature_flag:read</strong> scope (the
-                        "Local feature flag evaluation" preset) instead. It's hashed at rest, scoped, and rotatable
-                        without affecting your primary key.
-                    </p>
-                    <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
-                </LemonBanner>
-            )}
-            <h3
-                className={`${
-                    projectSecretApiKeysEnabled ? 'mt-4' : 'mt-0'
-                } mb-1 text-sm font-semibold text-muted flex items-center gap-2`}
-            >
+            <LemonBanner type="warning">
+                <p className="mb-1">
+                    This feature flags secure API key is deprecated. Create a <strong>project secret API key</strong>{' '}
+                    with the <strong>feature_flag:read</strong> scope (the "Local feature flag evaluation" preset)
+                    instead. It's hashed at rest, scoped, and rotatable without affecting your primary key.
+                </p>
+                <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
+            </LemonBanner>
+            <h3 className="mt-4 mb-1 text-sm font-semibold text-muted flex items-center gap-2">
                 Primary Key <span className="text-green-700 text-xs">(Active)</span>
-                {projectSecretApiKeysEnabled && <LemonTag type="warning">Deprecated</LemonTag>}
+                <LemonTag type="warning">Deprecated</LemonTag>
             </h3>
             <CodeSnippet
                 actions={
@@ -187,13 +171,12 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         disabledReason={
                             !isTeamTokenResetAvailable ? 'You do not have permission to rotate this key' : undefined
                         }
-                        tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                        tooltip="Rotate key"
                     />
                 }
-                className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                 thing="Primary Feature Flags Secure API key"
             >
-                {currentTeam?.secret_api_token || 'Click the rotate button on the right to generate a new key.'}
+                {currentTeam?.secret_api_token}
             </CodeSnippet>
 
             {currentTeam?.secret_api_token_backup ? (

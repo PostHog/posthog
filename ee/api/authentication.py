@@ -37,6 +37,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -499,7 +500,7 @@ def _get_bearer_token(request: Request) -> str | None:
     return None
 
 
-class VercelAuthentication(authentication.BaseAuthentication):
+class VercelAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Implements Vercel Marketplace API authentication.
     This authentication uses the OpenID Connect Protocol (OIDC).
@@ -510,6 +511,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     https://vercel.com/docs/integrations/create-integration/marketplace-api#marketplace-partner-api-authentication
     """
 
+    activity_credential_type = "vercel"
     VercelAuthType = Literal["user", "system"]
 
     VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
@@ -526,6 +528,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
+            self.record_activity_actor(None, str(payload.installation_id))
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
@@ -573,7 +576,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 user_avatar_url=payload.get("user_avatar_url"),
                 user_name=payload.get("user_name"),
                 user_email=payload.get("user_email"),
-                user_email_verified=payload.get("user_email_verified"),
+                user_email_verified=payload.get("user_email_verified", payload.get("email_verified")),
             )
         elif auth_type == "system":
             self._validate_system_claims(payload)
@@ -656,7 +659,7 @@ class BillingServiceUser:
         return True
 
 
-class BillingServiceAuthentication(authentication.BaseAuthentication):
+class BillingServiceAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates requests from the billing service to PostHog.
 
@@ -664,6 +667,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
     uses when calling the billing service, but in reverse direction).
     """
 
+    activity_credential_type = "billing_service"
     EXPECTED_AUDIENCE = "billing:posthog-proxy"
 
     def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
@@ -692,6 +696,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             logger.warning("Billing service token missing organization_id")
             raise AuthenticationFailed("Missing organization_id in token")
 
+        self.record_activity_actor(None)
         return BillingServiceUser(organization_id=organization_id), None
 
     def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:

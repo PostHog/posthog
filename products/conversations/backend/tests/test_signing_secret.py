@@ -5,8 +5,10 @@ from django.db import OperationalError
 
 from parameterized import parameterized
 
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.conversations.backend.models import SigningSecret
 
@@ -43,6 +45,11 @@ class TestSigningSecret(BaseTest):
         SigningSecret.objects.for_team(self.team.id).update_or_create(
             team=self.team, defaults={"secret": "phs_previous_secret"}
         )
+        # A migrated PSAK row (#63111) for the backup the rotation was about to retire
+        # must survive the rollback along with the backup token itself.
+        backup_row, _ = create_project_secret_api_key(
+            self.team, label="Migrated legacy key (backup)", value="phs_expired_backup"
+        )
 
         with patch.object(SigningSecret.objects, "for_team", side_effect=OperationalError("connection lost")):
             with self.assertRaises(OperationalError):
@@ -58,6 +65,29 @@ class TestSigningSecret(BaseTest):
         assert cached is not None
         self.assertEqual(cached.secret_api_token, "phs_previous_secret")
         self.assertEqual(cached.secret_api_token_backup, "phs_expired_backup")
+        self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
+
+    def test_failed_backup_cleanup_rolls_the_deletion_back(self):
+        self.team.secret_api_token = "phs_current_primary_value"
+        self.team.secret_api_token_backup = "phs_backup_pending_deletion"
+        self.team.save()
+        backup_row, _ = create_project_secret_api_key(
+            self.team, label="Migrated legacy key (backup)", value="phs_backup_pending_deletion"
+        )
+
+        with patch(
+            "posthog.models.team.team.delete_project_secret_api_keys_for_token",
+            side_effect=OperationalError("connection lost"),
+        ):
+            with self.assertRaises(OperationalError):
+                self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        # The rollback must restore the instance and the cache, so a retry actually retries.
+        self.assertEqual(self.team.secret_api_token_backup, "phs_backup_pending_deletion")
+        cached = get_team_in_cache(self.team.api_token)
+        assert cached is not None
+        self.assertEqual(cached.secret_api_token_backup, "phs_backup_pending_deletion")
+        self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
 
     def test_child_environment_keeps_its_own_team_on_save(self):
         # Environment-scoped by design: a canonicalizing save() (RootTeamMixin) would rewrite

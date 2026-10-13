@@ -20,6 +20,8 @@ from .engines.types import CaseResult
 
 logger = logging.getLogger(__name__)
 
+type RunMetadata = dict[str, str | int | bool | None]
+
 DISTINCT_ID = "llma_eval"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_PROVIDER = "anthropic"
@@ -49,16 +51,20 @@ class TraceEventEmitter:
         experiment_name: str,
         case_name: str,
         namespace: str,
+        *,
+        run_metadata: RunMetadata,
     ):
         self._client = client
         self._trace_id = trace_id
         self._experiment_id = experiment_id
         self._formatted_experiment_name = f"{namespace}/{experiment_name}"
         self._case_name = case_name
+        self._run_metadata = run_metadata
 
     @property
     def _eval_metadata(self) -> dict[str, Any]:
         return {
+            **self._run_metadata,
             "ai_product": "evals",
             "$ai_experiment_id": self._experiment_id,
             "$ai_experiment_name": self._formatted_experiment_name,
@@ -91,13 +97,13 @@ class TraceEventEmitter:
         gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
 
         properties: dict[str, Any] = {
+            **self._eval_metadata,
             "$ai_trace_id": self._trace_id,
             "$ai_span_id": str(uuid.uuid4()),
             "$ai_parent_id": self._trace_id,
             "$ai_model": model,
             "$ai_provider": DEFAULT_PROVIDER,
             "$ai_input": gen.input_messages,
-            **self._eval_metadata,
         }
         if gen.output_content:
             properties["$ai_output_choices"] = [
@@ -169,12 +175,12 @@ class TraceEventEmitter:
             distinct_id=DISTINCT_ID,
             event="$ai_span",
             properties={
+                **self._eval_metadata,
                 "$ai_trace_id": self._trace_id,
                 "$ai_span_id": span.span_id,
                 "$ai_parent_id": self._trace_id,
                 "$ai_span_name": span.span_name,
                 "$ai_output_state": span.content,
-                **self._eval_metadata,
             },
             **capture_kwargs,
         )
@@ -206,10 +212,10 @@ class TraceEventEmitter:
             output_state["artifacts"] = artifacts_summary
 
         properties: dict[str, Any] = {
+            **self._eval_metadata,
             "$ai_trace_id": self._trace_id,
             "$ai_trace_name": trace_name,
             "$ai_latency": duration,
-            **self._eval_metadata,
         }
         if prompt:
             properties["$ai_input_state"] = {"prompt": prompt}
@@ -242,12 +248,15 @@ def emit_trace_events(
     parsed: ParsedLog,
     *,
     namespace: str,
+    run_metadata: RunMetadata,
 ) -> None:
     """Emit one ``$ai_generation`` per turn, plus ``$ai_span`` events.
 
     Thin wrapper over ``TraceEventEmitter.emit_parsed_events``.
     """
-    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name, namespace).emit_parsed_events(parsed)
+    TraceEventEmitter(
+        client, trace_id, experiment_id, experiment_name, case_name, namespace, run_metadata=run_metadata
+    ).emit_parsed_events(parsed)
 
 
 def emit_trace_root(
@@ -258,6 +267,7 @@ def emit_trace_root(
     case_name: str,
     *,
     namespace: str,
+    run_metadata: RunMetadata,
     prompt: str,
     duration: float,
     first_timestamp: str,
@@ -267,7 +277,9 @@ def emit_trace_root(
     token_usage: dict[str, int] | None = None,
 ) -> None:
     """Thin wrapper over ``TraceEventEmitter.emit_root``."""
-    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name, namespace).emit_root(
+    TraceEventEmitter(
+        client, trace_id, experiment_id, experiment_name, case_name, namespace, run_metadata=run_metadata
+    ).emit_root(
         prompt=prompt,
         duration=duration,
         first_timestamp=first_timestamp,
@@ -285,6 +297,7 @@ def emit_evaluation_events(
     eval_results: list[CaseResult],
     *,
     namespace: str,
+    run_metadata: RunMetadata,
     scorer_traces: dict[tuple[str, str], str] | None = None,
 ) -> None:
     """Emit ``$ai_evaluation`` events for each scorer result in each eval case.
@@ -313,6 +326,7 @@ def emit_evaluation_events(
             trace_id = scorer_trace_id or agent_trace_id
 
             properties: dict[str, Any] = {
+                **run_metadata,
                 "$ai_eval_source": namespace,
                 "$ai_evaluation_type": "offline",
                 "$ai_experiment_id": experiment_id,

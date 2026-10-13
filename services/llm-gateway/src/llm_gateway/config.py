@@ -226,6 +226,8 @@ class Settings(BaseSettings):
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
+    posthog_code_user_cost_limits_enabled: bool = False
+    posthog_code_capped_user_ids: set[int] = set()
 
     # Per-sandbox-run ceiling, keyed on the task the token was minted for. Product and user
     # budgets are windowed, so neither bounds one runaway conversation inside its window.

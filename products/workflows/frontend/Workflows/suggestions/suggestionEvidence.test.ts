@@ -1,4 +1,4 @@
-import { formatValue, readUnit } from './suggestionEvidence'
+import { evidenceDisagrees, formatValue, readUnit } from './suggestionEvidence'
 
 describe('suggestionEvidence', () => {
     it.each([
@@ -24,5 +24,22 @@ describe('suggestionEvidence', () => {
         [undefined, null],
     ])('reads the unit %s', (raw, expected) => {
         expect(readUnit(raw)).toBe(expected)
+    })
+
+    const measured = {
+        version: 1,
+        window: '-7d',
+        target: { metric: 'email open rate', value: 0.076, n: 132, below_minimum_sample: false },
+        click_through: { metric: 'click rate', value: 0.008, n: 132, below_minimum_sample: false },
+        guardrails: [],
+    }
+
+    it.each([
+        ['the same number', { unit: 'rate', current_value: 0.0758, n: 132 }, false],
+        ['a number a whole point off', { unit: 'rate', current_value: 0.09, n: 132 }, true],
+        ['a different denominator', { unit: 'rate', current_value: 0.076, n: 500 }, true],
+        ['a count, which is not compared', { unit: 'count', current_value: 10, n: 132 }, false],
+    ])('flags %s against what PostHog measured', (_name, evidence, expected) => {
+        expect(evidenceDisagrees(evidence, measured)).toBe(expected)
     })
 })

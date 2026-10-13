@@ -10,7 +10,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional DAG to place this view into"
+            "description": "DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed."
         },
         "description": {
             "anyOf": [

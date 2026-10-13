@@ -24,6 +24,7 @@ jest.mock('scenes/max/MaxTool', () => ({
 }))
 
 jest.mock('products/posthog_ai/frontend/api/logics', () => ({
+    ...jest.requireActual('products/posthog_ai/frontend/api/logics'),
     useMcpToolApplyBack: jest.fn(),
 }))
 

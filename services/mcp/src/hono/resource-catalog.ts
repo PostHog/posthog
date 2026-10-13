@@ -146,7 +146,7 @@ export class ResourceCatalog {
     }
 
     private contextMillLocalUrl(): string | undefined {
-        const localUrlRaw = (this.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+        const localUrlRaw = this.env.POSTHOG_MCP_LOCAL_SKILLS_URL
         return localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
     }
 

@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
+import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -55,7 +56,7 @@ def _post_graphql(
     variables: dict[str, Any],
 ) -> dict[str, Any]:
     @retry(
-        retry=retry_if_exception_type(PgAnalyzeRetryableError),
+        retry=retry_if_exception_type((PgAnalyzeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(PGANALYZE_MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=30),
         reraise=True,

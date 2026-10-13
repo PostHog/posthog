@@ -4,7 +4,7 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use tracing::Level;
 
-use crate::v0_request::AiLanePredicate;
+use crate::producers::ProducerName;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
@@ -117,7 +117,7 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
-    /// Max staleness before re-sync with Redis (seconds)
+    /// Base re-sync cadence (seconds). The pressure tier scales it
     #[envconfig(default = "15")]
     pub global_rate_limit_sync_interval_secs: u64,
 
@@ -138,27 +138,19 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
-    /// Minimum effective event count before a key earns a Redis sync. Keys below
-    /// this cannot be limited whatever other nodes report, so syncing them costs
-    /// two Redis keys per tick for no enforcement value. With an unbounded key
-    /// space this is what keeps the pipeline sized to enforceable keys rather
-    /// than to total traffic. 0 syncs every key.
-    ///
-    /// The level is per-pod, so this must stay well under
-    /// `threshold / pod_count` or a key sitting at the threshold but spread
-    /// evenly across the fleet would never sync and could never be limited.
+    /// Minimum local event count before a key earns a Redis read; `0` reads every key. Keep
+    /// it well under `threshold / pod_count`, or a key at its limit spread across pods is read
+    /// more than a window late.
     #[envconfig(default = "10")]
     pub global_rate_limit_min_sync_floor: u64,
 
-    /// Max keys drained from the pending-sync set per tick. Excess stays queued,
-    /// so a backlog shows up as sync staleness rather than a tick that overruns
-    /// its interval.
+    /// Max keys read, and max write entries sent, per tick. The rest wait, so a backlog
+    /// shows as staleness rather than a tick that overruns its interval.
     #[envconfig(default = "20000")]
     pub global_rate_limit_max_sync_keys_per_tick: usize,
 
-    /// Max Redis keys per individual command. Reads cost two keys per entity, so
-    /// an entity chunk is half this. Bounds how long any single command can take,
-    /// which is what the per-command timeouts below are budgeting for.
+    /// Max Redis keys per command (a read costs two per entity), so one command fits the
+    /// Redis client's response timeout.
     #[envconfig(default = "2000")]
     pub global_rate_limit_max_keys_per_command: usize,
 
@@ -179,8 +171,8 @@ pub struct Config {
     #[envconfig(default = "200000")]
     pub global_rate_limit_max_pending_sync_entries: usize,
 
-    /// How long a local cache entry survives regardless of access (seconds).
-    /// Bounds how stale a key's cached count can be before it is rebuilt.
+    /// Seconds since a cache entry was last written before it is dropped. Every request
+    /// and read rewrites the entry, so at or above the idle timeout this never fires first.
     #[envconfig(default = "600")]
     pub global_rate_limit_local_cache_ttl_secs: u64,
 
@@ -194,11 +186,17 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub global_rate_limit_local_cache_idle_timeout_secs: u64,
 
-    /// Timeout for a single global rate limiter Redis read command (milliseconds).
+    /// Seconds reads (replica, then primary) must keep failing before a pod stops
+    /// limiting on its own unconfirmed counts. Unset uses each limiter's window; `0` disables.
+    pub global_rate_limit_max_read_outage_secs: Option<u64>,
+
+    /// The limiter's cap on one Redis read command (milliseconds). The Redis
+    /// client's response timeout also applies, and the shorter one fires first.
     #[envconfig(default = "250")]
     pub global_rate_limit_read_timeout_ms: u64,
 
-    /// Timeout for a single global rate limiter Redis write command (milliseconds).
+    /// The limiter's cap on one Redis write command (milliseconds). The Redis
+    /// client's response timeout also applies, and the shorter one fires first.
     #[envconfig(default = "250")]
     pub global_rate_limit_write_timeout_ms: u64,
 
@@ -220,17 +218,16 @@ pub struct Config {
     /// Falls back to the shared redis_url if unset.
     pub global_rate_limit_redis_url: Option<String>,
 
-    /// Optional Redis reader URL for global rate limiter (replica).
-    /// When set alongside global_rate_limit_redis_url, creates a ReadWriteClient
-    /// that routes reads to replicas and writes to the primary.
+    /// Optional replica URL: with `global_rate_limit_redis_url` set, reads go here and writes
+    /// to the primary. A replica read that fails with a recoverable error retries on the primary.
     pub global_rate_limit_redis_reader_url: Option<String>,
 
-    /// Response timeout for dedicated global rate limiter Redis (milliseconds).
-    /// Defaults to redis_response_timeout_ms if unset.
+    /// Response timeout (ms) for the dedicated limiter Redis, defaulting to
+    /// `redis_response_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_response_timeout_ms: Option<u64>,
 
-    /// Connection timeout for dedicated global rate limiter Redis (milliseconds).
-    /// Defaults to redis_connection_timeout_ms if unset.
+    /// Connection timeout (ms) for the dedicated limiter Redis, defaulting to
+    /// `redis_connection_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
     /// Redis key holding the dynamic custom per-key rate-limit thresholds
@@ -283,7 +280,7 @@ pub struct Config {
     pub historical_rerouting_threshold_days: i64,
 
     #[envconfig(nested = true)]
-    pub kafka_topics: KafkaTopicsConfig,
+    pub outputs: OutputsConfig,
 
     /// Application-level compression of session replay payloads, independent of
     /// broker-level compression. Consumers detect and decompress it.
@@ -291,7 +288,7 @@ pub struct Config {
     pub replay_envelope_compression: EnvelopeCompression,
 
     /// Refuse to boot when a registered output has an empty topic name (see
-    /// `TopicTable::check_complete`). Off by default so that a deployment which
+    /// `OutputTable::check_complete`). Off by default so that a deployment which
     /// blanks a topic it never produces to still boots.
     #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
     pub outputs_completeness_check_enabled: bool,
@@ -372,12 +369,6 @@ pub struct Config {
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
-    /// AI lane membership: `allowlist` (exact `AI_EVENT_NAMES`) or `prefix` (any `$ai_*`).
-    /// Set `prefix` only once the environment's AI ingestion pipeline admits by prefix,
-    /// or it DLQs every unlisted `$ai_*` name capture diverts.
-    #[envconfig(from = "CAPTURE_AI_LANE_PREDICATE", default = "allowlist")]
-    pub ai_lane_predicate: AiLanePredicate,
-
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
@@ -452,7 +443,7 @@ pub struct Config {
     // The warnings emitter's own destination. It serves every pipeline that
     // emits (v1 and legacy analytics, both AI endpoints, and replay) but reads
     // only these three vars, never the ingestion producer's settings or
-    // `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`. charts sets all three per env,
+    // `CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC`. charts sets all three per env,
     // pointed at the MSK cluster the clientwarnings consumer reads from.
     //
     // Defaults are inert on purpose: empty hosts or topic makes
@@ -468,16 +459,12 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_kafka_tls: bool,
 
-    /// Per-token byte/second budget for the AI lane. `0` disables the limiter.
-    ///
-    /// The budget is enforced fleet-wide by the global rate limiter, over the
-    /// shared `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` sliding window, so the
-    /// cap a token actually sees is this value times the window length. Within
-    /// a window the token may spend the whole budget at once.
+    /// Per-token AI bytes per second, enforced fleet-wide as this times the AI byte window;
+    /// `0` (and import mode) disables it. A token may spend a whole window's budget at once.
     #[envconfig(default = "0")]
     pub ai_byte_limit_per_second: u64,
 
-    /// CSV list of `token=bytesPerSecond` pairs raising specific tokens' budgets.
+    /// CSV list of `token=bytesPerSecond` pairs setting specific tokens' budgets.
     /// Same unit as `ai_byte_limit_per_second`.
     pub ai_byte_limit_overrides_csv: Option<String>,
 
@@ -503,52 +490,108 @@ pub struct Config {
     pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
-/// The topic each capture destination produces to. Connection settings live
-/// with the named producers in [`crate::producers`].
+/// Mirrors Node.js ingestion's `INGESTION_OUTPUT_<OUTPUT>_{TOPIC,PRODUCER}`.
+///
+/// Topic defaults are the local dev and hobby topics. Those stacks pull
+/// `capture:master` with compose files that can predate these variables.
 #[derive(Envconfig, Clone)]
-pub struct KafkaTopicsConfig {
-    #[envconfig(from = "KAFKA_TOPIC", default = "events_plugin_ingestion")]
-    pub main: String,
+pub struct OutputsConfig {
     #[envconfig(
-        from = "KAFKA_OVERFLOW_TOPIC",
+        from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+        default = "events_plugin_ingestion"
+    )]
+    pub analytics_main_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_PRODUCER", default = "INGESTION")]
+    pub analytics_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC",
         default = "events_plugin_ingestion_overflow"
     )]
-    pub overflow: String,
+    pub analytics_overflow_topic: String,
     #[envconfig(
-        from = "KAFKA_HISTORICAL_TOPIC",
+        from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub analytics_overflow_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC",
         default = "events_plugin_ingestion_historical"
     )]
-    pub historical: String,
+    pub analytics_historical_topic: String,
     #[envconfig(
-        from = "KAFKA_CLIENT_INGESTION_WARNING_TOPIC",
-        default = "ingestion-clientwarnings-main-1"
+        from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_PRODUCER",
+        default = "INGESTION"
     )]
-    pub client_ingestion_warning: String,
-    #[envconfig(from = "KAFKA_ERROR_TRACKING_TOPIC", default = "error_tracking_events")]
-    pub error_tracking: String,
-    #[envconfig(from = "KAFKA_HEATMAPS_TOPIC", default = "heatmaps_ingestion")]
-    pub heatmaps: String,
+    pub analytics_historical_producer: ProducerName,
     #[envconfig(
-        from = "KAFKA_REPLAY_OVERFLOW_TOPIC",
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC",
+        default = "session_recording_snapshot_item_events"
+    )]
+    pub session_replay_main_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub session_replay_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_TOPIC",
         default = "session_recording_snapshot_item_overflow"
     )]
-    pub replay_overflow: String,
-    #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "events_plugin_ingestion_dlq")]
-    pub dlq: String,
+    pub session_replay_overflow_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub session_replay_overflow_producer: ProducerName,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_TOPIC", default = "heatmaps_ingestion")]
+    pub heatmaps_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_PRODUCER", default = "INGESTION")]
+    pub heatmaps_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC",
+        default = "ingestion-clientwarnings-main-1"
+    )]
+    pub client_warnings_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub client_warnings_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC",
+        default = "ingestion-errortracking-main"
+    )]
+    pub error_tracking_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_PRODUCER", default = "INGESTION")]
+    pub error_tracking_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_DLQ_TOPIC",
+        default = "events_plugin_ingestion_dlq"
+    )]
+    pub dlq_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_DLQ_PRODUCER", default = "INGESTION")]
+    pub dlq_producer: ProducerName,
     /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
     /// divert AI events here instead of the main topic on every deployment,
     /// capture-ai included. Setup also injects it into every v1 sink config.
     #[envconfig(
-        from = "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC",
+        from = "CAPTURE_OUTPUT_AI_MAIN_TOPIC",
         default = "events_plugin_ingestion_ai"
     )]
-    pub ai_events: String,
+    pub ai_main_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
+    pub ai_main_producer: ProducerName,
     /// Unset means AI events never overflow. When set, the AI lane uses the
     /// analytics main lane's overflow limiter and restriction-driven
     /// force_overflow, and reroutes here. Import mode refuses it at boot
     /// because imports must never overflow.
-    #[envconfig(from = "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
-    pub ai_events_overflow: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC")]
+    pub ai_overflow_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_PRODUCER", default = "INGESTION")]
+    pub ai_overflow_producer: ProducerName,
+    /// Carries event-restriction redirects to an admin-supplied topic.
+    #[envconfig(from = "CAPTURE_OUTPUT_CUSTOM_PRODUCER", default = "INGESTION")]
+    pub custom_producer: ProducerName,
 }
 
 #[derive(Envconfig, Clone)]
@@ -619,7 +662,7 @@ pub struct KafkaConfig {
 #[cfg(test)]
 mod tests {
     use super::{CaptureMode, Config};
-    use crate::v0_request::AiLanePredicate;
+    use crate::producers::ProducerName;
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -631,24 +674,33 @@ mod tests {
     }
 
     #[test]
-    fn capture_analytics_ai_events_topic_defaults() {
+    fn output_topic_defaults_match_the_local_stack() {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(config.kafka_topics.ai_events, "events_plugin_ingestion_ai");
-        assert_eq!(config.kafka_topics.ai_events_overflow, None);
+        assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
+        assert_eq!(config.outputs.ai_overflow_topic, None);
+        assert_eq!(
+            config.outputs.session_replay_main_topic,
+            "session_recording_snapshot_item_events"
+        );
+        assert_eq!(
+            config.outputs.error_tracking_topic,
+            "ingestion-errortracking-main"
+        );
     }
 
     #[rstest::rstest]
-    #[case("KAFKA_TOPIC", |c: &Config| c.kafka_topics.main.clone())]
-    #[case("KAFKA_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.overflow.clone())]
-    #[case("KAFKA_HISTORICAL_TOPIC", |c: &Config| c.kafka_topics.historical.clone())]
-    #[case("KAFKA_CLIENT_INGESTION_WARNING_TOPIC", |c: &Config| c.kafka_topics.client_ingestion_warning.clone())]
-    #[case("KAFKA_ERROR_TRACKING_TOPIC", |c: &Config| c.kafka_topics.error_tracking.clone())]
-    #[case("KAFKA_HEATMAPS_TOPIC", |c: &Config| c.kafka_topics.heatmaps.clone())]
-    #[case("KAFKA_REPLAY_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.replay_overflow.clone())]
-    #[case("KAFKA_DLQ_TOPIC", |c: &Config| c.kafka_topics.dlq.clone())]
-    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", |c: &Config| c.kafka_topics.ai_events.clone())]
-    #[case("CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.ai_events_overflow.clone().unwrap_or_default())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC", |c: &Config| c.outputs.analytics_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC", |c: &Config| c.outputs.analytics_overflow_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC", |c: &Config| c.outputs.analytics_historical_topic.clone())]
+    #[case("CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC", |c: &Config| c.outputs.session_replay_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_TOPIC", |c: &Config| c.outputs.session_replay_overflow_topic.clone())]
+    #[case("CAPTURE_OUTPUT_HEATMAPS_TOPIC", |c: &Config| c.outputs.heatmaps_topic.clone())]
+    #[case("CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC", |c: &Config| c.outputs.client_warnings_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC", |c: &Config| c.outputs.error_tracking_topic.clone())]
+    #[case("CAPTURE_OUTPUT_DLQ_TOPIC", |c: &Config| c.outputs.dlq_topic.clone())]
+    #[case("CAPTURE_OUTPUT_AI_MAIN_TOPIC", |c: &Config| c.outputs.ai_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone().unwrap_or_default())]
     fn topic_env_var_binds_to_its_field(
         #[case] env_var: &str,
         #[case] field: fn(&Config) -> String,
@@ -657,6 +709,57 @@ mod tests {
         env.insert(env_var.into(), "configured_topic".into());
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
         assert_eq!(field(&config), "configured_topic");
+    }
+
+    #[rstest::rstest]
+    #[case("KAFKA_TOPIC")]
+    #[case("KAFKA_OVERFLOW_TOPIC")]
+    #[case("KAFKA_HISTORICAL_TOPIC")]
+    #[case("KAFKA_CLIENT_INGESTION_WARNING_TOPIC")]
+    #[case("KAFKA_ERROR_TRACKING_TOPIC")]
+    #[case("KAFKA_HEATMAPS_TOPIC")]
+    #[case("KAFKA_REPLAY_OVERFLOW_TOPIC")]
+    #[case("KAFKA_DLQ_TOPIC")]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC")]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
+    fn legacy_topic_env_var_is_not_read(#[case] env_var: &str) {
+        let mut env = required_config_env();
+        env.insert(env_var.into(), "legacy_topic".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        let outputs = &config.outputs;
+        let topics = [
+            outputs.analytics_main_topic.as_str(),
+            outputs.analytics_overflow_topic.as_str(),
+            outputs.analytics_historical_topic.as_str(),
+            outputs.session_replay_main_topic.as_str(),
+            outputs.session_replay_overflow_topic.as_str(),
+            outputs.heatmaps_topic.as_str(),
+            outputs.client_warnings_topic.as_str(),
+            outputs.error_tracking_topic.as_str(),
+            outputs.dlq_topic.as_str(),
+            outputs.ai_main_topic.as_str(),
+            outputs.ai_overflow_topic.as_deref().unwrap_or_default(),
+        ];
+        assert!(!topics.contains(&"legacy_topic"), "{env_var} is still read");
+    }
+
+    #[test]
+    fn output_producers_default_to_ingestion_and_parse_their_env_var() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(
+            config.outputs.analytics_main_producer,
+            ProducerName::Ingestion
+        );
+        assert_eq!(config.outputs.custom_producer, ProducerName::Ingestion);
+
+        let mut env = required_config_env();
+        env.insert(
+            "CAPTURE_OUTPUT_HEATMAPS_PRODUCER".into(),
+            "WARPSTREAM".into(),
+        );
+        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+        assert!(bad.is_err(), "an undeclared producer must fail startup");
     }
 
     #[test]
@@ -673,26 +776,6 @@ mod tests {
             super::EnvelopeCompression::Lz4
         );
         assert!(config.outputs_completeness_check_enabled);
-    }
-
-    #[test]
-    fn ai_lane_predicate_binds_to_its_env_var_and_defaults_to_allowlist() {
-        // Unset must mean `allowlist` so the toggle is a no-op until an env opts in.
-        let config: Config =
-            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Allowlist);
-
-        let mut env = required_config_env();
-        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "prefix".into());
-        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Prefix);
-
-        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "everything".into());
-        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
-        assert!(
-            bad.is_err(),
-            "an unknown predicate must fail startup, not silently fall back"
-        );
     }
 
     #[test]

@@ -1,11 +1,13 @@
 import logging
 from dataclasses import dataclass
+from uuid import UUID
 
 from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
@@ -46,15 +48,23 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     cpu_usage_usec = None
     billed_cpu_usage_usec = None
     cpu_usage_measured_at = None
+    run_id: UUID | None = None
+    cleanup_error: Exception | None = None
+    if input.run_id:
+        try:
+            run_id = UUID(input.run_id)
+        except ValueError:
+            logger.warning(
+                "cleanup_sandbox_gateway_accounting_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
+            )
     try:
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
         stream_completion_safe = True
         sandbox = None
-    except Exception:
+    except Exception as error:
         logger.warning("cleanup_sandbox_get_by_id_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
-        if strict_cleanup:
-            raise
+        cleanup_error = error
         sandbox = None
 
     if sandbox is not None:
@@ -79,21 +89,11 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         try:
             sandbox.destroy()
             stream_completion_safe = True
-        except Exception:
+        except Exception as error:
             logger.warning("cleanup_sandbox_destroy_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
-            if strict_cleanup:
-                close_sandbox_session(
-                    input.sandbox_id,
-                    reason=SandboxSession.EndedReason.CLEANUP,
-                    cpu_usage_usec=cpu_usage_usec,
-                    billed_cpu_usage_usec=billed_cpu_usage_usec,
-                    cpu_usage_measured_at=cpu_usage_measured_at,
-                )
-                raise
+            cleanup_error = error
 
-    # Best-effort usage-ledger end stamp (swallows its own failures). Stamped even when
-    # destroy failed or the sandbox was already gone: the TTL kills any undead sandbox
-    # anyway, and the ledger prefers a slightly early end over an open-ended row.
+    # Costs after failed cleanup are platform overhead, not task costs.
     close_sandbox_session(
         input.sandbox_id,
         reason=SandboxSession.EndedReason.CLEANUP,
@@ -102,9 +102,33 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         cpu_usage_measured_at=cpu_usage_measured_at,
     )
 
-    if input.run_id and stream_completion_safe:
+    accounting_run: TaskRun | None = None
+    if run_id is not None:
         try:
-            TaskRun.clear_sandbox_connection_state_atomic(input.run_id, input.sandbox_id)
+            run = TaskRun.objects.filter(id=run_id).only("id", "team_id", "environment").first()
+            if run is not None and run.environment == TaskRun.Environment.CLOUD:
+                accounting_run = run
+        except Exception:
+            logger.warning(
+                "cleanup_sandbox_gateway_accounting_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
+            )
+
+    if accounting_run is not None:
+        try:
+            refresh_task_run_cost(run_id=accounting_run.id, team_id=accounting_run.team_id)
+        except Exception:
+            logger.warning(
+                "cleanup_sandbox_task_run_cost_refresh_failed",
+                extra={"run_id": str(accounting_run.id)},
+                exc_info=True,
+            )
+
+    if cleanup_error is not None and strict_cleanup:
+        raise cleanup_error
+
+    if run_id is not None and stream_completion_safe:
+        try:
+            TaskRun.clear_sandbox_connection_state_atomic(run_id, input.sandbox_id)
         except TaskRun.DoesNotExist:
             pass
 

@@ -121,10 +121,15 @@ async def test_depot_attempt_fetches_by_attempt_id_and_emits_decoded_ids(monkeyp
     assert result == {"status": "emitted", "job_id": 579485267642625, "lines": 1}
     assert fetched == {"attempt_id": "zf6sbbn2wh", "token": "depot-tok"}
     assert (_FakeEmitter.last_kwargs["trace_id"], _FakeEmitter.last_kwargs["span_id"]) == (
-        80213453736890,
+        80213453736890 | (1 << 127),
         579485267642625,
     )
     assert _FakeEmitter.last_kwargs["attributes"] == {
+        "ci_engine": "depot_ci",
+        "native_attempt_id": _DEPOT_INPUTS.attempt_id,
+        "native_run_id": "",
+        "native_workflow_run_id": "",
+        "native_job_id": "",
         "job_id": 579485267642625,
         "run_id": 80213453736890,
         "repo": "PostHog/posthog",

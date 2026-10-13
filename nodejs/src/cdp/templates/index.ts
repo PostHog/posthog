@@ -21,6 +21,8 @@ import { template as metaAdsTemplate } from './_destinations/meta_ads/meta.templ
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
+import { template as pagerdutyTemplate } from './_destinations/pagerduty/pagerduty.template'
+import { template as pinterestAdsTemplate } from './_destinations/pinterest_ads/pinterest.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
@@ -36,6 +38,7 @@ import { template as posthogUpdateAccountRelationshipsTemplate } from './_destin
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
 import { template as posthogRunScoutTemplate } from './_destinations/posthog_signals/posthog-run-scout.template'
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
+import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
@@ -79,6 +82,7 @@ export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComi
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     slackTemplate,
     webhookTemplate,
+    pagerdutyTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,
     linearTemplate,
@@ -90,6 +94,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     microsoftAdsTemplate,
     openaiAdsTemplate,
     redditAdsTemplate,
+    pinterestAdsTemplate,
     twilioTemplate,
     whatsappTemplate,
     googleSheetsTemplate,
@@ -107,6 +112,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
+    posthogClassifyTemplate,
     posthogCreateAccountTemplate,
     posthogCreateCustomerTaskTemplate,
     posthogGetAccountTemplate,

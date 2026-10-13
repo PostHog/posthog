@@ -6,6 +6,8 @@ so cross-product callers that build or sanitize notebook content import them fro
 here rather than reaching into ``backend.util``.
 """
 
+from typing import Any
+
 from ..markdown_conversion import (
     build_markdown_notebook_content as build_markdown_notebook_content,
     convert_notebook_content_to_markdown as convert_notebook_content_to_markdown,
@@ -17,6 +19,7 @@ from ..util import (
     SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES as SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES,
     TipTapContent as TipTapContent,
     TipTapNode as TipTapNode,
+    _parse_markdown_component_props,
     create_bullet_list as create_bullet_list,
     create_empty_paragraph as create_empty_paragraph,
     create_heading_with_text as create_heading_with_text,
@@ -27,6 +30,27 @@ from ..util import (
     extract_inline_query_nodes as extract_inline_query_nodes,
     extract_referenced_insight_short_ids as extract_referenced_insight_short_ids,
     filter_notebook_content_for_sharing as filter_notebook_content_for_sharing,
+    iter_markdown_blocks,
     iter_prosemirror_nodes as iter_prosemirror_nodes,
     sanitize_text_content as sanitize_text_content,
 )
+from . import contracts
+
+
+def parse_markdown_component_document(content: Any) -> list[contracts.NotebookMarkdownComponent]:
+    if not is_markdown_notebook_content(content):
+        raise contracts.NotebookMarkdownContentInvalid("Content must use the Markdown notebook document format.")
+
+    markdown = convert_notebook_content_to_markdown(content)
+    components: list[contracts.NotebookMarkdownComponent] = []
+    for block in iter_markdown_blocks(markdown):
+        if block.kind != "component" or block.tag_name is None:
+            raise contracts.NotebookMarkdownContentInvalid("Account views can contain components only.")
+        components.append(
+            contracts.NotebookMarkdownComponent(
+                tag_name=block.tag_name,
+                node_id=block.node_id,
+                props=_parse_markdown_component_props(block.source),
+            )
+        )
+    return components

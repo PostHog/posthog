@@ -7,7 +7,13 @@ from django.core.cache import cache as django_cache
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import SlackSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
@@ -20,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     manual_cache_id,
     slack_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
 
 
 def _make_response(payload: dict[str, Any]) -> MagicMock:
@@ -425,28 +432,18 @@ class TestSlackSourceChannelsEndpoint:
     def teardown_method(self) -> None:
         django_cache.clear()
 
-    def _build_source(self, authed_user: str | None) -> Any:
-        return slack_source(
-            access_token="token",
-            cache_id="42",
-            endpoint="$channels",
-            team_id=1,
-            job_id="job-1",
-            webhook_source_manager=MagicMock(spec=WebhookSourceManager),
-            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-            authed_user=authed_user,
-        )
-
     @parameterized.expand(
         [
             (
                 "with_authed_user",
                 "U_INSTALLER",
-                [{"id": "C1", "name": "general"}, {"id": "G1", "name": "secret"}],
+                [{"id": "C1", "name": "general"}],
+                [{"id": "G1", "name": "secret"}],
             ),
             (
                 "without_authed_user",
                 None,
+                [],
                 [],
             ),
         ]
@@ -455,17 +452,24 @@ class TestSlackSourceChannelsEndpoint:
         self,
         _name: str,
         authed_user: str | None,
-        sample: list[dict[str, Any]],
+        public: list[dict[str, Any]],
+        private: list[dict[str, Any]],
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
-            return_value=sample,
-        ) as mock_fetch:
-            response = self._build_source(authed_user=authed_user)
-            items = list(response.items())
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/auth.test":
+                return ScriptedResponse(
+                    json={"ok": True, "user_id": authed_user} if authed_user else {"ok": False, "error": "invalid_auth"}
+                )
+            channels = public if request.path == "/api/conversations.list" else private
+            return ScriptedResponse(json=_make_channel_page(channels))
 
-        assert items == sample
-        mock_fetch.assert_called_once_with("token", authed_user)
+        result = SourceDriver(SlackSource(), SlackSourceConfig.from_dict({"slack_access_token": "token"})).run(
+            "$channels", script
+        )
+
+        assert result.rows == [*public, *private]
+        assert result.paths == ["/api/auth.test", "/api/conversations.list", "/api/users.conversations"]
+        assert result.requests[2].param("user") == authed_user
 
 
 class TestSlackSourceChannelMessagesWebhookOnly:
@@ -510,6 +514,17 @@ class TestSlackSourceChannelMessagesWebhookOnly:
         assert items == expected_items
         assert manager.get_items.called == expect_get_items_called
         mock_backfill.assert_not_called()
+
+    def test_a_channel_with_no_live_webhook_stays_empty_without_backfilling(self) -> None:
+        result = SourceDriver(SlackSource(), SlackSourceConfig.from_dict({"slack_access_token": "token"})).run(
+            "C123", [ScriptedResponse(json={"ok": True, "user_id": "UBOT"})]
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/api/auth.test"]
+        assert result.response is not None
+        assert result.response.webhook_only is True
 
 
 class TestResolveAccessToken:

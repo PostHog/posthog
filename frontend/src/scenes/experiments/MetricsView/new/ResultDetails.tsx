@@ -128,6 +128,8 @@ export function ResultDetails({
         {
             key: 'total-users',
             title: 'Exposures',
+            tooltip:
+                "Exposures counted by this metric's query, so the count can differ from the Exposures panel. With 'Require completed conversion or retention window' enabled, users whose window hasn't elapsed are excluded.",
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {

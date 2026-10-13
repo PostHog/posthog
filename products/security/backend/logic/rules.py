@@ -50,10 +50,19 @@ class SnapshotRule:
             except ValueError:
                 return None
 
+        # The hub normalizes a target value when the rule is written, and a subject's address
+        # is normalized at decision time, so the two already meet in the middle. Folding the
+        # case again here costs nothing and closes a silent failure: a rule that reached the
+        # snapshot un-normalized would match nobody, and nothing would report it. The Redis
+        # list this replaced lowercased on read, so it could not be defeated that way.
+        target_value = values["targetValue"]
+        if values["targetType"] in ("email", "email_root", "email_domain"):
+            target_value = target_value.strip().lower()
+
         return cls(
             id=values["id"],
             target_type=values["targetType"],
-            target_value=values["targetValue"],
+            target_value=target_value,
             effect=values["effect"],
             scope=values["scope"],
             expires_at=expires_at,

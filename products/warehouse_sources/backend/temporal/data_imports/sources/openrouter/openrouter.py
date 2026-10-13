@@ -52,6 +52,8 @@ def _build_url(path: str, params: Optional[dict[str, Any]] = None) -> str:
             requests.ReadTimeout,
             requests.ConnectionError,
             requests.exceptions.ChunkedEncodingError,
+            # A 200 whose body was cut off mid-transfer fails to parse; a fresh request usually succeeds.
+            requests.exceptions.JSONDecodeError,
         )
     ),
     stop=stop_after_attempt(5),

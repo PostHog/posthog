@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sta
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import acreate_workflow_for_test
 
 
 def _patch_async_producer_scope(mock_producer):
@@ -71,24 +71,35 @@ async def test_should_run_no_hog_function(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_run_with_matching_hog_function(team):
+@pytest.mark.parametrize(
+    ("schema_name", "linked_table_name", "hogql_table_name"),
+    [
+        ("public.widgets", "postgres_widgets", "postgres.widgets"),
+        ("public.widgets", None, "postgres.public__widgets"),
+    ],
+)
+async def test_should_run_with_matching_hog_function(team, schema_name, linked_table_name, hogql_table_name):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
-    table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_table_1", external_data_source=source
+    table = (
+        await sync_to_async(DataWarehouseTable.objects.create)(
+            team=team, name=linked_table_name, external_data_source=source
+        )
+        if linked_table_name
+        else None
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        team=team, name="table_1", source=source, table=table
+        team=team, name=schema_name, source=source, table=table
     )
-
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": hogql_table_name}]},
     )
 
     producer = CDPProducer.for_source(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.get_dot_notated_table_name() == hogql_table_name
     assert await producer.should_run() is True
 
 
@@ -146,7 +157,7 @@ async def test_should_run_with_new_style_table_name(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres.table_1", external_data_source=source
+        team=team, name="postgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -169,7 +180,7 @@ async def test_should_run_with_source_prefix(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="eu"
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_eu_table_1", external_data_source=source
+        team=team, name="eupostgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -192,7 +203,7 @@ async def test_should_run_with_leading_underscore_source_prefix(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="_eu"
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_eu_table_1", external_data_source=source
+        team=team, name="_eupostgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -221,9 +232,9 @@ async def test_should_run_with_matching_hog_flow(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -244,9 +255,9 @@ async def test_should_not_produce_table_with_draft_hog_flow(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.DRAFT,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="draft",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -267,9 +278,9 @@ async def test_should_not_produce_table_with_non_matching_hog_flow_table(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.some_other_table"},
     )
 
@@ -295,9 +306,9 @@ async def test_should_run_with_both_hog_function_and_flow(team):
         enabled=True,
         filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -599,6 +610,74 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
     mock_capture_exception.assert_called_once()
     mock_kafka_producer.produce.assert_not_called()
     mock_fs.delete_file.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.capture_exception")
+async def test_produce_to_kafka_from_s3_retries_a_transient_s3_read_failure(
+    mock_capture_exception, mock_get_s3_client, team
+):
+    # A HeadObject 503 that pyarrow surfaces as "AWS Error UNKNOWN" is a known-transient S3 blip
+    # (see is_transient_object_store_error), not a bug in our code: the open must be retried before
+    # the per-file swallow-and-delete path (which would otherwise drop the file's rows for good) is
+    # reached.
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    mock_s3_client = mock.AsyncMock()
+    mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+
+    mock_kafka_producer = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
+
+    test_data = pa.table({"id": [1], "name": ["Alice"]})
+    parquet_buffer = BytesIO()
+    pq.write_table(test_data, parquet_buffer, compression="zstd")
+    parquet_buffer.seek(0)
+
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
+    mock_file.__exit__ = MagicMock(return_value=False)
+
+    transient_error = OSError(
+        "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+    )
+    mock_fs = MagicMock()
+    mock_fs.open_input_file.side_effect = [transient_error, mock_file]
+    mock_fs.delete_file = MagicMock()
+
+    producer = CDPProducer.for_source(
+        team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock()
+    )
+
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        _patch_async_producer_scope(mock_kafka_producer),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store.asyncio.sleep",
+            new=mock.AsyncMock(),
+        ),
+    ):
+        await producer.produce_to_kafka_from_s3()
+
+    assert mock_fs.open_input_file.call_count == 2
+    mock_kafka_producer.produce.assert_called_once()
+    mock_fs.delete_file.assert_called_once()
+    mock_capture_exception.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1128,10 +1207,10 @@ async def test_view_should_run_with_matching_hog_function(team):
 @pytest.mark.asyncio
 async def test_view_should_run_with_matching_hog_flow(team):
     view = await _create_view(team)
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
+    await acreate_workflow_for_test(
+        team_id=team.id,
         name="test workflow",
-        status=HogFlow.State.ACTIVE,
+        status="active",
         trigger={"type": "data-warehouse-view", "table_name": "daily_revenue"},
         edges=[],
         actions=[],

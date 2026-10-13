@@ -7,7 +7,18 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { API_SCOPES, DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
+import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
+import {
+    API_SCOPES,
+    DEFAULT_OAUTH_SCOPES,
+    clampScopeLevel,
+    getMinimumEquivalentScopes,
+    getScopeDescription,
+    groupScopeRows,
+    type ScopePickerGroup,
+    type ScopeAccessLevel,
+    type ScopePickerRow,
+} from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,42 +34,37 @@ const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
 
-export type ScopeAccessLevel = 'none' | 'read' | 'write'
-
-const ACCESS_LEVEL_ORDER: Record<ScopeAccessLevel, number> = { none: 0, read: 1, write: 2 }
-
-const clampAccessLevel = (level: ScopeAccessLevel, min: ScopeAccessLevel, max: ScopeAccessLevel): ScopeAccessLevel => {
-    if (ACCESS_LEVEL_ORDER[level] < ACCESS_LEVEL_ORDER[min]) {
-        return min
-    }
-    if (ACCESS_LEVEL_ORDER[level] > ACCESS_LEVEL_ORDER[max]) {
-        return max
-    }
-    return level
-}
-
-export type OAuthScopeRow = {
-    /** Scope object key (e.g. 'feature_flag'), or '*' for the wildcard. */
-    key: string
-    /** Human name for the object (e.g. 'Feature flag'). */
-    label: string
+export type OAuthScopeRow = ScopePickerRow & {
     /** Full sentence description at the granted level, for the locked (checkmark) list. */
     description: string
-    /** Optional extra context from API_SCOPES, shown as an info tooltip. */
-    info?: string | JSX.Element
-    /** Warning for the currently selected level, if any. */
-    warning?: string | JSX.Element
     /** Required floor — the grant can never go below this. 'none' when not required. */
     minLevel: ScopeAccessLevel
     /** Requested ceiling — the grant can never go above what the client asked for. */
     maxLevel: Exclude<ScopeAccessLevel, 'none'>
-    /** Current (clamped) selection. */
-    value: ScopeAccessLevel
     /** True when minLevel === maxLevel: nothing to choose, rendered as a locked checkmark row. */
     locked: boolean
 }
 
+export type OAuthScopeGroup = ScopePickerGroup<OAuthScopeRow>
+
+// The floor and the ceiling as the reasons a level is not available, in the words the row shows.
+// The shared clamp and group control work from these, so a group set to write holds a read-only
+// row at read and a group set to none holds a required row at read.
+const oauthDisabledReasons = (
+    minLevel: ScopeAccessLevel,
+    maxLevel: ScopeAccessLevel,
+    appName: string
+): Partial<Record<ScopeAccessLevel, string>> => ({
+    ...(minLevel !== 'none' ? { none: `${appName} requires at least ${minLevel} access` } : {}),
+    ...(minLevel === 'write' ? { read: `${appName} requires write access` } : {}),
+    ...(maxLevel !== 'write' ? { write: `Not requested by ${appName}` } : {}),
+})
+
 const WILDCARD_LABEL = 'All PostHog data'
+
+// A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
+// headers only help when the list is long.
+export const SCOPE_GROUPING_MIN_ROWS = 10
 
 // Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
 // behind) — derive a readable label from the raw key.
@@ -86,19 +92,14 @@ const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, Require
     return levels
 }
 
-// Mirrors PRIVILEGED_SCOPES + OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py: objects
-// /authorize can never grant, so the wildcard expansion must skip them or the server
-// would reject the whole submit with invalid_scope.
-const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
-
 // `*` grants read+write to everything; its read-only form is every grantable object's read
-// scope. The server-computed list is authoritative — the local API_SCOPES list both lags
-// behind new backend scopes (under-granting) and contains ungrantable ones (over-granting,
-// which the server rejects). The local fallback only covers a missing app context.
+// scope. The server-computed list is authoritative, because it applies the app's ceiling.
+// The fallback only covers a missing app context, and takes the read scopes OAuth advertises
+// so it never names a scope the server would reject with invalid_scope.
 const wildcardReadScopes = (oauthApplication: OAuthApplicationPublicMetadata | null): string[] =>
     oauthApplication?.wildcard_read_scopes?.length
         ? oauthApplication.wildcard_read_scopes
-        : API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
+        : OAUTH_SCOPES_SUPPORTED.filter((scope) => scope.endsWith(':read'))
 
 const isNativeProtocol = (url: string): boolean => {
     try {
@@ -230,7 +231,9 @@ export interface oauthAuthorizeLogicValues {
         bulk: ScopeAccessLevel | null
         overrides: Record<string, ScopeAccessLevel>
     }
+    scopeGroups: OAuthScopeGroup[]
     scopeRows: OAuthScopeRow[]
+    scopeRowsGrouped: boolean
     scopes: string[]
     scopesWereDefaulted: boolean
     selectedOrganization: string | null
@@ -321,6 +324,13 @@ export interface oauthAuthorizeLogicActions {
         level: ScopeAccessLevel
         scopeObject: string
     }
+    setScopeGroupAccess: (
+        scopeObjects: string[],
+        level: ScopeAccessLevel
+    ) => {
+        level: ScopeAccessLevel
+        scopeObjects: string[]
+    }
     setScopes: (scopes: string[]) => {
         scopes: string[]
     }
@@ -384,10 +394,13 @@ export interface oauthAuthorizeLogicMeta {
                 bulk: ScopeAccessLevel | null
                 overrides: Record<string, ScopeAccessLevel>
             },
-            requiredScopeLevels: Map<string, RequiredLevel>
+            requiredScopeLevels: Map<string, RequiredLevel>,
+            appName: string
         ) => OAuthScopeRow[]
         requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        scopeRowsGrouped: (adjustableScopeRows: OAuthScopeRow[]) => boolean
+        scopeGroups: (adjustableScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
         allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
         showReadOnlyBulkAction: (adjustableScopeRows: OAuthScopeRow[]) => boolean
         effectiveScopes: (
@@ -414,6 +427,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
+        setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
         setAllScopeAccess: (level: ScopeAccessLevel) => ({ level }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setTeamHint: (teamId: number | null) => ({ teamId }),
@@ -528,6 +542,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopeAccess: (state, { scopeObject, level }) => ({
                     ...state,
                     overrides: { ...state.overrides, [scopeObject]: level },
+                }),
+                setScopeGroupAccess: (state, { scopeObjects, level }) => ({
+                    ...state,
+                    overrides: {
+                        ...state.overrides,
+                        ...Object.fromEntries(scopeObjects.map((scopeObject) => [scopeObject, level])),
+                    },
                 }),
                 setAllScopeAccess: (_, { level }) => ({ bulk: level, overrides: {} }),
                 setScopes: () => ({ bulk: null, overrides: {} }),
@@ -808,18 +829,20 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // sets the floor, and the user's selection is clamped between the two — so no pick
         // (including bulk actions) can grant more than requested or less than required.
         scopeRows: [
-            (s) => [s.consentResourceScopes, s.scopeAccessSelections, s.requiredScopeLevels],
+            (s) => [s.consentResourceScopes, s.scopeAccessSelections, s.requiredScopeLevels, s.appName],
             (
                 consentResourceScopes: string[],
                 scopeAccessSelections: { bulk: ScopeAccessLevel | null; overrides: Record<string, ScopeAccessLevel> },
-                requiredScopeLevels: Map<string, RequiredLevel>
+                requiredScopeLevels: Map<string, RequiredLevel>,
+                appName: string
             ): OAuthScopeRow[] => {
                 const rows = consentResourceScopes.map((scope): OAuthScopeRow => {
                     const key = scopeObjectKey(scope)
                     const maxLevel: 'read' | 'write' = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
                     const minLevel: ScopeAccessLevel = requiredScopeLevels.get(key) ?? 'none'
+                    const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName)
                     const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
-                    const value = clampAccessLevel(selected, minLevel, maxLevel)
+                    const value = clampScopeLevel({ key, label: key, value: selected, disabledReasons }, selected)
                     const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
                     const grantedScope = scope === '*' && value === 'write' ? '*' : `${key}:${value}`
                     return {
@@ -828,6 +851,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         description: getScopeDescription(grantedScope) ?? grantedScope,
                         info: apiScope?.info,
                         warning: value === 'none' ? undefined : apiScope?.warnings?.[value],
+                        muted: value === 'none',
+                        disabledReasons,
                         minLevel,
                         maxLevel,
                         value,
@@ -846,6 +871,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         adjustableScopeRows: [
             (s) => [s.scopeRows],
             (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => !row.locked),
+        ],
+        scopeRowsGrouped: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): boolean => adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS,
+        ],
+        scopeGroups: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => groupScopeRows(adjustableScopeRows),
         ],
         allScopesRequired: [
             (s) => [s.scopeRows],

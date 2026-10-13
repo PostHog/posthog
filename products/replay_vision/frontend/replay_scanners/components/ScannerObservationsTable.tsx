@@ -2,12 +2,22 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconCopy, IconEye, IconPlay, IconRefresh, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
@@ -18,6 +28,7 @@ import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
+import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import { markSimilarSearchIntent, searchTabUrl, similarSearchUrl } from '../../search/observationQueries'
@@ -31,6 +42,7 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
+import { UNATTRIBUTED_VARIANT, variantFilterOptions } from '../scannerVariantsLogic'
 import { OBSERVATION_TRIGGER_TAG, unsuccessfulScanReason } from '../types'
 import { ObservationRowResult } from './ObservationRowResult'
 
@@ -105,6 +117,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationDateFrom,
         observationDateTo,
         observationBackfillFilter,
+        observationVariantFilter,
+        experimentContext,
         hasActiveObservationFilters,
         observationDetailLinkParams,
         availableTags,
@@ -128,6 +142,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationSubjectFilter,
         setObservationDateRange,
         setObservationBackfillFilter,
+        setObservationVariantFilter,
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
@@ -162,17 +177,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     >
                         <div className="relative">
                             <ObservationThumbnail observation={obs} className="w-40 @7xl/observations:w-52" />
-                            {!obs.viewed && (
-                                <LemonTag
-                                    type="primary"
-                                    size="small"
-                                    // The primary tag is transparent by default, which lets the frame show through.
-                                    className="absolute top-1 left-1 shadow-sm bg-surface-primary!"
-                                    title="You haven't opened this observation yet."
-                                >
-                                    New
-                                </LemonTag>
-                            )}
+                            {!obs.viewed && <UnviewedObservationTag className="absolute top-1 left-1" />}
                         </div>
                     </Tooltip>
                 </Link>
@@ -355,12 +360,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             />
                             <FilterPill<ObservationStatusValue>
                                 label="Status"
+                                dataAttr="vision-observations-status-filter"
                                 options={STATUS_OPTIONS}
                                 value={observationStatusFilter}
                                 onChange={setObservationStatusFilter}
                             />
                             <FilterPill<ObservationTriggeredByValue>
                                 label="Triggered by"
+                                dataAttr="vision-observations-triggered-by-filter"
                                 options={TRIGGERED_BY_OPTIONS}
                                 value={observationTriggeredByFilter}
                                 onChange={setObservationTriggeredByFilter}
@@ -368,6 +375,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             {scannerType === 'monitor' && (
                                 <FilterPill<ObservationVerdictValue>
                                     label="Verdict"
+                                    dataAttr="vision-observations-verdict-filter"
                                     options={VERDICT_OPTIONS}
                                     value={observationVerdictFilter}
                                     onChange={setObservationVerdictFilter}
@@ -387,6 +395,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
                                 <FilterPill<string>
                                     label="Category"
+                                    dataAttr="vision-observations-category-filter"
                                     searchPlaceholder="Search categories"
                                     options={tagFilterOptions}
                                     value={observationTagFilter}
@@ -412,6 +421,45 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 >
                                     Backfill {shortBackfillId(observationBackfillFilter)}
                                 </LemonButton>
+                            )}
+                            {scannerType === 'experiment' ? (
+                                <LemonSelect
+                                    size="small"
+                                    dropdownMatchSelectWidth={false}
+                                    value={observationVariantFilter}
+                                    onChange={(value) => setObservationVariantFilter(value)}
+                                    options={variantFilterOptions(
+                                        scanner?.scanner_type === 'experiment' &&
+                                            scanner.scanner_config.variants?.length
+                                            ? scanner.scanner_config.variants
+                                            : getExperimentVariants(experimentContext?.experiment).map(
+                                                  (variant) => variant.key
+                                              ),
+                                        observationVariantFilter
+                                    )}
+                                    renderButtonContent={(leaf) =>
+                                        leaf?.value == null ? 'All variants' : `Variant: ${leaf.label}`
+                                    }
+                                    data-attr="vision-observations-variant-filter"
+                                />
+                            ) : (
+                                observationVariantFilter && (
+                                    // Arrives from the Variants tab, so like the backfill filter it only clears.
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        sideAction={{
+                                            icon: <IconX />,
+                                            onClick: () => setObservationVariantFilter(null),
+                                            tooltip: 'Clear variant filter',
+                                        }}
+                                        data-attr="vision-observations-variant-filter"
+                                    >
+                                        {observationVariantFilter === UNATTRIBUTED_VARIANT
+                                            ? 'No variant'
+                                            : `Variant: ${observationVariantFilter}`}
+                                    </LemonButton>
+                                )
                             )}
                             <LemonButton
                                 type="tertiary"

@@ -148,7 +148,7 @@ Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` 
 
 - **Quota check**: Uses `FeatureFlagsLimiter.is_limited(token)` to verify the team hasn't exceeded their feature flag request quota. Returns HTTP 402 with a JSON body (`{"type": "quota_limited", "code": "payment_required", ...}`) when the quota is exceeded.
 - **Non-billable flag filtering**: Usage tracking skips requests where the response contains only non-billable flags — i.e., flags with keys starting with `survey-targeting-` or `product-tour-targeting-`. The shared `is_billable_flag_key()` predicate (in `flag_analytics.rs`) is used by both this endpoint and the `/flags` billing handler.
-- **304 responses bill 1 unit**: A conditional response that returns `304 Not Modified` is recorded on its own counter and billed at the `/flags` rate, a tenth of a full response, for teams in `FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS`. See [Conditional requests (ETag)](billing.md#conditional-requests-etag) for the billable-flag memo and what goes unbilled.
+- **304 responses skip billing**: Usage is recorded after the ETag/304 path, so conditional responses that return `304 Not Modified` are not counted toward billing. This matches Django's behavior.
 
 ## Request and response types
 
@@ -252,11 +252,11 @@ Exact property matching is selected per team through `TeamFeatureFlagsConfig.pro
 | `PERSONS_WRITE_DATABASE_URL`              | (empty, aliases to main)                            | Persons database primary              |
 | `PERSONS_READ_DATABASE_URL`               | (empty, aliases to main)                            | Persons database replica              |
 | `MAX_PG_CONNECTIONS`                      | `10`                                                | Max connections per pool              |
-| `ACQUIRE_TIMEOUT_SECS`                    | `5`                                                 | Connection acquisition timeout        |
+| `ACQUIRE_TIMEOUT_SECS`                    | `1`                                                 | Connection acquisition timeout        |
 | `IDLE_TIMEOUT_SECS`                       | `300`                                               | Close idle connections after this     |
 | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | `2000`                                              | Statement timeout for flag/team reads |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `3000`                                              | Statement timeout for person lookups  |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | `3000`                                              | Statement timeout for writes          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `1000`                                              | Statement timeout for person lookups  |
+| `WRITER_STATEMENT_TIMEOUT_MS`             | `2000`                                              | Statement timeout for writes          |
 
 ### Behavioral cohorts
 
@@ -276,16 +276,17 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### Redis
 
-| Variable                                   | Default                     | Purpose                                                                                                                                                                               |
-| ------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REDIS_URL`                                | `redis://localhost:6379/`   | Shared Redis primary                                                                                                                                                                  |
-| `REDIS_READER_URL`                         | (falls back to `REDIS_URL`) | Shared Redis replica                                                                                                                                                                  |
-| `FLAGS_REDIS_URL`                          | (empty)                     | Dedicated flags Redis primary                                                                                                                                                         |
-| `FLAGS_REDIS_READER_URL`                   | (empty)                     | Dedicated flags Redis replica                                                                                                                                                         |
-| `FLAGS_REDIS_ENABLED`                      | `false`                     | Inert. Nothing reads it, so setting it moves no read path                                                                                                                             |
-| `FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED` | `false`                     | Serve the `/flags/definitions` payload and its ETag from the dedicated flags Redis instead of the shared one. See [dedicated flags Redis](hypercache-system.md#dedicated-flags-redis) |
-| `REDIS_RESPONSE_TIMEOUT_MS`                | `100`                       | Redis response timeout (capped at 30s)                                                                                                                                                |
-| `REDIS_CONNECTION_TIMEOUT_MS`              | `5000`                      | Redis connection timeout (capped at 60s)                                                                                                                                              |
+| Variable                                     | Default                     | Purpose                                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`                                  | `redis://localhost:6379/`   | Shared Redis primary                                                                                                                                                                    |
+| `REDIS_READER_URL`                           | (falls back to `REDIS_URL`) | Shared Redis replica                                                                                                                                                                    |
+| `FLAGS_REDIS_URL`                            | (empty)                     | Dedicated flags Redis primary                                                                                                                                                           |
+| `FLAGS_REDIS_READER_URL`                     | (empty)                     | Dedicated flags Redis replica                                                                                                                                                           |
+| `FLAGS_REDIS_ENABLED`                        | `false`                     | Inert. Nothing reads it, so setting it moves no read path                                                                                                                               |
+| `FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED`   | `false`                     | Serve the `/flags/definitions` payload and its ETag from the dedicated flags Redis instead of the shared one. See [dedicated flags Redis](hypercache-system.md#dedicated-flags-redis)   |
+| `FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` | `false`                     | Rebuild definitions after an S3 hit and a confirmed Redis miss. Requires `FLAG_DEFINITIONS_SELF_HEAL_ENABLED=true`. See [the rebuild queue](hypercache-system.md#dedicated-flags-redis) |
+| `REDIS_RESPONSE_TIMEOUT_MS`                  | `100`                       | Redis response timeout (capped at 30s)                                                                                                                                                  |
+| `REDIS_CONNECTION_TIMEOUT_MS`                | `5000`                      | Redis connection timeout (capped at 60s)                                                                                                                                                |
 
 ### S3 / HyperCache
 

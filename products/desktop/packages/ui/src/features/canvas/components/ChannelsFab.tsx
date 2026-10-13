@@ -122,7 +122,7 @@ export function ChannelsFab({
   );
 
   const tooltip = (
-    <TooltipContent side={inRail ? "right" : "top"} sideOffset={-310}>
+    <TooltipContent side={inRail ? "right" : "top"}>
       {channelsLayout ? (
         <>
           {/* The draft dot needs saying out loud, and the button is where

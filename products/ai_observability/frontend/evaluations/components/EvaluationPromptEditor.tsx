@@ -25,13 +25,15 @@ export function EvaluationPromptEditor(): JSX.Element {
                         value={prompt}
                         onChange={setEvaluationPrompt}
                         placeholder={
-                            evaluation.output_type === 'numeric'
-                                ? 'Describe how to score the response. Return a numeric score within the configured bounds.'
-                                : allowsNA
-                                  ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the criteria doesn't apply.
+                            evaluation.output_type === 'categorical'
+                                ? 'Describe when each category applies. Return the matching category keys.'
+                                : evaluation.output_type === 'numeric'
+                                  ? 'Describe how to score the response. Return a numeric score within the configured bounds.'
+                                  : allowsNA
+                                    ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the criteria doesn't apply.
 
 Example: Is this response mathematically accurate? Return true if correct, false if incorrect, or N/A if no math is involved.`
-                                  : `Write a prompt that evaluates the LLM generation and returns true or false.
+                                    : `Write a prompt that evaluates the LLM generation and returns true or false.
 
 Example: Is this response helpful and accurate? Return true if yes, false if no.`
                         }
@@ -44,13 +46,17 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                         <div className="flex items-center gap-2">
                             <span>Expected output:</span>
                             <LemonTag type="completion">
-                                {evaluation.output_type === 'numeric'
+                                {evaluation.output_type === 'categorical'
                                     ? allowsNA
-                                        ? 'Number or N/A'
-                                        : 'Number'
-                                    : allowsNA
-                                      ? 'Boolean (true/false/NA)'
-                                      : 'Boolean (true/false)'}
+                                        ? 'Category keys or N/A'
+                                        : 'Category keys'
+                                    : evaluation.output_type === 'numeric'
+                                      ? allowsNA
+                                          ? 'Number or N/A'
+                                          : 'Number'
+                                      : allowsNA
+                                        ? 'Boolean (true/false/NA)'
+                                        : 'Boolean (true/false)'}
                             </LemonTag>
                         </div>
                     </div>
@@ -63,7 +69,9 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                     <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                         <li>Be specific about what you want to evaluate</li>
                         <li>
-                            {evaluation.output_type === 'numeric' ? (
+                            {evaluation.output_type === 'categorical' ? (
+                                <span>Explain what each category means and when to select it</span>
+                            ) : evaluation.output_type === 'numeric' ? (
                                 <span>Describe the scoring scale and what each score means</span>
                             ) : allowsNA ? (
                                 <>

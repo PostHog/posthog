@@ -337,6 +337,18 @@ CONSTANCE_CONFIG = {
         'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
         str,
     ),
+    "FLAG_EVALUATIONS_READS_FORCE_EVENTS": (
+        get_from_env("FLAG_EVALUATIONS_READS_FORCE_EVENTS", False, type_cast=str_to_bool),
+        "When on, every organization on flag_evaluations mode 1 reads its flag calls from the events table: the "
+        "feature flag Usage tab, the per-project counts on a flag's Projects tab, and event lists filtered to only "
+        "$feature_flag_called. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 "
+        "keep reading flag_evaluations, because ingestion writes no flag calls to events for their teams in the "
+        "ingestion allowlist. "
+        "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
+        "organization. Takes up to a minute to apply. Pages that are already open need a reload to update the Usage "
+        "tab charts and the 90-day notes.",
+        bool,
+    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -458,6 +470,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
+    "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",

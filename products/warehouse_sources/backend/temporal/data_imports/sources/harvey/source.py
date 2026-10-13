@@ -67,7 +67,7 @@ class HarveySource(ResumableSource[HarveySourceConfig, HarveyResumeConfig]):
             name=ExternalDataSourceType.HARVEY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Harvey",
-            caption="""Enter your Harvey API token to pull audit logs, usage and query history, client matters, and Vault project metadata into the PostHog Data warehouse.
+            caption="""Enter your Harvey API token to pull audit logs, usage and query history, client matters, Vault projects, files, and members, and Vault review tables into the PostHog Data warehouse.
 
 Create an API token in Harvey workspace settings under **API Tokens** (if you don't see that section, ask your Harvey Customer Success Manager to enable API access).
 
@@ -133,7 +133,15 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         def _description(endpoint: str) -> str | None:
             if endpoint in ("usage_history", "query_history"):
                 return "Only syncs the last year on initial sync (Harvey API limit)"
-            if endpoint in ("client_matters", "vault_projects"):
+            if endpoint == "review_table_rows":
+                return "Full refresh only. Makes one request per file in each review table"
+            if endpoint in (
+                "client_matters",
+                "vault_projects",
+                "vault_project_users",
+                "vault_project_files",
+                "review_tables",
+            ):
                 return "Full refresh only"
             return None
 

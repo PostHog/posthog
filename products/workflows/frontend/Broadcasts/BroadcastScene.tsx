@@ -3,16 +3,26 @@ import { BindLogic, useValues } from 'kea'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import {
+    NEW_BROADCAST_AGENT_HEADLINES,
+    NEW_BROADCAST_COMPOSER_OVERRIDE,
+    buildNewBroadcastComposerContext,
+} from './broadcastAgentContext'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { canEditInWizard, isBroadcastShaped } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
 import { BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
+import { NewBroadcastAgent } from './NewBroadcastAgent'
+import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
+
+const NEW_BROADCAST_COMPOSER_CONTEXT = buildNewBroadcastComposerContext()
 
 export const scene: SceneExport<BroadcastWizardLogicProps> = {
     component: BroadcastScene,
@@ -37,6 +47,22 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
 
 function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
     const { broadcast, broadcastLoading } = useValues(broadcastWizardLogic)
+    const { aiComposerAvailable } = useValues(newBroadcastAgentLogic)
+    // The escape hatch lands on the wizard instead (see `aiComposerAvailable`).
+    const showAiComposer = id === 'new' && aiComposerAvailable
+    useSceneAgentPanel({
+        sceneKey: 'broadcast-new',
+        contextItems: showAiComposer ? NEW_BROADCAST_COMPOSER_CONTEXT : null,
+        headlines: NEW_BROADCAST_AGENT_HEADLINES,
+        composer: NEW_BROADCAST_COMPOSER_OVERRIDE,
+        active: showAiComposer,
+        // The composer is the page while drafting; the panel opens itself once the broadcast exists.
+        autoOpen: false,
+    })
+
+    if (showAiComposer) {
+        return <NewBroadcastAgent />
+    }
 
     if (id !== 'new') {
         if (!broadcast && broadcastLoading) {
@@ -51,10 +77,9 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (!isBroadcast && (broadcast.origin_product || !isBroadcastShaped(broadcast.actions as any))) {
             return <NotFound object="broadcast" />
         }
-        if (
-            broadcast.status !== 'draft' ||
-            (!isBroadcast && !canEditInWizard(broadcast.actions as any, broadcast.edges as any))
-        ) {
+        // The wizard saves a broadcast back as its three-step graph, so any other graph (an edit made in the
+        // workflow editor, or an agent-created one) stays read-only here rather than losing its extra steps.
+        if (broadcast.status !== 'draft' || !canEditInWizard(broadcast.actions as any, broadcast.edges as any)) {
             return <BroadcastSummary />
         }
     }

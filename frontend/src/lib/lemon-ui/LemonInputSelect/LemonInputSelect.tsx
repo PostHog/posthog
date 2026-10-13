@@ -221,6 +221,8 @@ export function LemonInputSelect<T = string>({
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
     const [itemBeingEditedIndex, setItemBeingEditedIndex] = useState<number | null>(null)
+    // The key the current edit started from, so an edit that changes nothing commits it verbatim
+    const itemBeingEditedKey = useRef<string | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
     // Picking an option blurs the input synchronously, and the blur would otherwise commit the typed
     // search text as a custom value before (or instead of) the option the user picked.
@@ -505,12 +507,14 @@ export function LemonInputSelect<T = string>({
                 }
                 setItemBeingEditedIndex(indexOfValue)
             }
+            itemBeingEditedKey.current = item
             _setInputValue(item)
             onInputChange?.(item)
             inputRef.current?.focus()
             return
         }
         setItemBeingEditedIndex(null)
+        itemBeingEditedKey.current = null
         if (mode === 'single') {
             setShowPopover(false)
             popoverFocusRef.current = false
@@ -550,7 +554,10 @@ export function LemonInputSelect<T = string>({
             return
         }
         if (hasCustomValue && !blurringForSelectionRef.current) {
-            _onActionItem(inputValue.trim(), null)
+            // An edit the person did not change must commit the value as it was. Trimming here
+            // would drop whitespace they never typed, and a value can end in a space.
+            const editedKey = itemBeingEditedKey.current
+            _onActionItem(editedKey !== null && inputValue === editedKey ? editedKey : inputValue.trim(), null)
         } else {
             setInputValue('')
         }

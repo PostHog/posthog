@@ -19,8 +19,8 @@ def _connects_a_metric(edge: Edge) -> bool:
 
 
 class EdgeSerializer(serializers.ModelSerializer):
-    source_id = serializers.UUIDField(source="source.id", read_only=True)
-    target_id = serializers.UUIDField(source="target.id", read_only=True)
+    source_id = serializers.UUIDField(read_only=True, help_text="ID of the upstream node.")
+    target_id = serializers.UUIDField(read_only=True, help_text="ID of the downstream node.")
     dag_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:

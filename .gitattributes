@@ -27,6 +27,9 @@ products/warehouse_sources/backend/temporal/data_imports/sources/generated_confi
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
 nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts linguist-generated
+nodejs/src/common/generated/personhog/** linguist-generated
+
+rust/**/.sqlx/*.json linguist-generated
 
 common/hogql_parser/HogQLLexer.cpp linguist-generated
 common/hogql_parser/HogQLParser.cpp linguist-generated

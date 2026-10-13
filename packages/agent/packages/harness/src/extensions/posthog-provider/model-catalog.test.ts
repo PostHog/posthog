@@ -1,0 +1,259 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DEFAULT_PI_MODEL_ID,
+  fetchPosthogPiModelCatalog,
+  resolvePosthogPiModelCatalog,
+} from "./model-catalog";
+
+describe("resolvePosthogPiModelCatalog", () => {
+  afterEach(() => {
+    delete process.env.PI_OFFLINE;
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the PostHog provider model configuration for gateway models", () => {
+    const models = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "claude-opus-5",
+          owned_by: "anthropic",
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: true,
+        },
+        {
+          id: "claude-haiku-4-5",
+          owned_by: "anthropic",
+          context_window: 200_000,
+          supports_vision: true,
+          allowed: true,
+        },
+        {
+          id: "gpt-5.6-sol",
+          owned_by: "openai",
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: false,
+        },
+      ],
+      "us",
+    );
+
+    // Haiku is served here but absent from the catalog, so the picker does not offer it.
+    expect(models).toEqual([
+      expect.objectContaining({
+        provider: "posthog",
+        id: "claude-opus-5",
+        thinkingLevels: expect.arrayContaining(["off", "high", "xhigh"]),
+      }),
+    ]);
+  });
+
+  it("gives Fable 5.1 the same thinking levels as Fable 5", () => {
+    const models = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "claude-fable-5",
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: true,
+        },
+        {
+          id: "claude-fable-5-1",
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    const [fable5, fable51] = models;
+    expect(fable51.thinkingLevels).toEqual(fable5.thinkingLevels);
+    expect(fable51.thinkingLevels).toEqual(
+      expect.arrayContaining(["xhigh", "max"]),
+    );
+    expect(fable51.thinkingLevels).not.toContain("off");
+  });
+
+  it("uses the GPT-6.1 Sol thinking levels before Pi adds the model", () => {
+    const [model] = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "gpt-6.1-sol",
+          context_window: 1_050_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(model.thinkingLevels).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
+  it("marks the default model without changing catalog order", () => {
+    const models = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "claude-sonnet-5",
+          context_window: 200_000,
+          supports_vision: true,
+          allowed: true,
+        },
+        {
+          id: DEFAULT_PI_MODEL_ID,
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(models.map((model) => model.id)).toEqual([
+      "claude-sonnet-5",
+      DEFAULT_PI_MODEL_ID,
+    ]);
+    expect(models.find((model) => model.isDefault)?.id).toBe(
+      DEFAULT_PI_MODEL_ID,
+    );
+  });
+
+  it.each([
+    ["claude-sonnet-5", "Claude Sonnet 5"],
+    ["claude-fable-5", "Claude Fable 5"],
+    ["claude-opus-5", "Claude Opus 5"],
+    ["gpt-5.6-sol", "GPT-5.6 Sol"],
+    ["gpt-5.6-terra", "GPT-5.6 Terra"],
+    ["gpt-5.6-luna", "GPT-5.6 Luna"],
+    ["gpt-6-astra", "GPT-6 Astra"],
+    ["gpt-6.1-sol", "GPT-6.1 Sol"],
+    ["zai-org/glm-5.3", "GLM-5.3"],
+    ["moonshotai/kimi-k3", "Kimi K3"],
+    ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],
+  ])("formats %s for Pi", (id, name) => {
+    const models = resolvePosthogPiModelCatalog(
+      [
+        {
+          id,
+          context_window: 200_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(models).toEqual([expect.objectContaining({ id, name })]);
+  });
+
+  it("leaves a model the catalog does not list out of the picker", () => {
+    const models = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "new-model",
+          context_window: 200_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    expect(models).toEqual([]);
+  });
+
+  // One retired model and one the catalog never listed. `isOfferedModel` owns the full table,
+  // in packages/agent-contracts/src/model-catalog.test.ts; these two prove the filter is wired up here.
+  it.each(["claude-opus-4-7", "gpt-5.4"])(
+    "excludes %s from the Pi catalog",
+    (id) => {
+      const models = resolvePosthogPiModelCatalog(
+        [
+          {
+            id,
+            context_window: 200_000,
+            supports_vision: true,
+            allowed: true,
+          },
+        ],
+        "us",
+      );
+
+      expect(models).toEqual([]);
+    },
+  );
+
+  // Pi hid both while the two hide lists disagreed; every other picker offered them throughout.
+  it.each(["claude-opus-4-8", "gpt-5.5"])(
+    "offers %s in the Pi catalog",
+    (id) => {
+      const models = resolvePosthogPiModelCatalog(
+        [
+          {
+            id,
+            context_window: 200_000,
+            supports_vision: true,
+            allowed: true,
+          },
+        ],
+        "us",
+      );
+
+      expect(models).toEqual([expect.objectContaining({ id })]);
+    },
+  );
+
+  it("reads Go-shaped entries through the proxy and honours its marks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "claude-opus-5", owned_by: "anthropic" },
+            {
+              id: "gpt-6-sol",
+              owned_by: "openai",
+              allowed: false,
+              restriction_reason: "paid_plan_required",
+            },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await fetchPosthogPiModelCatalog(
+      "http://127.0.0.1:4100/session-token",
+      "us",
+      "posthog-code-auth-proxy",
+      42,
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://127.0.0.1:4100/session-token/v1/models",
+    );
+    expect(models.map((model) => model.id)).toEqual(["claude-opus-5"]);
+  });
+
+  it("uses fallback models without fetching while offline", async () => {
+    process.env.PI_OFFLINE = "1";
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const models = await fetchPosthogPiModelCatalog(
+      "https://gateway.example.com",
+      "us",
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(models.length).toBeGreaterThan(0);
+  });
+});

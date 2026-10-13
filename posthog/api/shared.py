@@ -320,20 +320,6 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class FilterBaseSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["events", "actions"])
-    id = serializers.CharField(required=False)
-    name = serializers.CharField(required=False, allow_null=True)
-    order = serializers.IntegerField(required=False)
-    properties = serializers.ListField(child=serializers.DictField(), default=[])
-
-
-class FiltersSerializer(serializers.Serializer):
-    events = FilterBaseSerializer(many=True, required=False)
-    actions = FilterBaseSerializer(many=True, required=False)
-    filter_test_accounts = serializers.BooleanField(required=False)
-
-
 # These mirror the TypedDicts in posthog/hogql_queries/serialized_actors.py, so a field added
 # there needs adding here. Only the Optional[...] ones are nullable; the rest are always-set keys.
 #

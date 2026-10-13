@@ -302,7 +302,7 @@ describe('the dashboards model', () => {
 })
 
 describe('mergeTileTextUpdatesIntoDashboard', () => {
-    it('updates only text body and preserves server metadata', () => {
+    it('updates editable text fields and preserves server metadata', () => {
         const dashboard = {
             id: 123,
             tiles: [
@@ -310,6 +310,7 @@ describe('mergeTileTextUpdatesIntoDashboard', () => {
                     id: 1,
                     text: {
                         body: 'server body',
+                        agent_context: 'server context',
                         last_modified_at: '2026-03-17T10:00:00Z',
                     },
                 },
@@ -321,12 +322,14 @@ describe('mergeTileTextUpdatesIntoDashboard', () => {
                 id: 1,
                 text: {
                     body: 'client body',
+                    agent_context: 'client context',
                     last_modified_at: 'stale-client-value',
                 },
             },
         ])
 
         expect(merged.tiles?.[0]?.text?.body).toEqual('client body')
+        expect(merged.tiles?.[0]?.text?.agent_context).toEqual('client context')
         expect(merged.tiles?.[0]?.text?.last_modified_at).toEqual('2026-03-17T10:00:00Z')
     })
 })

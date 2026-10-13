@@ -53,6 +53,16 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
+    def test_retired_measurement_plan_type_cannot_be_written(self) -> None:
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "impact_measurement_plan", "content": {}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "read-only" in response.json()["error"]
+
     def _list_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
 
@@ -520,6 +530,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         self.user.last_name = "Zebra"
         self.user.save()
         dave = self._create_org_member("dave@example.com", github_login="dave")
+        eve = self._create_org_member("eve@example.com", github_login="eve")
         report = self._create_report()
         artefact = self._create_artefact(
             report,
@@ -536,6 +547,61 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
         assert stored["alice"]["reason"] == "Top recent author on the affected surface"
         assert stored["dave"]["reason"].startswith("Added as a reviewer by Zelda Zebra on ")
+        presented = {reviewer["github_login"]: reviewer for reviewer in response.json()["content"]}
+        assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
+        assert presented["dave"]["source_label"] == "Added by teammate"
+
+        forged = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps(
+                {
+                    "content": [
+                        {"github_login": "alice"},
+                        {"user_uuid": str(dave.uuid), "reason": "Added as a reviewer by Someone Else on Jan 1, 2020"},
+                        {"user_uuid": str(eve.uuid), "reason": "Added as a reviewer by Someone Else"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        assert forged.status_code == status.HTTP_200_OK, forged.json()
+        presented = {reviewer["github_login"]: reviewer for reviewer in forged.json()["content"]}
+        assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
+        assert presented["eve"]["explanation"] == "Added by Zelda Zebra"
+
+        list_response = self.client.get(self._list_url(str(report.id)))
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed = {reviewer["github_login"]: reviewer for reviewer in list_response.json()["results"][0]["content"]}
+        assert listed["dave"]["explanation"] == "Added by Zelda Zebra"
+
+        different_reviewer = self._create_org_member("different@example.com")
+        untrusted = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "dave",
+                    "user_uuid": str(different_reviewer.uuid),
+                    "reason": "Added as a reviewer by Someone Else",
+                }
+            ],
+        )
+        read_response = self.client.get(self._detail_url(str(report.id), str(untrusted.id)))
+        assert read_response.status_code == status.HTTP_200_OK, read_response.json()
+        assert read_response.json()["content"][0]["explanation"] is None
+
+    def test_put_does_not_trust_manual_reason_on_an_agent_added_reviewer(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice", "reason": "Added as a reviewer by Someone Else"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = response.json()["content"][0]
+        assert reviewer["explanation"] is None
+        assert reviewer["source_label"] == "Added by teammate"
 
     def test_put_explicit_null_reason_on_new_reviewer_is_not_stamped(self):
         # Field-presence semantics: an explicitly-supplied null reason clears the reason, so the
@@ -988,6 +1054,95 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
 
         assert self._reviewer_filter_matches(report, alice)
+
+    # --- DELETE reviewers/me (step off a report) ---
+
+    def _leave_reviewers_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/reviewers/me/"
+
+    @parameterized.expand(
+        [
+            ("stored_by_uuid", True, False),
+            ("stored_by_login", False, True),
+            ("stored_by_both", True, True),
+        ]
+    )
+    def test_leave_reviewers_removes_the_caller_however_they_are_stored(self, _name, by_uuid, by_login):
+        _attach_github_login(self.user, "CallerCase")
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        caller_entry: dict = {}
+        if by_uuid:
+            caller_entry["user_uuid"] = str(self.user.uuid)
+        if by_login:
+            caller_entry["github_login"] = "callercase"
+        self._create_artefact(report, content=[caller_entry, {"user_uuid": str(teammate.uuid)}])
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+        assert not self._reviewer_filter_matches(report, self.user)
+
+    def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
+        _attach_github_login(self.user, "CallerCase")
+        teammate = self._create_org_member("teammate@example.com", github_login=None)
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            content=[
+                {"user_uuid": str(teammate.uuid), "github_login": "callercase"},
+                {"user_uuid": str(self.user.uuid)},
+            ],
+        )
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+
+    def test_leave_reviewers_does_not_reevaluate_autostart(self):
+        # Auto-start runs the task as the user the row is attributed to, so this would start a
+        # billable run as the person who just stepped off.
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(teammate.uuid)}])
+
+        with patch.object(SignalReportArtefact, "_schedule_autostart_reevaluation") as scheduled:
+            response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+            assert response.status_code == status.HTTP_204_NO_CONTENT
+            assert scheduled.call_count == 0
+
+            # The add path still re-evaluates, which is what makes the removal's silence meaningful.
+            put = self.client.put(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                data=json.dumps({"content": [{"user_uuid": str(teammate.uuid)}]}),
+                content_type="application/json",
+            )
+            assert put.status_code == status.HTTP_200_OK
+            assert scheduled.call_count == 1
+
+    def test_leave_reviewers_keeps_a_reviewer_who_left_the_organization(self):
+        former = self._create_org_member("former@example.com", github_login="former")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(former.uuid)}])
+        OrganizationMembership.objects.filter(user=former, organization=self.organization).delete()
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(former.uuid)]
+
+    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(teammate.uuid)}])
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._reviewers_count(report) == 1
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.

@@ -48,7 +48,7 @@ logger = structlog.get_logger(__name__)
 # nothing it does not state. A smaller model drops those conditions and invents consequences, and a
 # reader acts on the line it posts. Both calls run once per audience per weekday, so the price
 # difference is small.
-_DIGEST_MODEL = "claude-sonnet-5"
+_DIGEST_MODEL = "claude-sonnet-5-5"
 _SOURCE_PRODUCT = "stamphog_digest"
 # The ceiling covers the model's thinking as well as the answer, so it sits far above the size of
 # the short JSON list itself. It stays under the SDK's limit for a non-streaming request.

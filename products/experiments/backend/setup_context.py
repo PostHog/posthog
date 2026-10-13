@@ -55,6 +55,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_flag_call_source_event,
 )
+from products.experiments.backend.metric_resolution import is_scheduled_metric
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     filter_metric_group_ids_by_event,
@@ -68,7 +69,6 @@ from products.experiments.backend.models.experiment import (
     metric_display_rank,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
 logger = logging.getLogger(__name__)

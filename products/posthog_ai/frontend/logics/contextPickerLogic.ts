@@ -19,6 +19,16 @@ import { attachedContextLogic } from './attachedContextLogic'
 
 export const PICKER_PROVIDER_ID = 'user-picker'
 
+/** The group types the composer's @-picker offers. Keep in sync with `taxonomicItemToAttachedContext`. */
+export const CONTEXT_PICKER_GROUP_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.Events,
+    TaxonomicFilterGroupType.Actions,
+    TaxonomicFilterGroupType.Insights,
+    TaxonomicFilterGroupType.Dashboards,
+    TaxonomicFilterGroupType.Notebooks,
+    TaxonomicFilterGroupType.ErrorTrackingIssues,
+]
+
 /** Structural subset of the taxonomic item shapes the picker consumes — no scene-tree type imports. */
 export interface PickableTaxonomicItem {
     id?: string | number

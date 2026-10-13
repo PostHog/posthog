@@ -8,6 +8,7 @@ QUERY_API_DOCS = "https://docs.rokt.com/developers/api-reference/reporting/query
 # the descriptions are written once and spread into each table below.
 _CAMPAIGN_METRIC_COLUMNS = {
     "datetime": "Start of the calendar day the metrics cover, in the report time zone.",
+    "currency_code": "Currency of cost metrics, stored at sync time. Conversion values are always in USD.",
     "impressions": "Total advertisement impressions.",
     "referrals": "Total positive engagements on ads.",
     "referral_rate": "Referrals per impression.",
@@ -97,6 +98,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": QUERY_API_DOCS,
         "columns": {
             "datetime": "Start of the calendar day the metrics cover, in the report time zone.",
+            "currency_code": "Currency of cost metrics, stored at sync time. Conversion values are always in USD.",
             "partner_vertical": "Vertical of the partner.",
             "partner_sub_vertical": "Sub-vertical of the partner.",
             "page_type": "Type of page the user was on.",

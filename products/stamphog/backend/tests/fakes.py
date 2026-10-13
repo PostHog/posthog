@@ -28,6 +28,7 @@ from typing import Any
 from slack_sdk.errors import SlackApiError
 
 from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_PAYLOAD_PATH, STAMPHOG_SANDBOX_REPO_DIR
+from products.tasks.backend.facade.sandbox import SandboxNotFoundError
 
 # --- Webhook payload + signing (mirrors what GitHub sends) ---
 
@@ -640,18 +641,40 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         created_configs: list[Any] = []
         # Every command passed to execute(), so a test can assert what ran in the sandbox.
         executed_commands: list[str] = []
+        # A test can set this to make the reviewer command fail (sandbox-phase failure coverage).
+        reviewer_exit_code: int = 0
+
+        # Every created sandbox by id, so get_by_id hands a later activity the same instance.
+        instances: dict[str, _FakeSandbox] = {}
+
+        def __init__(self, sandbox_id: str) -> None:
+            self.id = sandbox_id
 
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
             cls.created_configs.append(config)
             if cls.create_error is not None:
                 raise cls.create_error
-            return cls()
+            sandbox = cls(f"sb-fake-{len(cls.created_configs)}")
+            cls.instances[sandbox.id] = sandbox
+            return sandbox
+
+        @classmethod
+        def get_by_id(cls, sandbox_id: str) -> _FakeSandbox:
+            if sandbox_id not in cls.instances:
+                raise SandboxNotFoundError(
+                    f"no fake sandbox {sandbox_id}",
+                    {"sandbox_id": sandbox_id},
+                    cause=LookupError(sandbox_id),
+                    capture=False,
+                )
+            return cls.instances[sandbox_id]
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
             type(self).executed_commands.append(command)
-            stdout = engine_output if "review_local.py" in command else ""
-            return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
+            if "review_local.py" not in command:
+                return FakeExecResult(stdout="", stderr="", exit_code=0)
+            return FakeExecResult(stdout=engine_output, stderr="", exit_code=self.reviewer_exit_code)
 
         def write_file(self, path: str, payload: bytes) -> FakeExecResult:
             if write_sink is not None and path == STAMPHOG_SANDBOX_PAYLOAD_PATH:

@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.anthropic_request import drop_orphaned_clear_thinking, enable_required_opus_5_thinking
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking, normalize_disabled_thinking
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
@@ -530,7 +530,7 @@ async def _handle_anthropic_messages(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
-    data = enable_required_opus_5_thinking(data)
+    data = normalize_disabled_thinking(data)
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
@@ -626,7 +626,9 @@ async def _handle_count_tokens(
     breaker: AnthropicCircuitBreaker | None,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
-    data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
+    data = normalize_disabled_thinking(
+        _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
+    )
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 

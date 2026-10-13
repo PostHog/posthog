@@ -14,7 +14,12 @@ export const MCP_ACTIVITY_SESSION_COLUMN = 'properties.$session_id -- Session'
 
 export const MCP_ACTIVITY_COLUMNS = [
     '*',
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) -- Tool",
+    `coalesce(
+        nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+        if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+           nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+        toString(properties.$mcp_tool_name)
+    ) -- Tool`,
     MCP_ACTIVITY_INTENT_COLUMN,
     MCP_ACTIVITY_ERROR_COLUMN,
     'properties.$mcp_duration_ms -- Duration (ms)',

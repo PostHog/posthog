@@ -30,8 +30,8 @@ const PRODUCT_MENUS: Record<string, JSX.Element> = {
     ),
     Dashboards: (
         <FlatNavProductMenu
-            icon={<IconChevronDown />}
-            tooltip="Pinned dashboards"
+            icon={<IconPlusSmall />}
+            tooltip="New dashboard and pinned dashboards"
             data-attr="flat-nav-tool-menu-dashboards"
         >
             <FlatNavDashboardsMenuItems />
@@ -111,7 +111,6 @@ export function FlatNavProducts(): JSX.Element {
                                             )
                                         }
                                         isCollapsed={false}
-                                        tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}
                                         onClick={() => reportNavItemClicked(item.path, 'tools')}
                                         sideAction={PRODUCT_MENUS[item.path]}

@@ -557,6 +557,17 @@ fn test_initial_utm_properties_always_string() {
     }
 }
 
+#[rstest]
+#[case(Value::from("2026-07-28"))]
+#[case(Value::from("2025-06-18"))]
+#[case(Value::from("draft"))]
+fn test_mcp_protocol_version_always_string(#[case] value: Value) {
+    assert_eq!(
+        detect_property_type("$mcp_protocol_version", &value),
+        Some(PropertyValueType::String)
+    );
+}
+
 #[test]
 fn test_bare_utm_properties_still_string() {
     // bare utm_* properties must still be classified as String
@@ -935,4 +946,36 @@ fn test_feature_flag_properties_skip_event_property_but_keep_property_definition
         prop_def_names.contains(&flagged_key),
         "expected PropertyDefinition for '{flagged_key}': {prop_def_names:?}"
     );
+}
+
+#[rstest]
+#[case("$set")]
+#[case("$set_once")]
+fn test_push_subscription_person_properties_skip_property_definition(#[case] operation: &str) {
+    let props = json!({
+        operation: {
+            "$device_push_subscription_my-app": "encrypted-token",
+            "$device_push_subscription_my-app:0123456789abcdef": "encrypted-token",
+            "email": "test@example.com"
+        }
+    });
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$set".to_string(),
+        properties: Some(props.to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    let person_definitions: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Property(pd) if pd.event_type == PropertyParentType::Person => {
+                Some(pd.name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(person_definitions, vec!["email"]);
 }

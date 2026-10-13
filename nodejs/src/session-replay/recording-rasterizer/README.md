@@ -27,13 +27,14 @@ giving ~30% faster frame capture than the hardcoded PNG in puppeteer-capture.
 ```text
 recording-rasterizer/
 ├── index.ts              ← thin entry point, delegates to temporal/worker.ts
+├── rasterize-file.ts     ← offline render of a JSONL file (bin/rasterize-recording-file)
 ├── config.ts             ← environment variable configuration
 ├── errors.ts             ← RasterizationError class
 ├── logger.ts             ← pino logger factory
 ├── metrics.ts            ← Prometheus metrics
 ├── types.ts              ← input/output contracts
 ├── utils.ts              ← timing utilities
-├── storage.ts            ← S3 upload
+├── storage.ts            ← S3 upload and download
 ├── postprocess.ts        ← map inactivity periods to video timestamps
 │
 ├── temporal/             ← Temporal integration
@@ -48,6 +49,7 @@ recording-rasterizer/
 │   ├── capture.ts            ← frame capture loop with abort/timeout handling
 │   ├── request-interceptor.ts ← request interception + stylesheet proxying
 │   ├── block-proxy.ts        ← recording block fetcher (recording-api)
+│   ├── file-block-source.ts  ← serves one JSONL file or allowlisted S3 object (source_s3_uri)
 │   └── config.ts             ← input validation + capture config builder
 │
 └── __tests__/            ← all tests
@@ -68,15 +70,18 @@ and starts the container with volume mounts for fast iteration.
 
 Key environment variables (see `config.ts` for full list):
 
-| Variable                    | Default | Description                                           |
-| --------------------------- | ------- | ----------------------------------------------------- |
-| `SCREENSHOT_FORMAT`         | `jpeg`  | Screenshot format for frame capture (`jpeg` or `png`) |
-| `SCREENSHOT_JPEG_QUALITY`   | `80`    | JPEG quality (1-100), only used when format is `jpeg` |
-| `MAX_CONCURRENT_ACTIVITIES` | `4`     | Max parallel recording activities                     |
-| `BROWSER_RECYCLE_AFTER`     | `100`   | Recycle Chromium after N page uses                    |
-| `MAX_IDLE_BROWSERS`         | `2`     | Warm Chromiums kept alive; extras close on release    |
-| `CAPTURE_BROWSER_LOGS`      | `0`     | Forward browser console/error logs to worker logger   |
-| `ENABLE_PLAYER_CSP`         | `1`     | Script-locking CSP on the player page (`0` disables)  |
+| Variable                    | Default | Description                                                        |
+| --------------------------- | ------- | ------------------------------------------------------------------ |
+| `SCREENSHOT_FORMAT`         | `jpeg`  | Screenshot format for frame capture (`jpeg` or `png`)              |
+| `SCREENSHOT_JPEG_QUALITY`   | `80`    | JPEG quality (1-100), only used when format is `jpeg`              |
+| `MAX_CONCURRENT_ACTIVITIES` | `4`     | Max parallel activities; fewer while memory or CPU is above target |
+| `TUNER_TARGET_MEMORY_USAGE` | `0.7`   | Above this fraction of pod memory, take only the first activity    |
+| `TUNER_TARGET_CPU_USAGE`    | `0.9`   | Above this fraction of pod CPU, take only the first activity       |
+| `TUNER_RAMP_THROTTLE_MS`    | `10000` | Minimum wait between new activity slots above the first            |
+| `BROWSER_RECYCLE_AFTER`     | `100`   | Recycle Chromium after N page uses                                 |
+| `MAX_IDLE_BROWSERS`         | `2`     | Warm Chromiums kept alive; extras close on release                 |
+| `CAPTURE_BROWSER_LOGS`      | `0`     | Forward browser console/error logs to worker logger                |
+| `ENABLE_PLAYER_CSP`         | `1`     | Script-locking CSP on the player page (`0` disables)               |
 
 Egress from the browser and the S3 client is routed through the proxy in `HTTPS_PROXY`/`HTTP_PROXY`.
 In production a missing proxy URL is a startup error; `RASTERIZER_USE_PROXY=false` explicitly disables containment.

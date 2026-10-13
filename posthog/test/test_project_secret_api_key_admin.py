@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client, override_settings
 
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.test.api_keys import create_project_secret_api_key
 
 
@@ -37,6 +38,26 @@ class TestProjectSecretAPIKeyAdmin(BaseTest):
         mock_exposed.assert_called_once_with(
             self.team.id, self.key.id, old_mask_value, "This key was detected at https://github.com/some/leak."
         )
+
+    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_roll_deletes_mirrored_legacy_row_and_notifies_admins(
+        self, mock_psak_exposed: MagicMock, mock_ff_exposed: MagicMock
+    ):
+        token = "phs_legacy_token_mirrored_in_admin"
+        self.team.secret_api_token = token
+        self.team.save()
+        mirrored, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+
+        response = self.client.post(f"/admin/posthog/projectsecretapikey/{mirrored.pk}/roll/", data={"_roll_url": ""})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(type(mirrored).objects.filter(pk=mirrored.pk).exists())
+        self.assertTrue(RevokedTeamSecretToken.objects.for_team(self.team.id).filter().exists())
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.secret_api_token, token)
+        mock_ff_exposed.assert_called_once()
+        mock_psak_exposed.assert_not_called()
 
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_roll_requires_post(self, mock_exposed: MagicMock):

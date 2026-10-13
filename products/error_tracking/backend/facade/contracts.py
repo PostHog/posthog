@@ -123,6 +123,20 @@ class ErrorTrackingIssue:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueUpdate:
+    issue: ErrorTrackingIssue
+    # Only the fields whose value differs from the stored one, so a no-op update lists nothing.
+    changed_fields: list[str]
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueMerge:
+    result: Literal["merged", "no_source_issues", "stale_issues", "stale_fingerprints"]
+    # Source issues that disappeared before the merge locked its rows are not counted.
+    merged_issue_count: int
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssueForAssignmentNotification:
     id: UUID
     team_id: int

@@ -103,6 +103,21 @@ def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, 
 
 
 @pytest.mark.parametrize(
+    "tagged_ch_user,requested_ch_user,expected_ch_user",
+    [
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
+        (None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.META, ClickHouseUser.META),
+    ],
+)
+def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, requested_ch_user, expected_ch_user):
+    with tags_context(product=Product.PRODUCT_ANALYTICS, kind="temporal", id="alerts", ch_user=tagged_ch_user):
+        sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
+
+    assert client_from_pool.call_args[0][3] == expected_ch_user
+
+
+@pytest.mark.parametrize(
     "product,expected_slots",
     [
         (Product.LLM_ANALYTICS, 1),

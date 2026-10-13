@@ -4,7 +4,6 @@ from uuid import UUID
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -14,9 +13,10 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -32,6 +32,7 @@ from products.tasks.backend.facade.onboarding import (
 from products.tasks.backend.facade.onboarding_canvas import ensure_teaching_canvas
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
+    ChannelContributorsSerializer,
     ChannelDeleteConflictSerializer,
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
@@ -105,6 +106,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "instructions_versions",
         "context_generation",
         "members",
+        "contributors",
     ]
     scope_object_write_actions = [
         "create",
@@ -151,6 +153,24 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if page is None:
             return Response(ChannelSerializer(channels, many=True).data)
         return paginator.get_paginated_response(ChannelSerializer(page, many=True).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ChannelContributorsSerializer(many=True),
+                description="The task and canvas owners of each channel",
+            )
+        },
+        summary="List who worked in each channel",
+        description=(
+            "For each channel the requester can access, list the people who own at least one task or canvas "
+            "in it, most recently active first. Channels with no owners are left out."
+        ),
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def contributors(self, request: Request, **kwargs) -> Response:
+        contributors = tasks_facade.list_channel_contributors(self.team_id, self._user_id())
+        return Response(ChannelContributorsSerializer(contributors, many=True).data)
 
     @extend_schema(
         request=None,
@@ -737,7 +757,7 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(request_serializer=TaskActivityMarkReadSerializer)
     def mark_read(self, request, *args, **kwargs):
         activities = [
-            (activity["task_id"], activity["seen_before"], activity.get("activity_id"))
+            (activity.get("task_id"), activity["seen_before"], activity.get("activity_id"))
             for activity in request.validated_data["activities"]
         ]
         marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
@@ -786,7 +806,16 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="The task's thread in chronological order.",
     )
     def list(self, request, *args, **kwargs):
-        messages = tasks_facade.list_thread_messages(self._task_id(), self.team_id, self._user_id())
+        task_id = self._task_id()
+        if is_sandbox_oauth_request(request) and not tasks_facade.task_accessible_for_run_view(
+            task_id,
+            self.team_id,
+            self._user_id(),
+            sandbox_request=True,
+            sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
+        ):
+            raise NotFound("Task not found")
+        messages = tasks_facade.list_thread_messages(task_id, self.team_id, self._user_id())
         if messages is None:
             raise NotFound("Task not found")
         return Response(TaskThreadMessageSerializer(messages, many=True).data)

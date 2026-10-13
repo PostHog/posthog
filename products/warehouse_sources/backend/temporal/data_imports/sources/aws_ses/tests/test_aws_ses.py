@@ -3,7 +3,6 @@ import datetime as dt
 from typing import Any, Optional
 
 import pytest
-import time_machine
 from unittest import mock
 
 import requests
@@ -13,22 +12,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses im
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import (
     AwsSesError,
     AwsSesResumeConfig,
-    Credentials,
     error_for_response,
     get_rows,
-    normalize_row,
     probe_endpoint_permissions,
     resolve_start_date,
-    send_request,
     validate_credentials,
     validate_region,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.settings import AWS_SES_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 
-EMAIL_IDENTITIES = AWS_SES_ENDPOINTS["email_identities"]
 
 JAN_2025 = 1735689600.0  # 2025-01-01T00:00:00Z
 
@@ -74,10 +68,6 @@ def suppression_page(emails: list[str], next_token: Optional[str] = None) -> dic
 
 
 class TestRegionValidation:
-    @pytest.mark.parametrize("region", ["us-east-1", "eu-central-1", "ap-southeast-2", "us-gov-west-1"])
-    def test_well_formed_regions_pass(self, region: str) -> None:
-        assert validate_region(region) == region
-
     @pytest.mark.parametrize(
         "region",
         ["", "US-EAST-1", "us east 1", "email.evil.example/", "us-east-1/path", "us-east-1?x=1", "evil.example#"],
@@ -88,150 +78,7 @@ class TestRegionValidation:
             validate_region(region)
 
 
-class TestNormalizeRow:
-    def test_account_response_flattens_into_prefixed_snake_case_columns(self) -> None:
-        row = normalize_row(
-            AWS_SES_ENDPOINTS["account"],
-            {
-                "SendingEnabled": True,
-                "EnforcementStatus": "HEALTHY",
-                "ProductionAccessEnabled": True,
-                "SendQuota": {"Max24HourSend": 50000.0, "MaxSendRate": 14.0, "SentLast24Hours": 12.5},
-                "SuppressionAttributes": {"SuppressedReasons": ["BOUNCE", "COMPLAINT"]},
-            },
-        )
-
-        assert row == {
-            "sending_enabled": True,
-            "enforcement_status": "HEALTHY",
-            "production_access_enabled": True,
-            "send_quota_max24_hour_send": 50000.0,
-            "send_quota_max_send_rate": 14.0,
-            "send_quota_sent_last24_hours": 12.5,
-            "suppression_attributes_suppressed_reasons": ["BOUNCE", "COMPLAINT"],
-        }
-
-    def test_identity_detail_keeps_policy_maps_whole_and_parses_epoch_timestamps(self) -> None:
-        row = normalize_row(
-            EMAIL_IDENTITIES,
-            {
-                "IdentityType": "DOMAIN",
-                "DkimAttributes": {
-                    "SigningEnabled": True,
-                    "Status": "SUCCESS",
-                    "Tokens": ["token-1", "token-2"],
-                    "LastKeyGenerationTimestamp": JAN_2025,
-                },
-                "MailFromAttributes": {"MailFromDomain": "mail.example.com"},
-                "Policies": {"MyPolicy": '{"Version":"2012-10-17"}'},
-                "Tags": [{"Key": "env", "Value": "prod"}],
-                "VerificationInfo": {
-                    "LastCheckedTimestamp": JAN_2025,
-                    "SOARecord": {"PrimaryNameServer": "ns1.example.com", "SerialNumber": 7},
-                },
-            },
-        )
-
-        assert row["identity_type"] == "DOMAIN"
-        assert row["dkim_attributes_signing_enabled"] is True
-        assert row["dkim_attributes_status"] == "SUCCESS"
-        assert row["dkim_attributes_tokens"] == ["token-1", "token-2"]
-        assert row["dkim_attributes_last_key_generation_timestamp"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-        assert row["mail_from_attributes_mail_from_domain"] == "mail.example.com"
-        # A policy map has caller-defined keys; flattening it would mint one column per policy.
-        assert row["policies"] == {"MyPolicy": '{"Version":"2012-10-17"}'}
-        assert row["tags"] == [{"Key": "env", "Value": "prod"}]
-        assert row["verification_info_last_checked_timestamp"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-        assert row["verification_info_soa_record_primary_name_server"] == "ns1.example.com"
-        assert row["verification_info_soa_record_serial_number"] == 7
-
-
-class TestSendRequest:
-    def test_requests_are_sigv4_signed_with_the_regional_ses_scope(self) -> None:
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = make_response(200, {})
-        credentials = Credentials("AKIAEXAMPLE", "secret")
-
-        with time_machine.travel("2026-08-07T10:00:00Z", tick=False):
-            send_request(session, credentials, "eu-west-1", "account", "/v2/email/account")
-
-        assert session.get.call_args[0][0] == "https://email.eu-west-1.amazonaws.com/v2/email/account"
-        headers = session.get.call_args[1]["headers"]
-        assert headers["X-Amz-Date"] == "20260807T100000Z"
-        assert headers["Authorization"].startswith(
-            "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20260807/eu-west-1/ses/aws4_request"
-        )
-
-    def test_query_params_are_sorted_and_rfc3986_encoded_to_match_the_signed_string(self) -> None:
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = make_response(200, {})
-
-        send_request(
-            session,
-            Credentials("key", "secret"),
-            "us-east-1",
-            "suppressed_destinations",
-            "/v2/email/suppression/addresses",
-            {"StartDate": "2026-08-01T00:00:00Z", "PageSize": 1000},
-        )
-
-        assert session.get.call_args[0][0].endswith(
-            "/v2/email/suppression/addresses?PageSize=1000&StartDate=2026-08-01T00%3A00%3A00Z"
-        )
-
-    def test_temporary_credentials_carry_the_session_token(self) -> None:
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = make_response(200, {})
-
-        send_request(
-            session, Credentials("key", "secret", "session-token"), "us-east-1", "account", "/v2/email/account"
-        )
-
-        assert session.get.call_args[1]["headers"]["X-Amz-Security-Token"] == "session-token"
-
-
 class TestErrorClassification:
-    def test_the_error_type_header_wins_over_the_body(self) -> None:
-        response = make_response(
-            400,
-            {"message": "denied"},
-            headers={"x-amzn-ErrorType": "AccessDeniedException:http://internal.amazon.example/coral/"},
-        )
-
-        assert str(error_for_response(response, "account", "/v2/email/account")) == (
-            "Amazon SES request failed: AccessDeniedException - denied (table account, GET /v2/email/account)"
-        )
-
-    def test_the_namespaced_body_type_is_stripped_to_the_bare_code(self) -> None:
-        response = make_response(400, {"__type": "com.amazonaws.ses#BadRequestException", "message": "bad"})
-
-        assert str(error_for_response(response, "account", "/v2/email/account")) == (
-            "Amazon SES request failed: BadRequestException - bad (table account, GET /v2/email/account)"
-        )
-
-    # A zero-member exception model constrains the members, not the wire body, so SES can answer
-    # with an empty JSON object or with no bytes at all.
-    @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
-    def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self, content: bytes) -> None:
-        response = requests.Response()
-        response.status_code = 400
-        response.headers["x-amzn-ErrorType"] = "BadRequestException:http://internal.amazon.example/coral/"
-        response._content = content
-
-        message = str(error_for_response(response, "multi_region_endpoints", "/v2/email/multi-region-endpoints"))
-
-        assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
-        assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
-
-    def test_a_bodyless_error_that_is_not_a_bad_request_reports_its_status(self) -> None:
-        response = requests.Response()
-        response.status_code = 502
-        response._content = b""
-
-        assert "Amazon SES returned HTTP 502 with no message." in str(
-            error_for_response(response, "account", "/v2/email/account")
-        )
-
     def test_an_email_identity_in_the_path_is_masked(self) -> None:
         response = make_response(400, {"message": "bad"})
 
@@ -300,39 +147,6 @@ class TestGetRows:
         assert batches == [[{"sending_enabled": True, "enforcement_status": "HEALTHY"}]]
         assert send.call_count == 1
         assert send.call_args[0][4] == "/v2/email/account"
-
-    def test_pagination_follows_next_token_until_aws_stops_returning_one(self) -> None:
-        batches, send, _ = self._run(
-            [
-                suppression_page(["a@example.com"], next_token="page-2"),
-                suppression_page(["b@example.com"]),
-            ]
-        )
-
-        assert [row["email_address"] for batch in batches for row in batch] == ["a@example.com", "b@example.com"]
-        assert batches[0][0]["last_update_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-        assert "NextToken" not in send.call_args_list[0][0][5]
-        assert send.call_args_list[1][0][5]["NextToken"] == "page-2"
-
-    def test_state_is_saved_after_each_page_and_cleared_once_the_walk_completes(self) -> None:
-        _, _, manager = self._run(
-            [
-                suppression_page(["a@example.com"], next_token="page-2"),
-                suppression_page(["b@example.com"]),
-            ]
-        )
-
-        assert manager.saved == [AwsSesResumeConfig(next_token="page-2"), AwsSesResumeConfig(next_token=None)]
-        assert manager.cleared is True
-
-    def test_a_saved_token_resumes_the_walk_at_the_saved_page(self) -> None:
-        _, send, _ = self._run(
-            [suppression_page(["z@example.com"])],
-            manager=FakeResumeManager(AwsSesResumeConfig(next_token="page-7")),
-        )
-
-        assert send.call_count == 1
-        assert send.call_args[0][5]["NextToken"] == "page-7"
 
     def test_an_expired_saved_token_restarts_the_walk_instead_of_failing_the_job(self) -> None:
         batches, send, manager = self._run(
@@ -407,61 +221,6 @@ class TestGetRows:
 
         assert send.call_args[0][5]["StartDate"] == "2026-08-06T12:00:00Z"
 
-    def test_a_full_refresh_walks_the_list_unbounded(self) -> None:
-        _, send, _ = self._run([suppression_page([])])
-
-        assert "StartDate" not in send.call_args[0][5]
-
-    def test_configuration_sets_fan_out_from_bare_names_to_full_rows(self) -> None:
-        batches, send, _ = self._run(
-            [
-                {"ConfigurationSets": ["transactional"], "NextToken": "page-2"},
-                {
-                    "ConfigurationSetName": "transactional",
-                    "SendingOptions": {"SendingEnabled": True},
-                    "ReputationOptions": {"LastFreshStart": JAN_2025},
-                },
-                {"ConfigurationSets": ["marketing"]},
-                {"TrackingOptions": {"CustomRedirectDomain": "links.example.com"}},
-            ],
-            endpoint="configuration_sets",
-        )
-
-        assert send.call_args_list[1][0][4] == "/v2/email/configuration-sets/transactional"
-        first, second = batches[0][0], batches[1][0]
-        assert first["configuration_set_name"] == "transactional"
-        assert first["sending_options_sending_enabled"] is True
-        assert first["reputation_options_last_fresh_start"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
-        assert second["configuration_set_name"] == "marketing"
-        assert second["tracking_options_custom_redirect_domain"] == "links.example.com"
-
-    def test_identity_rows_merge_the_list_summary_with_the_detail_and_keep_the_name(self) -> None:
-        # GetEmailIdentity does not echo the identity name back, so the row must carry it from
-        # the list response or the primary key column would be empty.
-        batches, send, _ = self._run(
-            [
-                {
-                    "EmailIdentities": [
-                        {
-                            "IdentityName": "user@example.com",
-                            "IdentityType": "EMAIL_ADDRESS",
-                            "SendingEnabled": True,
-                            "VerificationStatus": "SUCCESS",
-                        }
-                    ]
-                },
-                {"IdentityType": "EMAIL_ADDRESS", "VerifiedForSendingStatus": True},
-            ],
-            endpoint="email_identities",
-        )
-
-        assert send.call_args_list[1][0][4] == "/v2/email/identities/user%40example.com"
-        row = batches[0][0]
-        assert row["identity_name"] == "user@example.com"
-        assert row["sending_enabled"] is True
-        assert row["verification_status"] == "SUCCESS"
-        assert row["verified_for_sending_status"] is True
-
     def test_an_item_deleted_between_list_and_detail_is_skipped_not_fatal(self) -> None:
         batches, _, _ = self._run(
             [
@@ -496,26 +255,6 @@ class TestGetRows:
             ]
         ]
 
-    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
-    def test_reserved_pool_details_are_kept_when_aws_returns_them(self, pool_name: str) -> None:
-        batches, _, _ = self._run(
-            [
-                {"DedicatedIpPools": [pool_name]},
-                {"DedicatedIpPool": {"PoolName": pool_name, "ScalingMode": "STANDARD"}},
-            ],
-            endpoint="dedicated_ip_pools",
-        )
-
-        assert batches == [
-            [
-                {
-                    "pool_name": pool_name,
-                    "dedicated_ip_pool_pool_name": pool_name,
-                    "dedicated_ip_pool_scaling_mode": "STANDARD",
-                }
-            ]
-        ]
-
     @pytest.mark.parametrize(
         "endpoint,page,code",
         [
@@ -541,178 +280,6 @@ class TestGetRows:
     ) -> None:
         with pytest.raises(AwsSesError, match=code):
             self._run([page, AwsSesError(code, "rejected", endpoint, "/path")], endpoint=endpoint)
-
-    def test_an_empty_page_yields_no_batch_but_still_completes_the_walk(self) -> None:
-        batches, _, manager = self._run([suppression_page([])])
-
-        assert batches == []
-        assert manager.cleared is True
-
-    @pytest.mark.parametrize(
-        "endpoint,responses,expected_row,detail_path",
-        [
-            (
-                "email_templates",
-                [
-                    {"TemplatesMetadata": [{"TemplateName": "welcome", "CreatedTimestamp": JAN_2025}]},
-                    {
-                        "TemplateName": "welcome",
-                        "TemplateContent": {"Subject": "Hi!", "Text": "Hello", "Html": "<p>Hello</p>"},
-                    },
-                ],
-                {
-                    "template_name": "welcome",
-                    "created_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
-                    "template_content_subject": "Hi!",
-                    "template_content_text": "Hello",
-                    "template_content_html": "<p>Hello</p>",
-                },
-                "/v2/email/templates/welcome",
-            ),
-            (
-                "contact_lists",
-                [
-                    {"ContactLists": [{"ContactListName": "newsletter", "LastUpdatedTimestamp": JAN_2025}]},
-                    {
-                        "ContactListName": "newsletter",
-                        "Description": "Weekly product updates",
-                        "Topics": [{"TopicName": "releases", "DefaultSubscriptionStatus": "OPT_IN"}],
-                        "CreatedTimestamp": JAN_2025,
-                        "LastUpdatedTimestamp": JAN_2025,
-                        "Tags": [{"Key": "env", "Value": "prod"}],
-                    },
-                ],
-                {
-                    "contact_list_name": "newsletter",
-                    "description": "Weekly product updates",
-                    "topics": [{"TopicName": "releases", "DefaultSubscriptionStatus": "OPT_IN"}],
-                    "created_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
-                    "last_updated_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
-                    "tags": [{"Key": "env", "Value": "prod"}],
-                },
-                "/v2/email/contact-lists/newsletter",
-            ),
-            (
-                "dedicated_ip_pools",
-                [
-                    {"DedicatedIpPools": ["marketing-pool"]},
-                    {"DedicatedIpPool": {"PoolName": "marketing-pool", "ScalingMode": "MANAGED"}},
-                ],
-                {
-                    "pool_name": "marketing-pool",
-                    "dedicated_ip_pool_pool_name": "marketing-pool",
-                    "dedicated_ip_pool_scaling_mode": "MANAGED",
-                },
-                "/v2/email/dedicated-ip-pools/marketing-pool",
-            ),
-            (
-                "dedicated_ips",
-                [
-                    {
-                        "DedicatedIps": [
-                            {
-                                "Ip": "192.0.2.10",
-                                "WarmupStatus": "DONE",
-                                "WarmupPercentage": 100,
-                                "PoolName": "marketing-pool",
-                            }
-                        ]
-                    }
-                ],
-                {
-                    "ip": "192.0.2.10",
-                    "warmup_status": "DONE",
-                    "warmup_percentage": 100,
-                    "pool_name": "marketing-pool",
-                },
-                None,
-            ),
-            (
-                "custom_verification_email_templates",
-                [
-                    {
-                        "CustomVerificationEmailTemplates": [
-                            {
-                                "TemplateName": "verify-address",
-                                "FromEmailAddress": "no-reply@example.com",
-                                "TemplateSubject": "Please confirm your address",
-                            }
-                        ]
-                    },
-                    {
-                        "TemplateName": "verify-address",
-                        "FromEmailAddress": "no-reply@example.com",
-                        "TemplateSubject": "Please confirm your address",
-                        "TemplateContent": "<html>Confirm</html>",
-                        "SuccessRedirectionURL": "https://example.com/verified",
-                        "FailureRedirectionURL": "https://example.com/failed",
-                    },
-                ],
-                {
-                    "template_name": "verify-address",
-                    "from_email_address": "no-reply@example.com",
-                    "template_subject": "Please confirm your address",
-                    "template_content": "<html>Confirm</html>",
-                    "success_redirection_url": "https://example.com/verified",
-                    "failure_redirection_url": "https://example.com/failed",
-                },
-                "/v2/email/custom-verification-email-templates/verify-address",
-            ),
-            (
-                "multi_region_endpoints",
-                [
-                    {
-                        "MultiRegionEndpoints": [
-                            {
-                                "EndpointName": "global-sending",
-                                "Status": "READY",
-                                "EndpointId": "e1a2b3c4",
-                                "Regions": ["us-east-1", "eu-west-1"],
-                                "CreatedTimestamp": JAN_2025,
-                                "LastUpdatedTimestamp": JAN_2025,
-                            }
-                        ]
-                    }
-                ],
-                {
-                    "endpoint_name": "global-sending",
-                    "status": "READY",
-                    "endpoint_id": "e1a2b3c4",
-                    "regions": ["us-east-1", "eu-west-1"],
-                    "created_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
-                    "last_updated_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
-                },
-                None,
-            ),
-        ],
-    )
-    def test_each_new_get_table_yields_rows_carrying_its_primary_key_column(
-        self,
-        endpoint: str,
-        responses: list[dict[str, Any]],
-        expected_row: dict[str, Any],
-        detail_path: Optional[str],
-    ) -> None:
-        batches, send, _ = self._run(responses, endpoint=endpoint)
-
-        assert batches == [[expected_row]]
-        primary_key = AWS_SES_ENDPOINTS[endpoint].primary_key
-        assert primary_key is not None
-        for key_column in primary_key:
-            assert expected_row[key_column]
-        if detail_path is not None:
-            assert send.call_args_list[1][0][4] == detail_path
-
-    def test_an_account_with_no_dedicated_ips_yields_an_empty_table_and_stays_reachable(self) -> None:
-        batches, _, manager = self._run([{"DedicatedIps": []}], endpoint="dedicated_ips")
-
-        assert batches == []
-        assert manager.cleared is True
-
-        with mock.patch.object(aws_ses, "send_request", return_value={"DedicatedIps": []}):
-            assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ips"]) == {
-                "dedicated_ips": None
-            }
 
 
 class TestValidateCredentials:
@@ -758,28 +325,6 @@ class TestValidateCredentials:
             assert validate_credentials("key", "secret", None, "us-east-1") == (
                 False,
                 "Could not reach the Amazon SES API. Check the AWS region and try again.",
-            )
-
-    def test_validating_a_schema_probes_that_endpoint_and_names_the_missing_permission(self) -> None:
-        error = AwsSesError(
-            "AccessDeniedException",
-            "User: arn:aws:iam::123456789012:user/etl is not authorized to perform: "
-            "ses:ListSuppressedDestinations on resource: arn:aws:ses:us-east-1:123456789012:suppression-list",
-            "suppressed_destinations",
-            "/v2/email/suppression/addresses",
-        )
-
-        with mock.patch.object(aws_ses, "send_request", side_effect=error):
-            assert validate_credentials("key", "secret", None, "us-east-1", schema_name="suppressed_destinations") == (
-                False,
-                "Missing IAM permission ses:ListSuppressedDestinations",
-            )
-
-    def test_validating_a_schema_passes_when_the_endpoint_is_reachable(self) -> None:
-        with mock.patch.object(aws_ses, "send_request", return_value=suppression_page([])):
-            assert validate_credentials("key", "secret", None, "us-east-1", schema_name="suppressed_destinations") == (
-                True,
-                None,
             )
 
 

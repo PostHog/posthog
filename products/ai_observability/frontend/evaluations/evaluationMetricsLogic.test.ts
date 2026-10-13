@@ -93,6 +93,27 @@ describe('evaluationMetricsLogic', () => {
         evaluationsLogic.unmount()
     })
 
+    it('includes categorical pass rates while excluding N/A from their denominator', async () => {
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            {
+                ...evaluation('categories', null),
+                output_type: 'categorical',
+                output_config: {
+                    options: [{ key: 'resolved', label: 'Resolved' }],
+                    passing_rule: { categories: ['resolved'] },
+                },
+            },
+        ])
+        queryMock.mockResolvedValueOnce({ results: [['categories', 4, 0, 0, 0, null, 0, 3, 2]] })
+        await expectLogic(metricsLogic, () => metricsLogic.actions.loadStats()).toFinishAllListeners()
+        expect(metricsLogic.values.evaluationsWithMetrics[0].stats).toMatchObject({
+            applicable_count: 3,
+            pass_count: 2,
+            pass_rate: (2 / 3) * 100,
+        })
+        expect(metricsLogic.values.summaryMetrics.overall_pass_rate).toBe(66.7)
+    })
+
     it('loads stats once after evaluations finish loading on mount', async () => {
         metricsLogic.unmount()
         queryMock.mockClear()

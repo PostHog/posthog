@@ -76,6 +76,9 @@ rules:
       owners: team-product-analytics
     - match: '/project-homepage/'
       owners: team-growth
+    # Narrower than the rule above, which would otherwise route the Today homepage to growth.
+    - match: '/project-homepage/today/'
+      owners: team-surfaces
     - match: '/resource-transfer/'
       owners: team-platform-features
     - match: ['/retention/', '/saved-insights/']

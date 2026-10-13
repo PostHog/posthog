@@ -12,6 +12,7 @@ from .evaluations import EvaluationViewSet
 from .instrumentation_checklist import AIObservabilityInstrumentationChecklistViewSet
 from .models import LLMModelsViewSet
 from .offline_evaluations import AIObservabilityOfflineEvaluationsViewSet
+from .offline_experiment_reads import OfflineScorerViewSet
 from .offline_experiments import OfflineExperimentViewSet
 from .parser_recipes import ParserRecipeViewSet
 from .personal_spend import PersonalSpendInternalViewSet, PersonalSpendViewSet
@@ -52,6 +53,7 @@ __all__ = [
     "ScoreDefinitionViewSet",
     "AIObservabilityOfflineEvaluationsViewSet",
     "OfflineExperimentViewSet",
+    "OfflineScorerViewSet",
     "PersonalSpendInternalViewSet",
     "PersonalSpendViewSet",
     "TaggerViewSet",

@@ -15,6 +15,8 @@ import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     numericEvaluationPassedHogQL,
+    categoricalEvaluationsPassedHogQL,
+    EVALUATION_CATEGORICAL_GRADED_HOGQL,
     EVALUATION_RESULT_TRUE_HOGQL,
     evaluationIsDetector,
     evaluationPassedHogQLForMany,
@@ -35,6 +37,8 @@ export interface EvaluationStatsRow {
     applicability_rate: number
     score_count?: number
     score_mean?: number | null
+    categorical_count?: number
+    categorical_pass_count?: number
     numeric_pass_count?: number
 }
 
@@ -58,12 +62,14 @@ type RawStatsRow = [
     score_count?: number,
     score_mean?: number | null,
     numeric_pass_count?: number,
+    categorical_count?: number,
+    categorical_pass_count?: number,
 ]
 
 function hasPassRate(evaluation: EvaluationConfig): boolean {
     return (
         evaluation.output_type === 'boolean' ||
-        (evaluation.output_type === 'numeric' && !!evaluation.output_config.passing_rule)
+        (['numeric', 'categorical'].includes(evaluation.output_type) && !!evaluation.output_config.passing_rule)
     )
 }
 
@@ -231,7 +237,9 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                                 const rules = values.evaluations.flatMap((evaluation) => {
                                     const rule = evaluation.output_config.passing_rule
                                     return evaluation.output_type === 'numeric' &&
-                                        rule?.operator === operator &&
+                                        rule &&
+                                        'threshold' in rule &&
+                                        rule.operator === operator &&
                                         Number.isFinite(rule.threshold)
                                         ? [{ id: evaluation.id, threshold: rule.threshold }]
                                         : []
@@ -256,7 +264,9 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                                 countIf(${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_BOOLEAN_GRADED_HOGQL}) as true_count,
                                 countIf(${EVALUATION_NUMERIC_GRADED_HOGQL}) as score_count,
                                 ${EVALUATION_NUMERIC_MEAN_HOGQL} as score_mean,
-                                countIf((${numericPass}) AND ${EVALUATION_NUMERIC_GRADED_HOGQL}) as numeric_pass_count
+                                countIf((${numericPass}) AND ${EVALUATION_NUMERIC_GRADED_HOGQL}) as numeric_pass_count,
+                                countIf(${EVALUATION_CATEGORICAL_GRADED_HOGQL}) as categorical_count,
+                                countIf((${categoricalEvaluationsPassedHogQL(values.evaluations)}) AND ${EVALUATION_CATEGORICAL_GRADED_HOGQL}) as categorical_pass_count
                             FROM events
                             WHERE event = '$ai_evaluation' AND {filters}
                             GROUP BY evaluation_id
@@ -284,6 +294,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                                 score_count: row[4] ?? 0,
                                 score_mean: row[4] && row[5] != null && Number.isFinite(row[5]) ? row[5] : null,
                                 numeric_pass_count: row[6] ?? 0,
+                                categorical_count: row[7] ?? 0,
+                                categorical_pass_count: row[8] ?? 0,
                                 runs_count,
                                 applicable_count,
                                 true_count,
@@ -319,9 +331,13 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     if (!stat) {
                         return { ...evaluation }
                     }
-                    if (evaluation.output_type === 'numeric') {
-                        const applicable_count = stat.score_count ?? 0
-                        const pass_count = stat.numeric_pass_count ?? 0
+                    if (evaluation.output_type === 'numeric' || evaluation.output_type === 'categorical') {
+                        const applicable_count =
+                            (evaluation.output_type === 'categorical' ? stat.categorical_count : stat.score_count) ?? 0
+                        const pass_count =
+                            (evaluation.output_type === 'categorical'
+                                ? stat.categorical_pass_count
+                                : stat.numeric_pass_count) ?? 0
                         return {
                             ...evaluation,
                             stats: {
@@ -420,6 +436,11 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                         .join(', ')
                     passedExpression = `multiIf(${numericCases.join(', ')}, ${passedExpression})`
                     gradedExpression = `if(properties.$ai_evaluation_id IN (${numericIds}), ${EVALUATION_NUMERIC_GRADED_HOGQL}, ${EVALUATION_BOOLEAN_GRADED_HOGQL})`
+                }
+
+                if (enabledEvaluations.some((evaluation) => evaluation.output_type === 'categorical')) {
+                    passedExpression = `if(properties.$ai_evaluation_result_type = 'categorical', ${categoricalEvaluationsPassedHogQL(enabledEvaluations)}, ${passedExpression})`
+                    gradedExpression = `if(properties.$ai_evaluation_result_type = 'categorical', ${EVALUATION_CATEGORICAL_GRADED_HOGQL}, ${gradedExpression})`
                 }
 
                 return {

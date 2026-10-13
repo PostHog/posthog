@@ -99,6 +99,7 @@ const mcpAnalyticsSessionsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 filter_test_accounts: params.filter_test_accounts,
+                has_errors: params.has_errors,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,

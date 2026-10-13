@@ -91,6 +91,7 @@ export function WebAnalyticsSceneMenuBar(): JSX.Element | null {
 
 function WebAnalyticsSceneMenuBarInner(): JSX.Element {
     const {
+        exportAllDisabledReason,
         hasSavedFocusMode,
         hiddenTiles,
         isFocusModeActive,
@@ -166,6 +167,8 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                     </SceneMenuBarItem>
                 )}
                 <SceneMenuBarItem
+                    disabled={!!exportAllDisabledReason}
+                    tooltip={exportAllDisabledReason ?? undefined}
                     onClick={() => {
                         if (exportAllTilesAsCsvZip(tiles)) {
                             exportTriggered()

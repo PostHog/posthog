@@ -125,10 +125,12 @@ def _fetch_page(
 ) -> dict[str, Any]:
     response = session.get(url, headers=headers, timeout=60)
 
-    # Vercel rate limits per-endpoint and returns 429 with a reset window; treat 429 and any 5xx
-    # as transient and let tenacity back off. A bad/insufficient token (401/403) is raised below
-    # via raise_for_status() and matched by get_non_retryable_errors() so the sync stops.
-    if response.status_code == 429 or response.status_code >= 500:
+    # Vercel rate limits per-endpoint and returns 429 with a reset window; treat 408, 429 and any
+    # 5xx as transient and let tenacity back off. 408 is a transient request timeout on Vercel's
+    # side, not a bad request — retrying it like 429/5xx avoids raise_for_status() turning it into
+    # a fatal, non-retried HTTPError. A bad/insufficient token (401/403) is raised below via
+    # raise_for_status() and matched by get_non_retryable_errors() so the sync stops.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise VercelRetryableError(f"Vercel API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
@@ -425,7 +427,7 @@ def _open_billing_stream(
 ) -> requests.Response:
     response = session.get(url, headers=headers, timeout=120, stream=True)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code in (408, 429) or response.status_code >= 500:
         response.close()
         raise VercelRetryableError(f"Vercel API error (retryable): status={response.status_code}, url={url}")
 

@@ -19,6 +19,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: mcp_analytics
+scout-precheck-query: |
+  SELECT event, count() AS events, max(timestamp) AS last_seen
+  FROM events
+  WHERE event = '$mcp_tool_call'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  GROUP BY event
 ---
 
 # Signals scout: MCP tool calls
@@ -44,13 +50,13 @@ MCP tool calls land on the `$mcp_tool_call` event, emitted by both PostHog's own
 
 **Tier 1 — always present (build detection on these):**
 
-| Field        | Access                                                                                                     | Use                                                            |
-| ------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| failure flag | `toBool(properties.$mcp_is_error)`                                                                         | failure rate                                                   |
-| duration     | `toFloat(properties.$mcp_duration_ms)`                                                                     | latency                                                        |
-| tool name    | `coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))` | grouping key (unwraps the single-exec `exec` dispatcher)       |
-| reach        | `distinct_id`, `$session_id`                                                                               | reject single-user noise; compute per-session struggle         |
-| client       | `properties.$mcp_client_name`                                                                              | localize a client-specific break (most reliable harness field) |
+| Field        | Access                                                                   | Use                                                            |
+| ------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| failure flag | `toBool(properties.$mcp_is_error)`                                       | failure rate                                                   |
+| duration     | `toFloat(properties.$mcp_duration_ms)`                                   | latency                                                        |
+| tool name    | Effective tool expression in [the query cookbook](references/queries.md) | grouping key (includes rejected calls to known targets)        |
+| reach        | `distinct_id`, `$session_id`                                             | reject single-user noise; compute per-session struggle         |
+| client       | `properties.$mcp_client_name`                                            | localize a client-specific break (most reliable harness field) |
 
 **Tier 2 — sometimes present (enrichment; localizes the cause, gate on coverage):**
 
@@ -71,6 +77,8 @@ Two consequences to remember, both verified against real data:
 The full SQL cookbook is in [`references/queries.md`](references/queries.md) — read it rather than reinventing the queries. Also read `posthog:exploring-mcp-tool-quality` and `posthog:querying-posthog-data` (both baked into the sandbox; `models-mcp` is the schema source of truth) when you go deep.
 
 ## Quick close-out: is MCP even in use?
+
+A scheduled run can start with a `<precheck_result>` block. Its row counts the `$mcp_tool_call` events of the last 7 days, so MCP is in use. When the block is present, skip this check.
 
 If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count()` is ~0), this project isn't using the PostHog MCP. Write one scratchpad entry and stop:
 

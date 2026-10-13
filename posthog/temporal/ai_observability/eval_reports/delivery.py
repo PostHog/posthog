@@ -48,6 +48,7 @@ _EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
 _OUTCOME_LABELS = {
     "boolean": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
     "numeric": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
+    "categorical": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
     "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
 }
 
@@ -189,7 +190,7 @@ def _format_pass_rate(rate: float | None) -> str:
 
 def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
     count = metrics.result_counts[outcome]
-    if metrics.output_type in ("boolean", "numeric"):
+    if metrics.output_type in ("boolean", "numeric", "categorical"):
         return str(count)
 
     rate = metrics.result_rates.get(outcome)
@@ -233,7 +234,7 @@ def _render_metrics_block_html(
     outcome_labels = _OUTCOME_LABELS[metrics.output_type]
     headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
     values = "".join(f"<td>{_format_outcome_value(metrics, outcome)}</td>" for outcome, _ in outcome_labels)
-    if metrics.output_type in ("boolean", "numeric"):
+    if metrics.output_type in ("boolean", "numeric", "categorical"):
         headers += "<th>Pass rate</th>"
         values += f"<td><strong>{_format_boolean_pass_rate_value(metrics)}</strong></td>"
     table = f"<table><tr><th>Total runs</th>{headers}</tr><tr><td>{metrics.total_runs}</td>{values}</tr></table>"
@@ -248,7 +249,7 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict
     outcome_lines = [
         f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
     ]
-    if metrics.output_type in ("boolean", "numeric"):
+    if metrics.output_type in ("boolean", "numeric", "categorical"):
         outcome_lines.append(f"Pass rate: {_format_boolean_pass_rate_value(metrics)}")
     code_block = "\n".join([f"Total runs: {metrics.total_runs}", *outcome_lines])
 

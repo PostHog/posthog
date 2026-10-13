@@ -10,8 +10,8 @@ from django.db.models import Q
 
 from products.signals.backend.models import SignalReport
 
-# Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
-# and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
+# Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`,
+# `create_custom_agent_ready_report` and `create_layer_reports`), which is how a report reaches the spine without a
 # promotion. Suppressed and deleted are absent on purpose: authored-then-hidden is not inventory.
 BORN_VISIBLE_STATUSES = (
     SignalReport.Status.READY,
@@ -33,7 +33,7 @@ def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
     """Reports that were in the inbox before the cutoff.
 
     Two ways in, because not every visible report was promoted: the pipeline promotes a `potential`
-    report and stamps promoted_at, but the scout and custom-agent authoring paths create a report
+    report and stamps promoted_at, but the scout, custom-agent and stack-layer paths create a report
     already in a visible status and never stamp it. Keying only on promotion dropped every
     directly-authored report until a user happened to interact with it, biasing the inventory toward
     reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
