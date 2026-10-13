@@ -1624,7 +1624,6 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
     except RuntimeError:
         # The thread pool refuses new fetches when the worker shuts down mid-crawl.
         # Release the claim, or the source stays PROCESSING and every later refresh gets a 409.
-        logger.exception("business_knowledge.refresh.interrupted", source_id=str(source.id))
         _record_refresh_failure(source_id=source.id, team_id=team_id, error=REFRESH_INTERRUPTED_ERROR)
         raise
 
