@@ -2559,12 +2559,12 @@ def _deferred_hogql_flag_request(name: str) -> tuple[DataDeletionRequest, Deleti
     from posthog.models.team import Team
 
     team = Team.objects.create(organization=Organization.objects.create(name=name), name=name)
-    now = datetime.now()
+    now = datetime.now(UTC)
     request = DataDeletionRequest.objects.create(
         team_id=team.id,
         request_type=RequestType.EVENT_REMOVAL,
         delete_all_events=True,
-        start_time=now - timedelta(days=7),
+        start_time=now - timedelta(days=14),
         end_time=now + timedelta(minutes=1),
         hogql_predicate="properties.$browser = 'Chrome'",
         status=RequestStatus.QUEUED,
@@ -2591,8 +2591,9 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
     from posthog.models.data_deletion_request import verify_queued_request
 
     request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-copies")
-    now = datetime.now()
-    chrome, firefox = uuid4(), uuid4()
+    now = datetime.now(UTC)
+    earlier = now - timedelta(days=10)
+    chrome, firefox, earlier_chrome = uuid4(), uuid4(), uuid4()
     cluster.any_host(_truncate_adhoc_events_deletion).result()
     cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
@@ -2601,6 +2602,7 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
             [
                 (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, '{"$browser": "Chrome"}'),
                 (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, firefox, now, '{"$browser": "Firefox"}'),
+                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, earlier_chrome, earlier, '{"$browser": "Chrome"}'),
             ],
         )
     ).result()
@@ -2610,13 +2612,14 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
             [
                 (ctx.team_id, "", '{"$browser": "Chrome"}', str(chrome), now, now),
                 (ctx.team_id, "", '{"$browser": "Firefox"}', str(firefox), now, now),
+                (ctx.team_id, "", '{"$browser": "Chrome"}', str(earlier_chrome), earlier, earlier),
             ],
         )
     ).result()
 
     try:
         _run_event_deletion(cluster, ctx)
-        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome}
+        assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome, earlier_chrome}
 
         # The queued event no longer matches the predicate, so only its queued uuid holds the request.
         cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
@@ -2629,6 +2632,10 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
         assert verify_queued_request(request).promoted is False
 
         cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, chrome)).result()
+        cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), earlier_chrome)).result()
+        assert verify_queued_request(request).promoted is False
+
+        cluster.any_host(partial(_delete_uuid, FLAG_EVALUATIONS_DATA_TABLE, earlier_chrome)).result()
         assert verify_queued_request(request).promoted is True
     finally:
         cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -2642,12 +2649,12 @@ def test_deferred_event_removal_with_a_hogql_predicate_refuses_flag_rows_without
     from posthog.models.data_deletion_request import verify_queued_request
 
     request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-no-copy")
-    now = datetime.now()
+    earlier = datetime.now(UTC) - timedelta(days=10)
     cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
         partial(
             _insert_flag_evaluations_with_properties,
-            [(ctx.team_id, "", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
+            [(ctx.team_id, "", '{"$browser": "Chrome"}', str(uuid4()), earlier, earlier)],
         )
     ).result()
 

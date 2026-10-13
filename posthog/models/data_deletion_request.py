@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -225,6 +226,9 @@ def reaches_target_through_event_uuids(obj, target: "DeletionTarget") -> bool:
 # a row can outlive the TTL by up to a month.
 _COPY_HORIZON_SLACK_DAYS = 33
 
+# The copy subquery holds the uuid of every events copy in its window in memory on each shard.
+_COPY_CHECK_WINDOW = timedelta(days=7)
+
 
 def _without_events_copy(target: "DeletionTarget") -> tuple[str, dict]:
     """A condition on ``uuid`` that holds for the rows of ``target`` with no copy in ``target.copied_from``.
@@ -257,6 +261,26 @@ def rows_without_events_copy_where(obj, target: "DeletionTarget") -> tuple[str, 
     predicate, params = portable_event_removal_where(obj)
     without_copy, copy_params = _without_events_copy(target)
     return f"{predicate} AND {without_copy}", {**params, **copy_params}
+
+
+def copy_check_windows(obj, target: "DeletionTarget") -> list[dict]:
+    """``start_time`` and ``end_time`` params that split ``obj``'s range into windows for the copy check.
+
+    A row and its events copy carry the same timestamp, so a window holds the copies of its own rows.
+    The windows only partition the range, so any boundary is correct. The range before ``target``'s TTL
+    horizon stays one window, because the copy subquery reads no events there.
+    """
+    start, end = obj.start_time, obj.end_time
+    windows = []
+    if target.ttl_days is not None:
+        horizon = timezone.now() - timedelta(days=target.ttl_days + _COPY_HORIZON_SLACK_DAYS)
+        if start < horizon:
+            windows.append({"start_time": start, "end_time": min(horizon, end)})
+            start = horizon
+    while start < end:
+        windows.append({"start_time": start, "end_time": min(start + _COPY_CHECK_WINDOW, end)})
+        start += _COPY_CHECK_WINDOW
+    return windows
 
 
 def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
@@ -911,6 +935,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if not target.may_hold_any_of(events):
                 continue
+            windows: list[dict] = [{}]
             if target.accepts_hogql_predicate:
                 predicate, params = event_removal_where(request, use_new_events_schema=target.uses_new_events_schema)
             elif reaches_target_through_event_uuids(request, target):
@@ -925,17 +950,19 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
                 )
                 params.update(queued_params)
                 params.update(copy_params)
+                windows = copy_check_windows(request, target)
             else:
                 predicate, params = portable_event_removal_where(request)
-            result = sync_execute(
-                surviving_rows_sql(target.read_table, predicate),
-                params,
-                team_id=request.team_id,
-                readonly=True,
-                workload=Workload.OFFLINE,
-                ch_user=ClickHouseUser.META,
-            )
-            total += int(result[0][0]) if result else 0
+            for window in windows:
+                result = sync_execute(
+                    surviving_rows_sql(target.read_table, predicate),
+                    {**params, **window},
+                    team_id=request.team_id,
+                    readonly=True,
+                    workload=Workload.OFFLINE,
+                    ch_user=ClickHouseUser.META,
+                )
+                total += int(result[0][0]) if result else 0
     return total
 
 

@@ -49,6 +49,7 @@ from posthog.models.data_deletion_request import (
     RequestType,
     auto_approve_pending_requests,
     compile_hogql_predicate,
+    copy_check_windows,
     event_match_sql_fragment,
     event_removal_where,
     jsonhas_expr,
@@ -567,6 +568,10 @@ def _refuse_unsweepable(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
+def _same_criteria(criteria: tuple[str, dict]) -> Callable[[DeletionTarget], tuple[str, dict]]:
+    return lambda _target: criteria
+
+
 def _deletion_target(data_table: str) -> DeletionTarget:
     return next(target for target in PERSONAL_DATA_TARGETS if target.data_table == data_table)
 
@@ -656,18 +661,21 @@ def _event_removal_placements(
         cluster,
         [t for t in unsweepable if t not in reachable],
         deletion_request,
-        lambda _target: criteria,
+        _same_criteria(criteria),
         reason=_HOGQL_UNSWEEPABLE_REASON,
     )
     # The copy check reads the uuid of every matching event, so it runs only on tables that hold rows
     # in the request's window.
-    _refuse_unsweepable(
-        cluster,
-        [t for t in reachable if count_surviving_rows(cluster, t, *criteria)],
-        deletion_request,
-        lambda target: rows_without_events_copy_where(deletion_request, target),
-        reason=_HOGQL_NO_EVENTS_COPY_REASON,
-    )
+    for target in [t for t in reachable if count_surviving_rows(cluster, t, *criteria)]:
+        predicate, params = rows_without_events_copy_where(deletion_request, target)
+        for window in copy_check_windows(deletion_request, target):
+            _refuse_unsweepable(
+                cluster,
+                [target],
+                deletion_request,
+                _same_criteria((predicate, {**params, **window})),
+                reason=_HOGQL_NO_EVENTS_COPY_REASON,
+            )
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 

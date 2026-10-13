@@ -1,6 +1,7 @@
 import uuid as uuid_lib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 
 import pytest
 import time_machine
@@ -19,6 +20,7 @@ from posthog.models.data_deletion_request import (
     cached_compile_hogql_predicate,
     invalidate_compiled_predicate_cache,
 )
+from posthog.models.deletion_targets import FLAG_EVALUATIONS
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -684,6 +686,27 @@ def test_query_backed_deletion_stats_are_rejected():
 
     with pytest.raises(ValueError, match="Stats are not available"):
         ddr.fetch_deletion_stats(request)
+
+
+@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
+@pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0)])
+def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days_ago: int) -> None:
+    assert FLAG_EVALUATIONS.ttl_days is not None
+    now = timezone.now()
+    horizon = now - timedelta(days=FLAG_EVALUATIONS.ttl_days + ddr._COPY_HORIZON_SLACK_DAYS)
+    request = DataDeletionRequest(
+        team_id=TEAM_ID,
+        start_time=now - timedelta(days=start_days_ago),
+        end_time=now - timedelta(days=end_days_ago),
+    )
+
+    windows = [(w["start_time"], w["end_time"]) for w in ddr.copy_check_windows(request, FLAG_EVALUATIONS)]
+
+    assert windows[0][0] == request.start_time
+    assert windows[-1][1] == request.end_time
+    assert all(end == next_start for (_, end), (next_start, _) in pairwise(windows))
+    # Only a window before the TTL horizon may span more than 7 days, because its copy subquery reads no events.
+    assert all(end - start <= timedelta(days=7) for start, end in windows if end > horizon)
 
 
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)
