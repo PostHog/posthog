@@ -24,18 +24,26 @@ and breaking a later merge.
 from __future__ import annotations
 
 import io
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from snowflake.connector.errors import ProgrammingError
 
 from products.batch_exports.backend.facade.destinations.snowflake import (
+    InvalidPrivateKeyError,
     NamedBytesIO,
+    SnowflakeAuthenticationError,
     SnowflakeClient,
+    SnowflakeConnectionError,
     SnowflakeField,
+    SnowflakeInsufficientPrivilegesError,
+    SnowflakeIntegrationNotFoundError,
     SnowflakeTable,
     SnowflakeType,
+    SnowflakeWarehouseUsageError,
     get_snowflake_integration,
     load_private_key,
 )
@@ -43,6 +51,10 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
     dedupe_merge_source,
@@ -59,6 +71,45 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.sql_types import (
     quote_identifier,
 )
+
+AUTHENTICATION_DETAIL = (
+    "Snowflake authentication failed. Check the user and password or private key, then run the sync again."
+)
+CONNECTION_DETAIL = (
+    "Snowflake could not connect. Check the account, user, credentials and role, then run the sync again."
+)
+PRIVILEGES_DETAIL = (
+    "The Snowflake role lacks privileges. Grant it privileges to create tables and load data in the database and schema, "
+    "then run the sync again."
+)
+WAREHOUSE_DETAIL = (
+    "The Snowflake warehouse does not exist or the role lacks USAGE. "
+    "Check the warehouse and grant the role USAGE, then run the sync again."
+)
+DATABASE_SCHEMA_DETAIL = (
+    "The Snowflake database or schema does not exist or the role cannot use it. "
+    "Check the database and schema and grant the role access, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, SnowflakeAuthenticationError | InvalidPrivateKeyError):
+        return AUTHENTICATION_DETAIL
+    if isinstance(err, SnowflakeConnectionError):
+        return CONNECTION_DETAIL
+    if isinstance(err, SnowflakeInsufficientPrivilegesError):
+        return PRIVILEGES_DETAIL
+    if isinstance(err, SnowflakeWarehouseUsageError):
+        return WAREHOUSE_DETAIL
+    if isinstance(err, SnowflakeIntegrationNotFoundError):
+        return MISSING_INTEGRATION_DETAIL
+    if isinstance(err, ProgrammingError):
+        if err.errno == 3001:
+            return PRIVILEGES_DETAIL
+        if err.errno == 2043:
+            return DATABASE_SCHEMA_DETAIL
+    return None
+
 
 _SNOWFLAKE_BY_ARROW = {
     pa.bool_(): "BOOLEAN",
@@ -215,22 +266,35 @@ class SnowflakeDestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     async def _make_client(self) -> SnowflakeClient:
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        creds = await get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            creds = await get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
+        except SnowflakeIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
 
         private_key: bytes | None = None
         password: str | None = None
         if creds.authentication_type == "keypair":
-            if creds.private_key is None:
-                raise ValueError(
-                    f"Destination {self._ctx.destination_name} has keypair authentication but no private key"
-                )
+            if not creds.private_key:
+                raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
             private_key = load_private_key(creds.private_key, creds.private_key_passphrase)
         else:
             password = creds.password
+            if not password:
+                raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
         return SnowflakeClient(
             user=creds.user,
@@ -318,6 +382,12 @@ class SnowflakeDestinationWriter:
         return None
 
     async def write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
         run = ctx.run
@@ -455,6 +525,10 @@ class SnowflakeDestinationWriter:
         return batch.num_rows
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._finalize_run(ctx)
+
+    async def _finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
         if not ctx.is_full_refresh:
             return
@@ -495,6 +569,10 @@ class SnowflakeDestinationWriter:
             )
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._abort_run(ctx)
+
+    async def _abort_run(self, ctx: DestinationRunContext) -> None:
         # The next run stages under its own id, so a leftover table costs storage only.
         client = await self._make_client()
         async with client.connect():
