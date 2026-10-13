@@ -187,7 +187,7 @@ Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next
   Member-level changes use `can_change_level`; promotions to owner also require `can_make_owner`.
 - Use one `project:<team_id>` entity for the team and project.
   Link it to its organization.
-  Project overrides use `user_*` for individual member assignments, `role_*` for roles, and `default_*` for defaults, with `none`, `member`, or `admin` levels.
+  Project overrides use `member_*` for individual member assignments, `role_*` for roles, and `default_*` for defaults, with `none`, `member`, or `admin` levels.
   The model accepts `owner` as an admin-equivalent project relation; persisted project levels stop at `admin`.
 - Create one `resource` per project and resource type, with its own `access_policy`.
   For example, `resource:<org_id>/3/dashboard` holds the dashboards in project 3.
