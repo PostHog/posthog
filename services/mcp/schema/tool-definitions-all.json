@@ -11094,7 +11094,7 @@
         "feature": "product_analytics",
         "summary": "Run data checks on an insight query",
         "title": "Run data checks on an insight query",
-        "required_scopes": ["insight:read"],
+        "required_scopes": ["insight:read", "query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
