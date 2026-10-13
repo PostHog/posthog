@@ -13,14 +13,24 @@ const ENTITY_TAB: [RegExp, string][] = [
     [/^\/actions\//, '/workflows'],
 ]
 
+// A hand-typed URL can carry a malformed escape such as %zz, and decodeURIComponent throws on it.
+function decodeSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment)
+    } catch {
+        return segment
+    }
+}
+
 /** The 'owner/name' a repo path names, or null for a repo-less path. */
 export function repoFromPath(pathname: string): string | null {
     const match = REPO_PATH.exec(pathname)
-    return match ? `${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}` : null
+    return match ? `${decodeSegment(match[1])}/${decodeSegment(match[2])}` : null
 }
 
 /** The repository a repo-less URL forwards to: the one it asks for, else the last one used, else the
- *  backend's default (the first synced repository). Null when no connected repository has a name. */
+ *  backend's default (the first synced repository). Null when no connected repository has a name, or when
+ *  the URL asks for a legacy source that names none: that page stays repo-less and reads the source. */
 export function pickForwardRepo(
     sources: GitHubSourceApi[],
     requested: { repo?: string | null; sourceId?: string | null },
@@ -29,10 +39,17 @@ export function pickForwardRepo(
     const named = sources.filter((source) => source.repo)
     const known = (repo: string | null | undefined): string | null =>
         named.find((source) => source.repo.toLowerCase() === repo?.toLowerCase())?.repo ?? null
-    const ofSource = requested.sourceId ? named.filter((source) => source.id === requested.sourceId) : []
+    const requestedRepo = known(requested.repo)
+    if (requestedRepo) {
+        return requestedRepo
+    }
+    const ofSource = requested.sourceId ? sources.filter((source) => source.id === requested.sourceId) : []
+    if (ofSource.length > 0 && ofSource.every((source) => !source.repo)) {
+        return null
+    }
+    const namedOfSource = ofSource.filter((source) => source.repo)
     return (
-        known(requested.repo) ??
-        (ofSource.find((source) => source.synced) ?? ofSource[0])?.repo ??
+        (namedOfSource.find((source) => source.synced) ?? namedOfSource[0])?.repo ??
         known(lastRepo) ??
         (named.find((source) => source.synced) ?? named[0])?.repo ??
         null

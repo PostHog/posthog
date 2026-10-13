@@ -1,5 +1,5 @@
 import type { GitHubSourceApi } from '../generated/api.schemas'
-import { pickForwardRepo, switchRepoPath } from './repoScope'
+import { pickForwardRepo, repoFromPath, switchRepoPath } from './repoScope'
 
 const SOURCES: GitHubSourceApi[] = [
     { id: 'src-a', repo: 'PostHog/posthog', prefix: 'a', synced: true },
@@ -47,8 +47,16 @@ describe('repoScope', () => {
         ['the last repository used over the default', {}, 'PostHog/posthog-js', 'PostHog/posthog-js'],
         ['the default when the last one is gone', {}, 'PostHog/gone', 'PostHog/posthog'],
         ['the default when the requested one is unknown', { repo: 'PostHog/unknown' }, null, 'PostHog/posthog'],
+        ['nothing for a legacy source that names no repository', { sourceId: 'src-c' }, 'PostHog/posthog-js', null],
     ])('forwarding picks %s', (_label, requested, lastRepo, expected) => {
         expect(pickForwardRepo(SOURCES, requested, lastRepo)).toBe(expected)
+    })
+
+    it.each([
+        ['an encoded segment', '/engineering-analytics/repos/PostHog/posthog%2Ejs/overview', 'PostHog/posthog.js'],
+        ['a malformed escape, kept raw', '/engineering-analytics/repos/%zz/posthog/overview', '%zz/posthog'],
+    ])('reads the repository from %s', (_label, pathname, expected) => {
+        expect(repoFromPath(pathname)).toBe(expected)
     })
 
     it('has nothing to forward to when no source names a repository', () => {

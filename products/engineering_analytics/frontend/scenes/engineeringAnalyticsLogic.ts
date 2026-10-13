@@ -1247,7 +1247,15 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
             setSourceId: () => actions.refresh(),
             setScope: () => actions.refresh(),
-            noRepoToForward: () => actions.refresh(),
+            noRepoToForward: () => {
+                // A repo-less page takes no scope from urlToAction, so a legacy source's link reads ?source here.
+                const source = router.values.searchParams.source ?? null
+                if (source !== values.sourceId) {
+                    actions.setScope(source, null)
+                } else {
+                    actions.refresh()
+                }
+            },
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },

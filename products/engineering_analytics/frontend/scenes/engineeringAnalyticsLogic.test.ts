@@ -510,6 +510,18 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockCiCards.mock.calls[0][1]).toMatchObject({ repo })
     })
 
+    it('an old repo-less link to a legacy source stays repo-less and reads that source', async () => {
+        mockSources.mockResolvedValue([...SOURCES, { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true }])
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), { source: 'src-legacy' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['noRepoToForward', 'loadCardsSuccess'])
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-legacy' })
+    })
+
     const openPullRequestList = async (
         searchParams: Record<string, string>,
         sources: GitHubSourceApi[] = SOURCES
