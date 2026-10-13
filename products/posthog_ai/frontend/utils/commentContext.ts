@@ -51,3 +51,22 @@ export function splitCommentContexts(text: string): MessageSegment[] {
     }
     return segments
 }
+
+export function commentContextPreview({ label, body }: CommentContext): string {
+    const quoteLines: string[] = []
+    const snippetLines: string[] = []
+    let fence: string | null = null
+    for (const line of body.split('\n')) {
+        const opening: string | undefined = fence === null ? line.match(/^`{3,}/)?.[0] : undefined
+        if (opening) {
+            fence = opening
+        } else if (fence !== null && line === fence) {
+            fence = null
+        } else if (fence !== null) {
+            snippetLines.push(line)
+        } else if (line.startsWith('> ') || line === '>') {
+            quoteLines.push(line.slice(2))
+        }
+    }
+    return quoteLines.length > 0 ? quoteLines.join('\n') : snippetLines.length > 0 ? snippetLines.join('\n') : label
+}

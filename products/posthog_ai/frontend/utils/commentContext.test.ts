@@ -1,4 +1,4 @@
-import { commentContextXml, splitCommentContexts } from './commentContext'
+import { commentContextPreview, commentContextXml, splitCommentContexts } from './commentContext'
 
 describe('commentContext', () => {
     it.each([
@@ -22,5 +22,17 @@ describe('commentContext', () => {
             { type: 'comment_context', label: 'chart.png (region)', body: '- **Artifact** chart.png' },
             { type: 'text', text: ' after' },
         ])
+    })
+
+    it.each([
+        [
+            'the quote',
+            '- **Artifact** report.md\n\n> Most people leave\n> at the plan step',
+            'Most people leave\nat the plan step',
+        ],
+        ['the code snippet', '- **File** app.ts\n\n```ts\nconst a = 1\n```', 'const a = 1'],
+        ['the label when there is no quote', '- **Artifact** report.md', 'report.md (region)'],
+    ])('previews %s, not the raw markdown', (_, body, expected) => {
+        expect(commentContextPreview({ label: 'report.md (region)', body })).toEqual(expected)
     })
 })

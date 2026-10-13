@@ -1,7 +1,7 @@
 import { IconComment } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import type { CommentContext } from '../utils/commentContext'
+import { type CommentContext, commentContextPreview } from '../utils/commentContext'
 
 export function CommentContextChip({
     context,
@@ -11,7 +11,11 @@ export function CommentContextChip({
     onRemove?: () => void
 }): JSX.Element {
     return (
-        <Tooltip title={<div className="max-w-80 whitespace-pre-wrap break-words text-xs">{context.body}</div>}>
+        <Tooltip
+            title={
+                <div className="max-w-80 whitespace-pre-wrap break-words text-xs">{commentContextPreview(context)}</div>
+            }
+        >
             <LemonTag
                 icon={<IconComment />}
                 onClose={onRemove}
