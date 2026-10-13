@@ -13,6 +13,7 @@ from typing import Any
 from django.db import IntegrityError, models, transaction
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -117,7 +118,9 @@ class ProjectRepositories:
         """The repository as the installation reports it. A client cannot store a pair GitHub does not know."""
         integration = self.integration_for(ref.installation_id)
         try:
-            repositories = GitHubIntegration(integration).list_all_cached_repositories()
+            repositories = GitHubIntegration(
+                integration, source="review_hog", priority=Priority.NORMAL
+            ).list_all_cached_repositories()
         except Exception:
             # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
             logger.warning("review_hog_repository_write_list_failed", exc_info=True)
