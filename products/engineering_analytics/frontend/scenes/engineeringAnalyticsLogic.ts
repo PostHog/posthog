@@ -25,7 +25,6 @@ import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
-    engineeringAnalyticsSources,
     engineeringAnalyticsTrunkQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
@@ -418,6 +417,8 @@ export interface engineeringAnalyticsLogicValues {
     dateFrom: string | null // engineeringAnalyticsFiltersLogic
     dateTo: string | null // engineeringAnalyticsFiltersLogic
     runScopeParams: RunScopeParams // engineeringAnalyticsFiltersLogic
+    githubSources: GitHubSourceApi[] | null // repoScopeLogic
+    githubSourcesLoading: boolean // repoScopeLogic
     activeCard: CardFilter | null
     activeSource: GitHubSourceApi | null
     anyLoading: boolean
@@ -432,8 +433,6 @@ export interface engineeringAnalyticsLogicValues {
     filters: PullRequestFilters
     fleetSummary: FleetSummary
     fleetTruncated: boolean
-    githubSources: GitHubSourceApi[]
-    githubSourcesLoading: boolean
     hasActiveFilters: boolean
     hasActiveWorkflowFilters: boolean
     notConnected: boolean
@@ -494,21 +493,6 @@ export interface engineeringAnalyticsLogicActions {
         payload?: any
     ) => {
         cards: CardsData
-        payload?: any
-    }
-    loadGithubSources: () => any
-    loadGithubSourcesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadGithubSourcesSuccess: (
-        githubSources: GitHubSourceApi[],
-        payload?: any
-    ) => {
-        githubSources: GitHubSourceApi[]
         payload?: any
     }
     loadPullRequests: () => any
@@ -701,7 +685,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
         connect(() => ({
-            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'runScopeParams']],
+            values: [
+                engineeringAnalyticsFiltersLogic,
+                ['dateFrom', 'dateTo', 'runScopeParams'],
+                // One sources list for the product: repoScopeLogic loads it for the switcher and the forward.
+                repoScopeLogic,
+                ['githubSources', 'githubSourcesLoading'],
+            ],
             actions: [repoScopeLogic, ['noRepoToForward']],
         })),
 
@@ -873,13 +863,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             ),
                         }
                     },
-                },
-            ],
-            githubSources: [
-                [] as GitHubSourceApi[],
-                {
-                    loadGithubSources: async (): Promise<GitHubSourceApi[]> =>
-                        await engineeringAnalyticsSources(projectId()),
                 },
             ],
         })),
@@ -1156,10 +1139,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             activeSource: [
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
                 (
-                    githubSources: GitHubSourceApi[],
+                    loadedSources: GitHubSourceApi[] | null,
                     sourceId: string | null,
                     scopeRepo: string | null
                 ): GitHubSourceApi | null => {
+                    const githubSources = loadedSources ?? []
                     if (!sourceId) {
                         // A repo-only scope (?repo with no ?source) resolves across sources — label that
                         // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
@@ -1281,7 +1265,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         }),
 
         afterMount(({ actions, values }) => {
-            actions.loadGithubSources()
             // A scoped URL already refreshed through urlToAction, which runs before this hook. A repo-less
             // product URL loads once repoScopeLogic forwards it, or once it finds nothing to forward to.
             if (!awaitsRepoForward() && !values.cardsLoading) {

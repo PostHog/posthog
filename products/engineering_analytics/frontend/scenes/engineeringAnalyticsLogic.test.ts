@@ -383,7 +383,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.mount()
         const scope = repoScopeLogic()
         await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
 
         expect(scope.values.hasMultipleSources).toBe(true)
         expect(scope.values.sourceOptions).toEqual([
@@ -569,7 +569,7 @@ describe('engineeringAnalyticsLogic', () => {
         router.actions.push(urls.engineeringAnalyticsPullRequestList(repo), rest)
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        await expectLogic(repoScopeLogic).toDispatchActions(['loadGithubSourcesSuccess'])
         return jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
     }
     const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
