@@ -320,18 +320,6 @@ jobs:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Restore recorded jest durations
-              # Written by record-jest-durations on the hourly master run. A miss prices
-              # every test at the script's fallback, so sizing still works from counts.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              continue-on-error: true
-              with:
-                  path: .jest_durations
-                  # run_id never matches, so the prefix restore-key takes the newest entry.
-                  key: posthog-jest-durations-${{ github.run_id }}
-                  restore-keys: |
-                      posthog-jest-durations-
-
             - name: Compute changed files
               id: diff
               continue-on-error: true
@@ -458,12 +446,12 @@ jobs:
                       exit 0
                   fi
 
-                  # The script lists the tests --findRelatedTests will run and sizes the
+                  # The script counts the tests --findRelatedTests will run and sizes the
                   # matrix so the slowest shard meets its wall target. A checkout from
                   # before the script keeps the fixed three shards below.
                   if [[ -f .github/scripts/jest-select.js ]]; then
-                      CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" DURATIONS_FILE=.jest_durations \
-                          node .github/scripts/jest-select.js plan || fall_back selector_crash "jest-select.js exited $?"
+                      CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" \
+                          node .github/scripts/jest-select.js || fall_back selector_crash "jest-select.js exited $?"
                       exit 0
                   fi
 
@@ -1044,37 +1032,6 @@ jobs:
               if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
-
-    record-jest-durations:
-        name: Record jest durations
-        needs: jest
-        # The hourly run is the one full run on master, so its JUnit covers every test.
-        # select-jest-tests restores the map to size the PR matrix.
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
-        runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github/scripts/jest-select.js
-                  sparse-checkout-cone-mode: false
-
-            - name: Download Jest results
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  path: ./junit-artifacts
-                  pattern: junit-results-frontend-*
-
-            - name: Build the durations map
-              run: node .github/scripts/jest-select.js durations ./junit-artifacts > .jest_durations
-
-            - name: Save the durations map to Actions cache
-              # One immutable key per run; restores match the prefix and take the newest.
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .jest_durations
-                  key: posthog-jest-durations-${{ github.run_id }}
 
     jest-replay-shared:
         runs-on: ubuntu-24.04
