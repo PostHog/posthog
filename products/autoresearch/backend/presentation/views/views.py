@@ -260,7 +260,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         # like /score does.
         if self.action in ("create", "update", "partial_update"):
             writes_persons = "write_person_property" in request.data
-        elif self.action in ("archive", "destroy"):
+        elif self.action in ("archive", "destroy") and not getattr(self, "swagger_fake_view", False):
+            # Schema generation has no pipeline to read, so it documents the base scopes.
             writes_persons = api.pipeline_writes_person_property(self.team_id, self.kwargs["pk"])
         else:
             writes_persons = False
