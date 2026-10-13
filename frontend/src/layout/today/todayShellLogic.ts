@@ -82,6 +82,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
+    // Notebooks and dashboards are views, list pages included, so they never open the Products pane.
     if (
         isUnder(path, urls.views()) ||
         isUnder(path, '/canvases') ||
