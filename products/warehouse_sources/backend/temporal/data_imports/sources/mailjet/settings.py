@@ -94,7 +94,39 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
         from_ts_field="ClickedAt",
         incremental_fields=[_datetime_incremental_field("ClickedAt")],
     ),
+    "bouncestatistics": MailjetEndpointConfig(
+        name="bouncestatistics",
+        path="bouncestatistics",
+        partition_key="BouncedAt",
+        sort="BouncedAt",
+        from_ts_field="BouncedAt",
+        incremental_fields=[_datetime_incremental_field("BouncedAt")],
+    ),
+    # Not offset-paginated like the rest: `/statcounters` takes a mandatory FromTS/ToTS window per
+    # request, so `mailjet.py` walks it window by window. One row per day for the whole API key.
+    "statcounters": MailjetEndpointConfig(
+        name="statcounters",
+        path="statcounters",
+        primary_key="Timeslice",
+        partition_key="Timeslice",
+        sort=None,
+        incremental_fields=[_datetime_incremental_field("Timeslice")],
+    ),
 }
+
+STATCOUNTERS_ENDPOINT = "statcounters"
+# Event timing makes each day's counters final once the day ends, so an incremental sync only has
+# to re-read the last synced day. Message timing would keep changing old days as late opens and
+# clicks arrive.
+STATCOUNTERS_PARAMS: dict[str, str] = {
+    "CounterSource": "APIKey",
+    "CounterTiming": "Event",
+    "CounterResolution": "Day",
+}
+# Mailjet caps a Day-resolution window at 100 days; stay under it.
+STATCOUNTERS_WINDOW_DAYS = 90
+# Mailjet's current statistics system holds no data from before its April 2018 launch.
+STATCOUNTERS_EARLIEST_UNIX_TS = 1522540800  # 2018-04-01T00:00:00Z
 
 # The Event API pushes per-recipient engagement and delivery events. Mailjet exposes no list
 # endpoint for that stream — `/openinformation` and `/clickstatistics` cover opens and clicks

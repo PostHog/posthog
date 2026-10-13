@@ -62,10 +62,13 @@ export interface BIField {
     type: DatabaseSerializedFieldType
     source: BIDataSource
     dateBucket?: BIDateBucket
+    datePart?: 'month' | 'quarter' | 'day_of_week'
     localDefinition?: BILocalFieldDefinition
+    localFieldId?: string
 }
 
 export type BILocalFieldDefinition =
+    | { kind: 'expression'; expression: string; aggregate: boolean }
     | { kind: 'groups'; expression: string; groups: BICategoryGroup[]; other: string }
     | { kind: 'bins'; expression: string; width: number; origin: number }
 
@@ -74,8 +77,17 @@ export interface BICategoryGroup {
     values: string[]
 }
 
+export interface BIHierarchy {
+    id: string
+    name: string
+    /** Ordered from the broadest dimension to the most detailed. */
+    levels: BIField[]
+}
+
 export interface BIValue {
     field: BIField
+    /** Measures in older worksheets belong to rows. */
+    shelf?: 'rows' | 'columns'
     aggregation: BIAggregation
     customExpression?: string
     label?: string
@@ -129,6 +141,9 @@ export interface BIConfig {
     source: BIDataSource | null
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIField[]
+    /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+    hierarchies?: BIHierarchy[]
+    colorBy?: string | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange

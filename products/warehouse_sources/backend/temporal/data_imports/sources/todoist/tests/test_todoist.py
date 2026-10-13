@@ -1,42 +1,38 @@
-import json
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
+    TodoistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import (
     INCREMENTAL_FIELDS,
     TODOIST_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist import (
     PAGE_LIMIT,
     TodoistResumeConfig,
-    todoist_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the todoist module.
-TODOIST_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist.make_tracked_session"
-)
-# Kill tenacity's backoff so retry classification tests don't actually sleep.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 BASE = "https://api.todoist.com/api/v1"
 
 
-def _resp(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _resp(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
 def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
@@ -44,59 +40,27 @@ def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
     return parts.path, tuple(sorted(parse_qsl(parts.query)))
 
 
-def _make_manager(resume_state: TodoistResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _by_url(responses_by_url: dict[str, list[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Resolve each request by its fully-encoded URL.
 
-
-def _wire(session: mock.MagicMock, responses_by_url: dict[str, list[Response]]) -> list[dict[str, Any]]:
-    """Wire a mock session that resolves each request by its fully-encoded URL.
-
-    Values are per-URL queues so a URL can return different responses across retries/pages. Returns a
-    list capturing each request's params snapshot at prepare time (the params dict is mutated in place
-    across pages, so a post-run read would show only the final state).
+    Values are per-URL queues so a URL can return different responses across retries/pages.
     """
-    session.headers = {}
-    normalized: dict[tuple[str, tuple[tuple[str, str], ...]], list[Response]] = {
-        _norm(url): list(queue) for url, queue in responses_by_url.items()
-    }
-    param_snapshots: list[dict[str, Any]] = []
+    normalized = {_norm(url): list(queue) for url, queue in responses_by_url.items()}
 
-    def _prepare(request: Any) -> Any:
-        param_snapshots.append(dict(request.params or {}))
-        return request.prepare()
-
-    def _send(prepared: Any, **_kwargs: Any) -> Response:
-        queue = normalized.get(_norm(prepared.url))
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        queue = normalized.get(_norm(request.url))
         if not queue:
-            raise AssertionError(f"unexpected request url {prepared.url!r}")
+            raise UnexpectedRequest(f"unexpected request url {request.url!r}")
         return queue.pop(0)
 
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return param_snapshots
+    return respond
 
 
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, responses_by_url: dict[str, list[Response]], manager: mock.MagicMock) -> Any:
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-        session = MockSession.return_value
-        params = _wire(session, responses_by_url)
-        rows = _rows(
-            todoist_source(
-                api_token="tok",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-            )
-        )
-    return rows, params
+def _run(
+    endpoint: str, responses_by_url: dict[str, list[ScriptedResponse]], resume: TodoistResumeConfig | None = None
+) -> DriveResult:
+    driver = SourceDriver(TodoistSource(), TodoistSourceConfig(api_token="tok"))
+    return driver.run(endpoint, _by_url(responses_by_url), resume_state=resume)
 
 
 class TestSourceResponseShape:
@@ -109,22 +73,18 @@ class TestSourceResponseShape:
             ("collaborators", ["project_id", "id"], None, None),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_shape(
         self,
         endpoint: str,
         expected_keys: list[str],
         expected_partition_mode: str | None,
         expected_partition_key: str | None,
-        MockSession: Any,
     ) -> None:
-        response = todoist_source(
-            api_token="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
+        driver = SourceDriver(TodoistSource(), TodoistSourceConfig(api_token="tok"))
+        result = driver.run(endpoint, always(_resp({"results": [], "next_cursor": None})))
+
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.partition_mode == expected_partition_mode
@@ -168,20 +128,20 @@ class TestTopLevelPagination:
             f"{BASE}/tasks?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "T1"}], "next_cursor": "c2"})],
             f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=c2": [_resp({"results": [{"id": "T2"}], "next_cursor": None})],
         }
-        rows, params = _run("tasks", responses, _make_manager())
-        assert rows == [{"id": "T1"}, {"id": "T2"}]
-        assert params[0]["limit"] == PAGE_LIMIT
-        assert "cursor" not in params[0]
-        assert params[1]["cursor"] == "c2"
+        result = _run("tasks", responses)
+        assert result.rows == [{"id": "T1"}, {"id": "T2"}]
+        assert result.requests[0].param("limit") == str(PAGE_LIMIT)
+        assert result.requests[0].param("cursor") is None
+        assert result.requests[1].param("cursor") == "c2"
 
     def test_resumes_from_saved_cursor(self) -> None:
         responses = {
             f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=saved": [_resp({"results": [{"id": "T9"}], "next_cursor": None})],
         }
-        rows, params = _run("tasks", responses, _make_manager(TodoistResumeConfig(next_cursor="saved")))
+        result = _run("tasks", responses, TodoistResumeConfig(next_cursor="saved"))
         # Resumes mid-pagination from the saved cursor instead of restarting at page one.
-        assert rows == [{"id": "T9"}]
-        assert params[0]["cursor"] == "saved"
+        assert result.rows == [{"id": "T9"}]
+        assert result.requests[0].param("cursor") == "saved"
 
 
 class TestCollaboratorsFanOut:
@@ -197,8 +157,8 @@ class TestCollaboratorsFanOut:
                 _resp({"results": [{"id": "U1", "name": "Ann"}], "next_cursor": None})
             ],
         }
-        rows, _params = _run("collaborators", responses, _make_manager())
-        assert rows == [
+        result = _run("collaborators", responses)
+        assert result.rows == [
             {"id": "U1", "name": "Ann", "project_id": "P1"},
             {"id": "U2", "name": "Bob", "project_id": "P1"},
             {"id": "U1", "name": "Ann", "project_id": "P2"},
@@ -220,14 +180,13 @@ class TestCollaboratorsFanOut:
                 "child_state": {"cursor": "x"},
             }
         )
-        rows, _params = _run("collaborators", responses, _make_manager(state))
-        assert rows == [{"id": "U1", "project_id": "P1"}]
+        result = _run("collaborators", responses, state)
+        assert result.rows == [{"id": "U1", "project_id": "P1"}]
 
 
 class TestRetryClassification:
     @parameterized.expand([(500,), (503,), (429,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_transient_status_is_retried_then_succeeds(self, status: int, _sleep: Any) -> None:
+    def test_transient_status_is_retried_then_succeeds(self, status: int) -> None:
         # 429/5xx are transient — the client backs off and reissues the same request.
         responses = {
             f"{BASE}/tasks?limit={PAGE_LIMIT}": [
@@ -235,22 +194,20 @@ class TestRetryClassification:
                 _resp({"results": [{"id": "T1"}], "next_cursor": None}),
             ],
         }
-        rows, _params = _run("tasks", responses, _make_manager())
-        assert rows == [{"id": "T1"}]
+        result = _run("tasks", responses)
+        assert result.rows == [{"id": "T1"}]
 
     @parameterized.expand([(401,), (403,), (404,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_client_error_fails_loud(self, status: int, _sleep: Any) -> None:
+    def test_client_error_fails_loud(self, status: int) -> None:
         # 4xx (other than 429) are permanent — raise rather than retry or silently sync 0 rows.
         responses = {
             f"{BASE}/tasks?limit={PAGE_LIMIT}": [_resp({"error": "nope"}, status=status)],
         }
-        with pytest.raises(requests.HTTPError):
-            _run("tasks", responses, _make_manager())
+        result = _run("tasks", responses)
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestValidateCredentials:
-    @mock.patch(TODOIST_SESSION_PATCH)
-    def test_ok(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("tok") is True
+    def test_ok(self) -> None:
+        with scripted_network([ScriptedResponse(json={"results": []})]):
+            assert validate_credentials("tok") is True

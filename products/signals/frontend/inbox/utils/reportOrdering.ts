@@ -1,4 +1,4 @@
-import { isRankingSortField, RANKING_SORT_HEADS } from '../filterOptions'
+import { isRankingSortField, rankingScoreForField } from '../filterOptions'
 import type { InboxRankingSortField, InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 
@@ -52,7 +52,7 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
     if (report.ranking?.stale) {
         return null
     }
-    const score = report.ranking?.scores[RANKING_SORT_HEADS[field].head]
+    const score = report.ranking?.scores[rankingScoreForField(field).head]
     return typeof score === 'number' ? score : null
 }
 

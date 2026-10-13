@@ -44,8 +44,6 @@ from products.review_hog.backend.temporal.activities import (
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL
 from products.signals.backend.enums import ReportPriority
 
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
-
 _PR_URL = "https://github.com/o/r/pull/7"
 
 
@@ -241,6 +239,7 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
+            "flash_coordinator": False,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
 
@@ -329,6 +328,7 @@ class TestTrackReviewCompleted(BaseTest):
             probability=0.03,
             model="jevk5",
             own_commits=2,
+            own_code_lines=14,
         )
 
         with (
@@ -357,10 +357,11 @@ class TestTrackReviewCompleted(BaseTest):
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
-        assert (props["skipped"], props["reason"], props["system_one_probability"]) == (
+        assert (props["skipped"], props["reason"], props["system_one_probability"], props["own_code_lines"]) == (
             True,
             "system_one_below_threshold",
             0.03,
+            14,
         )
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
 
@@ -411,10 +412,9 @@ class TestTrackReviewCompleted(BaseTest):
         # the report's first turn. The started event is the third event of a turn: a dashboard
         # compares it against completed to see a lift, so it must carry the same labels.
         signal_report_id = str(uuid.uuid4())
-        with patch(_INTERNAL_FLAG, return_value=True):
-            report_id = self._review_report(
-                signal_report_id=signal_report_id, trigger_source=TRIGGER_INBOX, signal_priority=ReportPriority.P3
-            )
+        report_id = self._review_report(
+            signal_report_id=signal_report_id, trigger_source=TRIGGER_INBOX, signal_priority=ReportPriority.P3
+        )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
             _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_LABEL))

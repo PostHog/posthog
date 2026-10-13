@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from django.db import transaction
@@ -122,6 +122,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             non_retryable=True,
             type="TaskRunDeletedError",
         )
+
+    if input.status == TaskRun.Status.FAILED:
+        input = replace(input, error_type=(task_run.state or {}).get("failure_error_type") or input.error_type)
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:

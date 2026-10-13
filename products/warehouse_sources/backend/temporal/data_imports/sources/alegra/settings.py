@@ -34,6 +34,16 @@ ENDPOINTS: dict[str, AlegraEndpoint] = {
     "estimates": AlegraEndpoint(path="estimates", params={"order_field": "id", "order_direction": "ASC"}),
     "credit_notes": AlegraEndpoint(path="credit-notes"),
     "debit_notes": AlegraEndpoint(path="debit-notes"),
+    # Alegra omits inactive bank accounts unless asked, but payments still reference them.
+    "bank_accounts": AlegraEndpoint(
+        path="bank-accounts", params={"order_field": "id", "order_direction": "ASC", "includeInactive": "true"}
+    ),
+    # Item categories only sort by the editable name, so keep the API default order.
+    "item_categories": AlegraEndpoint(path="item-categories"),
+    "warehouses": AlegraEndpoint(path="warehouses", params={"order_field": "id", "order_direction": "ASC"}),
+    "inventory_adjustments": AlegraEndpoint(
+        path="inventory-adjustments", params={"order_field": "id", "order_direction": "ASC"}
+    ),
 }
 
 # Document dates can be edited, and server-side date filters have not been verified against a live account.

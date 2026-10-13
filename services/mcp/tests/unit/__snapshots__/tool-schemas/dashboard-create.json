@@ -93,6 +93,24 @@
             "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "type": "string"
         },
+        "group_titles": {
+            "anyOf": [
+                {
+                    "additionalProperties": {
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+        },
         "include_dashboards": {
             "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
             "type": "boolean"

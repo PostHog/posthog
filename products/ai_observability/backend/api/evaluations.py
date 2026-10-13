@@ -81,6 +81,7 @@ from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
@@ -389,7 +390,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
-class EvaluationConditionSerializer(serializers.Serializer):
+class EvaluationConditionSerializer(ConditionSetSerializer):
     """A trigger condition set controlling which generations an evaluation runs on."""
 
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")

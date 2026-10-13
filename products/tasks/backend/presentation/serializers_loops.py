@@ -1,5 +1,5 @@
 """
-DRF serializers for Loops. See `products/tasks/docs/LOOPS.md` for the spec.
+DRF serializers for Loops.
 
 Presentation never imports `products.tasks.backend.models` directly (see
 `products/architecture.md`): read serializers wrap the frozen DTOs from

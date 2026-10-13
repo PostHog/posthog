@@ -25,6 +25,8 @@ describe('sql-utils', () => {
             ['plain placeholder', 'SELECT * FROM events WHERE {filters}', true],
             ['field placeholder', 'SELECT * FROM events WHERE {filters.properties}', true],
             ['column-bound placeholder', 'SELECT * FROM v WHERE {filters(day AS timestamp)}', true],
+            ['placeholder with inner whitespace', 'SELECT * FROM events WHERE { filters }', true],
+            ['field placeholder with inner whitespace', 'SELECT * FROM events WHERE {\n  filters.properties\n}', true],
             ['line-commented placeholder', 'SELECT * FROM events\n-- {filters}', false],
             ['inline line-commented placeholder', 'SELECT * FROM events -- WHERE {filters}', false],
             ['block-commented placeholder', 'SELECT * FROM events /* WHERE {filters} */', false],

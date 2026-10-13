@@ -1357,6 +1357,31 @@ describe('EmailService', () => {
         })
 
         it.each([
+            ['uses the sender default when the step has none', undefined, ['support@posthog-test.com']],
+            ['uses the sender default when the step has no parsed addresses', ' , ', ['support@posthog-test.com']],
+            ['keeps the step reply-to over the sender default', 'step@example.com', ['step@example.com']],
+        ])('%s', async (_, replyTo, expected) => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: getIntegrationId(2),
+                kind: 'email',
+                config: {
+                    email: 'sender@posthog-test.com',
+                    name: 'Test User',
+                    domain: 'posthog-test.com',
+                    verified: true,
+                    provider: 'ses',
+                    reply_to: 'support@posthog-test.com',
+                },
+            })
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 2 }, replyTo })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.ReplyToAddresses).toEqual(expected)
+        })
+
+        it.each([
             ['text only', { html: '', text: 'Hello, this is a plain text email.' }, ['Text']],
             ['html only, no text', { html: '<p>Hello</p>', text: undefined }, ['Html']],
             ['html only, empty text', { html: '<p>Hello</p>', text: '' }, ['Html']],

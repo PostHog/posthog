@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
 
@@ -12,31 +12,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith
     CloudsmithResumeConfig,
     _cloudsmith_incremental_window,
     _format_uploaded_filter,
-    cloudsmith_source,
     get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.settings import CLOUDSMITH_ENDPOINTS
-
-
-class _FakeResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
-def _make_manager(resume_state: CloudsmithResumeConfig | None = None) -> Mock:
-    manager = Mock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.source import CloudsmithSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudsmith import (
+    CloudsmithSourceConfig,
+)
 
 
 def _response(page_total: str | None) -> Mock:
@@ -46,6 +35,14 @@ def _response(page_total: str | None) -> Mock:
 
 
 class TestCloudsmithTransport:
+    @staticmethod
+    def _driver(workspace: str = "acme") -> SourceDriver:
+        return SourceDriver(CloudsmithSource(), CloudsmithSourceConfig(api_key="key", workspace=workspace))
+
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], total: str = "1") -> ScriptedResponse:
+        return ScriptedResponse(json=rows, headers={"X-Pagination-PageTotal": total})
+
     @parameterized.expand(
         [
             # Cloudsmith answers a page past the last one with 404, so the header - not an
@@ -111,41 +108,33 @@ class TestCloudsmithTransport:
             (500, None, False, "Cloudsmith returned an unexpected response (HTTP 500)."),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.make_tracked_session"
-    )
     def test_validate_credentials_status_mapping(
-        self, status, schema_name, expected_valid, expected_message, mock_session
+        self, status: int, schema_name: str | None, expected_valid: bool, expected_message: str | None
     ) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        result = validate_credentials(api_key="key", workspace="acme", schema_name=schema_name)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            result = validate_credentials(api_key="key", workspace="acme", schema_name=schema_name)
 
         assert result == (expected_valid, expected_message)
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.cloudsmith.io/v1/namespaces/acme/"
-        assert call.kwargs["headers"]["X-Api-Key"] == "key"
+        assert network.requests_log
+        assert all(request.url == "https://api.cloudsmith.io/v1/namespaces/acme/" for request in network.requests_log)
+        assert all(request.headers["x-api-key"] == "key" for request in network.requests_log)
+        assert network.session_options == [{"redact_values": ("key",), "capture": False}]
 
     @parameterized.expand([("../../user", None), ("acme/repo", None), ("", None), ("with space", None)])
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.make_tracked_session"
-    )
-    def test_validate_credentials_rejects_unsafe_workspace(self, workspace, _unused, mock_session) -> None:
+    def test_validate_credentials_rejects_unsafe_workspace(self, workspace: str, _unused: None) -> None:
         # The workspace is interpolated straight into the request path, so a slug carrying
         # path separators has to be rejected before any request is made.
-        assert validate_credentials(api_key="key", workspace=workspace) == (False, INVALID_WORKSPACE_ERROR)
-        mock_session.assert_not_called()
+        with scripted_network([]) as network:
+            assert validate_credentials(api_key="key", workspace=workspace) == (False, INVALID_WORKSPACE_ERROR)
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_cloudsmith_source_rejects_unsafe_workspace(self) -> None:
-        with pytest.raises(ValueError, match="valid Cloudsmith workspace slug"):
-            cloudsmith_source(
-                api_key="key",
-                workspace="../other",
-                endpoint="repositories",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-            )
+        result = self._driver(workspace="../other").run("repositories", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "valid Cloudsmith workspace slug" in str(result.raised)
+        assert result.requests == []
 
     @parameterized.expand(
         [
@@ -172,35 +161,32 @@ class TestCloudsmithTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(CLOUDSMITH_ENDPOINTS[endpoint], "acme")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.rest_api_resource")
-    def test_source_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager()
-
-        cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint="repositories",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_source_saves_checkpoints_after_batches(self) -> None:
+        result = self._driver().run(
+            "repositories",
+            [
+                self._page([{"slug_perm": "first"}], "3"),
+                self._page([{"slug_perm": "second"}], "3"),
+                self._page([{"slug_perm": "third"}], "3"),
+            ],
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-        resume_hook({"page": 3})
-        manager.save_state.assert_called_once_with(CloudsmithResumeConfig(paginator_state={"page": 3}))
-
+        assert result.raised is None
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.saved_states == [
+            CloudsmithResumeConfig(paginator_state={"page": 2}),
+            CloudsmithResumeConfig(paginator_state={"page": 3}),
+        ]
+        assert result.committed_states == result.saved_states
         # A terminal (None) checkpoint is not persisted - the Redis TTL handles cleanup.
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        manager.save_state.assert_not_called()
+        assert all(state.paginator_state for state in result.saved_states)
 
     @parameterized.expand(
         [
             # The entitlement token is a live download credential.
             (
                 "entitlements",
-                {"slug_perm": "tok", "name": "ci", "token": "secret", "_repositories_slug": "prod"},
+                {"slug_perm": "tok", "name": "ci", "token": "secret"},
                 {"slug_perm": "tok", "name": "ci", "repository_slug": "prod"},
             ),
             # `target_url` can embed an auth token and `templates` carries rendered request bodies.
@@ -211,32 +197,22 @@ class TestCloudsmithTransport:
                     "target_url": "https://example.com/hook?token=secret",
                     "templates": [{"event": "package.created", "template": "{}"}],
                     "is_active": True,
-                    "_repositories_slug": "prod",
                 },
                 {"slug_perm": "wh", "is_active": True, "repository_slug": "prod"},
             ),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_fanout_strips_secret_fields(self, endpoint, raw_row, expected_row, mock_rest_api_resources) -> None:
+    def test_fanout_strips_secret_fields(
+        self, endpoint: str, raw_row: dict[str, Any], expected_row: dict[str, Any]
+    ) -> None:
         # Credential-bearing fields must never land in a warehouse table any project member can query.
-        mock_rest_api_resources.return_value = [
-            _FakeResource("repositories", [{"slug": "prod"}]),
-            _FakeResource(endpoint, [raw_row]),
-        ]
-
-        response = cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+        result = self._driver().run(
+            endpoint,
+            [self._page([{"slug": "prod"}]), self._page([raw_row])],
         )
 
-        assert list(cast(Any, response.items())) == [expected_row]
+        assert result.raised is None
+        assert result.rows == [expected_row]
 
     @parameterized.expand(
         [
@@ -245,35 +221,24 @@ class TestCloudsmithTransport:
             ("webhooks", None),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.build_dependent_resource"
-    )
-    def test_fanout_wiring(self, endpoint, expected_child_params, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = _FakeResource(endpoint, [])
-        manager = _make_manager(CloudsmithResumeConfig(paginator_state={"completed": [], "current": None}))
-
-        cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_fanout_wiring(self, endpoint: str, expected_child_params: dict[str, str] | None) -> None:
+        skipped_path = f"/{endpoint}/acme/skip/"
+        child_path = f"/{endpoint}/acme/prod/"
+        result = self._driver().run(
+            endpoint,
+            [self._page([{"slug": "skip"}, {"slug": "prod"}]), self._page([{"slug_perm": "item"}])],
+            resume_state=CloudsmithResumeConfig(paginator_state={"completed": [skipped_path], "current": None}),
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["child_endpoint"] == endpoint
-        assert kwargs["page_size_param"] == "page_size"
+        assert result.raised is None
+        assert result.paths == ["/v1/repos/acme/", f"/v1/{endpoint}/acme/prod/"]
+        assert result.params("page_size") == ["100", "100"]
         # `{owner}` has to be pre-formatted: the fan-out helper only substitutes `{repo}`.
-        assert kwargs["path_format_values"] == {"owner": "acme"}
-        assert kwargs["fanout"].resolve_param == "repo"
-        assert kwargs["fanout"].resolve_field == "slug"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], CloudsmithPaginator)
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], CloudsmithPaginator)
-        assert kwargs["child_params_extra"] == expected_child_params
-        assert kwargs["incremental_config_factory"] is _cloudsmith_incremental_window
-        assert kwargs["resume_hook"] is not None
-        assert kwargs["initial_paginator_state"] == {"completed": [], "current": None}
+        assert result.params("page") == ["1", "1"]
+        assert result.requests[0].param("sort") == "created_at"
+        assert result.requests[1].param("sort") == (expected_child_params or {}).get("sort")
+        assert result.rows == [{"slug_perm": "item", "repository_slug": "prod"}]
+        assert result.saved_states[-1].paginator_state["completed"] == [child_path, skipped_path]
 
     @parameterized.expand(
         [
@@ -282,27 +247,24 @@ class TestCloudsmithTransport:
             ("non_incremental", False, datetime(2026, 3, 1, tzinfo=UTC)),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.build_dependent_resource"
-    )
     def test_packages_passes_watermark(
-        self, _name, should_use_incremental_field, last_value, mock_build_dependent_resource
+        self, _name: str, should_use_incremental_field: bool, last_value: datetime | None
     ) -> None:
-        mock_build_dependent_resource.return_value = _FakeResource("packages", [])
-
-        cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint="packages",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+        result = self._driver().run(
+            "packages",
+            [self._page([{"slug": "prod"}]), self._page([{"slug_perm": "item"}])],
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=last_value,
-            incremental_field="uploaded_at",
+            incremental_field="uploaded_at" if should_use_incremental_field else None,
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is should_use_incremental_field
-        assert kwargs["db_incremental_field_last_value"] == last_value
-        assert kwargs["incremental_field"] == "uploaded_at"
+        assert result.raised is None
+        assert result.paths == ["/v1/repos/acme/", "/v1/packages/acme/prod/"]
+        assert result.requests[0].param("query") is None
+        assert result.requests[1].param("query") == (
+            f"uploaded:>={last_value:%Y-%m-%dT%H:%M:%SZ}"
+            if should_use_incremental_field and last_value is not None
+            else "uploaded:>=1970-01-01T00:00:00Z"
+            if should_use_incremental_field
+            else None
+        )

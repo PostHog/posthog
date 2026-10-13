@@ -212,6 +212,13 @@ class FramerClient:
             raise FramerAPIError(
                 f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
             ) from e
+        except ConnectionClosed as e:
+            # The TLS/TCP connection can also drop mid-handshake (e.g. a transient SSL error)
+            # after the HTTP upgrade succeeds, which `websockets` surfaces as ConnectionClosed
+            # rather than InvalidMessage. Same transient condition as the _receive() case below.
+            raise FramerAPIError(
+                f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
+            ) from e
 
         deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
         while True:

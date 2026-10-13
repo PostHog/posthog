@@ -179,7 +179,7 @@ class _JudgeRun:
                 posthog_mcp_scopes=[],
                 model=self.snapshot.judge_model,
                 runtime_adapter="codex",
-                reasoning_effort="high",
+                reasoning_effort="xhigh",
                 initial_permission_mode="full-access",
                 github_read_access=False,
                 sandbox_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS + 120,
@@ -244,7 +244,8 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             if output is None or not _has_assessment(output):
                 raise TrialJudgeExecutionError("The judge finished without saving its structured assessment.")
             sources = await asyncio.to_thread(read_trial_evidence_sources, snapshot, evidence)
-            verdicts = parse_trial_judgment(
+            verdicts = await asyncio.to_thread(
+                parse_trial_judgment,
                 json.dumps({"summary": output["summary"], "criteria": output["criteria"]}, ensure_ascii=False),
                 criteria=snapshot.criteria,
                 sources=sources,

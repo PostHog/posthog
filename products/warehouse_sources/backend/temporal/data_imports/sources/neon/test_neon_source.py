@@ -1,8 +1,15 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.neon.source import NeonSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.neon.source import (
+    _NEON_DATABASE_NOT_FOUND_ERROR,
+    NeonSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    PostgresSource,
+)
 
 
 @pytest.mark.parametrize(
@@ -42,3 +49,18 @@ def test_cdc_prerequisites_delegate_for_direct_hosts(host):
     super_check.assert_called_once()
     assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []
+
+
+@pytest.mark.parametrize(
+    "postgres_result,expected",
+    [
+        ((False, _DATABASE_NOT_FOUND_VALIDATION_ERROR), (False, _NEON_DATABASE_NOT_FOUND_ERROR)),
+        ((False, _INVALID_CREDENTIALS_VALIDATION_ERROR), (False, _INVALID_CREDENTIALS_VALIDATION_ERROR)),
+        ((True, None), (True, None)),
+    ],
+)
+def test_validate_credentials_points_a_missing_database_at_the_neon_connect_dialog(postgres_result, expected):
+    config = mock.MagicMock(host="ep-cool-darkness-123456.us-east-2.aws.neon.tech")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=postgres_result):
+        assert NeonSource().validate_credentials(config, team_id=1) == expected

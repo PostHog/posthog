@@ -548,13 +548,20 @@ class TestHogQLQueryRecordBatchModel:
         assert record_batch_model.wait_for_data_interval_end is True
 
     @pytest.mark.parametrize(
-        "hogql_modifiers,converts_timezone",
-        [(None, True), ({"convertToProjectTimezone": False}, False)],
-        ids=["team-modifiers", "export-modifiers"],
+        "team_modifiers,hogql_modifiers,converts_timezone",
+        [
+            (None, None, False),
+            ({"convertToProjectTimezone": True}, None, True),
+            (None, {"convertToProjectTimezone": True}, True),
+            ({"convertToProjectTimezone": True}, {"convertToProjectTimezone": False}, False),
+        ],
+        ids=["utc-by-default", "team-modifier", "export-modifier", "export-overrides-team"],
     )
     async def test_resolved_model_prints_query_with_stored_modifiers(
-        self, ateam, auser, data_interval_start, data_interval_end, hogql_modifiers, converts_timezone
+        self, ateam, auser, data_interval_start, data_interval_end, team_modifiers, hogql_modifiers, converts_timezone
     ):
+        ateam.modifiers = team_modifiers
+        await ateam.asave()
         batch_export_model = BatchExportModel(
             name="hogql",
             schema=None,

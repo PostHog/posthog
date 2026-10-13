@@ -236,13 +236,13 @@ class TestFileSystemSurface(TestCase):
         )
 
         create_or_update_file(
-            team=self.team, base_folder="Old", name="New Name", file_type="insight", ref="7", href="", meta={}
+            team=self.team, base_folder="Old", name="New/Name", file_type="insight", ref="7", href="", meta={}
         )
 
         legacy.refresh_from_db()
         # The web write matched and renamed the legacy NULL row instead of creating a second one.
         self.assertEqual(FileSystem.objects.filter(type="insight", ref="7").count(), 1)
-        self.assertEqual(legacy.path, "Old/New Name")
+        self.assertEqual(legacy.path, "Old/New\\/Name")
 
     def test_delete_file_is_scoped_to_surface(self):
         create_or_update_file(

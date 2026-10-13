@@ -11,8 +11,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 

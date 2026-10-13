@@ -1,24 +1,28 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign import (
     PAGE_SIZE,
     ActiveCampaignPaginator,
     ActiveCampaignResumeConfig,
     _normalize_base_url,
-    active_campaign_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.settings import (
     ACTIVE_CAMPAIGN_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.source import ActiveCampaignSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
+    ActiveCampaignSourceConfig,
+)
 
 
 def _full_page() -> list[dict[str, Any]]:
@@ -29,6 +33,10 @@ def _meta_response(total: Any) -> MagicMock:
     response = MagicMock()
     response.json.return_value = {"meta": {"total": total}}
     return response
+
+
+def _driver(api_url: str = "https://acme.api-us1.com") -> SourceDriver:
+    return SourceDriver(ActiveCampaignSource(), ActiveCampaignSourceConfig(api_url=api_url, api_key="test-key"))
 
 
 class TestNormalizeBaseUrl:
@@ -56,55 +64,8 @@ class TestActiveCampaignPaginator:
         assert paginator.get_resume_state() is None
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestActiveCampaignSourceResumeBehavior:
-    """End-to-end resume behaviour of ``active_campaign_source`` via ``rest_api_resource``."""
-
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with (
-            # The pipeline path builds its own (no-redirect) session and hands it to
-            # RESTClient via config, so patch the factory where the source imports it.
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-            ) as MockSession,
-            # The SSRF guard runs real DNS resolution when DEBUG=False (as in CI); the
-            # fake account host here isn't an SSRF test, so allow it deterministically.
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
-                return_value=(True, None),
-            ),
-        ):
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source = active_campaign_source(
-                api_url="https://acme.api-us1.com",
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            list(cast(Iterable[Any], source.items()))
-            return mock_session, sent_params
+    """Tests how the source resumes through the pipeline."""
 
     def _page_body(self, endpoint: str, items: list[dict[str, Any]], total: Any) -> dict[str, Any]:
         selector = ACTIVE_CAMPAIGN_ENDPOINTS[endpoint].data_selector
@@ -114,44 +75,40 @@ class TestActiveCampaignSourceResumeBehavior:
         "endpoint", ["contacts", "deals", "lists", "campaigns", "deal_activities", "contact_automations"]
     )
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(self._page_body(endpoint, _full_page(), 150)),
-            _make_http_response(self._page_body(endpoint, [{"id": "x"}], 150)),
-        ]
-        _, sent_params = self._drive(endpoint, manager, responses)
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=self._page_body(endpoint, _full_page(), 150)),
+                ScriptedResponse(json=self._page_body(endpoint, [{"id": "x"}], 150)),
+            ],
+        )
 
         # First request starts at offset 0; the second carries the advanced offset.
-        assert [p.get("offset") for p in sent_params] == [0, PAGE_SIZE]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [ActiveCampaignResumeConfig(offset=PAGE_SIZE)]
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.saved_states == [ActiveCampaignResumeConfig(offset=PAGE_SIZE)]
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.raised is None
 
     def test_resume_seeds_paginator_with_saved_offset(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ActiveCampaignResumeConfig(offset=PAGE_SIZE)
+        result = _driver().run(
+            "contacts",
+            [ScriptedResponse(json=self._page_body("contacts", [{"id": "resumed"}], 150))],
+            resume_state=ActiveCampaignResumeConfig(offset=PAGE_SIZE),
+        )
 
-        responses = [
-            _make_http_response(self._page_body("contacts", [{"id": "resumed"}], 150)),
-        ]
-        _, sent_params = self._drive("contacts", manager, responses)
-
-        assert [p.get("offset") for p in sent_params] == [PAGE_SIZE]
-        manager.load_state.assert_called_once()
+        assert result.params("offset") == [str(PAGE_SIZE)]
+        assert result.rows == [{"id": "resumed"}]
+        assert result.raised is None
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = _driver().run(
+            "contacts",
+            [ScriptedResponse(json=self._page_body("contacts", [{"id": "a"}], 1))],
+        )
 
-        responses = [
-            _make_http_response(self._page_body("contacts", [{"id": "a"}], 1)),
-        ]
-        self._drive("contacts", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.params("offset") == ["0"]
+        assert result.rows == [{"id": "a"}]
+        assert result.raised is None
 
 
 class TestValidateCredentials:
@@ -165,28 +122,13 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
-        # Isolate status-code handling from the SSRF guard (which does real DNS when DEBUG=False).
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-            ) as MockSession,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
-                return_value=(True, None),
-            ),
-        ):
-            mock_session = MockSession.return_value
-            response = MagicMock()
-            response.status_code = status_code
-            response.is_redirect = False
-            mock_session.get.return_value = response
-
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
-            assert valid is expected_valid
-            if expected_valid:
-                assert error is None
-            else:
-                assert error is not None
+
+        assert valid is expected_valid
+        assert (error is None) is expected_valid
+        assert network.requests_log[0].path == "/api/3/contacts"
+        assert network.requests_log[0].param("limit") == "1"
 
     def test_rejects_non_https_url(self) -> None:
         valid, error = validate_credentials("http://acme.api-us1.com", "test-key")
@@ -194,67 +136,33 @@ class TestValidateCredentials:
         assert error is not None and "https" in error
 
     def test_network_error_returns_message(self) -> None:
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-            ) as MockSession,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
-                return_value=(True, None),
-            ),
-        ):
-            MockSession.return_value.get.side_effect = Exception("boom")
+        with scripted_network([Exception("boom")]):
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
-            assert valid is False
-            assert error == "boom"
+
+        assert valid is False
+        assert error == "boom"
 
     def test_does_not_follow_redirects(self) -> None:
         # Redirect-based SSRF guard: even a host that passes validation must not be
         # allowed to 3xx-redirect onto an internal host, so the request disables it.
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-            ) as MockSession,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
-                return_value=(True, None),
-            ),
-        ):
-            mock_session = MockSession.return_value
-            response = MagicMock()
-            response.status_code = 302
-            response.is_redirect = True
-            mock_session.get.return_value = response
-
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://169.254.169.254/metadata"})]
+        ) as network:
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
 
-            assert valid is False
-            assert error is not None
-            assert mock_session.get.call_args.kwargs["allow_redirects"] is False
+        assert valid is False
+        assert error is not None
+        assert len(network.requests_log) == 1
 
     def test_redirect_returns_actionable_account_name_message(self) -> None:
         # A redirect means the account name in the URL is likely wrong — surface that
         # instead of a bare status code.
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-            ) as MockSession,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
-                return_value=(True, None),
-            ),
-        ):
-            mock_session = MockSession.return_value
-            response = MagicMock()
-            response.status_code = 302
-            response.is_redirect = True
-            mock_session.get.return_value = response
-
+        with scripted_network([ScriptedResponse(status=302, headers={"Location": "/login"})]):
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
 
-            assert valid is False
-            assert error is not None and "account name" in error
-            assert "status code" not in error
+        assert valid is False
+        assert error is not None and "account name" in error
+        assert "status code" not in error
 
 
 class TestSsrfProtection:
@@ -267,44 +175,17 @@ class TestSsrfProtection:
         assert error is not None and "not allowed" in error
 
     def test_source_for_pipeline_blocks_internal_host(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        with patch("posthog.security.url_validation.is_dev_mode", return_value=False):
+            result = _driver("https://169.254.169.254").run("contacts", [])
 
-        with (
-            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            pytest.raises(ValueError, match="not allowed"),
-        ):
-            active_campaign_source(
-                api_url="https://169.254.169.254",
-                api_key="test-key",
-                endpoint="contacts",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
+        assert isinstance(result.raised, ValueError)
+        assert "not allowed" in str(result.raised)
+        assert result.requests == []
 
     def test_source_for_pipeline_disables_redirects(self) -> None:
         # The sync path hands RESTClient a session built with redirects off, so a
         # 3xx to an internal host can't be followed during a sync either.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = _driver().run("contacts", [ScriptedResponse(json={"contacts": [], "meta": {"total": 0}})])
 
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-            ) as MockSession,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
-                return_value=(True, None),
-            ),
-        ):
-            active_campaign_source(
-                api_url="https://acme.api-us1.com",
-                api_key="test-key",
-                endpoint="contacts",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-
-            assert MockSession.call_args.kwargs["allow_redirects"] is False
+        assert result.session_options[0]["allow_redirects"] is False
+        assert result.raised is None
