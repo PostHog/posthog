@@ -4355,7 +4355,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                     actions.setRefreshStatus(insight.short_id)
                 } else {
-                    actions.setRefreshError(insight.short_id, queryError ?? undefined)
+                    actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
                 }
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id, e)
@@ -4460,7 +4460,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 false
                             )
                         } else {
-                            actions.setRefreshError(insight.short_id, queryError ?? undefined)
+                            actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
                             tilesErroredCount++
                         }
                     } catch (e: any) {

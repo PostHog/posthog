@@ -3020,8 +3020,9 @@ describe('dashboardLogic', () => {
             it.each([
                 ['rate_limited', 'Queries are a little too busy right now.', 429],
                 ['table_access_denied', "You don't have access to table `events`.", 400],
+                [null, "'NoneType' object has no attribute 'get'", null],
             ])(
-                'keeps tile data and passes the %s error to the tile when a refresh terminates in a rejection stub',
+                'keeps tile data and marks the tile errored when a refresh terminates in a %s rejection stub',
                 async (errorCode, errorMessage, expectedStatus) => {
                     const dashboard = dashboards[5]
                     const insight1 = dashboard.tiles[0].insight!
@@ -3055,16 +3056,18 @@ describe('dashboardLogic', () => {
 
                         // The stub must not be committed as a successful refresh: tiles keep their data
                         expect(logic.values.insightTiles.map((t) => t.insight!.result)).toEqual(resultsBeforeRefresh)
-                        // and surface the backend error instead of rendering the null result as an empty insight
+                        // and surface an error state instead of rendering the null result as an empty insight
                         for (const shortId of [insight1.short_id, insight2.short_id]) {
                             const status = logic.values.refreshStatus[shortId]
                             expect(status?.errored).toBe(true)
                             expect(status?.error).toEqual(
-                                expect.objectContaining({
-                                    status: expectedStatus,
-                                    detail: errorMessage,
-                                    code: errorCode,
-                                })
+                                expectedStatus === null
+                                    ? undefined
+                                    : expect.objectContaining({
+                                          status: expectedStatus,
+                                          detail: errorMessage,
+                                          code: errorCode,
+                                      })
                             )
                         }
                     } finally {
