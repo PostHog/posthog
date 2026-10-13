@@ -70,33 +70,66 @@ describe('ActionFilter', () => {
         groupsModel.mount()
     })
 
-    it('hands a CDP-shaped filter object back unchanged after a UI edit', async () => {
-        const setFilters = jest.fn()
-        render(
-            <Provider>
-                <ActionFilter
-                    filters={CDP_FILTERS}
-                    setFilters={setFilters}
-                    typeKey="plugin-filters"
-                    mathAvailability={MathAvailability.None}
-                    buttonCopy="Add filter"
-                />
-            </Provider>
-        )
+    it.each([
+        {
+            defaults: 'no defaults',
+            addFilterDefaultOptions: undefined,
+            addedTo: 'events',
+            added: { type: EntityTypes.EVENTS, id: '$pageview', order: 3 },
+        },
+        {
+            // The project's default event in tests is $pageview, so a different id shows which one won.
+            defaults: 'a legacy event default',
+            addFilterDefaultOptions: {
+                id: 'signed_up',
+                name: 'signed_up',
+                type: EntityTypes.EVENTS,
+                funnel_from_step: 0,
+                funnel_to_step: 1,
+            },
+            addedTo: 'events',
+            added: {
+                type: EntityTypes.EVENTS,
+                id: 'signed_up',
+                name: 'signed_up',
+                funnel_from_step: 0,
+                funnel_to_step: 1,
+                order: 3,
+            },
+        },
+        {
+            defaults: 'a warehouse default',
+            addFilterDefaultOptions: { type: EntityTypes.DATA_WAREHOUSE, name: 'Select a table' },
+            addedTo: 'data_warehouse',
+            added: { type: EntityTypes.DATA_WAREHOUSE, name: 'Select a table', order: 3 },
+        },
+    ] as const)(
+        'hands a CDP-shaped filter object back unchanged after adding a row with $defaults',
+        async ({ addFilterDefaultOptions, addedTo, added }) => {
+            const setFilters = jest.fn()
+            render(
+                <Provider>
+                    <ActionFilter
+                        filters={CDP_FILTERS}
+                        setFilters={setFilters}
+                        typeKey="plugin-filters"
+                        mathAvailability={MathAvailability.None}
+                        buttonCopy="Add filter"
+                        addFilterDefaultOptions={addFilterDefaultOptions}
+                    />
+                </Provider>
+            )
 
-        await userEvent.click(screen.getByTestId('add-action-event-button'))
+            await userEvent.click(screen.getByTestId('add-action-event-button'))
 
-        expect(setFilters).toHaveBeenCalledTimes(1)
-        const emitted = setFilters.mock.calls[0][0]
-
-        expect(emitted.events).toEqual([
-            expect.objectContaining({ ...CDP_FILTERS.events![0], order: 0 }),
-            // the row the edit added
-            expect.objectContaining({ type: EntityTypes.EVENTS, order: 3 }),
-        ])
-        expect(emitted.actions).toEqual([expect.objectContaining({ ...CDP_FILTERS.actions![0], id: 9, order: 1 })])
-        expect(emitted.data_warehouse).toEqual([
-            expect.objectContaining({ ...CDP_FILTERS.data_warehouse![0], order: 2 }),
-        ])
-    })
+            expect(setFilters).toHaveBeenCalledTimes(1)
+            const expected: Record<string, unknown[]> = {
+                events: [expect.objectContaining({ ...CDP_FILTERS.events![0], order: 0 })],
+                actions: [expect.objectContaining({ ...CDP_FILTERS.actions![0], id: 9, order: 1 })],
+                data_warehouse: [expect.objectContaining({ ...CDP_FILTERS.data_warehouse![0], order: 2 })],
+            }
+            expected[addedTo].push(expect.objectContaining(added))
+            expect(setFilters.mock.calls[0][0]).toMatchObject(expected)
+        }
+    )
 })

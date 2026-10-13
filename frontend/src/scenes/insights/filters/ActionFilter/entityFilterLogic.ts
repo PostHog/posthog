@@ -21,7 +21,7 @@ import {
 import {
     SeriesNode,
     WarehouseSeriesNodeKind,
-    createDefaultEventsNode,
+    createDefaultSeriesNode,
     isGroupSeriesNode,
     isWarehouseSeriesNode,
     isWarehouseSeriesNodeKind,
@@ -114,7 +114,7 @@ export interface EntityFilterProps {
     onChange?: (series: SeriesNode[]) => void
     typeKey: string
     singleMode?: boolean
-    newSeriesDefaults?: Partial<EventsNode>
+    newSeriesDefaults?: Partial<SeriesNode>
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     dataWarehouseNodeKind?: WarehouseSeriesNodeKind
 }
@@ -456,7 +456,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             },
             addSeries: () => {
                 const newLength = values.localSeries.length + 1
-                const node = createDefaultEventsNode(props.newSeriesDefaults)
+                const node = createDefaultSeriesNode(props.newSeriesDefaults)
                 const newUuid = uuid()
                 actions.setLocalSeries([...values.localSeries, { uuid: newUuid, node }])
                 actions.selectSeries(newLength - 1, node, newUuid)
