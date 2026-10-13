@@ -15,63 +15,15 @@ that a log or span belongs to an error.
 
 ## Find the exception
 
-- For an issue ID or URL, call
-  `posthog:query-error-tracking-issue-events` with
-  `include: ["exception", "correlation"]`, `filterTestAccounts: false`,
-  and a small `limit`. Choose one occurrence unless the user asks for several.
-  Say when the result is a sample.
-- For an occurrence UUID, use `posthog:execute-sql` to select the exact
-  `$exception` event by `uuid`.
-- For a UUID-shaped session ID, use `posthog:execute-sql` to select
-  `$exception` events with that exact `$session_id`. Start with a 30-day window
-  and 21 rows. The extra row shows when the first 20 do not cover the session.
-  Narrow or page through the window for a complete list.
-- For a custom session ID, use the exact typed filter below. Session IDs do not
-  have to be UUIDs.
+For an issue ID or URL, call `posthog:query-error-tracking-issue-events` with
+`include: ["exception", "correlation"]`, `filterTestAccounts: false`, and a small
+`limit`. Choose one occurrence unless the user asks for several. Say when the
+result is a sample.
 
-Use this query for a UUID-shaped session. For an occurrence, replace the
-session predicate with `uuid = '<occurrence_uuid>'` and use `LIMIT 1`. Put only
-a validated UUID in either SQL literal.
-
-```sql
-posthog:execute-sql
-SELECT
-    uuid,
-    issue_id,
-    timestamp,
-    properties.$session_id AS session_id,
-    properties.$trace_id AS trace_id,
-    properties.$span_id AS span_id
-FROM events
-WHERE event = '$exception'
-    AND $session_id = '<session_uuid>'
-    AND timestamp >= now() - INTERVAL 30 DAY
-ORDER BY timestamp DESC
-LIMIT 21
-```
-
-For a custom session ID, call `posthog:query-error-tracking-issues-list`
-without putting the ID in SQL:
-
-```json
-{
-  "dateRange": { "date_from": "-30d" },
-  "status": "all",
-  "filterTestAccounts": false,
-  "filterGroup": [{ "key": "$session_id", "type": "event", "operator": "exact", "value": "<session_id>" }],
-  "limit": 20
-}
-```
-
-For each returned issue, call `posthog:query-error-tracking-issue-events` with
-the same `dateRange` and `filterGroup`, `filterTestAccounts: false`,
-`include: ["exception", "correlation"]`, and a small `limit`. Page with
-`offset` if `hasMore` is true and more results matter. Otherwise, state the
-limit. This path covers grouped issues and sampled events; say that it may
-miss ungrouped exceptions.
-
-Use the user's time range when given. If no event appears, state the window you checked.
-Do not claim that an event never existed based on a bounded search.
+For an occurrence ID or session ID, read
+[finding-exceptions.md](./references/finding-exceptions.md) for the exact lookup.
+Use the user's time range when given. If no event appears, state the window
+you checked. Do not claim that an event never existed based on a bounded search.
 
 ## Follow the IDs
 
@@ -92,52 +44,10 @@ Do not claim that an event never existed based on a bounded search.
    matching child spans as well as root spans. Call `posthog:apm-trace-get`
    for a candidate that needs a link. Label these as session matches. Time
    alone does not prove which request raised the error.
-4. **Same-trace logs:** For each unique trace ID, run the bounded SQL query
-   below to find services with logs for that trace, even when retained spans
-   name some services. Add any service names from the retained trace.
-   `logs-attribute-values-list` cannot filter service values by trace ID.
-   Call `posthog:logs-count`, then `posthog:query-logs` with the same trace ID,
-   services, and time window. Include every severity, including `info`. If no
-   service is found, do not make an unscoped log query.
-
-Raw `logs.trace_id` values use base64. Convert the validated hex ID in the
-predicate, and use a short time window around the error. The 21st row shows
-when the first 20 services are incomplete. Narrow the window and retry if a
-complete list matters; otherwise report the limit.
-
-```sql
-posthog:execute-sql
-SELECT service_name, count() AS log_count
-FROM logs
-WHERE trace_id = base64Encode(unhex('<trace_id>'))
-    AND timestamp >= '<before_error>'
-    AND timestamp < '<after_error>'
-GROUP BY service_name
-ORDER BY log_count DESC
-LIMIT 21
-```
-
-For `posthog:query-logs`, use this filter shape. Use the same filters without
-`limit` for `posthog:logs-count`. Keep the row limit small and narrow the
-window if the count is large.
-
-```json
-{
-  "query": {
-    "serviceNames": ["<service_name>"],
-    "dateRange": { "date_from": "<before_error>", "date_to": "<after_error>" },
-    "filterGroup": [
-      {
-        "key": "trace_id",
-        "type": "log",
-        "operator": "exact",
-        "value": "<trace_id>"
-      }
-    ],
-    "limit": 50
-  }
-}
-```
+4. **Same-trace logs:** When an event has a trace ID, read
+   [finding-trace-logs.md](./references/finding-trace-logs.md) for the bounded
+   service lookup and exact log filter. Include every severity, including
+   `info`. A trace can have logs even when no span was retained.
 
 Use `posthog:generate-app-url` with `/error_tracking/{id}` when the issue ID is known.
 Do not build PostHog links by hand.
