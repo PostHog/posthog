@@ -2271,6 +2271,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2285,6 +2286,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
 } as const
 
 /**
@@ -2339,7 +2341,8 @@ export interface ExperimentHealthFindingApi {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
-     * * `forced_variant_release_condition` - Forced Variant Release Condition */
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.

@@ -400,10 +400,10 @@ Today (9): `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `inc
 
 Diffed against: <https://developer.alegra.com/reference>
 
-- [ ] `Bank accounts (GET /api/v1/bank-accounts)` — resolves payment account IDs and supports reports by bank account (high)
-- [ ] `Warehouses (GET /api/v1/warehouses)` — resolves warehouse IDs in item inventory for reports by location (high)
-- [ ] `Item categories (GET /api/v1/item-categories)` — provides category metadata for grouping synced items and sales (high)
-- [ ] `Inventory adjustments (GET /api/v1/inventory-adjustments)` — explains stock corrections and inventory gains or losses (medium)
+- [x] `Bank accounts (GET /api/v1/bank-accounts)` — resolves payment account IDs and supports reports by bank account (high)
+- [x] `Warehouses (GET /api/v1/warehouses)` — resolves warehouse IDs in item inventory for reports by location (high)
+- [x] `Item categories (GET /api/v1/item-categories)` — provides category metadata for grouping synced items and sales (high)
+- [x] `Inventory adjustments (GET /api/v1/inventory-adjustments)` — explains stock corrections and inventory gains or losses (medium)
 - [ ] `Warehouse transfers (GET /api/v1/warehouse-transfers)` — tracks stock movement between warehouses (medium)
 - [ ] `Purchase orders (GET /api/v1/purchase-orders)` — measures committed purchases before supplier bills arrive (medium)
 - [ ] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
