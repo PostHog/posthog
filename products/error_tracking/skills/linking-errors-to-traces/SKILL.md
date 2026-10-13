@@ -22,15 +22,16 @@ that a log or span belongs to an error.
   Say when the result is a sample.
 - For an occurrence UUID, use `posthog:execute-sql` to select the exact
   `$exception` event by `uuid`.
-- For a session ID, use `posthog:execute-sql` to select `$exception` events
-  with that exact `$session_id`. Start with a 30-day window and 21 rows. The
-  extra row shows when the first 20 do not cover the session. Narrow or page
-  through the window for a complete list.
+- For a UUID-shaped session ID, use `posthog:execute-sql` to select
+  `$exception` events with that exact `$session_id`. Start with a 30-day window
+  and 21 rows. The extra row shows when the first 20 do not cover the session.
+  Narrow or page through the window for a complete list.
+- For a custom session ID, use the exact typed filter below. Session IDs do not
+  have to be UUIDs.
 
-Use this query for a session. For an occurrence, replace the session predicate
-with `uuid = '<occurrence_uuid>'` and use `LIMIT 1`. Put only a validated UUID
-in either SQL literal. If the user gives another ID shape, request the exact
-event or session link before writing SQL.
+Use this query for a UUID-shaped session. For an occurrence, replace the
+session predicate with `uuid = '<occurrence_uuid>'` and use `LIMIT 1`. Put only
+a validated UUID in either SQL literal.
 
 ```sql
 posthog:execute-sql
@@ -48,6 +49,26 @@ WHERE event = '$exception'
 ORDER BY timestamp DESC
 LIMIT 21
 ```
+
+For a custom session ID, call `posthog:query-error-tracking-issues-list`
+without putting the ID in SQL:
+
+```json
+{
+  "dateRange": { "date_from": "-30d" },
+  "status": "all",
+  "filterTestAccounts": false,
+  "filterGroup": [{ "key": "$session_id", "type": "event", "operator": "exact", "value": "<session_id>" }],
+  "limit": 20
+}
+```
+
+For each returned issue, call `posthog:query-error-tracking-issue-events` with
+the same `dateRange` and `filterGroup`, `filterTestAccounts: false`,
+`include: ["exception", "correlation"]`, and a small `limit`. Page with
+`offset` if `hasMore` is true and more results matter. Otherwise, state the
+limit. This path covers grouped issues and sampled events; say that it may
+miss ungrouped exceptions.
 
 Use the user's time range when given. If no event appears, state the window you checked.
 Do not claim that an event never existed based on a bounded search.
@@ -132,4 +153,5 @@ Name each gap separately: no trace ID on the event, trace ID but no retained
 span, no session attribute on spans, no recording, or no logs with that trace
 ID in the checked window. A session-matched span is a candidate until an
 exact trace or span ID connects it to the error. State any row limit or time
-range that kept the search from being complete.
+range that kept the search from being complete. If a lookup fails, say that its
+result is unknown instead of reporting that no matching data exists.
