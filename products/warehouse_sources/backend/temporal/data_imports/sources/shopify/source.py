@@ -1,6 +1,8 @@
 from datetime import date
 from typing import Optional, cast
 
+from django.conf import settings
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -340,4 +342,5 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             row_filters=inputs.row_filters,
+            use_bulk_export=inputs.team_id in settings.DATA_WAREHOUSE_SHOPIFY_BULK_EXPORT_TEAM_IDS,
         )

@@ -225,3 +225,12 @@ DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
 DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES = get_from_env(
     "DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES", 3, type_cast=int
 )
+
+# Teams whose Shopify full reads of `orders` go through a Shopify bulk operation instead of pages.
+# Comma-separated team ids. A row read this way has no `discountApplications` and no `shippingLines`,
+# because a bulk operation cannot export them.
+DATA_WAREHOUSE_SHOPIFY_BULK_EXPORT_TEAM_IDS: frozenset[int] = frozenset(
+    int(team_id)
+    for team_id in os.getenv("DATA_WAREHOUSE_SHOPIFY_BULK_EXPORT_TEAM_IDS", "").split(",")
+    if team_id.strip()
+)

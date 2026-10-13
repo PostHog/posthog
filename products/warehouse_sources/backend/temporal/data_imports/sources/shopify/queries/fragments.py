@@ -80,8 +80,7 @@ MAILING_ADDRESS_FRAGMENT = """{
     zip
 }"""
 
-METAFIELD_CONNECTIONS_FRAGMENT = """{
-    nodes {
+METAFIELD_FIELDS = """
         compareDigest
         createdAt
         id
@@ -91,8 +90,11 @@ METAFIELD_CONNECTIONS_FRAGMENT = """{
         type
         updatedAt
         value
-    }
-}"""
+"""
+
+METAFIELD_CONNECTIONS_FRAGMENT = f"""{{
+    nodes {{{METAFIELD_FIELDS}    }}
+}}"""
 
 
 MONEY_V2_FRAGMENT = """{

@@ -1,5 +1,6 @@
 import re
 import json
+import functools
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -15,9 +16,22 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.bulk import (
+    BULK_POLL_INTERVAL_SECONDS,
+    BULK_STATUS_COMPLETED,
+    BULK_STATUSES_IN_PROGRESS,
+    ShopifyBulkOperationError,
+    ShopifyBulkOperationRejectedError,
+    get_bulk_operation,
+    iter_bulk_batches,
+    start_bulk_query,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
     CREATED_AT,
     ID,
@@ -37,6 +51,7 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
     SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_BULK_EXPORT_API_VERSIONS,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
@@ -49,6 +64,8 @@ logger = structlog.get_logger(__name__)
 PHASE_ALL = "all"
 PHASE_EARLIEST = "earliest"
 PHASE_LATEST = "latest"
+# The "all" read done as one bulk operation instead of pages.
+PHASE_BULK = "bulk"
 
 # Raised when Shopify's OAuth token endpoint returns a 4xx that we can't attribute to a more
 # specific cause below. The app credentials are invalid or revoked, so re-entering them is the
@@ -186,10 +203,14 @@ SHOPIFY_CREDENTIALS_CHECK_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ShopifyResumeConfig:
     phase: str
     cursor: str
+    # Set only in the bulk phase: the bulk operation in progress, and the byte offset in its
+    # result file of the first row that is not written yet.
+    bulk_operation_id: str | None = None
+    bulk_offset: int = 0
 
 
 class ShopifyPermissionError(Exception):
@@ -382,6 +403,97 @@ def _make_paginated_shopify_request(
             # resume; primary-key merge semantics dedupe if that happens.
             if resumable_source_manager is not None:
                 resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
+
+
+@retry(
+    retry=retry_if_exception_type(
+        (ShopifyRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ),
+    stop=stop_after_attempt(5),
+    wait=_shopify_retry_wait,
+    reraise=True,
+)
+def _post_shopify_graphql(url: str, sess: requests.Session, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """Send one GraphQL request outside the paged read, with the same retries as a page."""
+    try:
+        response = sess.post(url, json={"query": query, "variables": variables})
+    except ChunkedEncodingError as e:
+        raise ShopifyRetryableError(f"Shopify: connection broken while reading response: {e}") from e
+    if response.status_code >= 500:
+        raise ShopifyRetryableError(f"Shopify: internal error from request {response.status_code} {response.reason}")
+    response.raise_for_status()
+    payload = response.json()
+    retryable_error = _get_retryable_error(payload)
+    if retryable_error:
+        raise retryable_error
+    if "errors" in payload:
+        raise Exception(f"Shopify GraphQL error: {_format_graphql_errors(payload['errors'])}")
+    if "data" not in payload:
+        raise Exception(f"Unexpected graphql response format in Shopify request. Keys: {list(payload.keys())}")
+    return payload
+
+
+def _bulk_export_rows(
+    url: str,
+    sess: requests.Session,
+    graphql_object: ShopifyGraphQLObject,
+    bulk_query: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+    resume_config: ShopifyResumeConfig | None,
+) -> Iterator[list[Any]] | None:
+    """Read every row of the object through one bulk operation.
+
+    Returns None when Shopify does not start the operation, so the caller can use the paged read.
+    """
+    post = functools.partial(_post_shopify_graphql, url, sess)
+
+    def checkpoint(operation_id: str, next_offset: int) -> ShopifyResumeConfig:
+        return ShopifyResumeConfig(phase=PHASE_BULK, cursor="", bulk_operation_id=operation_id, bulk_offset=next_offset)
+
+    if resume_config is not None and resume_config.bulk_operation_id is not None:
+        operation_id = resume_config.bulk_operation_id
+        offset = resume_config.bulk_offset
+    else:
+        try:
+            operation_id = start_bulk_query(post, bulk_query)
+        except ShopifyBulkOperationRejectedError as e:
+            logger.warning(f"Shopify: bulk export of {graphql_object.name} not started, reading pages instead. {e}")
+            return None
+        offset = 0
+        logger.debug(f"Shopify: started bulk operation {operation_id} for {graphql_object.name}")
+        # Persist the id before the wait, so that a retry polls this operation and does not start another.
+        with resumable_source_manager.committing():
+            resumable_source_manager.save_state(checkpoint(operation_id, 0))
+
+    def rows() -> Iterator[list[Any]]:
+        while True:
+            operation = get_bulk_operation(post, operation_id)
+            if operation.status == BULK_STATUS_COMPLETED:
+                break
+            if operation.status not in BULK_STATUSES_IN_PROGRESS:
+                # A retry that found this operation again would fail the same way.
+                resumable_source_manager.clear_state()
+                raise ShopifyBulkOperationError(
+                    f"Shopify bulk operation {operation_id} ended with status {operation.status} "
+                    f"(error code {operation.error_code})"
+                )
+            logger.debug(
+                f"Shopify: bulk operation {operation_id} is {operation.status}, {operation.object_count} objects so far"
+            )
+            # The stored state expires. An operation can run for days, so store it again on each poll.
+            with resumable_source_manager.committing():
+                resumable_source_manager.save_state(checkpoint(operation_id, offset))
+            interruptible_wait(BULK_POLL_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+
+        if operation.url is None:
+            # Shopify gives no file when the query matched no rows.
+            return
+        for batch in iter_bulk_batches(operation.url, offset, graphql_object.bulk_connections):
+            resumable_source_manager.save_state(checkpoint(operation_id, batch.next_offset))
+            yield batch.rows
+
+    return rows()
 
 
 # A Shopify store subdomain is lowercase alphanumerics and hyphens.
@@ -604,6 +716,7 @@ def shopify_source(
     should_use_incremental_field: bool = False,
     shopify_access_token: str | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
+    use_bulk_export: bool = False,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
@@ -623,6 +736,7 @@ def shopify_source(
         # Drop fields the token lacks the scope to read, so a partially scoped token imports the
         # rest instead of hard-failing on "Access denied for <field>". Falls back to the minimal
         # query when scopes can't be detected.
+        granted_scopes: set[str] | None = None
         if graphql_object.protected_query_builder is not None:
             granted_scopes = _get_granted_scopes(store_id, sess)
             if granted_scopes is None:
@@ -636,6 +750,8 @@ def shopify_source(
                 display_name=graphql_object.display_name,
                 permissions_query=graphql_object.permissions_query,
                 protected_query_builder=graphql_object.protected_query_builder,
+                bulk_query_builder=graphql_object.bulk_query_builder,
+                bulk_connections=graphql_object.bulk_connections,
             )
 
         logger.debug(f"Shopify: reading from resource {schema_name}")
@@ -646,6 +762,25 @@ def shopify_source(
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Shopify: iterating all objects from source for {schema_name}")
+            # A paged read that is already in progress keeps its cursor and stays paged.
+            if (
+                use_bulk_export
+                and graphql_object.bulk_query_builder is not None
+                and api_version in SHOPIFY_BULK_EXPORT_API_VERSIONS
+                and (resume_config is None or resume_config.phase == PHASE_BULK)
+            ):
+                bulk_rows = _bulk_export_rows(
+                    api_url,
+                    sess,
+                    graphql_object,
+                    graphql_object.bulk_query_builder(granted_scopes or set(), " AND ".join(filter_terms) or None),
+                    logger,
+                    resumable_source_manager,
+                    resume_config,
+                )
+                if bulk_rows is not None:
+                    yield from bulk_rows
+                    return
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_ALL else None
             )
