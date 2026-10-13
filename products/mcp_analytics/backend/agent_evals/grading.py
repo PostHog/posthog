@@ -1,6 +1,6 @@
 import asyncio
 import dataclasses
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Iterator, Mapping
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -53,19 +53,17 @@ def _exec_call_target(tool_input: object) -> str | None:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if not isinstance(command, str):
         return None
-    verb, rest = _split_verb(command)
-    if verb != "call":
+    words = _words(command)
+    if next(words, None) != "call":
         return None
-    target, rest = _split_verb(rest)
-    while target in EXEC_CALL_FLAGS:
-        target, rest = _split_verb(rest)
-    return target or None
+    return next((word for word in words if word not in EXEC_CALL_FLAGS), None) or None
 
 
-def _split_verb(text: str) -> tuple[str, str]:
+def _words(text: str) -> Iterator[str]:
     # The server's parseCommand trims like JavaScript and splits on the first literal space.
-    verb, _, rest = text.strip(_JS_WHITESPACE).partition(" ")
-    return verb, rest.strip(_JS_WHITESPACE)
+    while text := text.strip(_JS_WHITESPACE):
+        word, _, text = text.partition(" ")
+        yield word
 
 
 # What JavaScript's String.prototype.trim removes. Python's str.strip also removes \x1c-\x1f and \x85.
@@ -147,13 +145,10 @@ def format_grade_summary(report: GradedReport) -> str:
         lines.append(f"  {scenario_id}: {', '.join(rates)}")
     if {"judge", "jev"} <= set(graders):
         # Only answered trials reached the graders; the gate's verdicts on the rest would agree by construction.
-        pairs = [_pair(grade, "judge", "jev") for grade in report.grades if grade.outcome == "answered"]
-        compared = [pair for pair in pairs if None not in pair]
-        disagreements = sum(1 for first, second in compared if first != second)
+        answered = [
+            {v.grader: v.passed for v in grade.verdicts} for grade in report.grades if grade.outcome == "answered"
+        ]
+        compared = [passed for passed in answered if passed.get("judge") is not None and passed.get("jev") is not None]
+        disagreements = sum(1 for passed in compared if passed["judge"] != passed["jev"])
         lines.append(f"judge and jev disagree on {disagreements} of {len(compared)} trials both graded")
     return "\n".join(lines)
-
-
-def _pair(grade: TrialGrade, first: str, second: str) -> tuple[bool | None, bool | None]:
-    passed = {v.grader: v.passed for v in grade.verdicts}
-    return passed.get(first), passed.get(second)
