@@ -367,7 +367,7 @@ def _clickhouse_http_pool_mgr(verify: bool | None = None):
 
 
 @contextmanager
-def get_http_client(**overrides):
+def get_http_client(workload: Workload = Workload.DEFAULT, **overrides):
     from clickhouse_connect import get_client  # noqa: PLC0415
 
     kwargs = {
@@ -381,7 +381,9 @@ def get_http_client(**overrides):
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         "autogenerate_session_id": True,
         # beware, this makes each query to run in a separate session - no temporary tables will work
-        "pool_mgr": _clickhouse_http_pool_mgr(overrides.get("verify", settings.QUERYSERVICE_VERIFY)),
+        "pool_mgr": _clickhouse_http_pool_mgr(
+            settings.CLICKHOUSE_VERIFY if workload == Workload.NATIVE_EVENTS else settings.QUERYSERVICE_VERIFY
+        ),
         **overrides,
     }
     yield ProxyClient(get_client(**kwargs))
@@ -501,7 +503,7 @@ def get_client_from_pool(
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-        return get_http_client(**kwargs)
+        return get_http_client(workload=workload, **kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
 

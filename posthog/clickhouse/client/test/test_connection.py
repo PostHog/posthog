@@ -341,18 +341,35 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
     )
 
 
-@pytest.mark.parametrize("verify", [False, True])
-def test_native_http_pool_uses_existing_clickhouse_verification_policy(settings, monkeypatch, verify):
+@pytest.mark.parametrize(
+    "workload,clickhouse_verify,queryservice_verify,expected_verify",
+    [
+        (Workload.NATIVE_EVENTS, False, True, False),
+        (Workload.NATIVE_EVENTS, True, False, True),
+        (Workload.OFFLINE, True, True, True),
+        (Workload.OFFLINE, True, False, False),
+        (Workload.DEFAULT, False, True, True),
+        (Workload.LOGS, False, True, True),
+    ],
+)
+def test_http_pool_preserves_workload_verification_policy(
+    settings, monkeypatch, workload, clickhouse_verify, queryservice_verify, expected_verify
+):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
-    settings.CLICKHOUSE_VERIFY = verify
-    settings.QUERYSERVICE_VERIFY = not verify
+    settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = "offline.example.com"
+    settings.CLICKHOUSE_VERIFY = clickhouse_verify
+    settings.QUERYSERVICE_VERIFY = queryservice_verify
+    settings.CLICKHOUSE_SECURE = True
+    settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = True
     settings.CLICKHOUSE_USE_HTTP = True
+    monkeypatch.setattr(connection, "_default_workload", Workload.OFFLINE)
     connection._clickhouse_http_pool_mgr.cache_clear()
     try:
         with patch("clickhouse_connect.get_client") as client:
-            with connection.get_client_from_pool(Workload.NATIVE_EVENTS):
+            with connection.get_client_from_pool(workload):
                 pass
         manager = client.call_args.kwargs["pool_mgr"]
-        assert manager.connection_pool_kw["cert_reqs"] == ("CERT_REQUIRED" if verify else "CERT_NONE")
+        assert client.call_args.kwargs["secure"]
+        assert manager.connection_pool_kw["cert_reqs"] == ("CERT_REQUIRED" if expected_verify else "CERT_NONE")
     finally:
         connection._clickhouse_http_pool_mgr.cache_clear()
