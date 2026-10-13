@@ -1,143 +1,93 @@
-import json
-from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor import (
     CampaignMonitorResumeConfig,
-    campaign_monitor_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
     CAMPAIGN_MONITOR_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the campaign_monitor module.
-CM_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor.make_tracked_session"
-
-
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.source import (
+    CampaignMonitorSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campaignmonitor import (
+    CampaignMonitorSourceConfig,
+)
 
 
-def _envelope(items: list[dict[str, Any]], number_of_pages: int = 1, page_number: int = 1) -> Response:
+def _driver() -> SourceDriver:
+    config = CampaignMonitorSourceConfig(api_key="test-key", client_id="client-abc")
+    return SourceDriver(CampaignMonitorSource(), config)
+
+
+def _response(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
+
+
+def _envelope(items: list[dict[str, Any]], number_of_pages: int = 1, page_number: int = 1) -> ScriptedResponse:
     return _response({"Results": items, "NumberOfPages": number_of_pages, "PageNumber": page_number})
-
-
-def _make_manager(resume_state: CampaignMonitorResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
-    """Wire a mock session and return (url, params) snapshots captured AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[tuple[str, dict[str, Any]]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append((request.url, dict(request.params or {})))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock | None = None) -> SourceResponse:
-    return campaign_monitor_source(
-        api_key="test-key",
-        client_id="client-abc",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-    )
-
-
-def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(CM_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("test-key") is expected
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url.endswith("/clients.json")
+    def test_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("test-key") is expected
+
+        assert {request.path for request in network.requests_log} == {"/api/v3.3/clients.json"}
 
 
 class TestNonPaginatedEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_raises_loudly(self, MockSession) -> None:
+    def test_non_list_body_raises_loudly(self) -> None:
         # A 200 body that isn't a JSON array means the response shape changed — fail loud rather
         # than syncing a stray object as a row.
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "unexpected"})])
+        result = _driver().run("clients", [_response({"error": "unexpected"})])
 
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(_source("clients"))
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
 
 class TestPaginatedEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_multi_page_saves_state_between_pages_only(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_multi_page_saves_state_between_pages_only(self) -> None:
+        result = _driver().run(
+            "suppression_list",
             [
                 _envelope([{"EmailAddress": "a@x.com"}], number_of_pages=2, page_number=1),
                 _envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("suppression_list", manager))
-
-        assert rows == [{"EmailAddress": "a@x.com"}, {"EmailAddress": "b@x.com"}]
-        assert snapshots[0][1]["page"] == 1
-        assert snapshots[1][1]["page"] == 2
+        assert result.raised is None
+        assert result.rows == [{"EmailAddress": "a@x.com"}, {"EmailAddress": "b@x.com"}]
+        assert result.params("page") == ["1", "2"]
         # First page is not terminal -> save next page; second page is terminal -> no save.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CampaignMonitorResumeConfig(page=2)
+        assert result.saved_states == [CampaignMonitorResumeConfig(page=2)]
+        assert result.committed_states == [CampaignMonitorResumeConfig(page=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_starts_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2)])
+    def test_resume_starts_from_saved_page(self) -> None:
+        result = _driver().run(
+            "suppression_list",
+            [_envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2)],
+            resume_state=CampaignMonitorResumeConfig(page=2),
+        )
 
-        manager = _make_manager(CampaignMonitorResumeConfig(page=2))
-        rows = _rows(_source("suppression_list", manager))
-
-        assert rows == [{"EmailAddress": "b@x.com"}]
-        assert session.send.call_count == 1
-        assert snapshots[0][1]["page"] == 2
+        assert result.raised is None
+        assert result.rows == [{"EmailAddress": "b@x.com"}]
+        assert result.params("page") == ["2"]
 
 
 class TestListFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_iterates_every_list_and_injects_list_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_iterates_every_list_and_injects_list_id(self) -> None:
+        result = _driver().run(
+            "active_subscribers",
             [
                 _response([{"ListID": "l1"}, {"ListID": "l2"}]),  # lists.json
                 _envelope([{"EmailAddress": "a@x.com"}]),  # l1
@@ -145,33 +95,33 @@ class TestListFanOut:
             ],
         )
 
-        rows = _rows(_source("active_subscribers"))
-
+        assert result.raised is None
         # the injected id must be the plain `ListID` column, not the prefixed parent key
-        assert rows == [
+        assert result.rows == [
             {"EmailAddress": "a@x.com", "ListID": "l1"},
             {"EmailAddress": "b@x.com", "ListID": "l2"},
         ]
-        assert snapshots[0][0].endswith("clients/client-abc/lists.json")
-        assert snapshots[1][0].endswith("lists/l1/active.json")
-        assert snapshots[2][0].endswith("lists/l2/active.json")
+        assert result.paths == [
+            "/api/v3.3/clients/client-abc/lists.json",
+            "/api/v3.3/lists/l1/active.json",
+            "/api/v3.3/lists/l2/active.json",
+        ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_custom_fields_non_list_body_raises_loudly(self, MockSession) -> None:
+    def test_custom_fields_non_list_body_raises_loudly(self) -> None:
         # The endpoint returns a bare array; a 200 object means the response shape changed.
-        session = MockSession.return_value
-        _wire(session, [_response([{"ListID": "l1"}]), _response({"Code": 250, "Message": "Fail"})])
+        result = _driver().run(
+            "list_custom_fields",
+            [_response([{"ListID": "l1"}]), _response({"Code": 250, "Message": "Fail"})],
+        )
 
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(_source("list_custom_fields"))
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
 
 class TestCampaignFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_iterates_every_campaign_and_injects_campaign_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_iterates_every_campaign_and_injects_campaign_id(self) -> None:
+        result = _driver().run(
+            "campaign_opens",
             [
                 _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json (paged envelope)
                 _envelope([{"EmailAddress": "a@x.com"}]),  # c1
@@ -179,53 +129,45 @@ class TestCampaignFanOut:
             ],
         )
 
-        rows = _rows(_source("campaign_opens"))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"EmailAddress": "a@x.com", "CampaignID": "c1"},
             {"EmailAddress": "b@x.com", "CampaignID": "c2"},
         ]
-        assert snapshots[0][0].endswith("clients/client-abc/campaigns.json")
-        assert snapshots[1][0].endswith("campaigns/c1/opens.json")
-        assert snapshots[2][0].endswith("campaigns/c2/opens.json")
+        assert result.paths == [
+            "/api/v3.3/clients/client-abc/campaigns.json",
+            "/api/v3.3/campaigns/c1/opens.json",
+            "/api/v3.3/campaigns/c2/opens.json",
+        ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_summary_object_yields_no_row(self, MockSession) -> None:
+    def test_empty_summary_object_yields_no_row(self) -> None:
         # An empty summary body is not a row — no record carrying only the injected CampaignID.
-        session = MockSession.return_value
-        _wire(session, [_envelope([{"CampaignID": "c1"}]), _response({})])
+        result = _driver().run(
+            "campaign_summary",
+            [_envelope([{"CampaignID": "c1"}]), _response({})],
+        )
 
-        assert _rows(_source("campaign_summary")) == []
+        assert result.raised is None
+        assert result.rows == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_campaigns(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_resume_skips_completed_campaigns(self) -> None:
+        result = _driver().run(
+            "campaign_opens",
             [
                 _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json re-fetched
                 _envelope([{"EmailAddress": "b@x.com"}]),  # c2 only
             ],
-        )
-
-        manager = _make_manager(
-            CampaignMonitorResumeConfig(
+            resume_state=CampaignMonitorResumeConfig(
                 fanout_state={"completed": ["campaigns/c1/opens.json"], "current": None, "child_state": None}
-            )
+            ),
         )
-        rows = _rows(_source("campaign_opens", manager))
 
-        assert rows == [{"EmailAddress": "b@x.com", "CampaignID": "c2"}]
-        assert snapshots[1][0].endswith("campaigns/c2/opens.json")
-
-    @staticmethod
-    def _lists_and_segments() -> Response:
-        return _response(
-            {
-                "Lists": [{"ListID": "l1", "Name": "My List"}],
-                "Segments": [{"ListID": "l1", "SegmentID": "s1", "Title": "My Segment"}],
-            }
-        )
+        assert result.raised is None
+        assert result.rows == [{"EmailAddress": "b@x.com", "CampaignID": "c2"}]
+        assert result.paths == [
+            "/api/v3.3/clients/client-abc/campaigns.json",
+            "/api/v3.3/campaigns/c2/opens.json",
+        ]
 
 
 class TestResumeConfigCompatibility:
@@ -242,9 +184,10 @@ class TestResumeConfigCompatibility:
 class TestCampaignMonitorSourceResponse:
     @pytest.mark.parametrize("endpoint", list(CAMPAIGN_MONITOR_ENDPOINTS.keys()))
     def test_source_response_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = _source(endpoint)
+        result = _driver().run(endpoint, [])
 
+        assert result.response is not None
         config = CAMPAIGN_MONITOR_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_keys
+        assert result.response.sort_mode == "asc"
