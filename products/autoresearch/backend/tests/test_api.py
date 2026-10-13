@@ -623,6 +623,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         if starts_cleanup:
             kwargs = start_cleanup.call_args.kwargs
             assert kwargs["output_property"] == "predicted_p_pageview_7d"
+            assert kwargs["pipeline_id"] == str(pipeline.pk)
             assert kwargs["user_id"] == self.user.pk
             assert (kwargs["run"] is not None) == records_run
 
@@ -826,6 +827,23 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         with_all = self.create_personal_api_key_with_scopes([*partial, *rest])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_all}")
         assert self.client.post(missing).status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("person_writes_setting", {"write_person_property": False}, True),
+            ("other_fields", {"name": "Renamed"}, False),
+        ]
+    )
+    def test_changing_person_writes_needs_person_write(self, _name: str, body: dict, needs_person_write: bool):
+        missing = f"{self.base_url}/{uuid.uuid4()}/"
+        self.client.logout()
+        without = self.create_personal_api_key_with_scopes(["autoresearch:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
+        expected = status.HTTP_403_FORBIDDEN if needs_person_write else status.HTTP_404_NOT_FOUND
+        assert self.client.patch(missing, body, format="json").status_code == expected
+        with_person = self.create_personal_api_key_with_scopes(["autoresearch:write", "person:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_person}")
+        assert self.client.patch(missing, body, format="json").status_code == status.HTTP_404_NOT_FOUND
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 

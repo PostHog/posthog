@@ -254,6 +254,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         if _is_training_agent_sandbox(request, self.team_id):
             raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Turning person-profile writes on or off writes to persons (scores, or the cleanup's $unset),
+        # so it needs person:write like /score does.
+        if self.action in ("update", "partial_update") and "write_person_property" in request.data:
+            return ["autoresearch:write", "person:write"]
+        return None
+
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
         if self.action in ("resolve_template", "validate_definition", "run_inference", "run_validation"):
@@ -298,6 +305,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=201, headers=headers)
 
+    @extend_schema(request=AutoresearchPipelineCreateSerializer, responses={200: AutoresearchPipelineSerializer})
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
         context = {**self.get_serializer_context(), "pipeline_id": self.kwargs["pk"]}
@@ -318,6 +326,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
+    # Both respond with the read serializer, so the generated client keeps `id` for `enrich_url`.
+    @extend_schema(request=AutoresearchPipelineCreateSerializer, responses={200: AutoresearchPipelineSerializer})
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
@@ -640,7 +650,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         summary="Archive a pipeline",
         description=(
             "Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. "
-            "When write_person_property is on, a cleanup run removes output_person_property from every person. "
+            "When write_person_property is on, a cleanup run removes output_person_property from the people it scored. "
             "Refused while a training run is in progress."
         ),
     )

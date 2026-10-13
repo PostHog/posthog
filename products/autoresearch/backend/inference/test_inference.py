@@ -156,17 +156,20 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("writes_the_property", True, True),
-            ("leaves_persons_alone_when_off", False, False),
-            ("rechecks_the_setting_before_sending", True, False),
+            ("writes_the_property", True, True, False),
+            ("leaves_persons_alone_when_off", False, False, False),
+            ("rechecks_the_setting_before_sending", True, False, False),
+            ("archived_before_sending", True, True, True),
         ]
     )
     def test_run_inference_emits_one_batch_and_records_the_run(
-        self, _name: str, write_at_start: bool, write_at_send: bool
+        self, _name: str, write_at_start: bool, write_at_send: bool, archived_at_send: bool
     ):
         pipeline, model = self._make_pipeline_and_model(write_person_property=write_at_start)
         if write_at_send != write_at_start:
             AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(write_person_property=write_at_send)
+        if archived_at_send:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(status=AutoresearchPipeline.Status.ARCHIVED)
         capture = _capture_accepting_everything()
 
         run = self._run_live(pipeline, model, capture, resolved={"user-1": "real-distinct-id"})
@@ -188,7 +191,7 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         # while the pipeline opts in; an unresolved one stays person-less so a UUID never becomes a person.
         assert by_person["user-1"]["distinct_id"] == "real-distinct-id"
         assert by_person["user-1"]["options"] == {"process_person_profile": True}
-        if write_at_send:
+        if write_at_send and not archived_at_send:
             assert by_person["user-1"]["properties"]["$set"] == {
                 "predicted_p_pageview": by_person["user-1"]["properties"]["$autoresearch_p_y"]
             }

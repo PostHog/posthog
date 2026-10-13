@@ -1,10 +1,11 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.api.capture import CaptureInternalResult
 
+from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
 from products.autoresearch.backend.inference import person_property
 from products.autoresearch.backend.inference.person_property import STOP_REENABLED, remove_output_person_property
 from products.autoresearch.backend.models import AutoresearchPipeline
@@ -25,8 +26,19 @@ class TestRemoveOutputPersonProperty(TeamScopedTestMixin, ClickhouseTestMixin, A
             write_person_property=False,
         )
         for distinct_id in ("holder-1", "holder-2"):
-            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={_PROPERTY: 0.4})
-        _create_person(team_id=self.team.pk, distinct_ids=["bystander"], properties={"plan": "free"})
+            holder = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={_PROPERTY: 0.4})
+            _create_event(
+                team=self.team,
+                event=PREDICTION_EVENT_NAME,
+                distinct_id=distinct_id,
+                properties={
+                    "$autoresearch_pipeline_id": str(pipeline.pk),
+                    "$autoresearch_model_role": "champion",
+                    "$autoresearch_person_id": str(holder.uuid),
+                },
+            )
+        # Holds the same property from another source, and this pipeline never scored them.
+        _create_person(team_id=self.team.pk, distinct_ids=["bystander"], properties={_PROPERTY: 0.9})
         flush_persons_and_events()
 
         def accept(**kwargs: object) -> CaptureInternalResult:
@@ -41,7 +53,11 @@ class TestRemoveOutputPersonProperty(TeamScopedTestMixin, ClickhouseTestMixin, A
             patch.object(person_property, "capture_batch_internal", capture),
         ):
             outcome = remove_output_person_property(
-                team=self.team, pipeline_id=str(pipeline.pk), output_property=_PROPERTY, user=self.user
+                team=self.team,
+                pipeline_id=str(pipeline.pk),
+                output_property=_PROPERTY,
+                user=self.user,
+                written_since=pipeline.created_at.isoformat(),
             )
 
         events = [event for call in capture.call_args_list for event in call.kwargs["events"]]

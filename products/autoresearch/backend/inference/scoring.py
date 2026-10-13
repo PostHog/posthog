@@ -735,9 +735,13 @@ def _require_still_champion(model: AutoresearchModel) -> None:
 def _still_writes_person_property(pipeline: AutoresearchPipeline) -> bool:
     """
     Re-read the opt-in right before the events go out, so a run that started before someone
-    turned it off does not write the property after the cleanup started.
+    turned it off, or archived the pipeline, does not write the property after the cleanup started.
     """
-    return AutoresearchPipeline.objects.filter(pk=pipeline.pk, write_person_property=True).exists()
+    return (
+        AutoresearchPipeline.objects.filter(pk=pipeline.pk, write_person_property=True)
+        .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+        .exists()
+    )
 
 
 def _require_still_in_shadow_set(*, pipeline: AutoresearchPipeline, model: AutoresearchModel) -> None:

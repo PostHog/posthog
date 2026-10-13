@@ -1,11 +1,12 @@
 """
-Remove a pipeline's output person property from every person who holds it.
+Remove a pipeline's output person property from the persons it wrote it to.
 
 Live scoring writes the champion's score to ``output_person_property`` only while the
 pipeline's ``write_person_property`` is on. When someone turns it off, or archives or deletes a
 pipeline that had it on, ``remove_output_person_property()`` sends ``$unset`` for the property
-to each person who still has it. ``AutoresearchPropertyCleanupWorkflow`` in
-``../temporal/workflows.py`` runs it.
+to each person who still has it and received a live champion prediction from the pipeline.
+Persons who got the same property from somewhere else keep it.
+``AutoresearchPropertyCleanupWorkflow`` in ``../temporal/workflows.py`` runs it.
 
 The cleanup is safe to repeat: ``$unset`` of a missing property does nothing, and each page
 reads the persons who still hold the property after the last person id it handled.
@@ -26,8 +27,9 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
 from products.autoresearch.backend.inference.scoring import _resolve_distinct_ids
-from products.autoresearch.backend.models import AutoresearchPipeline
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import BATCH_QUERY, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
@@ -75,11 +77,14 @@ def remove_output_person_property(
     pipeline_id: str,
     output_property: str,
     user: User | None,
+    written_since: str | None = None,
     query_context: QueryContext = BATCH_QUERY,
     on_page: Callable[[int], None] | None = None,
 ) -> CleanupOutcome:
     """
-    Send ``$unset`` for ``output_property`` to every person who has it, one page at a time.
+    Send ``$unset`` for ``output_property`` to the persons this pipeline wrote it to, one page at a time.
+
+    ``written_since`` (ISO timestamp, the pipeline's creation) bounds the prediction-event scan.
 
     Before each page it checks ``cleanup_stop_reason()``, so a re-enable stops the cleanup within
     one page. ``on_page`` receives the running count after each page.
@@ -91,7 +96,13 @@ def remove_output_person_property(
             logger.info("autoresearch_property_cleanup_stopped", pipeline_id=pipeline_id, reason=stopped)
             return CleanupOutcome(persons_cleared=cleared, stopped=stopped)
         person_ids = _persons_with_property(
-            team=team, output_property=output_property, after=after, user=user, query_context=query_context
+            team=team,
+            pipeline_id=pipeline_id,
+            output_property=output_property,
+            written_since=written_since,
+            after=after,
+            user=user,
+            query_context=query_context,
         )
         if not person_ids:
             return CleanupOutcome(persons_cleared=cleared)
@@ -111,13 +122,29 @@ def remove_output_person_property(
 
 
 def _persons_with_property(
-    *, team: Team, output_property: str, after: str | None, user: User | None, query_context: QueryContext
+    *,
+    team: Team,
+    pipeline_id: str,
+    output_property: str,
+    written_since: str | None,
+    after: str | None,
+    user: User | None,
+    query_context: QueryContext,
 ) -> list[str]:
-    values: dict[str, Any] = {"property": output_property}
+    values: dict[str, Any] = {
+        "property": output_property,
+        "pipeline_id": pipeline_id,
+        "event": PREDICTION_EVENT_NAME,
+        "champion": AutoresearchModel.Role.CHAMPION.value,
+    }
     after_clause = ""
     if after is not None:
         after_clause = "AND id > toUUID({after})"
         values["after"] = after
+    since_clause = ""
+    if written_since is not None:
+        since_clause = "AND timestamp >= {written_since}"
+        values["written_since"] = datetime.fromisoformat(written_since)
     tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
     result = run_hogql(
         team=team,
@@ -125,6 +152,13 @@ def _persons_with_property(
             query=f"""
                 SELECT id FROM persons
                 WHERE JSONHas(properties, {{property}}) {after_clause}
+                    AND id IN (
+                        SELECT toUUID(properties.$autoresearch_person_id) FROM events
+                        WHERE event = {{event}}
+                            AND properties.$autoresearch_pipeline_id = {{pipeline_id}}
+                            AND properties.$autoresearch_model_role = {{champion}}
+                            {since_clause}
+                    )
                 ORDER BY id
                 LIMIT {CLEANUP_PAGE_SIZE}
             """,

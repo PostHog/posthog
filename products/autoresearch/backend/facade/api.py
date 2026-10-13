@@ -771,15 +771,28 @@ def _queue_property_cleanup(
         if record_run
         else None
     )
+    # Read the ids now: a deleted row has no pk by the time the commit callback runs.
+    team_id, pipeline_id, written_since = row.team_id, str(row.pk), row.created_at.isoformat()
     transaction.on_commit(
         lambda: _start_property_cleanup(
-            team_id=row.team_id, pipeline_id=str(row.pk), output_property=output_property, run=run, user_id=user_id
+            team_id=team_id,
+            pipeline_id=pipeline_id,
+            output_property=output_property,
+            written_since=written_since,
+            run=run,
+            user_id=user_id,
         )
     )
 
 
 def _start_property_cleanup(
-    *, team_id: int, pipeline_id: str, output_property: str, run: AutoresearchRun | None, user_id: int | None
+    *,
+    team_id: int,
+    pipeline_id: str,
+    output_property: str,
+    written_since: str,
+    run: AutoresearchRun | None,
+    user_id: int | None,
 ) -> None:
     # The Temporal client and the workflow module load only when a cleanup starts.
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
@@ -803,6 +816,7 @@ def _start_property_cleanup(
                     pipeline_id=pipeline_id,
                     team_id=team_id,
                     output_property=output_property,
+                    written_since=written_since,
                     run_id=str(run.pk) if run else None,
                     user_id=user_id,
                 ),

@@ -408,8 +408,10 @@ class AutoresearchValidationWorkflow(PostHogWorkflow):
 class PropertyCleanupWorkflowInput:
     pipeline_id: str
     team_id: int
-    # Carried in the input, because a deleted pipeline has no row to read it from.
+    # Carried in the input, because a deleted pipeline has no row to read them from.
     output_property: str
+    # The pipeline's creation time, so the scan for its prediction events stays bounded.
+    written_since: Optional[str] = None
     # The AutoresearchRun row the cleanup fills. None for a deleted pipeline.
     run_id: Optional[str] = None
     # Who turned the setting off, archived, or deleted, so HogQL applies their access.
@@ -432,7 +434,7 @@ PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=7)
 
 @activity.defn(name="autoresearch-property-cleanup.remove_person_property")
 def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
-    """Send $unset for the pipeline's output property to every person who has it.
+    """Send $unset for the pipeline's output property to the persons it wrote it to.
 
     The run row is updated through the queryset, because deleting the pipeline also deletes its runs.
     """
@@ -445,6 +447,7 @@ def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> Proper
                 team=team,
                 pipeline_id=inp.pipeline_id,
                 output_property=inp.output_property,
+                written_since=inp.written_since,
                 user=user,
                 query_context=BATCH_QUERY,
                 on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=cleared),

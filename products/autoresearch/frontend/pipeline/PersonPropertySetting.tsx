@@ -25,7 +25,7 @@ export function PersonPropertySetting({ source }: { source: PersonPropertyToggle
         }
         LemonDialog.open({
             title: 'Stop writing scores to person profiles?',
-            description: `The ${outputProperty} property will be removed from everyone who has it. Feature flags, cohorts and workflows that use it will stop matching those people. Prediction events, segments and accuracy checks keep working.`,
+            description: `The ${outputProperty} property will be removed from the people this model scored. Feature flags, cohorts and workflows that use it will stop matching those people. Prediction events, segments and accuracy checks keep working.`,
             primaryButton: {
                 children: 'Stop writing scores',
                 status: 'danger',
@@ -72,7 +72,7 @@ function cleanupStatus(run: AutoresearchRunApi): string {
         return 'Removing the property from people who have it.'
     }
     if (run.status === 'failed') {
-        return "Couldn't remove the property from every person. Turn the setting on and off again to retry."
+        return "Couldn't remove the property from everyone this model scored. Turn the setting on and off again to retry."
     }
     const removedFrom = run.rows_scored ?? 0
     const when = run.completed_at ? ` on ${dayjs(run.completed_at).format('MMM D, YYYY')}` : ''

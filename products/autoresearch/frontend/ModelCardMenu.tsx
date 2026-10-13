@@ -56,7 +56,7 @@ export function ModelCardMenu({ pipeline }: { pipeline: AutoresearchPipelineApi 
                             LemonDialog.open({
                                 title: `Delete "${pipeline.name}"?`,
                                 description: pipeline.write_person_property
-                                    ? 'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream. The prediction person property is removed from everyone who has it.'
+                                    ? 'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream. The prediction person property is removed from the people this model scored.'
                                     : 'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
                                 primaryButton: {
                                     children: 'Delete',
