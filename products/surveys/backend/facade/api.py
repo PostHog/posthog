@@ -55,7 +55,14 @@ class SurveyLifecycleState:
 
 
 def _editable_survey(*, team_id: int, user: User, survey_id: UUID | str) -> Survey:
-    survey = Survey.objects.filter(team_id=team_id, id=survey_id).select_related("team").first()
+    # A product tour's linked surveys are hidden from the survey API and run with the tour,
+    # so they are not separately launchable or stoppable here either.
+    survey = (
+        Survey.objects.filter(team_id=team_id, id=survey_id)
+        .exclude(product_tour__isnull=False)
+        .select_related("team")
+        .first()
+    )
     if survey is None:
         raise SurveyNotFound
     if not UserAccessControl(user=user, team=survey.team).check_access_level_for_object(survey, "editor"):

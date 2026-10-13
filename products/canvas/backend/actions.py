@@ -310,6 +310,11 @@ def _add_persons_to_cohort(team_id: int, user_id: int, canvas: "Canvas", payload
         raise _denied("People can only be added to a static cohort.", http_status.HTTP_400_BAD_REQUEST)
     except cohorts_facade.NoValidPersons:
         raise _denied("None of the person ids belong to this project.", http_status.HTTP_400_BAD_REQUEST)
+    except cohorts_facade.CohortInsertFailed:
+        raise _denied(
+            f"Adding people to cohort {payload['cohort_id']} failed. Try again.",
+            http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     return {"cohort_id": payload["cohort_id"], "added": added}
 
 

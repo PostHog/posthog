@@ -34,6 +34,10 @@ class NoValidPersons(Exception):
     pass
 
 
+class CohortInsertFailed(Exception):
+    """Writing the people into the cohort failed; the cohort records the error."""
+
+
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
     """Whether the team owns that cohort.
 
@@ -49,7 +53,7 @@ def add_persons_to_static_cohort(*, team_id: int, user_id: int, cohort_id: int, 
     action. Raises ``CohortNotFound`` for a cohort outside the team or soft deleted,
     ``CohortAccessDenied`` when the user has no editor access to the cohort (the check the
     cohort API applies), ``CohortNotStatic`` for a dynamic cohort, and ``NoValidPersons`` when
-    none of the uuids name a person in the team.
+    none of the uuids name a person in the team, and ``CohortInsertFailed`` when the write fails.
     """
     cohort = Cohort.objects.filter(team_id=team_id, id=cohort_id, deleted=False).select_related("team").first()
     if cohort is None:
@@ -62,7 +66,12 @@ def add_persons_to_static_cohort(*, team_id: int, user_id: int, cohort_id: int, 
     uuids = validate_person_uuids_exist(team_id, person_ids[:MAX_PERSONS_PER_STATIC_COHORT_ADD])
     if not uuids:
         raise NoValidPersons
-    cohort.insert_users_list_by_uuid(uuids, team_id=team_id)
+    try:
+        cohort.insert_users_list_by_uuid(uuids, team_id=team_id, raise_on_error=True)
+    except Exception as err:
+        # raise_on_error leaves the error state to the caller.
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
+        raise CohortInsertFailed from err
     log_activity(
         organization_id=cohort.team.organization_id,
         team_id=team_id,
