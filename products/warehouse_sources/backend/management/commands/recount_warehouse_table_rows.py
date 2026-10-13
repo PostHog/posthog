@@ -6,6 +6,8 @@ from django.db.models import QuerySet
 
 import deltalake
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -32,10 +34,17 @@ def _latest_completed_rows_synced(schema: ExternalDataSchema) -> int | None:
     )
 
 
+@frozen
+class RecountCandidate:
+    schema: ExternalDataSchema
+    table: DataWarehouseTable
+    latest_sync_rows: int | None
+
+
 def find_recount_candidates(
     schemas: QuerySet[ExternalDataSchema], *, skip_latest_sync_filter: bool
-) -> list[tuple[ExternalDataSchema, DataWarehouseTable, int | None]]:
-    candidates: list[tuple[ExternalDataSchema, DataWarehouseTable, int | None]] = []
+) -> list[RecountCandidate]:
+    candidates: list[RecountCandidate] = []
     for schema in schemas.iterator():
         table = schema.table
         if table is None:
@@ -44,7 +53,7 @@ def find_recount_candidates(
         # A merge can remove duplicate keys, so more loaded rows than stored rows is a candidate
         # rather than proof. The recount decides.
         if skip_latest_sync_filter or (rows_synced is not None and rows_synced > (table.row_count or 0)):
-            candidates.append((schema, table, rows_synced))
+            candidates.append(RecountCandidate(schema=schema, table=table, latest_sync_rows=rows_synced))
     return candidates
 
 
@@ -108,11 +117,12 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(f"Found {len(candidates)} table(s) to recount:\n")
-        for schema, table, rows_synced in candidates:
+        for candidate in candidates:
+            schema, table = candidate.schema, candidate.table
             self.stdout.write(
                 f"  schema={schema.id} team={schema.team_id} name={schema.name} sync_type={schema.sync_type} "
                 f"table={table.id} stored_row_count={table.row_count} "
-                f"latest_sync_rows={rows_synced}"
+                f"latest_sync_rows={candidate.latest_sync_rows}"
             )
 
         if not live_run:
@@ -125,7 +135,8 @@ class Command(BaseCommand):
 
         updated = 0
         failed = 0
-        for schema, table, _rows_synced in candidates:
+        for candidate in candidates:
+            schema, table = candidate.schema, candidate.table
             try:
                 row_count = count_table_rows(schema, table)
             except Exception as e:
