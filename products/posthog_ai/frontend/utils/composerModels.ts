@@ -33,6 +33,8 @@ const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
 ]
 
 export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
+// The model a Pi run uses when it names none. Mirrors DEFAULT_PI_MODEL_ID in the Desktop Pi harness.
+export const PI_DEFAULT_MODEL = 'gpt-5.6-terra'
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<string, string> = REASONING_EFFORT_LABELS
@@ -84,6 +86,17 @@ export function modelsForRuntimeAdapter(
 export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
     const selected = catalogueEntry(catalogue, selectedModel)
     return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
+}
+
+/** The models a Pi run may use: every offered model, without the ultracode depth that Pi's thinking levels lack. */
+export function piPickerModels(
+    catalogue: ModelChoiceApi[],
+    selectedModel: string | null | undefined
+): ModelChoiceApi[] {
+    return pickerModels(catalogue, selectedModel).map((option) => ({
+        ...option,
+        supported_efforts: option.supported_efforts.filter((effort) => effort !== ReasoningEffortEnumApi.Ultracode),
+    }))
 }
 
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,

@@ -11,6 +11,7 @@ import type { ActivityStatus } from './activityTypes'
 const IN_PROGRESS_STATUS_LABELS: Record<string, string> = {
     compacting: 'Compacting conversation history…',
     clearing: 'Clearing conversation…',
+    retrying: 'Retrying the model request…',
 }
 
 function StatusLine({ icon, children }: { icon?: JSX.Element; children: React.ReactNode }): JSX.Element {
@@ -34,6 +35,15 @@ export function StatusItem({ item }: { item: ThreadItem }): JSX.Element {
             ? `Couldn't clear the conversation: ${item.errorMessage}`
             : "Couldn't clear the conversation"
         return <StatusLine icon={<IconX className="size-3" />}>{reason}. Start a new run to keep going.</StatusLine>
+    }
+    if (item.status === 'compacting_failed') {
+        const reason = item.errorMessage
+            ? `Couldn't compact the conversation: ${item.errorMessage}`
+            : "Couldn't compact the conversation"
+        return <StatusLine icon={<IconWarning className="size-3" />}>{reason}</StatusLine>
+    }
+    if (item.status === 'extension_notice' && item.errorMessage) {
+        return <StatusLine icon={<IconWarning className="size-3" />}>{item.errorMessage}</StatusLine>
     }
     return <StatusLine>Status: {item.status}</StatusLine>
 }

@@ -3,6 +3,8 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { useThreadSkin } from '../hooks/useThreadSkin'
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
@@ -60,6 +62,7 @@ interface RunSurfaceContextValue {
     isScout: boolean
     floatingInputsHeight: number
     setFloatingInputsHeight: (height: number) => void
+    taskRuntime?: string | null
 }
 
 const FLOATING_INPUTS_GAP = 16
@@ -103,6 +106,7 @@ function RunSurfaceRoot({
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
     const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
+    const piWebSessionsEnabled = useFeatureFlag('PI_WEB_SESSIONS')
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
         // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
@@ -127,7 +131,7 @@ function RunSurfaceRoot({
         }
     }
 
-    if (task && isPiTaskRuntime(task.runtime)) {
+    if (task && isPiTaskRuntime(task.runtime) && !piWebSessionsEnabled) {
         return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
 
@@ -145,6 +149,7 @@ function RunSurfaceRoot({
                     isScout,
                     floatingInputsHeight,
                     setFloatingInputsHeight,
+                    taskRuntime: task?.runtime,
                 }}
             >
                 <RunSurfaceBootstrap taskId={taskId} />
@@ -156,7 +161,7 @@ function RunSurfaceRoot({
 
 /** Drives the run bootstrap as a side effect; renders nothing. Kept separate so slots stay presentational. */
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
-    const { runId, interaction } = useRunSurfaceContext()
+    const { runId, interaction, taskRuntime } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
     // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
     // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
@@ -181,7 +186,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         if (awaitingOptimisticAttach) {
             // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
-            bootstrapRun({ taskId, runId, justCreatedRun: true })
+            bootstrapRun({ taskId, runId, justCreatedRun: true, taskRuntime })
             return
         }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
@@ -189,8 +194,18 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
-        bootstrapRun({ taskId, runId })
-    }, [taskId, runId, interaction, bootstrappedRunId, awaitingOptimisticAttach, currentProjectId, bootstrapRun, reset])
+        bootstrapRun({ taskId, runId, taskRuntime })
+    }, [
+        taskId,
+        runId,
+        interaction,
+        taskRuntime,
+        bootstrappedRunId,
+        awaitingOptimisticAttach,
+        currentProjectId,
+        bootstrapRun,
+        reset,
+    ])
 
     return null
 }
