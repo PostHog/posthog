@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.roark import (
     RoarkResumeConfig,
+    _explode_transcript,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.settings import ENDPOINTS, ROARK_ENDPOINTS
@@ -202,6 +203,13 @@ class TestFanout:
                 "participant": None,
             },
         ]
+
+    def test_transcript_skips_malformed_entries(self) -> None:
+        rows = _explode_transcript(
+            {"callId": "c1", "participants": [None], "entries": [None, {"participantId": "pa", "text": "Hi"}]}
+        )
+
+        assert [(row["callId"], row["entryIndex"], row["text"]) for row in rows] == [("c1", 1, "Hi")]
 
     def test_resume_skips_completed_parents(self) -> None:
         result = _driver().run(

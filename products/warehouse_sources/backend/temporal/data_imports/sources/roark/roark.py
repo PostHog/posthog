@@ -166,6 +166,7 @@ def _explode_transcript(item: dict[str, Any]) -> list[dict[str, Any]]:
             "participant": participants.get(entry.get("participantId")),
         }
         for index, entry in enumerate(item.get("entries") or [])
+        if isinstance(entry, dict)
     ]
 
 
