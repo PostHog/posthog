@@ -4,6 +4,10 @@ from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source import ClockifySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
     ClockifySourceConfig,
 )
@@ -32,29 +36,22 @@ class TestClockifySource:
         assert valid is False
         assert error is not None
 
-    def test_source_for_pipeline_plumbs_endpoint_and_incremental(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> None:
-            captured.update(kwargs)
-
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source.clockify_source",
-            fake_source,
+    def test_source_for_pipeline_plumbs_endpoint_and_incremental(self) -> None:
+        result = SourceDriver(self.source, ClockifySourceConfig(api_key="key")).run(
+            "time_entries",
+            [
+                ScriptedResponse(json=[{"id": "W1"}]),
+                ScriptedResponse(json=[{"id": "U1"}]),
+                ScriptedResponse(json=[]),
+            ],
+            incremental_field="time_interval_start",
+            db_incremental_field_last_value="2026-03-04T00:00:00Z",
         )
 
-        inputs = MagicMock()
-        inputs.schema_name = "time_entries"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-03-04T00:00:00Z"
-        inputs.incremental_field = "time_interval_start"
-        manager = MagicMock()
-
-        self.source.source_for_pipeline(ClockifySourceConfig(api_key="key"), manager, inputs)
-        assert captured["api_key"] == "key"
-        assert captured["endpoint"] == "time_entries"
-        assert captured["should_use_incremental_field"] is True
-        assert captured["db_incremental_field_last_value"] == "2026-03-04T00:00:00Z"
+        assert result.raised is None
+        assert result.paths[-1] == "/api/v1/workspaces/W1/user/U1/time-entries"
+        assert result.requests[-1].headers["x-api-key"] == "key"
+        assert result.requests[-1].param("start") == "2026-03-04T00:00:00Z"
 
     def test_source_for_pipeline_drops_incremental_value_when_full_refresh(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

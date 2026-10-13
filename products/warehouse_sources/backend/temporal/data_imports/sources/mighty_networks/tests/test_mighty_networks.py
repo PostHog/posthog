@@ -1,24 +1,27 @@
-import json
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mightynetworks import (
+    MightyNetworksSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.mighty_networks import (
     MightyNetworksResumeConfig,
     check_endpoint_access,
-    mighty_networks_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.settings import PER_PAGE
+from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source import MightyNetworksSource
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials / check_endpoint_access build their own tracked sessions in this module.
-MIGHTY_NETWORKS_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.mighty_networks.make_tracked_session"
+
+def _driver() -> SourceDriver:
+    return SourceDriver(MightyNetworksSource(), MightyNetworksSourceConfig(network_id="1234", api_key="key"))
 
 
 def _response(
@@ -27,107 +30,54 @@ def _response(
     current_page: int | None = None,
     total_pages: int | None = None,
     drop_data_key: bool = False,
-    status_code: int = 200,
-) -> Response:
+) -> ScriptedResponse:
     body: dict[str, Any] = {}
     if not drop_data_key:
         body["data"] = items or []
     if total_pages is not None:
         body["meta"] = {"current_page": current_page or 1, "total_pages": total_pages}
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: MightyNetworksResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append(
-            {
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "auth": request.auth,
-                "headers": dict(request.headers or {}),
-            }
-        )
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return mighty_networks_source(
-        api_key="key",
-        network_id="1234",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return ScriptedResponse(json=body)
 
 
 class TestMightyNetworksSourceNonFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_total_pages(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_paginates_until_total_pages(self) -> None:
+        result = _driver().run(
+            "Members",
             [
                 _response([{"id": 1}, {"id": 2}], current_page=1, total_pages=2),
                 _response([{"id": 3}], current_page=2, total_pages=2),
             ],
         )
 
-        rows = _rows(_source("Members", _make_manager()))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
         # total_pages=2 terminates after the last page — no extra empty-page request.
-        assert session.send.call_count == 2
-        assert snapshots[0]["url"] == "https://api.mn.co/admin/v1/networks/1234/members"
-        assert snapshots[0]["params"] == {"per_page": PER_PAGE, "page": 1}
-        assert snapshots[1]["params"] == {"per_page": PER_PAGE, "page": 2}
+        assert len(result.requests) == 2
+        assert result.urls[0].split("?")[0] == "https://api.mn.co/admin/v1/networks/1234/members"
+        assert result.paths == ["/admin/v1/networks/1234/members"] * 2
+        assert result.queries == [
+            {"per_page": (str(PER_PAGE),), "page": ("1",)},
+            {"per_page": (str(PER_PAGE),), "page": ("2",)},
+        ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 2}], current_page=2, total_pages=2)])
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "Members",
+            [_response([{"id": 2}], current_page=2, total_pages=2)],
+            resume_state=MightyNetworksResumeConfig(next_page=2),
+        )
 
-        rows = _rows(_source("Members", _make_manager(MightyNetworksResumeConfig(next_page=2))))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [2]
+        assert result.params("page") == ["2"]
 
-        assert [r["id"] for r in rows] == [2]
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_raises(self, MockSession) -> None:
+    def test_missing_data_key_raises(self) -> None:
         # data_selector_required=True: a response shape change fails loud instead of silently
         # syncing zero rows.
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_data_key=True)])
+        result = _driver().run("Members", [_response(None, drop_data_key=True)])
 
-        with pytest.raises(ValueError, match="data_selector"):
-            _rows(_source("Members", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "data_selector" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -142,36 +92,25 @@ class TestMightyNetworksSourceNonFanout:
             ("Badges", "/badges"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_paths(self, endpoint: str, path: str, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([], total_pages=1)])
+    def test_endpoint_paths(self, endpoint: str, path: str) -> None:
+        result = _driver().run(endpoint, [_response([], total_pages=1)])
 
-        _rows(_source(endpoint, _make_manager()))
+        assert result.raised is None
+        assert result.urls[0].split("?")[0] == f"https://api.mn.co/admin/v1/networks/1234{path}"
 
-        assert snapshots[0]["url"] == f"https://api.mn.co/admin/v1/networks/1234{path}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_subscriptions_row_hoists_nested_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_subscriptions_row_hoists_nested_id(self) -> None:
+        result = _driver().run(
+            "Subscriptions",
             [
                 _response(
-                    [
-                        {
-                            "member_id": 9,
-                            "subscription": {"id": 55, "purchased_at": "2026-01-01T00:00:00Z"},
-                        }
-                    ],
+                    [{"member_id": 9, "subscription": {"id": 55, "purchased_at": "2026-01-01T00:00:00Z"}}],
                     total_pages=1,
                 )
             ],
         )
 
-        rows = _rows(_source("Subscriptions", _make_manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "member_id": 9,
                 "subscription": {"id": 55, "purchased_at": "2026-01-01T00:00:00Z"},
@@ -179,11 +118,9 @@ class TestMightyNetworksSourceNonFanout:
             }
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_purchases_row_hoists_nested_fields(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_purchases_row_hoists_nested_fields(self) -> None:
+        result = _driver().run(
+            "Purchases",
             [
                 _response(
                     [
@@ -201,50 +138,43 @@ class TestMightyNetworksSourceNonFanout:
             ],
         )
 
-        rows = _rows(_source("Purchases", _make_manager()))
-
-        assert rows[0]["id"] == 77
-        assert rows[0]["created_at"] == "2026-01-01T00:00:00Z"
-        assert rows[0]["updated_at"] == "2026-01-02T00:00:00Z"
+        assert result.raised is None
+        assert result.rows[0]["id"] == 77
+        assert result.rows[0]["created_at"] == "2026-01-01T00:00:00Z"
+        assert result.rows[0]["updated_at"] == "2026-01-02T00:00:00Z"
 
 
 class TestValidateCredentials:
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key", "1234") == (True, 200)
+    def test_ok(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("key", "1234") == (True, 200)
+
+        assert [request.path for request in network.requests_log] == ["/admin/v1/networks/1234/me"]
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
 
 class TestCheckEndpointAccess:
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_forbidden_returns_vendor_message(self, mock_session) -> None:
-        response = mock.MagicMock(status_code=403)
-        response.json.return_value = {
-            "error": "forbidden",
-            "message": "Token is missing the members scope",
-            "status": 403,
-        }
-        mock_session.return_value.get.return_value = response
+    def test_forbidden_returns_vendor_message(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(status=403, json={"message": "Token is missing the members scope"})]
+        ) as network:
+            assert check_endpoint_access("key", "1234", "Members") == "Token is missing the members scope"
 
-        assert check_endpoint_access("key", "1234", "Members") == "Token is missing the members scope"
+        assert [request.path for request in network.requests_log] == ["/admin/v1/networks/1234/members"]
+        assert network.requests_log[0].param("per_page") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_forbidden_without_parseable_body_falls_back_to_generic_message(self, mock_session) -> None:
-        response = mock.MagicMock(status_code=403)
-        response.json.side_effect = ValueError("not json")
-        mock_session.return_value.get.return_value = response
-
-        assert check_endpoint_access("key", "1234", "Members") == (
-            "Your Mighty Networks API token doesn't have permission to read this data."
-        )
+    def test_forbidden_without_parseable_body_falls_back_to_generic_message(self) -> None:
+        with scripted_network([ScriptedResponse(status=403, body=b"not json")]):
+            assert check_endpoint_access("key", "1234", "Members") == (
+                "Your Mighty Networks API token doesn't have permission to read this data."
+            )
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("not_found", 404)])
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_non_403_statuses_are_not_treated_as_permission_errors(self, _name, status_code, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert check_endpoint_access("key", "1234", "Members") is None
+    def test_non_403_statuses_are_not_treated_as_permission_errors(self, _name: str, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            assert check_endpoint_access("key", "1234", "Members") is None
 
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_transport_error_is_not_treated_as_permission_error(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert check_endpoint_access("key", "1234", "Members") is None
+    def test_transport_error_is_not_treated_as_permission_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert check_endpoint_access("key", "1234", "Members") is None

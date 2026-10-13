@@ -1,11 +1,14 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import {
     type ChartTheme,
+    createTooltipDateFormatter,
+    DefaultTooltip,
     type Series,
     type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
+    type TooltipContext,
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
@@ -13,6 +16,7 @@ import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
+import { formatNumber } from '../dashboard/formatters'
 import { type ShareSeries } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'
 import { NoDataMessage } from './NoDataMessage'
@@ -58,12 +62,33 @@ export function ShareOverTimeChart({
             showCrosshair: true,
             showGrid: true,
             xAxis: { interval, timezone },
-            tooltip: {
-                placement: 'cursor',
-                valueFormatter: (fraction) => formatPercentage(fraction * 100, { compact: true }),
-            },
+            tooltip: { placement: 'cursor' },
         }),
         [timezone, interval]
+    )
+    const labelFormatter = useMemo(
+        () => createTooltipDateFormatter({ interval, timezone, allDays: labels }),
+        [interval, timezone, labels]
+    )
+    // A custom tooltip, because the config's value formatter sees only the share, not the hovered
+    // day, so it cannot look up the call count behind it.
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext) => {
+            const callsAt = (s: Series): number => s.data[ctx.dataIndex] ?? 0
+            const totalCalls = ctx.seriesData.reduce((sum, entry) => sum + callsAt(entry.series), 0)
+            return (
+                <DefaultTooltip
+                    {...ctx}
+                    labelFormatter={labelFormatter}
+                    valueFormatter={(fraction, entry) =>
+                        `${formatPercentage(fraction * 100, { compact: true })} · ${formatCalls(callsAt(entry.series))}`
+                    }
+                    showTotal
+                    totalFormatter={() => formatCalls(totalCalls)}
+                />
+            )
+        },
+        [labelFormatter]
     )
 
     return (
@@ -75,9 +100,19 @@ export function ShareOverTimeChart({
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[300px] flex-1 flex-col">
-                    <TimeSeriesLineChart series={chartSeries} labels={labels} config={config} theme={theme} />
+                    <TimeSeriesLineChart
+                        series={chartSeries}
+                        labels={labels}
+                        config={config}
+                        theme={theme}
+                        tooltip={renderTooltip}
+                    />
                 </div>
             </CardState>
         </Card>
     )
+}
+
+function formatCalls(calls: number): string {
+    return `${formatNumber(calls)} ${calls === 1 ? 'call' : 'calls'}`
 }

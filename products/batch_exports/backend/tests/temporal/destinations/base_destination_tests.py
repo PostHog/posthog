@@ -103,7 +103,6 @@ class BaseDestinationTest(ABC):
         interval: str,
         batch_export: BatchExport,
         batch_export_model: BatchExportModel | None = None,
-        batch_export_schema: BatchExportSchema | None = None,
         backfill_details: BackfillDetails | None = None,
         **override_config,
     ):
@@ -114,7 +113,6 @@ class BaseDestinationTest(ABC):
             data_interval_end=data_interval_end.isoformat(),
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             backfill_details=backfill_details,
             integration_id=batch_export.destination.integration_id,
             **{**batch_export.destination.config, **override_config},
@@ -230,7 +228,7 @@ async def _get_records_from_clickhouse(
                 batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -378,7 +376,7 @@ class CommonWorkflowTests:
     # Common test models used across destinations
     TEST_MODELS = [
         BatchExportModel(
-            name="a-custom-model",
+            name="events",
             schema={
                 "fields": [
                     {"expression": "uuid", "alias": "uuid"},
@@ -503,19 +501,17 @@ class CommonWorkflowTests:
                 f"Unnecessary test case as batch export model '{model.name}' is not affected by 'exclude_events'"
             )
 
-        batch_export_schema: BatchExportSchema | None = None
         batch_export_model: BatchExportModel | None = None
         if isinstance(model, BatchExportModel):
             batch_export_model = model
         elif model is not None:
-            batch_export_schema = model
+            batch_export_model = BatchExportModel(name="events", schema=model)
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export=batch_export_for_destination,
-            batch_export_schema=batch_export_schema,
             batch_export_model=batch_export_model,
         )
 
@@ -539,7 +535,7 @@ class CommonWorkflowTests:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            batch_export_model=batch_export_model or batch_export_schema,
+            batch_export_model=batch_export_model,
             exclude_events=exclude_events,
             inputs=inputs,
             integration=integration,

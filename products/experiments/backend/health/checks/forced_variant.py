@@ -16,7 +16,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
-from products.experiments.backend.health.context import FlagReleaseGroup, FlagState, HealthContext
+from products.experiments.backend.health.context import HealthContext
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
@@ -33,21 +33,25 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
     if flag is None or flag.deleted or ctx.has_ended or ctx.archived:
         return None
 
-    variant_keys = {variant.key for variant in flag.variants if variant.key}
-    live_sets = _live_condition_sets(flag)
-    pinned_sets = [(number, group) for number, group in live_sets if group.variant in variant_keys]
-    if not pinned_sets:
+    live_conditions = flag.reachable_conditions
+    pinned = [
+        (condition.number, condition.pinned_variant)
+        for condition in live_conditions
+        if condition.pinned_variant is not None
+    ]
+    if not pinned:
         return None
-    pinned_keys = list(dict.fromkeys(group.variant for _, group in pinned_sets if group.variant))
+    pinned_numbers = [number for number, _ in pinned]
+    pinned_keys = list(dict.fromkeys(key for _, key in pinned))
     is_draft = not ctx.is_launched
 
-    if len(pinned_sets) < len(live_sets):
+    if len(pinned) < len(live_conditions):
         return _finding(
             subcode=SOME_CONDITIONS_PINNED,
             severity=ExperimentHealthFindingSeverity.INFO,
             title="Some users are not randomly assigned to a variant",
-            detail=_some_pinned_detail([number for number, _ in pinned_sets], pinned_keys, is_draft),
-            pinned_sets=pinned_sets,
+            detail=_some_pinned_detail(pinned_numbers, pinned_keys, is_draft),
+            pinned_numbers=pinned_numbers,
             pinned_keys=pinned_keys,
             diagnostic_ref="A7",
         )
@@ -59,34 +63,11 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title="No users are randomly assigned to a variant",
-        detail=_all_pinned_detail([number for number, _ in pinned_sets], pinned_keys, is_draft),
-        pinned_sets=pinned_sets,
+        detail=_all_pinned_detail(pinned_numbers, pinned_keys, is_draft),
+        pinned_numbers=pinned_numbers,
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
     )
-
-
-def _live_condition_sets(flag: FlagState) -> list[tuple[int, FlagReleaseGroup]]:
-    """The release conditions that can include users, numbered from 1 as the page labels them ("Set 2")."""
-    # A request without a group's key skips that group's conditions, so a group condition ends the evaluation
-    # only for the requests of its group type. A person condition ends it for every request.
-    ended_group_types: set[int] = set()
-    live: list[tuple[int, FlagReleaseGroup]] = []
-    for number, group in enumerate(flag.release_groups, start=1):
-        group_type = group.aggregation_group_type_index
-        if group_type in ended_group_types:
-            continue
-        # A missing rollout serves every matched user, as on the flag service.
-        rollout = 100 if group.rollout_percentage is None else group.rollout_percentage
-        if rollout > 0:
-            live.append((number, group))
-        # A condition without properties matches every request that reaches it. At a full rollout, or with early
-        # exit at any rollout including 0%, the evaluation ends there for all of them.
-        if not group.property_count and (rollout >= 100 or flag.early_exit):
-            if group_type is None:
-                break
-            ended_group_types.add(group_type)
-    return live
 
 
 def _quoted(keys: Sequence[str]) -> str:
@@ -168,7 +149,7 @@ def _finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     detail: str,
-    pinned_sets: Sequence[tuple[int, FlagReleaseGroup]],
+    pinned_numbers: Sequence[int],
     pinned_keys: Sequence[str],
     diagnostic_ref: str,
 ) -> ExperimentHealthFinding:
@@ -179,7 +160,7 @@ def _finding(
         title=title,
         detail=detail,
         evidence={
-            "pinned_condition_sets": ", ".join(str(number) for number, _ in pinned_sets),
+            "pinned_condition_sets": ", ".join(str(number) for number in pinned_numbers),
             "pinned_variant_keys": ", ".join(pinned_keys),
         },
         actions=(ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,),

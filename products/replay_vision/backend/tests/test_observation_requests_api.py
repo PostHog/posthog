@@ -189,7 +189,10 @@ class TestObservationRequestAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 202, response.json())
-        self.assertEqual((response.json()["status"], response.json()["sessions"][0]["state"]), ("running", "pending"))
+        session = response.json()["sessions"][0]
+        self.assertEqual(
+            (response.json()["status"], session["state"], session["scan_outcome"]), ("running", "pending", None)
+        )
         self.start_workflow.assert_not_called()
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:

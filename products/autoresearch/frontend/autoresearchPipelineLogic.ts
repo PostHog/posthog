@@ -380,6 +380,9 @@ export interface autoresearchPipelineLogicActions {
         viewedArtifact: null
         payload?: any
     }
+    experimentDetailsOpened: (point: SearchPoint) => {
+        point: SearchPoint
+    }
     loadDailyVolume: () => any
     loadDailyVolumeFailure: (
         error: string,
@@ -838,6 +841,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setExperimentLogFilter: (filter: ExperimentLogFilter) => ({ filter }),
         toggleLogRun: (runId: string) => ({ runId }),
         searchPointClicked: (point: SearchPoint) => ({ point }),
+        experimentDetailsOpened: (point: SearchPoint) => ({ point }),
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
@@ -1634,6 +1638,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 status: point.status,
             })
         },
+        experimentDetailsOpened: ({ point }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model experiment details opened', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
+            })
+        },
         submitSuggestionSuccess: ({ suggestionSubmitResult }) => {
             posthog.capture('autoresearch model suggestion sent', {
                 pipeline_id: props.id,
@@ -1698,7 +1710,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     segment,
                     cohort_id: cohort.id,
                     people: values.predictionSegments?.[segment].people,
-                    cut_points: segmentThresholds.base_rate != null ? 'base_rate' : 'fixed',
+                    cut_points:
+                        segmentThresholds.base_rate_source === 'realized'
+                            ? 'base_rate'
+                            : segmentThresholds.base_rate_source,
                 })
                 lemonToast.success('Cohort saved', {
                     button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },

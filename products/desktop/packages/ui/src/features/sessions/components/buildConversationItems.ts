@@ -15,6 +15,7 @@ import { extractSkillButtonId } from "@posthog/core/skill-buttons/prompts";
 import {
   type AcpMessage,
   type AgentConversationEvent,
+  agentConversationEventToSessionUpdate,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
@@ -463,49 +464,13 @@ export function processAgentConversationEvent(
     return;
   }
 
-  if (event.type === "assistant_message_chunk") {
+  const sessionUpdate = agentConversationEventToSessionUpdate(event);
+  if (sessionUpdate) {
     processSessionUpdate(
       b,
-      { sessionUpdate: "agent_message_chunk", content: event.content },
+      sessionUpdate as ConversationSessionUpdate,
       event.timestamp,
     );
-    return;
-  }
-
-  if (event.type === "assistant_thought_chunk") {
-    processSessionUpdate(
-      b,
-      { sessionUpdate: "agent_thought_chunk", content: event.content },
-      event.timestamp,
-    );
-    return;
-  }
-
-  if (event.type === "tool_call_started") {
-    const { id, parentId, ...toolCall } = event.toolCall;
-    const update: ConversationSessionUpdate = {
-      sessionUpdate: "tool_call",
-      toolCallId: id,
-      ...toolCall,
-      ...(parentId
-        ? { _meta: { claudeCode: { parentToolCallId: parentId } } }
-        : {}),
-    };
-    processSessionUpdate(b, update, event.timestamp);
-    return;
-  }
-
-  if (event.type === "tool_call_updated") {
-    const { id, parentId, ...toolCall } = event.toolCall;
-    const update: ConversationSessionUpdate = {
-      sessionUpdate: "tool_call_update",
-      toolCallId: id,
-      ...toolCall,
-      ...(parentId
-        ? { _meta: { claudeCode: { parentToolCallId: parentId } } }
-        : {}),
-    };
-    processSessionUpdate(b, update, event.timestamp);
     return;
   }
 
