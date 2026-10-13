@@ -14,6 +14,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
+import { displayTitle } from '@/model/adapters/text'
 import type { SnoozeChoice } from '@/model/types'
 
 import { cancelSnoozeReminder, scheduleSnoozeReminder } from './reminders'
@@ -52,7 +53,7 @@ function cachedTitle(queryClient: QueryClient, scope: ProjectScope, reportId: st
         .find((item) => item.key === `report:${reportId}`)
     const list = queryClient.getQueryData<PaginatedApi<SignalReportApi>>(reportKeys.inbox(scope))
     const fromList = list?.results.find((candidate) => candidate.id === reportId)
-    return report?.title || fromBriefing?.title || fromList?.title || 'Report'
+    return displayTitle(report?.title || fromBriefing?.title || fromList?.title, 'Report')
 }
 
 async function snoozeUntil(

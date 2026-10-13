@@ -29,6 +29,17 @@ export function truncate(text: string, max: number): string {
     return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, '')}…`
 }
 
+// Mirrors `parseConventionalCommitTitle` in the web inbox, so a scout title like
+// `fix(exports): Guests cannot export` reads the same on both surfaces.
+const CONVENTIONAL_COMMIT_TITLE = /^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)$/
+
+/** The report title without its `type(scope):` prefix, or `fallback` when the title is blank. */
+export function displayTitle(title: string | null | undefined, fallback: string): string {
+    const trimmed = title?.trim() ?? ''
+    const description = CONVENTIONAL_COMMIT_TITLE.exec(trimmed)?.[3]?.trim()
+    return description || trimmed || fallback
+}
+
 export function humanize(value: string): string {
     const words = value.replace(/[-_]+/g, ' ').trim().toLowerCase()
     return words.charAt(0).toUpperCase() + words.slice(1)

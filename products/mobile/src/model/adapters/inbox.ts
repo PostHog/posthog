@@ -4,6 +4,7 @@ import type { BriefingApi, BriefingItemApi } from '@/api/today'
 import { POSTHOG_AGENT } from '../agent'
 import { isErrorSource, isFeedbackSource, primarySource, sourceInfo, toSourceProduct } from '../sources'
 import type { Accent, InboxItem, InboxItemState, InboxReason, SourceProduct } from '../types'
+import { displayTitle } from './text'
 
 const CLOSED_STATUSES: ReadonlySet<string> = new Set(['resolved', 'suppressed', 'deleted'])
 
@@ -66,7 +67,7 @@ export function inboxFromBriefing(briefing: BriefingApi): InboxItem[] {
         items.push({
             id: item.key,
             reportId,
-            title: item.title,
+            title: displayTitle(item.title, 'Untitled report'),
             sourceProduct,
             sourceLabel: sourceInfo(sourceProduct).label,
             accent: itemAccent(item),
@@ -96,7 +97,7 @@ export function inboxFromReports(reports: readonly SignalReportApi[]): InboxItem
         return {
             id: report.id,
             reportId: report.id,
-            title: report.title?.trim() || 'Untitled report',
+            title: displayTitle(report.title, 'Untitled report'),
             sourceProduct,
             sourceLabel: sourceInfo(sourceProduct).label,
             accent: accentFor(report.source_products, report.status),

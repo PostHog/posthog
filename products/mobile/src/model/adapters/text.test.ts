@@ -1,4 +1,4 @@
-import { headlineFor, plainText, splitLeadingNumber } from './text'
+import { displayTitle, headlineFor, plainText, splitLeadingNumber } from './text'
 
 describe('report text', () => {
     test.each([
@@ -20,6 +20,18 @@ describe('report text', () => {
         ['no number anywhere', 'Exports fail for guests', 'Guests cannot export.', undefined],
     ])('%s', (_name, title, lead, number) => {
         expect(headlineFor(title, lead).number).toBe(number)
+    })
+
+    test.each([
+        ['fix(exports): Guests cannot export', 'Guests cannot export'],
+        ['feat!: Shared links for guests', 'Shared links for guests'],
+        ['Error: export timed out', 'export timed out'],
+        ['Exports fail for guests', 'Exports fail for guests'],
+        ['fix(exports):', 'fix(exports):'],
+        ['  ', 'Untitled report'],
+        [null, 'Untitled report'],
+    ])('displays %j without its commit prefix', (input, expected) => {
+        expect(displayTitle(input, 'Untitled report')).toBe(expected)
     })
 
     test('turns markdown into one plain line', () => {

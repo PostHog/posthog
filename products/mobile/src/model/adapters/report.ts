@@ -31,7 +31,7 @@ import type {
 } from '../types'
 import { accentFor } from './inbox'
 import { formatMetricValue, metricView, primaryMetric } from './metric'
-import { firstSentence, headlineFor, humanize, plainText, plural, truncate } from './text'
+import { displayTitle, firstSentence, headlineFor, humanize, plainText, plural, truncate } from './text'
 
 export const CONTEXT_NOTE = "Sends the report, its evidence and the agent's research as context"
 
@@ -573,7 +573,7 @@ export type AdaptedReportView = Omit<ReportView, 'prompt'> & { webUrl: string }
 export function reportView(input: ReportViewInput): AdaptedReportView {
     const { report, artefacts, signals, page, task, host, projectId } = input
     const now = input.now ?? new Date()
-    const title = report.title?.trim() || 'Untitled report'
+    const title = displayTitle(report.title, 'Untitled report')
     const sourceProduct = primarySource(report.source_products)
     const headline = headlineFor(title, page?.lead)
     const headlineSentence =
