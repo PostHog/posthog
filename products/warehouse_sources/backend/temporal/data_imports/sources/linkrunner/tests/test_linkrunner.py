@@ -7,7 +7,16 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkrunner import (
+    LinkrunnerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import linkrunner
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.linkrunner import (
     LinkrunnerRateLimitError,
@@ -16,9 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner
     _format_timestamp,
     _has_next_page,
     _parse_retry_after,
-    get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.source import LinkrunnerSource
 
 
 class TestFormatTimestamp:
@@ -66,118 +75,105 @@ class TestParseRetryAfter:
         assert _parse_retry_after(response) == expected
 
 
-class _FakeResumableManager:
-    def __init__(self, state: LinkrunnerResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[LinkrunnerResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> LinkrunnerResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: LinkrunnerResumeConfig) -> None:
-        self.saved.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(LinkrunnerSource(), LinkrunnerSourceConfig(api_key="key"))
 
 
-def _body(data_key: str, items: list[dict], pages: int) -> dict:
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.rows for row in table.to_pylist()]
+
+
+def _body(data_key: str, items: list[dict[str, Any]], pages: int) -> dict[str, Any]:
     return {"data": {data_key: items, "pagination": {"total": len(items), "pages": pages, "page": 1, "limit": 1000}}}
 
 
-def _make_fake_fetch(responses: dict, calls: list | None = None):
-    def fake_fetch(session: Any, path: str, headers: dict, params: dict, logger: Any) -> Any:
-        if calls is not None:
-            calls.append((path, dict(params)))
-        key = (path, params.get("page", 1), params.get("display_id"))
-        result = responses.get(key)
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    return fake_fetch
-
-
-def _collect(
-    manager: _FakeResumableManager, endpoint: str, monkeypatch: Any, responses: dict, **kwargs: Any
-) -> list[dict]:
-    monkeypatch.setattr(linkrunner, "_fetch_page", _make_fake_fetch(responses))
-    rows: list[dict] = []
-    for table in get_rows(
-        api_key="k",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(table.to_pylist())
-    return rows
-
-
 class TestCampaignsPagination:
-    def test_follows_pages_until_last(self, monkeypatch: Any) -> None:
-        responses = {
-            ("/campaigns", 1, None): _body("campaigns", [{"display_id": "C1"}], pages=2),
-            ("/campaigns", 2, None): _body("campaigns", [{"display_id": "C2"}], pages=2),
-        }
-        rows = _collect(_FakeResumableManager(), "campaigns", monkeypatch, responses)
-        assert [r["display_id"] for r in rows] == ["C1", "C2"]
+    def test_follows_pages_until_last(self) -> None:
+        result = _driver().run(
+            "campaigns",
+            [
+                ScriptedResponse(json=_body("campaigns", [{"display_id": "C1"}], pages=2)),
+                ScriptedResponse(json=_body("campaigns", [{"display_id": "C2"}], pages=2)),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/v1/campaigns", "/api/v1/campaigns"]
+        assert result.params("page") == ["1", "2"]
+        assert [row["display_id"] for row in _rows(result)] == ["C1", "C2"]
 
-    def test_204_yields_no_rows(self, monkeypatch: Any) -> None:
-        responses = {("/campaigns", 1, None): None}
-        rows = _collect(_FakeResumableManager(), "campaigns", monkeypatch, responses)
-        assert rows == []
+    def test_204_yields_no_rows(self) -> None:
+        result = _driver().run("campaigns", [ScriptedResponse(status=204)])
+        assert result.raised is None
+        assert _rows(result) == []
 
 
 class TestAttributedUsersFanOut:
-    def _responses_two_campaigns(self) -> dict:
-        return {
-            ("/campaigns", 1, None): _body("campaigns", [{"display_id": "C1"}, {"display_id": "C2"}], pages=1),
-            ("/attributed-users", 1, "C1"): _body(
+    def _responses_two_campaigns(self) -> list[ScriptedResponse]:
+        return [
+            ScriptedResponse(json=_body("campaigns", [{"display_id": "C1"}, {"display_id": "C2"}], pages=1)),
+            ScriptedResponse(
+                json=_body(
+                    "users",
+                    [{"campaign_display_id": "C1", "attributed_at": "t1", "user_data": {"id": "U1"}}],
+                    pages=1,
+                )
+            ),
+            ScriptedResponse(
+                json=_body(
+                    "users",
+                    [{"campaign_display_id": "C2", "attributed_at": "t2", "user_data": {"id": "U2"}}],
+                    pages=1,
+                )
+            ),
+        ]
+
+    def test_advances_bookmark_between_campaigns(self) -> None:
+        responses = self._responses_two_campaigns()
+        responses[1] = ScriptedResponse(
+            json=_body(
                 "users",
-                [{"campaign_display_id": "C1", "attributed_at": "t1", "user_data": {"id": "U1"}}],
+                [
+                    {"campaign_display_id": "C1", "attributed_at": f"t{i}", "user_data": {"id": f"U{i}"}}
+                    for i in range(2000)
+                ],
                 pages=1,
-            ),
-            ("/attributed-users", 1, "C2"): _body(
-                "users",
-                [{"campaign_display_id": "C2", "attributed_at": "t2", "user_data": {"id": "U2"}}],
-                pages=1,
-            ),
-        }
-
-    def test_advances_bookmark_between_campaigns(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        monkeypatch.setattr(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0)
-        _collect(manager, "attributed_users", monkeypatch, self._responses_two_campaigns())
-        # After finishing C1 the bookmark must point at C2 so a crash resumes at the next campaign, not the first.
-        assert LinkrunnerResumeConfig(page=1, campaign_display_id="C2") in manager.saved
-
-    def test_resume_from_bookmark_skips_completed_campaigns(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(LinkrunnerResumeConfig(page=1, campaign_display_id="C2"))
-        rows = _collect(manager, "attributed_users", monkeypatch, self._responses_two_campaigns())
-        assert [r["user_id"] for r in rows] == ["U2"]
-
-    def test_incremental_passes_start_timestamp(self, monkeypatch: Any) -> None:
-        calls: list = []
-        responses = {
-            ("/campaigns", 1, None): _body("campaigns", [{"display_id": "C1"}], pages=1),
-            ("/attributed-users", 1, "C1"): _body(
-                "users", [{"campaign_display_id": "C1", "attributed_at": "t1", "user_data": {"id": "U1"}}], pages=1
-            ),
-        }
-        monkeypatch.setattr(linkrunner, "_fetch_page", _make_fake_fetch(responses, calls))
-        list(
-            get_rows(
-                api_key="k",
-                endpoint="attributed_users",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
             )
         )
-        attributed_calls = [params for path, params in calls if path == "/attributed-users"]
-        assert attributed_calls[0]["start_timestamp"] == "2026-03-04T02:58:14Z"
+        result = _driver().run("attributed_users", responses)
+        # After finishing C1 the bookmark must point at C2 so a crash resumes at the next campaign, not the first.
+        assert result.raised is None
+        assert LinkrunnerResumeConfig(page=1, campaign_display_id="C2") in result.saved_states
+
+    def test_resume_from_bookmark_skips_completed_campaigns(self) -> None:
+        responses = self._responses_two_campaigns()
+        result = _driver().run(
+            "attributed_users",
+            [responses[0], responses[2]],
+            resume_state=LinkrunnerResumeConfig(page=1, campaign_display_id="C2"),
+        )
+        assert result.raised is None
+        assert result.params("display_id") == [None, "C2"]
+        assert [row["user_id"] for row in _rows(result)] == ["U2"]
+
+    def test_incremental_passes_start_timestamp(self) -> None:
+        result = _driver().run(
+            "attributed_users",
+            [
+                ScriptedResponse(json=_body("campaigns", [{"display_id": "C1"}], pages=1)),
+                ScriptedResponse(
+                    json=_body(
+                        "users",
+                        [{"campaign_display_id": "C1", "attributed_at": "t1", "user_data": {"id": "U1"}}],
+                        pages=1,
+                    )
+                ),
+            ],
+            incremental_field="attributed_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+        assert result.raised is None
+        assert result.requests[0].param("start_timestamp") is None
+        assert result.requests[1].param("start_timestamp") == "2026-03-04T02:58:14Z"
 
 
 class TestFetchPage:
@@ -226,15 +222,13 @@ class TestFetchPage:
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("no_content", 204, True), ("unauthorized", 401, False)])
     def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(linkrunner, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key") is expected
+        assert network.requests_log[0].path == "/api/v1/campaigns"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["linkrunner-key"] == "key"
 
     def test_network_failure_is_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("down")
-        with patch.object(linkrunner, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("down"))) as network:
             assert validate_credentials("key") is False
+        assert {request.path for request in network.requests_log} == {"/api/v1/campaigns"}

@@ -1,6 +1,6 @@
-import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource
 
@@ -86,9 +86,8 @@ class TestN8nSource:
     @mock.patch.object(N8nSource, "is_database_host_valid")
     def test_source_for_pipeline_rejects_unsafe_host(self, mock_host_valid):
         mock_host_valid.return_value = (False, "Host is not allowed")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "workflows"
-        inputs.team_id = self.team_id
+        result = SourceDriver(self.source, self.config).run("workflows", [], team_id=self.team_id)
 
-        with pytest.raises(ValueError, match="Host is not allowed"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Host is not allowed" in str(result.raised)
+        assert result.requests == []

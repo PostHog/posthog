@@ -1,14 +1,19 @@
-import json
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence import (
+    ConfluenceLinkPaginator,
     ConfluenceResumeConfig,
-    confluence_source,
     is_valid_subdomain,
     validate_credentials,
 )
@@ -16,62 +21,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluence
     CONFLUENCE_ENDPOINTS,
     ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the confluence module.
-CONFLUENCE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.source import ConfluenceSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
+    ConfluenceSourceConfig,
 )
 
 
-def _response(results: list[dict[str, Any]], next_path: str | None = None) -> Response:
-    body: dict[str, Any] = {"results": results, "_links": {"next": next_path} if next_path else {}}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: ConfluenceResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    The paginator mutates the single ``Request`` in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return confluence_source(
-        subdomain="acme",
-        email="you@example.com",
-        api_token="token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        ConfluenceSource(), ConfluenceSourceConfig(subdomain="acme", email="you@example.com", api_token="token")
     )
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _response(results: list[dict[str, Any]], next_path: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": results, "_links": {"next": next_path} if next_path else {}})
 
 
 class TestSubdomainValidation:
@@ -107,7 +70,6 @@ class TestValidateCredentials:
             ("other_status", 500, None, False, "Confluence API returned status 500."),
         ]
     )
-    @mock.patch(CONFLUENCE_SESSION_PATCH)
     def test_validate_credentials_status_mapping(
         self,
         _name: str,
@@ -115,21 +77,21 @@ class TestValidateCredentials:
         schema_name: str | None,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: mock.MagicMock,
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, message = validate_credentials("acme", "you@example.com", "token", schema_name=schema_name)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, message = validate_credentials("acme", "you@example.com", "token", schema_name=schema_name)
 
         assert is_valid is expected_valid
         assert message == expected_message
+        assert {request.path for request in network.requests_log} == {"/wiki/api/v2/spaces"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
 
-    @mock.patch(CONFLUENCE_SESSION_PATCH)
-    def test_transport_error_is_not_validated(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, message = validate_credentials("acme", "you@example.com", "token")
+    def test_transport_error_is_not_validated(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            is_valid, message = validate_credentials("acme", "you@example.com", "token")
         assert is_valid is False
         assert message is None
+        assert {request.path for request in network.requests_log} == {"/wiki/api/v2/spaces"}
 
     @parameterized.expand(
         [
@@ -139,17 +101,16 @@ class TestValidateCredentials:
             ("padded_mixed_case_host", " Acme.Atlassian.net/ "),
         ]
     )
-    @mock.patch(CONFLUENCE_SESSION_PATCH)
-    def test_pasted_site_address_probes_the_atlassian_site(
-        self, _name: str, subdomain: str, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        is_valid, _ = validate_credentials(subdomain, "you@example.com", "token")
+    def test_pasted_site_address_probes_the_atlassian_site(self, _name: str, subdomain: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            is_valid, _ = validate_credentials(subdomain, "you@example.com", "token")
 
         assert is_valid is True
-        probed_url = mock_session.return_value.get.call_args.args[0]
-        assert probed_url.lower().startswith("https://acme.atlassian.net/wiki/api/v2/")
+        assert network.requests_log
+        assert all(
+            request.url.lower().startswith("https://acme.atlassian.net/wiki/api/v2/")
+            for request in network.requests_log
+        )
 
     @parameterized.expand(
         [
@@ -158,19 +119,22 @@ class TestValidateCredentials:
             ("other_host_url", "https://evil.com/acme.atlassian.net"),
         ]
     )
-    @mock.patch(CONFLUENCE_SESSION_PATCH)
-    def test_invalid_subdomain_short_circuits(self, _name: str, subdomain: str, mock_session: mock.MagicMock) -> None:
-        is_valid, message = validate_credentials(subdomain, "you@example.com", "token")
+    def test_invalid_subdomain_short_circuits(self, _name: str, subdomain: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            is_valid, message = validate_credentials(subdomain, "you@example.com", "token")
 
         assert is_valid is False
         assert message is not None and "subdomain" in message
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestConfluenceSource:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_response_shape_for_endpoint(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [_response([])])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         config = CONFLUENCE_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
@@ -187,30 +151,26 @@ class TestConfluenceSource:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_no_next_and_saves_state(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_paginates_until_no_next_and_saves_state(self) -> None:
+        result = _driver().run(
+            "pages",
             [
                 _response([{"id": "1"}, {"id": "2"}], next_path="/wiki/api/v2/pages?cursor=p2"),
                 _response([{"id": "3"}], next_path=None),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("pages", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2", "3"]
         # First request hits the base path with the page limit; params carry limit only.
-        assert snapshots[0]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages"
-        assert snapshots[0]["params"]["limit"] == CONFLUENCE_ENDPOINTS["pages"].limit
+        assert result.requests[0].path == "/wiki/api/v2/pages"
+        assert result.requests[0].origin == "https://acme.atlassian.net"
+        assert result.queries[0] == {"limit": (str(CONFLUENCE_ENDPOINTS["pages"].limit),)}
         # State saved once, after the first page (which has a next cursor), pointing at the
         # relative next link resolved to an absolute site URL.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == ConfluenceResumeConfig(
-            next_url="https://acme.atlassian.net/wiki/api/v2/pages?cursor=p2"
-        )
+        assert result.saved_states == [
+            ConfluenceResumeConfig(next_url="https://acme.atlassian.net/wiki/api/v2/pages?cursor=p2")
+        ]
 
     @parameterized.expand(
         [
@@ -222,28 +182,47 @@ class TestPagination:
             ),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_next_link_resolved_for_second_request(
-        self, _name: str, next_path: str, expected_url: str, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_next_link_resolved_for_second_request(self, _name: str, next_path: str, expected_url: str) -> None:
+        result = _driver().run(
+            "pages",
             [_response([{"id": "1"}], next_path=next_path), _response([{"id": "2"}], next_path=None)],
         )
 
-        _rows(_source("pages", _make_manager()))
+        assert result.raised is None
+        assert result.requests[1].path == "/wiki/api/v2/pages"
+        assert result.requests[1].origin == "https://acme.atlassian.net"
+        assert result.requests[1].param("cursor") == expected_url.split("cursor=", 1)[1]
+        assert result.saved_states == [ConfluenceResumeConfig(next_url=expected_url)]
 
-        assert snapshots[1]["url"] == expected_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "9"}], next_path=None)])
-
-        manager = _make_manager(
-            ConfluenceResumeConfig(next_url="https://acme.atlassian.net/wiki/api/v2/pages?cursor=resumed")
+    def test_resumes_from_saved_state(self) -> None:
+        result = _driver().run(
+            "pages",
+            [_response([{"id": "9"}], next_path=None)],
+            resume_state=ConfluenceResumeConfig(next_url="https://acme.atlassian.net/wiki/api/v2/pages?cursor=resumed"),
         )
-        _rows(_source("pages", manager))
 
-        assert snapshots[0]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages?cursor=resumed"
+        assert result.raised is None
+        assert result.requests[0].path == "/wiki/api/v2/pages"
+        assert result.requests[0].origin == "https://acme.atlassian.net"
+        assert result.requests[0].param("cursor") == "resumed"
+
+    @pytest.mark.parametrize(
+        "next_path,expected_url",
+        [
+            ("/wiki/api/v2/pages?cursor=p2", "https://acme.atlassian.net/wiki/api/v2/pages?cursor=p2"),
+            (
+                "https://acme.atlassian.net/wiki/api/v2/pages?cursor=p2",
+                "https://acme.atlassian.net/wiki/api/v2/pages?cursor=p2",
+            ),
+        ],
+    )
+    def test_paginator_prefixes_a_relative_link_when_the_response_has_no_url(
+        self, next_path: str, expected_url: str
+    ) -> None:
+        response = mock.MagicMock()
+        response.json.return_value = {"_links": {"next": next_path}}
+        paginator = ConfluenceLinkPaginator("https://acme.atlassian.net")
+
+        paginator.update_state(response)
+
+        assert paginator.get_resume_state() == {"next_url": expected_url}

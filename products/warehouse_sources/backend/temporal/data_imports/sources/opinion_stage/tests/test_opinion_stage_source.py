@@ -1,6 +1,12 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
     OpinionStageSourceConfig,
 )
@@ -27,21 +33,21 @@ class TestOpinionStageSource:
             (False, None, False, "Could not validate Opinion Stage API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source.validate_opinion_stage_credentials"
-    )
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
         ok: bool,
         status: int | None,
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        mock_validate.return_value = (ok, status)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        answer = ScriptedResponse(status=status) if status is not None else ConnectionError("reset")
+        with scripted_network(always(answer)) as network:
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        assert is_valid is ok
         assert is_valid is expected_valid
         assert returned == expected_message
+        assert network.requests_log
+        assert all(request.path == "/api/v2/items" for request in network.requests_log)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source.opinion_stage_source"
@@ -60,7 +66,7 @@ class TestOpinionStageSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Opinion Stage schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Opinion Stage schema 'not_a_table'"
