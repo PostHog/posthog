@@ -204,8 +204,8 @@ def notify_external_data_sync_failures(
             event_items: list[ExternalDataFailureDigestItem] = []
             for schema, item in zip(ordered_schemas, items):
                 context = get_sync_alert_context(team_id, str(schema.id), include_error=True)
-                error = context.latest_error if context else None
-                event_items.append({**item, "error": error or "Unknown error"})
+                masked_error = context.latest_error if context else None
+                event_items.append({**item, "error": masked_error or "Unknown error"})
             sent = emit_failure_digest(team, event_items, omitted_count)
         # None means the event path cannot deliver here, so the email goes out the old way.
         if sent is None:
