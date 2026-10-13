@@ -12,9 +12,10 @@ from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
-# Non-cloud deployments do not participate in Cloud rollout evaluation, so features enabled by a
-# server-side non-cloud bypass must also be present in the frontend's persisted baseline.
-NON_CLOUD_PERSISTED_FEATURE_FLAGS = ("warehouse-person-properties",)
+# Frontend flags for the warehouse person properties feature. Non-cloud deployments do not take part in
+# Cloud rollout evaluation, so these join the persisted baseline unless the
+# WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED kill switch is off.
+WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS = ("warehouse-person-properties",)
 
 # Self-hosted instances can't reach Cloud's staged-rollout flag service, so
 # `person_properties_flag_enabled` (products/customer_analytics/backend/logic/person_property_projection.py)
