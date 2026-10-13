@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import {
     buildInsertCommands,
+    MarkdownNotebook,
     getMarkdownNotebookDefaultRegistry,
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
@@ -153,7 +154,39 @@ describe('markdownNotebookRegistry', () => {
     })
 
     describe('discussion comment composer', () => {
-        const renderCommentShell = (componentPanels: ComponentPanelVisibility): ReturnType<typeof render> => {
+        it('persists replies and resolution after reopening, and deletes only the thread', () => {
+            const onChange = jest.fn()
+            const markdown =
+                '# Notes\n\n<Comment ref="note" replies={[]} />\n\nA <ref id="note">useful</ref> paragraph.'
+            const { container, unmount } = render(
+                <MarkdownNotebook value={markdown} onChange={onChange} registry={NOTEBOOK_MARKDOWN_REGISTRY} />
+            )
+            fireEvent.change(container.querySelector('textarea[data-attr="notebook-discussion-comment-input"]')!, {
+                target: { value: 'Please review.' },
+            })
+            fireEvent.click(container.querySelector('[aria-label="Send reply"]')!)
+            fireEvent.click(screen.getByText('Resolve'))
+            const saved = onChange.mock.calls.at(-1)![0] as string
+            expect(saved).toContain('Please review.')
+            expect(parseMarkdownNotebook(saved).nodes.find((node) => node.type === 'component')).toMatchObject({
+                props: { resolved: true },
+            })
+            unmount()
+
+            const reopened = render(
+                <MarkdownNotebook value={saved} onChange={onChange} registry={NOTEBOOK_MARKDOWN_REGISTRY} />
+            )
+            expect(reopened.container.querySelector('[data-attr="notebook-discussion-comment-input"]')).toBeNull()
+            fireEvent.click(screen.getByText('Reopen'))
+            expect(reopened.container.querySelector('[data-attr="notebook-discussion-comment-input"]')).not.toBeNull()
+            fireEvent.click(reopened.container.querySelector('[aria-label="Delete thread"]')!)
+            expect(onChange.mock.calls.at(-1)![0]).toBe('# Notes\n\nA useful paragraph.')
+        })
+
+        const renderCommentShell = (
+            componentPanels: ComponentPanelVisibility,
+            mode: 'edit' | 'view'
+        ): ReturnType<typeof render> => {
             // No `showFilters` in props: composer visibility is driven by the transient panel
             // state, so the open state never has to be written into the shared document markdown.
             const node: NotebookComponentBlockNode = {
@@ -165,7 +198,7 @@ describe('markdownNotebookRegistry', () => {
             return render(
                 <NotebookComponentShell
                     node={node}
-                    mode="edit"
+                    mode={mode}
                     componentPanels={componentPanels}
                     persistComponentPanelVisibility={false}
                     isSelected={false}
@@ -183,14 +216,12 @@ describe('markdownNotebookRegistry', () => {
             )
         }
 
-        // The edit panel is what makes the composer editable, so a thread renders its composer
-        // when that panel is open and the read-only view branch (no composer) when it is closed.
-        // Insertion opens the panel transiently, so the composer never depends on a persisted prop.
         it.each([
-            ['renders the composer when the edit panel is open', { filters: true, results: true }, true],
-            ['renders no composer when the edit panel is closed', { filters: false, results: true }, false],
-        ])('%s', (_label, componentPanels, expectComposer) => {
-            const { container } = renderCommentShell(componentPanels)
+            ['new thread', { filters: true, results: true }, 'edit', true],
+            ['reopened thread', { filters: false, results: true }, 'edit', true],
+            ['read-only notebook', { filters: false, results: true }, 'view', false],
+        ] as const)('uses notebook permissions for a %s', (_label, componentPanels, mode, expectComposer) => {
+            const { container } = renderCommentShell(componentPanels, mode)
             const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
             expect(composer !== null).toBe(expectComposer)
         })

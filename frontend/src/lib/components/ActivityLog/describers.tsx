@@ -17,7 +17,6 @@ import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import {
     legalDocumentActivityDescriber,
@@ -46,6 +45,7 @@ import { externalDataSourceActivityDescriber } from 'products/data_warehouse/fro
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { groupActivityDescriber } from 'products/groups/frontend/activityDescriptions'
 import { personActivityDescriber } from 'products/persons/frontend/activityDescriptions'
+import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { stamphogRepoConfigActivityDescriber } from 'products/stamphog/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'

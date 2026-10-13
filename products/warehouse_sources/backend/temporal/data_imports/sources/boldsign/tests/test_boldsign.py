@@ -1,87 +1,33 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign import boldsign
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.boldsign import (
     PAGE_SIZE,
     BoldSignResumeConfig,
     _base_url,
-    boldsign_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import BOLDSIGN_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the boldsign module.
-BOLDSIGN_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.boldsign.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.source import BoldSignSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.boldsign import (
+    BoldSignSourceConfig,
 )
 
 
-def _response(items: list[dict[str, Any]] | None, *, data_key: str = "result", drop_key: bool = False) -> Response:
-    body: dict[str, Any] = {}
-    if not drop_key:
-        body[data_key] = items or []
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver(api_key: str = "key") -> SourceDriver:
+    return SourceDriver(BoldSignSource(), BoldSignSourceConfig(api_key=api_key, region="us"))
 
 
-def _make_manager(resume_state: BoldSignResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(
-    endpoint: str,
-    responses: list[Response],
-    session: mock.MagicMock,
-    manager: mock.MagicMock | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], mock.MagicMock]:
-    params = _wire(session, responses)
-    manager = manager if manager is not None else _make_manager()
-    rows = _rows(
-        boldsign_source(
-            region="us",
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-        )
-    )
-    return rows, params, manager
+def _response(items: list[dict[str, Any]] | None, *, data_key: str = "result") -> ScriptedResponse:
+    return ScriptedResponse(json={data_key: items or []})
 
 
 class TestBaseUrlAndHeaders:
@@ -91,13 +37,12 @@ class TestBaseUrlAndHeaders:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, _, _ = _run("documents", [_response([])], session)
+    def test_empty_first_page_yields_nothing(self) -> None:
+        result = _driver().run("documents", [_response([])])
 
-        assert rows == []
-        assert session.send.call_count == 1
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
 
     @pytest.mark.parametrize(
         "endpoint, param, expected",
@@ -109,66 +54,47 @@ class TestPagination:
             ("behalf_documents", "PageType", "BehalfOfOthers"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoints_send_their_widening_params(self, MockSession, endpoint, param, expected) -> None:
-        session = MockSession.return_value
-        _, params, _ = _run(endpoint, [_response([{"documentId": "X1"}])], session)
+    def test_endpoints_send_their_widening_params(self, endpoint: str, param: str, expected: str) -> None:
+        result = _driver().run(endpoint, [_response([{"documentId": "X1"}])])
 
-        assert params[0][param] == expected
+        assert result.raised is None
+        assert result.requests[0].param(param) == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_supplied_via_framework_auth(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"documentId": "D1"}])])
-        auths: list[Any] = []
-        original_prepare = session.prepare_request.side_effect
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            auths.append(request.auth)
-            return original_prepare(request)
-
-        session.prepare_request.side_effect = _prepare
-        _rows(
-            boldsign_source(
-                region="us",
-                api_key="secret",
-                endpoint="documents",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
+    def test_api_key_supplied_via_framework_auth(self) -> None:
+        result = _driver(api_key="secret").run("documents", [_response([{"documentId": "D1"}])])
 
         # The key rides on the framework's api_key auth (redacted from logs), not a raw header.
-        assert auths[0] is not None
-        assert auths[0].name == "X-API-KEY"
-        assert auths[0].api_key == "secret"
+        assert result.raised is None
+        assert result.requests[0].headers["x-api-key"] == "secret"
+        assert result.session_options[0]["redact_values"] == ("secret",)
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        manager = _make_manager(BoldSignResumeConfig(page=5, next_cursor=None, records_fetched=400))
-        _, params, _ = _run("documents", [_response([{"documentId": "D5"}])], session, manager)
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "documents",
+            [_response([{"documentId": "D5"}])],
+            resume_state=BoldSignResumeConfig(page=5, next_cursor=None, records_fetched=400),
+        )
 
-        assert params[0]["Page"] == 5
+        assert result.raised is None
+        assert result.params("Page") == ["5"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        manager = _make_manager(BoldSignResumeConfig(page=1, next_cursor=4242, records_fetched=10_000))
-        _, params, _ = _run("documents", [_response([{"documentId": "after"}])], session, manager)
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "documents",
+            [_response([{"documentId": "after"}])],
+            resume_state=BoldSignResumeConfig(page=1, next_cursor=4242, records_fetched=10_000),
+        )
 
-        assert params[0]["Page"] == 1
-        assert params[0]["NextCursor"] == 4242
+        assert result.raised is None
+        assert result.params("Page") == ["1"]
+        assert result.params("NextCursor") == ["4242"]
 
 
 class TestCursorPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_documents_switch_to_cursor_past_record_threshold(self, MockSession) -> None:
+    def test_documents_switch_to_cursor_past_record_threshold(self) -> None:
         # Fill exactly the 10k page-cap with full pages, then expect a NextCursor request.
-        session = MockSession.return_value
         threshold_pages = boldsign.RECORD_CURSOR_THRESHOLD // PAGE_SIZE
         full_pages = [
             _response([{"documentId": f"D{p}-{i}", "cursor": p * PAGE_SIZE + i} for i in range(PAGE_SIZE)])
@@ -177,30 +103,30 @@ class TestCursorPagination:
         # One more page reached via cursor, then a short page to stop.
         cursor_page = _response([{"documentId": "after-cursor", "cursor": 999999}])
 
-        _, params, manager = _run("documents", [*full_pages, cursor_page], session)
+        result = _driver().run("documents", [*full_pages, cursor_page])
 
         # The cursor passed is the last record's cursor from the final full page, with Page reset.
         expected_cursor = boldsign.RECORD_CURSOR_THRESHOLD - 1
-        assert params[-1]["NextCursor"] == expected_cursor
-        assert params[-1]["Page"] == 1
+        assert result.raised is None
+        assert result.params("NextCursor")[-1] == str(expected_cursor)
+        assert result.params("Page")[-1] == "1"
         # The checkpoint written after the final full page carries the cursor position.
-        assert manager.save_state.call_args.args[0] == BoldSignResumeConfig(
+        assert result.saved_states[-1] == BoldSignResumeConfig(
             page=1, next_cursor=expected_cursor, records_fetched=boldsign.RECORD_CURSOR_THRESHOLD
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_cursor_endpoint_stops_at_record_threshold(self, MockSession) -> None:
+    def test_non_cursor_endpoint_stops_at_record_threshold(self) -> None:
         # users/list has no cursor support, so it must stop at the 10k page cap rather than loop.
-        session = MockSession.return_value
         threshold_pages = boldsign.RECORD_CURSOR_THRESHOLD // PAGE_SIZE
         full_pages = [_response([{"userId": f"U{p}-{i}"} for i in range(PAGE_SIZE)]) for p in range(threshold_pages)]
         # Provide an extra page that should never be requested.
         responses = [*full_pages, _response([{"userId": "should-not-fetch"}])]
 
-        rows, _, _ = _run("users", responses, session)
+        result = _driver().run("users", responses)
 
-        assert session.send.call_count == threshold_pages
-        assert len(rows) == boldsign.RECORD_CURSOR_THRESHOLD
+        assert result.raised is None
+        assert len(result.requests) == threshold_pages
+        assert len(result.rows) == boldsign.RECORD_CURSOR_THRESHOLD
 
 
 class TestSourceResponse:
@@ -221,42 +147,24 @@ class TestSourceResponse:
         ],
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_pk: list[str]) -> None:
-        response = boldsign_source(
-            region="us",
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pk
+        data_key = BOLDSIGN_ENDPOINTS[endpoint].data_key
+        result = _driver().run(endpoint, [_response([], data_key=data_key)])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_pk
         # Full refresh: BoldSign timestamps are epoch ints, so no datetime partitioning.
-        assert response.partition_mode is None
-        assert response.primary_keys == BOLDSIGN_ENDPOINTS[endpoint].primary_keys
+        assert result.response.partition_mode is None
+        assert result.response.primary_keys == BOLDSIGN_ENDPOINTS[endpoint].primary_keys
 
 
 class TestCustomFieldsFanout:
     """`customField/list` needs a brandId, so it fans out over the brands endpoint."""
 
-    @staticmethod
-    def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[str]:
-        session.headers = {}
-        urls: list[str] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            urls.append(request.url)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = responses
-        return urls
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_every_brand(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = self._wire_urls(
-            session,
+    def test_fans_out_over_every_brand(self) -> None:
+        result = _driver().run(
+            "custom_fields",
             [
                 _response([{"brandId": "B1"}, {"brandId": "B2"}]),
                 _response([{"customFieldId": "F1", "brandId": "B1"}]),
@@ -265,22 +173,12 @@ class TestCustomFieldsFanout:
             ],
         )
 
-        rows = _rows(
-            boldsign_source(
-                region="us",
-                api_key="key",
-                endpoint="custom_fields",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-
-        assert [url for url in urls if "customField" in url] == [
+        assert result.raised is None
+        assert [url for url in result.urls if "customField" in url] == [
             "https://api.boldsign.com/v1/customField/list?brandId=B1",
             "https://api.boldsign.com/v1/customField/list?brandId=B2",
         ]
-        assert rows == [
+        assert result.rows == [
             {"customFieldId": "F1", "brandId": "B1"},
             {"customFieldId": "F2", "brandId": "B2"},
         ]
@@ -296,31 +194,23 @@ class TestValidateCredentials:
             (500, False, "Unexpected response from BoldSign (status 500)"),
         ],
     )
-    @mock.patch(BOLDSIGN_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected_valid, expected_message) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, message = validate_credentials("us", "key")
+    def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            is_valid, message = validate_credentials("us", "key")
 
         assert is_valid is expected_valid
         assert message == expected_message
 
-    @mock.patch(BOLDSIGN_SESSION_PATCH)
-    def test_network_error_is_not_reported_as_bad_key(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        is_valid, message = validate_credentials("us", "key")
+    def test_network_error_is_not_reported_as_bad_key(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, message = validate_credentials("us", "key")
 
         assert is_valid is False
         assert message == "Could not reach BoldSign"
 
-    @mock.patch(BOLDSIGN_SESSION_PATCH)
-    def test_probes_the_region_host_with_the_api_key_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_probes_the_region_host_with_the_api_key_header(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("eu", "secret")
 
-        validate_credentials("eu", "secret")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert url.startswith("https://api-eu.boldsign.com/v1/document/list")
-        assert headers["X-API-KEY"] == "secret"
+        assert network.requests_log[0].url.startswith("https://api-eu.boldsign.com/v1/document/list")
+        assert network.requests_log[0].headers["x-api-key"] == "secret"
