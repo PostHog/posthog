@@ -56,7 +56,6 @@ from products.signals.backend.scout_report import (
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
 from products.signals.backend.spend import signal_spend_totals
-from products.signals.backend.tasks import refresh_task_spend_task
 from products.tasks.backend.models import Task, TaskRun
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
@@ -208,9 +207,6 @@ class TestScoutReportPersistence(BaseTest):
             patch(
                 "products.signals.backend.signal_metadata.execute_hogql_query",
                 return_value=Mock(results=[(doc_ids[0], "Example observation", "{}", now, now)]),
-            ),
-            patch(
-                "products.signals.backend.tasks.refresh_task_spend_task.delay", side_effect=refresh_task_spend_task.run
             ),
             patch("posthog.temporal.common.client.async_connect", new=AsyncMock()),
             self.captureOnCommitCallbacks(execute=True),

@@ -15,7 +15,7 @@ from products.signals.backend.spend import (
     SignalSpendPublication,
     SignalSpendSummary,
     SignalSpendUpdate,
-    schedule_signal_spend_update,
+    publish_signal_spend,
 )
 from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
 
@@ -66,17 +66,17 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
                 override_settings(VIDEO_EXPORT_TASK_QUEUE=queue),
                 patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=env.client)),
             ):
-                await schedule_signal_spend_update(team_id=1, signal_id=driver)
+                publication = asyncio.create_task(publish_signal_spend(team_id=1, signal_id=driver))
                 await asyncio.wait_for(write_started.wait(), timeout=20)
+                assert not publication.done()
                 latest_spend = 2
-                await schedule_signal_spend_update(team_id=1, signal_id=driver)
-                release_write.set()
                 handle = env.client.get_workflow_handle(f"signal-spend-1-{driver}")
-                await asyncio.wait_for(handle.result(), timeout=20)
+                await handle.signal("refresh")
+                release_write.set()
+                await asyncio.wait_for(publication, timeout=20)
                 assert stored == [1, 2]
 
                 latest_spend = 3
-                await schedule_signal_spend_update(team_id=1, signal_id=driver)
-                await asyncio.wait_for(handle.result(), timeout=20)
+                await publish_signal_spend(team_id=1, signal_id=driver)
                 assert stored == [1, 2, 3]
                 assert confirmation_attempts == 4

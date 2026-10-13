@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
+from products.signals.backend.spend import publish_report_spend
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
@@ -222,7 +223,19 @@ class SignalReportSummaryWorkflow:
             posthoganalytics.tag("team_id", inputs.team_id)
             posthoganalytics.tag("report_id", inputs.report_id)
             posthoganalytics.tag("product", "signals")
-            await self._run_impl(inputs)
+            try:
+                await self._run_impl(inputs)
+            finally:
+                if workflow.patched("signals-publish-spend-on-completion"):
+                    try:
+                        await workflow.execute_activity(
+                            publish_report_spend_activity,
+                            inputs,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to publish completed report spend")
 
     async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
@@ -1462,3 +1475,9 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
             team_id=input.team_id,
         )
         raise
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    await publish_report_spend(team_id=input.team_id, report_id=input.report_id)

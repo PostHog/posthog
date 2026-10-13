@@ -15,6 +15,7 @@ from django.utils import timezone
 
 import httpx
 from anthropic import APIResponseValidationError, AsyncAnthropic
+from asgiref.sync import async_to_sync
 from fakeredis import FakeRedis
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -31,18 +32,20 @@ from products.ml_inference.backend.facade.contracts import DecisionResult, NoulA
 from products.signals.backend.emission.pipeline import check_actionability
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
+from products.signals.backend.models import SignalReport, SignalReportTask, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import (
     SignalSpendUpdate,
+    complete_task_spend,
+    publish_report_spend,
     record_llm_spend,
+    settle_signal_task_spend,
     signal_spend_summaries,
     signal_spend_totals,
 )
 from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.system_one_prompts import bundled_prompt
-from products.signals.backend.tasks import refresh_task_spend_task
 from products.signals.backend.temporal.llm import call_llm
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.models import Task, TaskRun
@@ -61,11 +64,6 @@ class TestSignalSpend(BaseTest):
         self.connect = patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=self.temporal))
         self.connect.start()
         self.addCleanup(self.connect.stop)
-        self.enqueue = patch(
-            "products.signals.backend.tasks.refresh_task_spend_task.delay", side_effect=refresh_task_spend_task.run
-        )
-        self.enqueue.start()
-        self.addCleanup(self.enqueue.stop)
 
     @parameterized.expand([("generation",), ("task",)])
     def test_clickhouse_spend_retries_until_visible_and_tracks_later_costs(self, source: str) -> None:
@@ -506,19 +504,98 @@ class TestSignalSpend(BaseTest):
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 15.5007}
         assert SignalSpend.objects.for_team(self.team.id).get(source_id=str(rerun.id)).stage == resumed_stage
 
-    def test_task_cost_callback_defers_refresh_until_after_commit(self) -> None:
+    def test_task_cost_callback_updates_spend_synchronously_without_publishing(self) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         run = self._run(report=report)
-        self.temporal.reset_mock()
-        with patch("products.signals.backend.tasks.refresh_task_spend_task.delay") as enqueue:
-            with self.captureOnCommitCallbacks(execute=True):
-                task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=self.team.id)
-                enqueue.assert_not_called()
-            enqueue.assert_called_once()
+        with transaction.atomic():
+            self._set_task_cost(run, 10_001)
+            assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 5.0001}
             self.temporal.start_workflow.assert_not_called()
-            refresh_task_spend_task.run(**enqueue.call_args.kwargs)
-            self.temporal.start_workflow.assert_awaited_once()
+        try:
+            with transaction.atomic():
+                self._set_task_cost(run, 20_002)
+                assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 6.0002}
+                raise RuntimeError("roll back task cost")
+        except RuntimeError:
+            pass
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 5.0001}
+        self.temporal.start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (SignalReport.Status.CANDIDATE, None),
+            (SignalReport.Status.READY, None),
+            (SignalReport.Status.READY, TaskRun.Status.COMPLETED),
+            (SignalReport.Status.READY, TaskRun.Status.FAILED),
+            (SignalReport.Status.READY, TaskRun.Status.CANCELLED),
+        ]
+    )
+    def test_report_publishes_at_research_or_implementation_completion(
+        self, report_status: str, implementation_status: str | None
+    ) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver, status=report_status)
+        research = self._run(report=report)
+        self._set_task_cost(research, 10_001)
+        implementation = None
+        if implementation_status:
+            implementation = self._run(report=report, stage="implementation")
+            SignalReportTask.objects.create(
+                team=self.team, report=report, task_id=implementation.task_id, relationship="implementation"
+            )
+            self._set_task_cost(implementation, 20_002)
+        async_to_sync(publish_report_spend)(team_id=self.team.id, report_id=str(report.id))
+        if implementation is not None:
+            self.temporal.start_workflow.assert_not_called()
+            assert implementation_status is not None
+            implementation.status = implementation_status
+            implementation.save(update_fields=["status"])
+            complete_task_spend(team_id=self.team.id, run_id=str(implementation.id))
+        self.temporal.start_workflow.assert_awaited_once()
+        assert self.temporal.start_workflow.call_args.args[1] == SignalSpendUpdate(
+            team_id=self.team.id, signal_id=driver
+        )
+        self.temporal.start_workflow.return_value.result.assert_awaited_once()
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {
+            driver: 11.0003 if implementation else 5.0001
+        }
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example", SANDBOX_AI_GATEWAY_MINT_KEY="test-key")
+    def test_completion_settles_pending_task_usage_inline(self, is_scout: bool) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=None if is_scout else report)
+        scout = (
+            SignalScoutRun.objects.for_team(self.team.id).create(
+                team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+            )
+            if is_scout
+            else None
+        )
+        run.state = {"ai_stage": "research", "unprocessed_request_ids": ["pending-request"], "token_cost": {}}
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["state", "status"])
+        with patch(
+            "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
+            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)),
+        ) as fetch:
+            if scout:
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+            else:
+                settle_signal_task_spend(team_id=self.team.id, signal_id=driver)
+            fetch.assert_awaited_once_with("pending-request")
+        if scout:
+            scout.refresh_from_db()
+            assert scout.total_spend == Decimal("16.3456")
+            assert scout.metadata is not None
+            assert scout.metadata["spend_accounting_failed_stages"] == []
+        else:
+            summary = signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver]
+            assert summary.total_spend == 16.3456
+            assert summary.failed_stages == []
+        self.temporal.start_workflow.assert_not_called()
 
     def test_one_shot_receipts_preserve_known_spend_and_record_failed_stage(self) -> None:
         driver = str(uuid4())

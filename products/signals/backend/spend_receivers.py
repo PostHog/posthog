@@ -1,4 +1,3 @@
-from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -8,7 +7,7 @@ from django.db.models.signals import post_save
 import structlog
 
 from products.signals.backend.models import SignalReportTask, SignalScoutRun, SignalSpend
-from products.signals.backend.spend import enqueue_task_spend_refresh, record_task_spend, report_triggering_signal
+from products.signals.backend.spend import record_task_spend, refresh_task_spend, report_triggering_signal
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
     connect_task_run_cost_updated,
@@ -92,7 +91,7 @@ def task_cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
                 .first()
             )
             if spend_id is not None:
-                transaction.on_commit(partial(enqueue_task_spend_refresh, spend_id=spend_id, team_id=team_id))
+                refresh_task_spend(spend_id=spend_id, team_id=team_id)
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, run_id=str(run_id)

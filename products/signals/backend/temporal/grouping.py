@@ -41,7 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import schedule_signal_spend_update, signal_spend_summaries
+from products.signals.backend.spend import signal_spend_summaries
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -812,6 +812,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
     match_result = input.match_result
 
     def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
+        spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
         with transaction.atomic():
             promoted = False
             promotion_suppressed = False
@@ -840,6 +841,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "extra": input.extra,
                         "remediation": input.remediation,
                         "deleted": True,
+                        "total_spend": spend.total_spend if spend else 0,
+                        "spend_accounting_failed_stages": spend.failed_stages if spend else [],
                     }
                     metadata["match_metadata"] = asdict(match_result.match_metadata)
                     emit_embedding_request(
@@ -985,7 +988,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 extra=input.extra,
             )
 
-            spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
             metadata = {
                 "source_product": input.source_product,
                 "source_type": input.source_type,
@@ -1038,7 +1040,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
             quota_gate.enforced or daily_gate.limited
         )
-        await schedule_signal_spend_update(team_id=input.team_id, signal_id=input.signal_id)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report

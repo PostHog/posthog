@@ -1,6 +1,5 @@
 import asyncio
 from datetime import timedelta
-from functools import partial
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from django.conf import settings
@@ -13,8 +12,15 @@ import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.pricing import cost_to_spend
 
 logger = structlog.get_logger(__name__)
@@ -71,14 +77,14 @@ class SignalSpendPublication:
     versions: dict[str, int]
 
 
-async def schedule_signal_spend_update(*, team_id: int, signal_id: str) -> None:
+async def publish_signal_spend(*, team_id: int, signal_id: str) -> None:
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 — keeps Temporal off Django startup
 
     from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
 
     try:
         client = await asyncio.wait_for(async_connect(), timeout=5)
-        await client.start_workflow(
+        handle = await client.start_workflow(
             "update-signal-spend",
             SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
             id=f"signal-spend-{team_id}-{signal_id}",
@@ -88,6 +94,7 @@ async def schedule_signal_spend_update(*, team_id: int, signal_id: str) -> None:
             execution_timeout=timedelta(minutes=15),
             rpc_timeout=timedelta(seconds=5),
         )
+        await handle.result()
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="persist_metadata", team_id=team_id, signal_id=signal_id
@@ -201,23 +208,10 @@ def refresh_task_spend(*, spend_id: UUID, team_id: int) -> None:
                     "spend_accounting_failed_stages": [spend.stage] if spend.accounting_failed else [],
                 }
                 scout_run.save(update_fields=["total_spend", "metadata"])
-        if spend.signal_id:
-            async_to_sync(schedule_signal_spend_update)(team_id=team_id, signal_id=str(spend.signal_id))
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, spend_id=str(spend_id)
         )
-
-
-def enqueue_task_spend_refresh(*, spend_id: UUID, team_id: int) -> None:
-    from products.signals.backend.tasks import (
-        refresh_task_spend_task,  # noqa: PLC0415 — keeps Celery tasks off Django startup
-    )
-
-    try:
-        refresh_task_spend_task.delay(team_id=team_id, spend_id=str(spend_id))
-    except Exception:
-        logger.exception("signals.spend.accounting_failed", stage="enqueue_task_spend", team_id=team_id)
 
 
 def record_task_spend(
@@ -239,4 +233,87 @@ def record_task_spend(
         is_task=True,
         defaults={"signal_id": signal_id, "scout_run_id": scout_run_id, "task_id": task_id, "stage": stage},
     )
-    transaction.on_commit(partial(enqueue_task_spend_refresh, spend_id=spend.id, team_id=team_id))
+    refresh_task_spend(spend_id=spend.id, team_id=team_id)
+
+
+def _settle_task_spend(spend: SignalSpend) -> None:
+    from products.tasks.backend.facade.billing import (  # noqa: PLC0415 — keeps task services off startup
+        process_pending_gateway_usage,
+    )
+
+    try:
+        process_pending_gateway_usage(run_id=UUID(spend.source_id), team_id=spend.team_id, limit=1000)
+        refresh_task_spend(spend_id=spend.id, team_id=spend.team_id)
+    except Exception:
+        with transaction.atomic():
+            SignalSpend.objects.for_team(spend.team_id).filter(id=spend.id).update(accounting_failed=True)
+        logger.exception(
+            "signals.spend.accounting_failed", stage=spend.stage, team_id=spend.team_id, source_id=spend.source_id
+        )
+
+
+def settle_signal_task_spend(*, team_id: int, signal_id: str) -> None:
+    for spend in SignalSpend.objects.for_team(team_id).filter(signal_id=signal_id, is_task=True):
+        _settle_task_spend(spend)
+
+
+def _report_spend_signal_ids(*, team_id: int, report_id: str) -> list[str]:
+    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the task facade off startup
+        TaskRunStatus,
+        get_signal_report_implementation_runs,
+    )
+
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    if report is None or report.status == SignalReport.Status.IN_PROGRESS:
+        return []
+    task_ids = list(
+        SignalReportTask.objects.filter(
+            team_id=team_id, report_id=report_id, relationship="implementation"
+        ).values_list("task_id", flat=True)
+    )
+    runs = get_signal_report_implementation_runs(team_id, report_id, task_ids)
+    if any(run.status not in {TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED} for run in runs):
+        return []
+    task_ids.extend(
+        SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, task_id__isnull=False).values_list(
+            "task_id", flat=True
+        )
+    )
+    owners = set(
+        SignalSpend.objects.for_team(team_id)
+        .filter(task_id__in=task_ids, signal_id__isnull=False)
+        .values_list("signal_id", flat=True)
+    )
+    if report.triggering_signal_id:
+        owners.add(report.triggering_signal_id)
+    return sorted(str(owner) for owner in owners)
+
+
+async def publish_report_spend(*, team_id: int, report_id: str) -> None:
+    try:
+        signal_ids = await database_sync_to_async(_report_spend_signal_ids)(team_id=team_id, report_id=report_id)
+        for signal_id in signal_ids:
+            await publish_signal_spend(team_id=team_id, signal_id=signal_id)
+    except Exception:
+        logger.exception(
+            "signals.spend.accounting_failed", stage="report_completion", team_id=team_id, report_id=report_id
+        )
+
+
+def complete_task_spend(*, team_id: int, run_id: str) -> None:
+    try:
+        spend = SignalSpend.objects.for_team(team_id).filter(source_id=run_id, is_task=True).first()
+        if spend is None:
+            return
+        if spend.scout_run_id:
+            _settle_task_spend(spend)
+        else:
+            refresh_task_spend(spend_id=spend.id, team_id=team_id)
+        if spend.stage == "implementation" and spend.task_id:
+            report_ids = SignalReportTask.objects.filter(
+                team_id=team_id, task_id=spend.task_id, relationship="implementation"
+            ).values_list("report_id", flat=True)
+            for report_id in report_ids:
+                async_to_sync(publish_report_spend)(team_id=team_id, report_id=str(report_id))
+    except Exception:
+        logger.exception("signals.spend.accounting_failed", stage="task_completion", team_id=team_id, run_id=run_id)

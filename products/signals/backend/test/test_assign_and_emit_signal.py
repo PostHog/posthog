@@ -20,6 +20,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -128,7 +129,17 @@ async def test_new_match_creates_potential_report_below_threshold(ateam, patch_s
     """A first signal below weight threshold creates a POTENTIAL report, not promoted yet."""
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
 
+    await database_sync_to_async(record_llm_spend)(
+        "example-generation",
+        token_cost_microusd=123_456,
+        team_id=ateam.id,
+        signal_id=input_.signal_id,
+        stage="actionability",
+    )
     result = await assign_and_emit_signal_activity(input_)
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["total_spend"] == 12.3456
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["spend_accounting_failed_stages"] == []
+    patch_side_effects["temporal"].start_workflow.assert_not_called()
 
     assert result.promoted is False
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
@@ -136,9 +147,6 @@ async def test_new_match_creates_potential_report_below_threshold(ateam, patch_s
     assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD * 0.5)
     assert report.signal_count == 1
     assert report.promoted_at is None
-    start = patch_side_effects["temporal"].start_workflow
-    start.assert_awaited_once()
-    assert start.call_args.kwargs["id"] == f"signal-spend-{ateam.id}-{input_.signal_id}"
 
 
 @pytest.mark.asyncio
@@ -1151,7 +1159,17 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
+    await database_sync_to_async(record_llm_spend)(
+        "example-generation",
+        token_cost_microusd=123_456,
+        team_id=ateam.id,
+        signal_id=input_.signal_id,
+        stage="actionability",
+    )
     result = await assign_and_emit_signal_activity(input_)
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["total_spend"] == 12.3456
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["spend_accounting_failed_stages"] == []
+    patch_side_effects["temporal"].start_workflow.assert_not_called()
 
     assert result.promoted is False
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)

@@ -17,7 +17,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ml_inference.backend.facade.contracts import JsonValue
 from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
-from products.signals.backend.spend import report_triggering_signal, schedule_signal_spend_update
+from products.signals.backend.spend import report_triggering_signal
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
@@ -298,6 +298,3 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             report_id=input.report_id,
         )
         raise
-    finally:
-        if signal_id is not None:
-            await schedule_signal_spend_update(team_id=input.team_id, signal_id=signal_id)

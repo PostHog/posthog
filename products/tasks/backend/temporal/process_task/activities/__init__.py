@@ -83,7 +83,7 @@ from .start_dev_stack_preview import (
     wait_dev_stack_preview,
 )
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
-from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
+from .update_task_run_status import UpdateTaskRunStatusInput, complete_signal_spend, update_task_run_status
 
 __all__ = [
     "CleanupSandboxInput",
@@ -168,6 +168,7 @@ __all__ = [
     "mark_repo_ready",
     "track_workflow_event",
     "update_task_run_status",
+    "complete_signal_spend",
     "clone_repository_in_sandbox",
     "materialize_context_layer_in_sandbox",
     "MaterializeContextLayerInput",
