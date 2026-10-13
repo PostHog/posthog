@@ -108,6 +108,15 @@ The view groups search distribution metrics by destination URL and currency, wit
 The connector uses `ConversionsQualified` because Microsoft deprecated `Conversions` for this report.
 Keyword reporting continues to use `keyword_performance_report`.
 
+## Source connection context
+
+Setup scan recommendations include a connection link with the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
+The `entry_point` query parameter identifies the originating surface separately from the visible return label.
+Marketing links identify MCP (`marketing_analytics_mcp`), onboarding, Setup, the integration menu, search suggestions, and search detail.
+The connection flow preserves return URLs, labels, access mode, and origin metadata through OAuth.
+The `warehouse source connect completed` event records the originating entry point.
+Users complete platform authorization through the connection flow.
+
 ## Google Ads campaign trends
 
 Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
@@ -119,5 +128,15 @@ Table resolution uses schema metadata when available and otherwise recognizes so
 The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
 Source health polling refreshes metadata without forcing every dashboard query.
 Campaign reporting waits for all required schemas to complete their first sync.
+
+## Source connection components
+
+The integration catalog includes a search field and orders native sources by usage.
+Connection panels distinguish scanning, errors, pending first sync, and ready sources.
+Search connections use a separate card controlled by `marketing-analytics-organic-keywords`.
+
+Review fixes preserve source data after request failures and provide a retry for connection errors.
+Blocked required imports show Needs attention with a Manage source link.
+Dashboard dismissals use the shared Setup restore controls.
 Source refresh failures retain the previous list and allow a later retry.
 Native source readiness checks include required schema failures and paused imports.

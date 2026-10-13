@@ -62,6 +62,8 @@ export interface AccessControlsLogicProps {
     projectId: string
 }
 
+const TERRAFORM_MANAGED_REASON = 'Access control rules are managed with Terraform'
+
 const initialFilters: AccessControlFilters = {
     roleIds: [],
     memberIds: [],
@@ -163,6 +165,7 @@ export interface accessControlsLogicValues {
     }[]
     searchText: string
     showAllProducts: boolean
+    terraformDisabledReason: string | undefined
     visibleResourceKeySet: Set<APIScopeObject>
 }
 
@@ -440,6 +443,7 @@ export interface accessControlsLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         canEdit: (defaults: AccessControlDefaultsResponse | null) => boolean
+        terraformDisabledReason: (defaults: AccessControlDefaultsResponse | null) => string | undefined
         availableProjectLevels: (defaults: AccessControlDefaultsResponse | null) => AccessControlLevel[]
         availableResourceLevels: (defaults: AccessControlDefaultsResponse | null) => AccessControlLevel[]
         resourceKeys: (
@@ -739,6 +743,13 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         canEdit: [
             (s) => [s.defaults],
             (defaults: AccessControlDefaultsResponse | null): boolean => defaults?.can_edit ?? false,
+        ],
+
+        // The Terraform account can still edit, so a lock alone is not a reason
+        terraformDisabledReason: [
+            (s) => [s.defaults],
+            (defaults: AccessControlDefaultsResponse | null): string | undefined =>
+                defaults?.is_managed_by_terraform && !defaults.can_edit ? TERRAFORM_MANAGED_REASON : undefined,
         ],
 
         availableProjectLevels: [

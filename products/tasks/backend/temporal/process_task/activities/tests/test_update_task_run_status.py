@@ -344,13 +344,14 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        "status,timed_out_inactivity,timeout_marker,error_message,expected_event,expected_reason",
         [
-            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (TaskRun.Status.COMPLETED, True, None, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
             (
                 TaskRun.Status.FAILED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_failed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
             ),
@@ -358,8 +359,17 @@ class TestUpdateTaskRunStatusActivity:
                 TaskRun.Status.COMPLETED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_completed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                SANDBOX_GONE_STATE_KEY,
+                "Sandbox stopped: killed with exit code 137, usually because it ran out of memory. Resume to continue.",
+                "task_run_completed",
+                SANDBOX_GONE_STATE_KEY,
             ),
         ],
     )
@@ -372,12 +382,14 @@ class TestUpdateTaskRunStatusActivity:
         status,
         timed_out_inactivity,
         timeout_marker,
+        error_message,
         expected_event,
         expected_reason,
     ):
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=status,
+            error_message=error_message,
             timed_out_inactivity=timed_out_inactivity,
             timeout_marker=timeout_marker,
             agent_active_at_termination=False,
@@ -390,6 +402,7 @@ class TestUpdateTaskRunStatusActivity:
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
         properties = captured[0].kwargs["properties"]
         assert properties["termination_reason"] == expected_reason
+        assert properties["error_message"] == (error_message or "")
         assert properties["agent_active_at_termination"] is False
         assert properties["end_of_turn_received"] is True
         assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
