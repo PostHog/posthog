@@ -3334,6 +3334,10 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('materialize on save', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it.each([
             {
                 name: 'materializes the created view when materializeAfterSave is true',
@@ -3357,8 +3361,8 @@ describe('sqlEditorLogic', () => {
                 errorToasts: ['Failed to materialize view'],
             },
         ])('$name', async ({ materialize, materializeStatus, successToasts, errorToasts }) => {
-            const toastSuccessSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => ({ id: 'x' }) as any)
-            const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+            const toastSuccessSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'x')
+            const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'x')
             materializeEndpointMock.mockImplementation(() => [materializeStatus, {}])
 
             const viewsLogic = dataWarehouseViewsLogic()
@@ -3397,11 +3401,11 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
-            expect(toastSuccessSpy.mock.calls.map(([message]) => message)).toEqual(successToasts)
+            expect(
+                toastSuccessSpy.mock.calls.map(([message, options]) => ({ message, button: options?.button?.label }))
+            ).toEqual(successToasts.map((message) => ({ message, button: 'Go to view' })))
             expect(toastErrorSpy.mock.calls.map(([message]) => message)).toEqual(errorToasts)
 
-            toastSuccessSpy.mockRestore()
-            toastErrorSpy.mockRestore()
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
         })
