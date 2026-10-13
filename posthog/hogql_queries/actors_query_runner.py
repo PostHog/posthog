@@ -66,7 +66,6 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         self.strategy = self.determine_strategy()
         self.calculating = False
-        self.user = None
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()

@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActorsQuery,
     Breakdown,
     BreakdownFilter,
     BreakdownType,
@@ -15,6 +16,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     HogQLQueryModifiers,
+    InsightActorsQuery,
     MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
@@ -22,6 +24,8 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.workload import Workload
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
@@ -438,3 +442,32 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         execute.assert_called_once()
         assert execute.call_args.kwargs["workload"] == (Workload.NATIVE_EVENTS if native else Workload.DEFAULT)
         assert ("events_json" in execute.call_args.args[0]) is native
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_actor_source_is_reused_until_the_user_changes(self, native: bool) -> None:
+        query = ActorsQuery(
+            source=InsightActorsQuery(
+                source=TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+                )
+            )
+        )
+        with patch(
+            "posthog.models.event.new_events_schema.get_instance_setting",
+            side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+        ):
+            runner = ActorsQueryRunner(query=query, team=self.team, user=self.user)
+            source = runner.source_query_runner
+            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+            assert runner.source_query_runner is source
+            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=None)
+            anonymous_source = runner.source_query_runner
+            assert anonymous_source is not None and anonymous_source is not source
+            assert anonymous_source.user is None
+            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+            restored_source = runner.source_query_runner
+            assert restored_source is not None and restored_source is not anonymous_source
+            assert restored_source.user is self.user
+            assert bool(restored_source.modifiers.useNewEventsCluster) is native
