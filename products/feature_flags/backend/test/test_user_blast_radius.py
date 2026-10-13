@@ -42,7 +42,9 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
             ("curated_copy", 70, "CANNOT_CONVERT_TYPE", CLICKHOUSE_ERROR_CODE_LOOKUP[70].user_safe),
         ]
     )
-    def test_clickhouse_failure_surfaces_as_a_caller_error(self, _name, code, raw, expected):
+    def test_clickhouse_failure_surfaces_as_a_caller_error(
+        self, _name: str, code: int, raw: str, expected: str
+    ) -> None:
         # The 400 carries only copy that PostHog wrote, because the ClickHouse message names
         # engine types and generated SQL instead of the filter to correct. A code whose
         # ErrorCodeMeta names a user-facing string keeps that string; the rest fall back to the
