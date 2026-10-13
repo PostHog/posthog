@@ -18,7 +18,8 @@ from posthog.llm.gateway_client import (
 )
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.spend import record_llm_request
+from products.signals.backend.llm_spend import generate_with_spend
+from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
@@ -220,8 +221,8 @@ async def call_llm(
     # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
     # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
     # X-PostHog-Properties blob instead.
-    on_go_gateway = ai_product is not None and resolve_ai_gateway_config() is not None
-    if stage and not on_go_gateway:
+    gateway = resolve_ai_gateway_config() if ai_product is not None else None
+    if stage and gateway is None:
         create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
@@ -240,23 +241,22 @@ async def call_llm(
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
-            response = await client.messages.create(**create_kwargs)
-            await database_sync_to_async(record_llm_request)(
-                getattr(response, "_request_id", None) if on_go_gateway else None,
-                team_id=team_id,
-                signal_id=signal_id,
-                stage=stage_label,
-            )
+            generation = client.messages.create(**create_kwargs)
+            if gateway is not None and team_id is not None and signal_id is not None:
+                priced = await generate_with_spend(
+                    generation, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage_label
+                )
+                response = priced.response
+            else:
+                response = await generation
+                await database_sync_to_async(record_llm_spend)(
+                    None, token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage_label
+                )
             text_content = _extract_text_content(response)
         except Exception as error:
-            if isinstance(error, (APIResponseValidationError, JSONDecodeError)):
-                await database_sync_to_async(record_llm_request)(
-                    error.response.headers.get("x-request-id")
-                    if on_go_gateway and isinstance(error, APIResponseValidationError)
-                    else None,
-                    team_id=team_id,
-                    signal_id=signal_id,
-                    stage=stage_label,
+            if gateway is None and isinstance(error, (APIResponseValidationError, JSONDecodeError)):
+                await database_sync_to_async(record_llm_spend)(
+                    None, token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage_label
                 )
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise

@@ -30,8 +30,9 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord
-from products.signals.backend.spend import record_llm_request, signal_id_for
+from products.signals.backend.spend import record_llm_spend, signal_id_for
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -200,7 +201,7 @@ async def _summarize_description(
     threshold: int,
     gateway_mode: bool | None = None,
 ) -> SignalEmitterOutput:
-    on_go_gateway = gateway_mode if gateway_mode is not None else resolve_ai_gateway_config() is not None
+    gateway = resolve_ai_gateway_config() if gateway_mode is not False else None
     messages: list[MessageParam] = [
         {
             "role": "user",
@@ -213,7 +214,7 @@ async def _summarize_description(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         summary = ""
         try:
-            response = await asyncio.wait_for(
+            generation = asyncio.wait_for(
                 client.messages.create(
                     model=LLM_MODEL,
                     messages=messages,
@@ -224,12 +225,16 @@ async def _summarize_description(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            await database_sync_to_async(record_llm_request)(
-                getattr(response, "_request_id", None) if on_go_gateway else None,
-                team_id=team_id,
-                signal_id=output.signal_id,
-                stage="summarization",
-            )
+            if gateway is not None and output.signal_id is not None:
+                priced = await generate_with_spend(
+                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+                )
+                response = priced.response
+            else:
+                response = await generation
+                await database_sync_to_async(record_llm_spend)(
+                    None, token_cost_microusd=None, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+                )
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -239,14 +244,9 @@ async def _summarize_description(
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
         except Exception as e:
-            if isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
-                await database_sync_to_async(record_llm_request)(
-                    e.response.headers.get("x-request-id")
-                    if on_go_gateway and isinstance(e, APIResponseValidationError)
-                    else None,
-                    team_id=team_id,
-                    signal_id=output.signal_id,
-                    stage="summarization",
+            if gateway is None and isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
+                await database_sync_to_async(record_llm_spend)(
+                    None, token_cost_microusd=None, team_id=team_id, signal_id=output.signal_id, stage="summarization"
                 )
             posthoganalytics.capture_exception(
                 e,
@@ -358,7 +358,7 @@ async def check_actionability(
     Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
     entered this batch pipeline.
     """
-    on_go_gateway = gateway_mode if gateway_mode is not None else resolve_ai_gateway_config() is not None
+    gateway = resolve_ai_gateway_config() if gateway_mode is not False else None
     description = output.description
     # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
     # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
@@ -394,7 +394,7 @@ async def check_actionability(
             if attempt > 0:
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
-                response = await asyncio.wait_for(
+                generation = asyncio.wait_for(
                     client.messages.create(
                         model=LLM_MODEL,
                         messages=[{"role": "user", "content": prompt}],
@@ -405,20 +405,27 @@ async def check_actionability(
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
-                await database_sync_to_async(record_llm_request)(
-                    getattr(response, "_request_id", None) if on_go_gateway else None,
-                    team_id=team_id,
-                    signal_id=output.signal_id,
-                    stage="actionability",
-                )
+                if gateway is not None and output.signal_id is not None:
+                    priced = await generate_with_spend(
+                        generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
+                    )
+                    response = priced.response
+                else:
+                    response = await generation
+                    await database_sync_to_async(record_llm_spend)(
+                        None,
+                        token_cost_microusd=None,
+                        team_id=team_id,
+                        signal_id=output.signal_id,
+                        stage="actionability",
+                    )
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
             except Exception as e:
-                if isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
-                    await database_sync_to_async(record_llm_request)(
-                        e.response.headers.get("x-request-id")
-                        if on_go_gateway and isinstance(e, APIResponseValidationError)
-                        else None,
+                if gateway is None and isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
+                    await database_sync_to_async(record_llm_spend)(
+                        None,
+                        token_cost_microusd=None,
                         team_id=team_id,
                         signal_id=output.signal_id,
                         stage="actionability",

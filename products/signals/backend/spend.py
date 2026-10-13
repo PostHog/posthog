@@ -56,9 +56,10 @@ def mark_spend_metadata_dirty(*, team_id: int, signal_id: str, emitted: bool = F
         )
 
 
-def record_llm_request(
+def record_llm_spend(
     request_id: str | None,
     *,
+    token_cost_microusd: int | None,
     team_id: int | None,
     stage: str,
     signal_id: str | None = None,
@@ -67,19 +68,27 @@ def record_llm_request(
         return
     try:
         with transaction.atomic():
-            SignalSpend.objects.for_team(team_id).get_or_create(
+            spend, created = SignalSpend.objects.for_team(team_id).get_or_create(
                 team_id=team_id,
                 source_id=request_id or f"unknown-{uuid4()}",
                 is_task=False,
                 defaults={
                     "signal_id": signal_id,
                     "stage": stage,
-                    "needs_refresh": request_id is not None,
-                    "accounting_failed": request_id is None,
+                    "token_cost_microusd": token_cost_microusd,
+                    "needs_refresh": False,
+                    "accounting_failed": token_cost_microusd is None,
                 },
             )
-            mark_spend_metadata_dirty(team_id=team_id, signal_id=signal_id)
-        if request_id is None:
+            if not created and token_cost_microusd is not None:
+                SignalSpend.objects.for_team(team_id).filter(id=spend.id).update(
+                    token_cost_microusd=token_cost_microusd,
+                    needs_refresh=False,
+                    accounting_failed=False,
+                    updated_at=timezone.now(),
+                )
+            mark_spend_metadata_dirty(team_id=team_id, signal_id=str(spend.signal_id))
+        if token_cost_microusd is None:
             logger.warning("signals.spend.generation_unaccounted", stage=stage, team_id=team_id, signal_id=signal_id)
     except Exception:
         logger.exception(
