@@ -1,15 +1,25 @@
 import { useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { VariantColumn } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
 import { VariantScreenshotEditor } from '../../ExperimentView/VariantScreenshot'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
-/** Stored in the draft's `parameters`, where the experiment's Variants tab reads them after saving */
+/**
+ * Stored in the draft's `parameters`, where the experiment's Variants tab reads them after saving. Only the `test` arm
+ * of EXPERIMENT_WIZARD_VARIANT_DETAILS gets them; the flag is read here, so exposure is recorded on the variants step.
+ */
 export function useVariantDetailsColumns(): VariantColumn[] {
     const { experiment } = useValues(experimentWizardLogic)
     const { setVariantNote, setVariantScreenshots } = useActions(experimentWizardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS] !== 'test') {
+        return []
+    }
 
     const notes = experiment.parameters?.variant_notes ?? {}
     const screenshots = experiment.parameters?.variant_screenshot_media_ids ?? {}

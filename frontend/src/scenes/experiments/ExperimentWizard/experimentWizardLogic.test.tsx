@@ -7,6 +7,8 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -776,6 +778,20 @@ describe('experimentWizardLogic', () => {
             renderVariantsStep()
 
             expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
+        })
+
+        it.each([
+            { variant: 'test', shown: true },
+            { variant: 'control', shown: false },
+        ])('shows the Screenshot and Notes columns only in the test arm ($variant)', ({ variant, shown }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS]: variant,
+            })
+
+            renderVariantsStep()
+
+            expect(screen.queryByText('Screenshot') !== null).toBe(shown)
+            expect(screen.queryByText('Notes') !== null).toBe(shown)
         })
     })
 
