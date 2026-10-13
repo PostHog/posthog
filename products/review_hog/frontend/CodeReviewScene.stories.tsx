@@ -878,7 +878,7 @@ export const SettingsForMember: Story = {
         const canvas = within(canvasElement)
         await expect(
             await canvas.findByText(
-                'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
+                'This applies to your pull requests in every repository, except 1 where you chose differently.'
             )
         ).toBeVisible()
     },

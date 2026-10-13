@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
-import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
+import type {
+    ReviewHogRepositoryOverviewRetrieveView,
+    ReviewRepositoryOverviewEntryApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 import { SettingsList } from 'products/review_hog/frontend/settings/SettingsList'
 
 import { RepositoryListPager } from './RepositoryListPager'
@@ -15,8 +18,10 @@ import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
  */
 export function RepositoryList({
     Row,
+    otherTabView,
 }: {
     Row: (props: { entry: ReviewRepositoryOverviewEntryApi }) => JSX.Element
+    otherTabView: ReviewHogRepositoryOverviewRetrieveView
 }): JSX.Element {
     const { overview, overviewLoading, overviewLoadFailed } = useValues(reviewHogRepositoriesLogic)
     const { loadOverview } = useActions(reviewHogRepositoriesLogic)
@@ -52,7 +57,7 @@ export function RepositoryList({
 
     return (
         <div className="flex flex-col gap-2">
-            <RepositoryListToolbar />
+            <RepositoryListToolbar otherTabView={otherTabView} />
             <SettingsList>{rows}</SettingsList>
             <RepositoryListPager />
         </div>

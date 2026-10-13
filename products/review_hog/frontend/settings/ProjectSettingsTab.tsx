@@ -61,13 +61,12 @@ export function ProjectSettingsTab(): JSX.Element {
 
             <SceneSection
                 title="Standard reviews"
-                description="These rules apply to everyone in the project."
-                titleHelper="Each person can turn Standard reviews on or off for their own pull requests in My preferences."
+                description="Standard reviews run on every push. These rules apply to everyone."
             >
                 <SettingsList>
                     <SettingRow
-                        title="Automatic reviews"
-                        description="Choose who gets a Standard review on every push."
+                        title="Who gets reviews"
+                        description="People can still choose for their own pull requests in My preferences."
                     >
                         <RuleControls
                             label="Project rule"
@@ -103,7 +102,7 @@ export function ProjectSettingsTab(): JSX.Element {
 
             <SceneSection
                 title="Deep reviews"
-                description="These are the project defaults. Each person can choose their own."
+                description="Deep reviews run on request. Each person can override these defaults."
             >
                 <SettingsList>
                     <SettingRow
@@ -142,7 +141,7 @@ export function ProjectSettingsTab(): JSX.Element {
                     title="Repository rules"
                     description="Give a repository its own rule, or add and remove repositories."
                 >
-                    <RepositoryList Row={RepositoryProjectRow} />
+                    <RepositoryList Row={RepositoryProjectRow} otherTabView="mine" />
                 </SceneSection>
             )}
         </div>

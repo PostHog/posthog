@@ -60,7 +60,7 @@ export function PeopleList({
                             disabledReason={disabledReason}
                             data-attr="review-hog-rule-add-person"
                         >
-                            Person
+                            Add person
                         </LemonButton>
                     )}
                 </MemberSelect>

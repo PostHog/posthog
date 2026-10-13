@@ -47,31 +47,27 @@ export function RepositoryProjectRow({ entry }: { entry: ReviewRepositoryOvervie
         })
     }
 
-    let rule: JSX.Element
+    let rule: JSX.Element | null
     if (entry.owner === 'other_project') {
         rule = <span className="text-xs text-secondary">Reviewed in {projectName(entry.owner_project)}</span>
     } else if (!entry.in_project) {
         rule = <span className="text-xs text-secondary">Not part of this project</span>
     } else if (entry.exception === null) {
-        rule = (
-            <>
-                <span className="text-xs text-secondary">Project rule</span>
-                {canEdit && (
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        icon={<IconPlus />}
-                        tooltip="Add an exception, starting from the project rule"
-                        aria-label={`Add exception for ${name}`}
-                        onClick={() => addException(entry)}
-                        disabledReason={savingReason}
-                        data-attr="review-hog-repository-add-exception"
-                    >
-                        Exception
-                    </LemonButton>
-                )}
-            </>
-        )
+        // A repository that follows the project rule needs no label. Only its exception is marked.
+        rule = canEdit ? (
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={<IconPlus />}
+                tooltip="Give this repository its own rule, starting from the project rule"
+                aria-label={`Add exception for ${name}`}
+                onClick={() => addException(entry)}
+                disabledReason={savingReason}
+                data-attr="review-hog-repository-add-exception"
+            >
+                Add exception
+            </LemonButton>
+        ) : null
     } else {
         rule = (
             <div className="flex min-w-0 flex-col items-end gap-1.5">
@@ -84,13 +80,13 @@ export function RepositoryProjectRow({ entry }: { entry: ReviewRepositoryOvervie
                             size="xsmall"
                             type="tertiary"
                             icon={<IconX />}
-                            tooltip="Clear the exception and follow the project rule again"
-                            aria-label={`Clear exception for ${name}`}
+                            tooltip="Remove the exception and follow the project rule again"
+                            aria-label={`Remove exception for ${name}`}
                             onClick={() => clearException(entry)}
                             disabledReason={savingReason}
                             data-attr="review-hog-repository-clear-exception"
                         >
-                            Clear
+                            Remove
                         </LemonButton>
                     )}
                 </div>

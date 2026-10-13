@@ -1054,7 +1054,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
         ],
         creatingSkillKind: [
-            // Guards the "Create your own …" buttons against double-submission while the task spins up.
+            // Guards the "New skill" button against double-submission while the task spins up.
             null as ReviewSkillKind | null,
             {
                 startSkillAuthorTask: (_, { kind }) => kind,
@@ -1449,7 +1449,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             // Min-1 floor, mirrored from the backend so the block is instant (the server still 400s).
             const enabledCount = values.perspectives?.filter((p) => p.enabled).length ?? 0
             if (!enabled && enabledCount <= 1) {
-                lemonToast.info('Keep at least one perspective enabled')
+                lemonToast.info('Keep at least one perspective on')
                 return
             }
             actions.patchPerspectiveLocally(skillName, enabled)
@@ -1548,7 +1548,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 } else {
                     await reviewHogResolutionPartialUpdate(currentProjectId(), newName, { active: true })
                 }
-                lemonToast.success('Skill copied. It now runs on your PR reviews.')
+                lemonToast.success('Skill copied. It now runs on your Deep reviews.')
             } catch {
                 // The copy exists even though switching it on failed: close to its new card and let
                 // the user flip it on there.

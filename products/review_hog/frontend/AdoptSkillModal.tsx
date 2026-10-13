@@ -111,7 +111,7 @@ export function AdoptSkillModal(): JSX.Element {
                 <SkillPicker
                     groups={adoptSkillGroups}
                     loading={adoptableSkillsLoading}
-                    emptyMessage='Your team has no other skills to use yet. "Create your own" makes one with an agent.'
+                    emptyMessage='Your team has no other skills to use yet. "New skill" makes one with an agent.'
                     selectLabel="Use this skill"
                     onSelect={(skill) => chooseAdoptSource({ name: skill.name, description: skill.description })}
                     // Resolve returns the whole body; the plain name endpoint caps it at 8000 chars,

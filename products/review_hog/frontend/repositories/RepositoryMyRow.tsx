@@ -35,7 +35,7 @@ export function RepositoryMyRow({ entry }: { entry: ReviewRepositoryOverviewEntr
             </span>
         )
     } else if (!entry.in_project) {
-        choice = <span className="text-xs text-secondary">No automatic review</span>
+        choice = <span className="text-xs text-secondary">Not part of this project</span>
     } else {
         choice = (
             <LemonSelect<MyChoiceValue>

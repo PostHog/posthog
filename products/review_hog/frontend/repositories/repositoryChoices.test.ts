@@ -77,7 +77,7 @@ describe('repositoryChoices', () => {
                 inherited_result: { flash: true, reason: 'own_default' },
                 repository_result: { flash: false, reason: 'repository_opt_in' },
             }),
-            note: 'The repository alone gives: no automatic review',
+            note: 'Without your default: off (repository exception)',
         },
         {
             name: 'an own choice names what applies without it, and where that comes from',
@@ -88,7 +88,7 @@ describe('repositoryChoices', () => {
                 inherited_result: { flash: true, reason: 'repository_everyone' },
                 repository_result: { flash: true, reason: 'repository_everyone' },
             }),
-            note: 'Your choice. Without it: automatic review (repository exception)',
+            note: 'Without your choice: on (repository exception)',
         },
     ])('note: $name', ({ entry: picked, note }) => {
         expect(myChoiceNote(picked)).toEqual(note)

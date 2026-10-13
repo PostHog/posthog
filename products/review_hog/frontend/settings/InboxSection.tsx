@@ -17,7 +17,7 @@ export function InboxSection(): JSX.Element {
     return (
         <SceneSection
             title="Inbox"
-            description="These cover pull requests the PostHog agent opens for your Inbox reports."
+            description="Choose who reviews the pull requests the agent opens for your Inbox reports."
         >
             <SettingsList>
                 <SettingRow title="Review my Inbox PRs" description="PostHog Review runs a Deep review on them.">

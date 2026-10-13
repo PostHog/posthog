@@ -15,9 +15,9 @@ function claimHint(installation: ReviewInstallationApi): string {
         return 'This includes repositories created later, except ones another project selected.'
     }
     if (installation.scope === 'selected') {
-        return 'New repositories are not reviewed until you include them below.'
+        return 'New repositories are not reviewed until you include them under Repository rules.'
     }
-    return 'Pick all repositories, or select some and include them below.'
+    return 'Pick all repositories, or select some and include them under Repository rules.'
 }
 
 function InstallationClaim({ installation }: { installation: ReviewInstallationApi }): JSX.Element {

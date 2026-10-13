@@ -27,10 +27,6 @@ export const DEFAULT_REVIEW_MODE_OPTIONS: ChoiceOption<DefaultReviewModeEnumApi>
     { value: 'off', label: 'Off everywhere' },
 ]
 
-export function defaultReviewModeLabel(mode: DefaultReviewModeEnumApi): string {
-    return DEFAULT_REVIEW_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode
-}
-
 /** The people list a rule reads: the except list for "everyone", the people list for "listed", none for "off". */
 export function peopleKindFor(flashFor: AutomaticFlashForEnumApi): ReviewRepositoryPersonKindEnumApi | null {
     if (flashFor === 'everyone') {
@@ -47,49 +43,49 @@ const SOURCES: Record<AutomaticReviewReasonEnumApi, string> = {
     repository_listed: 'repository exception',
     repository_not_listed: 'repository exception',
     repository_opt_in: 'repository exception',
-    project_everyone: 'project',
-    project_excepted: 'project',
-    project_listed: 'project',
-    project_not_listed: 'project',
-    project_opt_in: 'project',
-    bot_reviewed: 'project',
-    bot_skipped: 'project',
+    project_everyone: 'project rule',
+    project_excepted: 'project rule',
+    project_listed: 'project rule',
+    project_not_listed: 'project rule',
+    project_opt_in: 'project rule',
+    bot_reviewed: 'project rule',
+    bot_skipped: 'project rule',
     not_in_project: 'not part of this project',
 }
 
-/** Where a result comes from, in the words the "My pull requests" pane uses. */
+/** Where a result comes from, in the words the per-repository list on My preferences uses. */
 export function describeSource(decision: AutomaticReviewDecisionApi): string {
     return SOURCES[decision.reason]
 }
 
 export function describeResult(decision: AutomaticReviewDecisionApi): string {
-    return decision.flash ? 'Automatic review' : 'No automatic review'
+    return decision.flash ? 'On' : 'Off'
 }
 
 /** The note under a repository's own choice, or null when the select already says enough. */
 export function myChoiceNote(entry: ReviewRepositoryOverviewEntryApi): string | null {
     const inherited = entry.inherited_result
     if (entry.my_choice !== null) {
-        return `Your choice. Without it: ${describeResult(inherited).toLowerCase()} (${describeSource(inherited)})`
+        return `Without your choice: ${describeResult(inherited).toLowerCase()} (${describeSource(inherited)})`
     }
-    // Rows on the project rule get no note: the notice under My default already covers them.
+    // Rows on the project rule get no note: the description of the viewer's default already covers them.
     const repositoryResult = entry.repository_result
     if (inherited.reason === 'own_default' && entry.exception !== null && repositoryResult.flash !== inherited.flash) {
-        return `The repository alone gives: ${describeResult(repositoryResult).toLowerCase()}`
+        return `Without your default: ${describeResult(repositoryResult).toLowerCase()} (repository exception)`
     }
     return null
 }
 
-/** The notice for a default that overrides every repository, or null while the default lets each one decide. */
+/** What a default that overrides every repository covers, or null while the default follows the project rules. */
 export function myDefaultNotice(mode: DefaultReviewModeEnumApi, choicesUnlikeDefault: number | null): string | null {
     if (mode === 'follow') {
         return null
     }
-    const notice = `Your default, ${defaultReviewModeLabel(mode)}, applies to your PRs in every repository`
+    const notice = 'This applies to your pull requests in every repository'
     if (!choicesUnlikeDefault) {
         return `${notice}.`
     }
-    return `${notice}, except ${choicesUnlikeDefault} where you picked something else.`
+    return `${notice}, except ${choicesUnlikeDefault} where you chose differently.`
 }
 
 export type MyChoiceValue = ReviewUserRepositoryChoiceModeEnumApi | 'follow'

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
@@ -46,7 +46,7 @@ function mineOptions<T extends string>(
 /** The viewer's own review preferences. Nothing on this tab changes what other people get. */
 export function MyPreferencesTab(): JSX.Element {
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
-    const { updateSettings, followProjectDefault } = useActions(reviewHogSettingsLogic)
+    const { updateSettings, followProjectDefault, setActiveTab } = useActions(reviewHogSettingsLogic)
     const { projectSettings, installations } = useValues(reviewHogProjectSettingsLogic)
     const { overview } = useValues(reviewHogRepositoriesLogic)
     const { setMyDefault } = useActions(reviewHogRepositoriesLogic)
@@ -68,14 +68,22 @@ export function MyPreferencesTab(): JSX.Element {
     return (
         // Capped so a control stays close to the label it belongs to on a wide window.
         <div className="flex max-w-200 flex-col gap-8">
+            {projectSettings !== null && installations.length === 0 && (
+                <LemonBanner
+                    type="info"
+                    action={{ children: 'Open Project settings', onClick: () => setActiveTab('project') }}
+                >
+                    Reviews start once GitHub is connected in Project settings.
+                </LemonBanner>
+            )}
             <SceneSection
                 title="Standard reviews"
                 description="Standard reviews run on every push and only comment on your pull request."
-                titleHelper="Standard reviews never push to your branch. A pull request that already had a Deep review gets no more automatic reviews."
+                titleHelper="Standard reviews never push to your branch. A pull request that already had a Deep review gets no more Standard reviews."
             >
                 <SettingsList>
                     <SettingRow
-                        title="Automatic reviews"
+                        title="Review my pull requests"
                         description={
                             myDefaultNotice(myDefault, overview?.my_choices_unlike_default ?? null) ??
                             'Choose whether your pull requests get a Standard review.'
@@ -83,7 +91,7 @@ export function MyPreferencesTab(): JSX.Element {
                     >
                         <LemonSelect<DefaultReviewModeEnumApi>
                             size="small"
-                            aria-label="Automatic review on my PRs"
+                            aria-label="Review my pull requests"
                             value={myDefault}
                             options={DEFAULT_REVIEW_MODE_OPTIONS}
                             onChange={(mode) => mode !== myDefault && setMyDefault(mode)}
@@ -92,7 +100,7 @@ export function MyPreferencesTab(): JSX.Element {
                         />
                     </SettingRow>
                     <SettingRow
-                        title="Draft pull requests"
+                        title="Review my draft pull requests"
                         description="When off, a draft is reviewed once you mark it ready."
                     >
                         <LemonSwitch
@@ -110,7 +118,7 @@ export function MyPreferencesTab(): JSX.Element {
                             {
                                 key: 'repositories',
                                 header: 'Choose per repository',
-                                content: <RepositoryList Row={RepositoryMyRow} />,
+                                content: <RepositoryList Row={RepositoryMyRow} otherTabView="exceptions" />,
                                 dataAttr: 'review-hog-my-repository-choices',
                             },
                         ]}
