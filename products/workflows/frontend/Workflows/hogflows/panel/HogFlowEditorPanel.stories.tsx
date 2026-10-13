@@ -12,7 +12,9 @@ import { HogFunctionTemplateType } from '~/types'
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../types'
-import { HogFlowEditorPanel } from './HogFlowEditorPanel'
+import { HogFlowEditorPanelStep } from './HogFlowEditorPanelStep'
+import { HogFlowEditorTestModal } from './HogFlowEditorTestModal'
+import { HogFlowEditorVariablesModal } from './HogFlowEditorVariablesModal'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
 
@@ -166,12 +168,11 @@ const PANEL_WORKFLOW: HogFlow = {
 type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
-    layout?: 'floating' | 'panel'
 }
 
-const meta: Meta<typeof HogFlowEditorPanel> = {
+const meta: Meta<typeof HogFlowEditorPanelStep> = {
     title: 'Products/Workflows/Editor/Configuration panel',
-    component: HogFlowEditorPanel,
+    component: HogFlowEditorPanelStep,
     parameters: {
         layout: 'fullscreen',
         featureFlags: [FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE],
@@ -215,7 +216,7 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryProps): JSX.Element {
+function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
     const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
     const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
@@ -238,18 +239,11 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryPro
         <ReactFlowProvider>
             <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
                 <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
-                    {layout === 'panel' ? (
-                        // Mirrors the tree view's host: a full-height row where the panel sits
-                        // beside the tree, so the panel is as tall as the editor
-                        <div className="@container/workflow-editor relative flex h-screen overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto">
-                            <div className="min-w-0 flex-1 bg-background" />
-                            <HogFlowEditorPanel layout="panel" />
-                        </div>
-                    ) : (
-                        <div className="relative h-screen w-[37rem] overflow-hidden bg-surface-primary">
-                            <HogFlowEditorPanel />
-                        </div>
-                    )}
+                    <div className="h-screen w-120 overflow-hidden bg-surface-primary p-2">
+                        <HogFlowEditorPanelStep className="max-h-full" />
+                        <HogFlowEditorVariablesModal />
+                        <HogFlowEditorTestModal />
+                    </div>
                 </BindLogic>
             </BindLogic>
         </ReactFlowProvider>
@@ -261,9 +255,6 @@ const Template: StoryFn<PanelStoryProps> = (args) => <PanelStory {...args} />
 export const Build: StoryFn<PanelStoryProps> = Template.bind({})
 Build.args = { mode: 'build', selectedNodeId: 'delay' }
 
-export const BuildPalette: StoryFn<PanelStoryProps> = Template.bind({})
-BuildPalette.args = { mode: 'build', selectedNodeId: null }
-
 export const Trigger: StoryFn<PanelStoryProps> = Template.bind({})
 Trigger.args = { mode: 'build', selectedNodeId: 'trigger' }
 
@@ -272,9 +263,6 @@ Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
 
 export const Email: StoryFn<PanelStoryProps> = Template.bind({})
 Email.args = { mode: 'build', selectedNodeId: 'email' }
-
-export const EmailInSidePanel: StoryFn<PanelStoryProps> = Template.bind({})
-EmailInSidePanel.args = { mode: 'build', selectedNodeId: 'email', layout: 'panel' }
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
@@ -287,9 +275,3 @@ Variables.args = { mode: 'variables', selectedNodeId: null }
 
 export const Test: StoryFn<PanelStoryProps> = Template.bind({})
 Test.args = { mode: 'test', selectedNodeId: 'delay' }
-
-export const Metrics: StoryFn<PanelStoryProps> = Template.bind({})
-Metrics.args = { mode: 'metrics', selectedNodeId: 'delay' }
-
-export const Logs: StoryFn<PanelStoryProps> = Template.bind({})
-Logs.args = { mode: 'logs', selectedNodeId: 'delay' }

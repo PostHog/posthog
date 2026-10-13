@@ -11,7 +11,6 @@ import {
     getOutgoers,
 } from '@xyflow/react'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -19,7 +18,6 @@ import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
@@ -33,16 +31,9 @@ import type { IntegrationType, TeamPublicType, TeamType } from '../../../../../f
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
-import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
-import {
-    BOTTOM_HANDLE_POSITION,
-    MAX_ZOOM,
-    MIN_ZOOM,
-    NODE_HEIGHT,
-    NODE_WIDTH,
-    TOP_HANDLE_POSITION,
-} from './react_flow_utils/constants'
+import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
@@ -181,17 +172,15 @@ export function computeMoveEdges(
     return newEdges
 }
 
-export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
+export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
-export const HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH = 592
+// The selected step's settings card sits to the right of the step in the graph.
+export const HOG_FLOW_STEP_CARD_WIDTH = 480
+export const HOG_FLOW_STEP_CARD_OFFSET = 16
+const SELECTED_STEP_VIEWPORT_PADDING = 24
+// Zoomed out further than this, the selected step is too small to read next to its card.
+const SELECTED_STEP_MIN_ZOOM = 1
 export type HogFlowEditorLayout = 'simple' | 'advanced'
-export type HogFlowEditorActionMetrics = {
-    actionId: string
-    succeeded: number
-    failed: number
-    filtered: number
-}
-
 export type OutputMappingSuggestion = {
     key: string
     result_path: string
@@ -214,8 +203,6 @@ export interface hogFlowEditorLogicValues {
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
     workflow: HogFlow // workflowLogic
-    actionMetricsById: Record<string, HogFlowEditorActionMetrics> | null
-    actionMetricsByIdLoading: boolean
     animatingEdgePair: string | null
     dropzoneNodes: DropzoneNode[]
     edges: HogFlowActionEdge[]
@@ -229,7 +216,6 @@ export interface hogFlowEditorLogicValues {
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
     nodes: HogFlowActionNode[]
     nodesById: Record<string, HogFlowActionNode>
-    panelWidth: number | null
     reactFlowInstance: ReactFlowInstance<Node, Edge> | null
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
@@ -2005,51 +1991,20 @@ export interface hogFlowEditorLogicActions {
     clearAnimatingEdgePair: () => {
         value: true
     }
-    clearPanelWidth: () => {
-        value: true
-    }
     copyNodeToHighlightedDropzone: () => {
         value: true
     }
     duplicateNodeBelow: (actionId: string) => {
         actionId: string
     }
-    fitView: (options?: { duration?: number; noZoom?: boolean }) => {
+    fitView: (options?: { duration?: number }) => {
         duration?: number | undefined
-        noZoom?: boolean | undefined
     }
     handlePaneClick: () => {
         value: true
     }
     hideDropzones: () => {
         value: true
-    }
-    loadActionMetricsById: (
-        params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
-        timezone: string
-    ) => {
-        params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
-        timezone: string
-    }
-    loadActionMetricsByIdFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadActionMetricsByIdSuccess: (
-        actionMetricsById: Record<string, HogFlowEditorActionMetrics>,
-        payload?: {
-            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
-            timezone: string
-        }
-    ) => {
-        actionMetricsById: Record<string, HogFlowEditorActionMetrics>
-        payload?: {
-            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
-            timezone: string
-        }
     }
     moveNodeToEdge: (
         movingNodeId: string,
@@ -2112,7 +2067,7 @@ export interface hogFlowEditorLogicActions {
         isZoomedOutFar: boolean
     }
     setMode: (mode: HogFlowEditorMode) => {
-        mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
+        mode: 'build' | 'test' | 'variables'
     }
     setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => {
         nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -2122,9 +2077,6 @@ export interface hogFlowEditorLogicActions {
     }
     setNodesRaw: (nodes: HogFlowActionNode[]) => {
         nodes: HogFlowActionNode[]
-    }
-    setPanelWidth: (panelWidth: number) => {
-        panelWidth: number
     }
     setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => {
         reactFlowInstance: ReactFlowInstance<Node, Edge>
@@ -2234,9 +2186,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setEditorLayout: (editorLayout: HogFlowEditorLayout) => ({ editorLayout }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
-        setPanelWidth: (panelWidth: number) => ({ panelWidth }),
         setTreePathsCollapsedByDefault: (collapsed: boolean) => ({ collapsed }),
-        clearPanelWidth: true,
         setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
         clearAnimatingEdgePair: true,
         startCopyingNode: (node: HogFlowActionNode) => ({ node }),
@@ -2257,11 +2207,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             joinEdges,
         }),
         duplicateNodeBelow: (actionId: string) => ({ actionId }),
-        loadActionMetricsById: (
-            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
-            timezone: string
-        ) => ({ params, timezone }),
-        fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
+        fitView: (options: { duration?: number } = {}) => options,
         handlePaneClick: true,
         setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
@@ -2276,14 +2222,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             'build' as HogFlowEditorMode,
             {
                 setMode: (_, { mode }) => mode,
-            },
-        ],
-        panelWidth: [
-            null as number | null,
-            { persist: true, storageKey: 'hogFlowEditorPanelWidth' },
-            {
-                setPanelWidth: (_, { panelWidth }) => panelWidth,
-                clearPanelWidth: () => null,
             },
         ],
         // A fixed storage key, so the choice carries to the next workflow rather than being
@@ -2449,61 +2387,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    loaders(() => ({
-        actionMetricsById: [
-            null as Record<string, HogFlowEditorActionMetrics> | null,
-            {
-                loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
-                    await breakpoint(10)
-                    const _params: AppMetricsTotalsRequest = {
-                        ...params,
-                        breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
-                    }
-                    const response = await loadAppMetricsTotals(_params, timezone)
-                    await breakpoint(10)
-
-                    const res: Record<string, HogFlowEditorActionMetrics> = {}
-                    Object.values(response).forEach((value) => {
-                        let [instanceId, metricName] = value.breakdowns
-
-                        if (!metricName) {
-                            return
-                        }
-
-                        if (!instanceId) {
-                            // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
-                            if (['succeeded', 'failed'].includes(metricName)) {
-                                instanceId = EXIT_NODE_ID
-                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
-                                instanceId = TRIGGER_NODE_ID
-                                if (['rate_limited'].includes(metricName)) {
-                                    metricName = 'failed'
-                                }
-                                if (['triggered'].includes(metricName)) {
-                                    metricName = 'succeeded'
-                                }
-                            }
-                        }
-
-                        res[instanceId] = res[instanceId] || {
-                            actionId: instanceId,
-                            succeeded: 0,
-                            failed: 0,
-                            filtered: 0,
-                        }
-                        if (metricName in res[instanceId]) {
-                            ;(res[instanceId] as any)[metricName] = value.total
-                        }
-                    })
-
-                    return res
-                },
-            },
-        ],
-    })),
     listeners(({ values, actions }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
+        let anchoredStepPosition: { id: string; x: number; y: number } | null = null
         return {
             onEdgesChange: ({ edges }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -2952,49 +2838,51 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }, 100)
             },
             setSelectedNodeId: ({ selectedNodeId }) => {
+                // Test runs against the selected step, so it ends when nothing is selected.
+                if (!selectedNodeId && values.mode === 'test') {
+                    actions.setMode('build')
+                }
                 if (selectedNodeId) {
-                    actions.fitView({ noZoom: true })
+                    actions.fitView()
                 }
             },
-            fitView: ({ duration, noZoom }) => {
-                const { reactFlowWrapper, reactFlowInstance } = values
+            fitView: ({ duration }) => {
+                const { reactFlowWrapper, reactFlowInstance, selectedNodeId, nodesById } = values
                 if (!reactFlowWrapper?.current || !reactFlowInstance) {
                     return
                 }
-                const wrapperRect = reactFlowWrapper.current.getBoundingClientRect()
-                const wrapperWidth = wrapperRect?.width ?? 0
-                const wrapperHeight = wrapperRect?.height ?? 0
-                const panel = reactFlowWrapper.current.parentElement?.querySelector<HTMLElement>(
-                    '[data-attr="workflow-editor-panel"]'
+                const selectedNode = selectedNodeId ? nodesById[selectedNodeId] : undefined
+                if (!selectedNode) {
+                    anchoredStepPosition = null
+                    reactFlowInstance.fitView({ padding: 0.2, duration: duration ?? 100 })
+                    return
+                }
+                // Put the step near the top left so its settings card fits beside it.
+                const zoom = Math.max(reactFlowInstance.getZoom(), SELECTED_STEP_MIN_ZOOM)
+                const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect().width
+                const stepAndCardWidth = NODE_WIDTH * zoom + HOG_FLOW_STEP_CARD_OFFSET + HOG_FLOW_STEP_CARD_WIDTH
+                const left = Math.max(SELECTED_STEP_VIEWPORT_PADDING, (wrapperWidth - stepAndCardWidth) / 2)
+                anchoredStepPosition = { id: selectedNode.id, ...selectedNode.position }
+                void reactFlowInstance.setViewport(
+                    {
+                        x: left - selectedNode.position.x * zoom,
+                        y: SELECTED_STEP_VIEWPORT_PADDING - selectedNode.position.y * zoom,
+                        zoom,
+                    },
+                    { duration: duration ?? 100 }
                 )
-                const panelWidth =
-                    panel && getComputedStyle(panel).position === 'absolute'
-                        ? Math.min(panel.getBoundingClientRect().width, wrapperWidth)
-                        : 0
-                const nodesToFit = values.selectedNode ? [values.selectedNode] : values.nodes
-                const nodesBounds = reactFlowInstance.getNodesBounds(nodesToFit)
-                const visibleWidth = wrapperWidth - panelWidth
-                // Size the padding for the zoom this fit lands on. With the current zoom each fit depends
-                // on the previous one, so the resize observer and the mount timeout leave a different
-                // viewport depending on how often they fire. fitView clamps its zoom to the instance limits,
-                // so clamp here too, or a small workflow gets padding for a zoom it never reaches.
-                const unclampedFitZoom = Math.min(visibleWidth / nodesBounds.width, wrapperHeight / nodesBounds.height)
-                const fitZoom =
-                    noZoom || !nodesBounds.width || !nodesBounds.height
-                        ? reactFlowInstance.getZoom()
-                        : Math.min(Math.max(unclampedFitZoom, MIN_ZOOM), MAX_ZOOM)
-                const nodesWidthAdjusted = nodesBounds.width * fitZoom
-                // Calculate the padding right to fit the panel width to the wrapper width
-                // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
-                const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - panelWidth) / 2
-
-                reactFlowInstance.fitView({
-                    padding: panelWidth > 0 ? { right: `${paddingRight}px` } : 0.2,
-                    maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                    minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                    nodes: nodesToFit,
-                    duration: duration ?? 100,
-                })
+            },
+            setNodesRaw: () => {
+                // A new step is selected before layout gives it a position, so re-anchor once it moves.
+                const selectedNode = values.selectedNodeId ? values.nodesById[values.selectedNodeId] : undefined
+                if (
+                    selectedNode &&
+                    (anchoredStepPosition?.id !== selectedNode.id ||
+                        anchoredStepPosition.x !== selectedNode.position.x ||
+                        anchoredStepPosition.y !== selectedNode.position.y)
+                ) {
+                    actions.fitView()
+                }
             },
             startCopyingNode: () => {
                 actions.showDropzones()

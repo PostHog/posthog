@@ -7,6 +7,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEdge } from '../types'
 import { MINIMUM_EDGE_SPACING } from './constants'
+import { HogFlowEdgeInsertButton } from './HogFlowEdgeInsertButton'
 
 // Programmatic function to get smart step path with horizontal branching
 // Handles both edge-to-edge spacing and edge-to-node collision avoidance
@@ -218,6 +219,7 @@ function getPointAtYValue(pathString: string, distance: number, targetY?: number
 }
 
 const ANIMATION_DURATION_S = 1.5
+const JOIN_INSERT_BUTTON_OFFSET = 14
 
 export function SmartEdge({
     id,
@@ -235,13 +237,13 @@ export function SmartEdge({
     ...props
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
-    const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
+    const { animatingEdgePair, mode, dropzoneNodes, isZoomedOutFar } = useValues(hogFlowEditorLogic)
 
     const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
     const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path
-    const [edgePath] = getSmartStepPath({
+    const [edgePath, midpointX, midpointY] = getSmartStepPath({
         sourceX,
         sourceY,
         targetX,
@@ -267,6 +269,16 @@ export function SmartEdge({
 
     const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
 
+    const hogFlowEdge = data?.edge as HogFlowEdge | undefined
+    // Moving or copying a step shows dropzones on every edge, so the insert buttons would sit under them.
+    const showInsertButtons = !!hogFlowEdge && dropzoneNodes.length === 0 && !isZoomedOutFar
+    const siblingEdges = edges.filter((edge) => edge.target === target)
+    // Paths that converge on one step share a single join button, owned by the first of their edges.
+    const joinEdges =
+        siblingEdges.length > 1 && siblingEdges[0].id === id
+            ? siblingEdges.map((edge) => edge.data!.edge as HogFlowEdge)
+            : undefined
+
     return (
         <>
             <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
@@ -289,6 +301,19 @@ export function SmartEdge({
                         label={(data?.label as string) || ''}
                     />
                 ) : null}
+                {showInsertButtons && (
+                    <>
+                        <HogFlowEdgeInsertButton edge={hogFlowEdge} x={midpointX} y={midpointY} />
+                        {joinEdges && (
+                            <HogFlowEdgeInsertButton
+                                edge={hogFlowEdge}
+                                joinEdges={joinEdges}
+                                x={targetX}
+                                y={targetY - JOIN_INSERT_BUTTON_OFFSET}
+                            />
+                        )}
+                    </>
+                )}
             </EdgeLabelRenderer>
         </>
     )

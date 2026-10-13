@@ -17,7 +17,6 @@ import { useHogFlowStep } from '../HogFlowSteps'
 import { isScheduleTrigger } from '../types'
 import { buildSummary } from './rrule-helpers'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
-import { StepViewMetrics } from './StepViewMetrics'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const {
@@ -27,7 +26,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         selectedNodeCanBeDeleted,
         selectedNodeCanBeCopiedOrMoved,
         animatingEdgePair,
-        workflow,
         isZoomedOutFar,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
@@ -66,9 +64,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         cancelEditingDescription,
     } = useActions(stepViewLogic(stepViewLogicProps))
 
-    const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
-    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
-
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
         return {
@@ -94,7 +89,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary transition-[border-color] duration-300"
             style={{
                 width: NODE_WIDTH,
-                height,
+                height: NODE_HEIGHT,
                 borderWidth: 1,
                 borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
@@ -250,16 +245,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
-            {shouldShowMetricsSummary && (
-                <div
-                    style={{
-                        borderTopColor: colorLight,
-                        borderTopWidth: 1,
-                    }}
-                >
-                    <StepViewMetrics action={action} />
-                </div>
-            )}
         </div>
     )
 }

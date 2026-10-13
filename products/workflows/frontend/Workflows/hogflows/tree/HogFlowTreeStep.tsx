@@ -9,6 +9,7 @@ import { Badge, Button, Item, ItemActions, ItemContent, ItemDescription, ItemMed
 import { workflowLogic } from '../../workflowLogic'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { HogFlowEditorPanelStep } from '../panel/HogFlowEditorPanelStep'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
@@ -59,6 +60,15 @@ export function HogFlowTreeStep({
     const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`) ?? false
     const previews = step?.previews ?? []
     const hasFooterContent = !!action.description || previews.length > 0
+
+    // The selected step opens in place, so its settings read as part of the list.
+    if (isSelected) {
+        return (
+            <div id={stepId} data-attr="workflow-tree-step-expanded">
+                <HogFlowEditorPanelStep className="border-ring ring-2 ring-ring/30" />
+            </div>
+        )
+    }
 
     return (
         <Item

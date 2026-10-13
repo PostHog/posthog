@@ -29,25 +29,23 @@ export function HogFlowTreeCollapseAllButton({
     const allCollapsed = areAllWorkflowTreeBranchesCollapsed(groups, viewStates)
 
     return (
-        <div className="mb-2 flex justify-end">
-            <LemonButton
-                type="tertiary"
-                size="xsmall"
-                icon={allCollapsed ? <IconExpand /> : <IconCollapse />}
-                onClick={() => {
-                    const nextCollapsed = !allCollapsed
-                    for (const group of groups) {
-                        onViewStateChange(group.occurrenceKey, {
-                            branchesOpen: true,
-                            collapsedBranches: nextCollapsed ? new Set(group.branchKeys) : new Set(),
-                        })
-                    }
-                    onCollapsedChange(nextCollapsed)
-                }}
-                data-attr="workflow-tree-collapse-all-paths"
-            >
-                {allCollapsed ? 'Expand all paths' : 'Collapse all paths'}
-            </LemonButton>
-        </div>
+        <LemonButton
+            type="tertiary"
+            size="xsmall"
+            icon={allCollapsed ? <IconExpand /> : <IconCollapse />}
+            onClick={() => {
+                const nextCollapsed = !allCollapsed
+                for (const group of groups) {
+                    onViewStateChange(group.occurrenceKey, {
+                        branchesOpen: true,
+                        collapsedBranches: nextCollapsed ? new Set(group.branchKeys) : new Set(),
+                    })
+                }
+                onCollapsedChange(nextCollapsed)
+            }}
+            data-attr="workflow-tree-collapse-all-paths"
+        >
+            {allCollapsed ? 'Expand all paths' : 'Collapse all paths'}
+        </LemonButton>
     )
 }

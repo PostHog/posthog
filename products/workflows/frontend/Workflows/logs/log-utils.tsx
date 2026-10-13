@@ -40,7 +40,7 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
                 <Link
                     key={part}
                     className="rounded p-1 -m-1 bg-border text-bg-primary"
-                    to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
+                    to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}`}
                 >
                     <span className="mr-1">{stepIcon}</span>
                     {stepName}

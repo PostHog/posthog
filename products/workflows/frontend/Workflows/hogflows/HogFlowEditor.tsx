@@ -22,7 +22,10 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { workflowLogic } from '../workflowLogic'
 import { HogFlowBranchSelectionProvider } from './HogFlowBranchSelection'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
-import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
+import { HogFlowEditorGraphStepCard } from './panel/HogFlowEditorGraphStepCard'
+import { HogFlowEditorPanelActions } from './panel/HogFlowEditorPanelActions'
+import { HogFlowEditorTestModal } from './panel/HogFlowEditorTestModal'
+import { HogFlowEditorVariablesModal } from './panel/HogFlowEditorVariablesModal'
 import { LOW_DETAIL_ZOOM, MAX_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
@@ -125,11 +128,15 @@ function HogFlowGraphEditor(): JSX.Element {
                         </Panel>
                     )}
 
+                    <Panel position="top-right">
+                        <HogFlowEditorPanelActions />
+                    </Panel>
+
+                    <HogFlowEditorGraphStepCard />
+
                     <Controls showInteractive={false} />
                 </ReactFlow>
             </div>
-
-            <HogFlowEditorPanel />
         </div>
     )
 }
@@ -141,7 +148,6 @@ function HogFlowTreeEditorContent(): JSX.Element {
             data-attr="workflow-editor"
         >
             <HogFlowTreeEditor />
-            <HogFlowEditorPanel layout="panel" />
         </div>
     )
 }
@@ -162,6 +168,8 @@ export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Elem
                         </ReactFlowProvider>
                     )}
                 </div>
+                <HogFlowEditorVariablesModal />
+                <HogFlowEditorTestModal />
             </HogFlowBranchSelectionProvider>
         </BindLogic>
     )

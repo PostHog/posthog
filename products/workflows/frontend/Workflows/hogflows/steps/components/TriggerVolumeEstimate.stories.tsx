@@ -4,7 +4,7 @@ import { BindLogic } from 'kea'
 import { mswDecorator } from '~/mocks/browser'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
-import { HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH } from '../../hogFlowEditorLogic'
+import { HOG_FLOW_STEP_CARD_WIDTH } from '../../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../../types'
 import { TriggerVolumeEstimate } from './TriggerVolumeEstimate'
 
@@ -86,7 +86,7 @@ const Template: StoryFn<{ id: string; width: number }> = ({ id, width }) => {
 }
 
 export const EventTrigger: StoryFn<{ id: string; width: number }> = Template.bind({})
-EventTrigger.args = { id: EVENT_TRIGGER_WORKFLOW_ID, width: HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH }
+EventTrigger.args = { id: EVENT_TRIGGER_WORKFLOW_ID, width: HOG_FLOW_STEP_CARD_WIDTH }
 
 export const OverTheAiTaskLimit: StoryFn<{ id: string; width: number }> = Template.bind({})
-OverTheAiTaskLimit.args = { id: AI_TASK_WORKFLOW_ID, width: HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH }
+OverTheAiTaskLimit.args = { id: AI_TASK_WORKFLOW_ID, width: HOG_FLOW_STEP_CARD_WIDTH }

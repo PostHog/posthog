@@ -8,6 +8,7 @@ import { ScrollArea, ScrollBar } from 'lib/ui/quill'
 import { setHogFlowDragImage } from '../dragPreview'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { HogFlowEditorPanelActions } from '../panel/HogFlowEditorPanelActions'
 import type { HogFlowEdge } from '../types'
 import { HogFlowTreeCollapseAllButton } from './HogFlowTreeCollapseAllButton'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
@@ -259,15 +260,19 @@ export function HogFlowTreeEditor(): JSX.Element {
                     onDragOver={onTreeDragOver}
                     onDropCapture={onTreeDropCapture}
                 >
-                    {focused ? (
+                    <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                        {!focused && (
+                            <HogFlowTreeCollapseAllButton
+                                tree={tree}
+                                viewStates={viewStates}
+                                onViewStateChange={updateViewState}
+                                onCollapsedChange={setTreePathsCollapsedByDefault}
+                            />
+                        )}
+                        <HogFlowEditorPanelActions />
+                    </div>
+                    {focused && (
                         <HogFlowTreeFocusHeader focusedPath={focusedPath} onReturnToWorkflow={returnToWorkflow} />
-                    ) : (
-                        <HogFlowTreeCollapseAllButton
-                            tree={tree}
-                            viewStates={viewStates}
-                            onViewStateChange={updateViewState}
-                            onCollapsedChange={setTreePathsCollapsedByDefault}
-                        />
                     )}
                     {(focused?.branch.sequence ?? tree).nodes.map((node) => (
                         <HogFlowTreeNode
