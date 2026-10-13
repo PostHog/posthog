@@ -3,9 +3,8 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.salesforce.template_salesforce import (
     TemplatSalesforceMigrator,
     template_create as template_salesforce_create,
