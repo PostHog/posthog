@@ -51,7 +51,7 @@ export function legacyForwardUrl(
     return { path, searchParams, hashParams }
 }
 
-// `/visual_review` opens the repo this project used last, so a multi-repo team lands where it left off.
+// `/visual-review` opens the repo this project used last, so a multi-repo team lands where it left off.
 export function pickLandingRepo(repos: RepoApi[], lastRepoFullName: string | null): RepoApi | null {
     const lastRepo = lastRepoFullName ? findRepoByFullName(repos, lastRepoFullName) : null
     return lastRepo ?? repos[0] ?? null

@@ -53,7 +53,7 @@ export const visualReviewPreferencesLogic = kea<visualReviewPreferencesLogicType
                 setAddImagesToComment: (_, { enabled }) => enabled,
             },
         ],
-        // The `/visual_review` entry point opens the repo a team used last.
+        // The `/visual-review` entry point opens the repo a team used last.
         lastRepoByTeam: [
             {} as Record<string, string>,
             { persist: true, prefix: 'visual_review_' },

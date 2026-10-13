@@ -173,7 +173,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-10',
-        pageUrl: `/visual_review/repos/PostHog/posthog/runs/${RUN_ID}`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}`,
         testOptions: { waitForSelector: '[data-attr="visual-review-add-images-to-comment"]' },
     },
     decorators: [
@@ -326,7 +326,7 @@ const cleanQuarantinedTooltip = snapshot({
 // A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
 export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
     parameters: {
-        pageUrl: `/visual_review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-changed`,
         testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
     },
     decorators: [

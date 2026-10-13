@@ -28,7 +28,7 @@ describe('forwardUrls', () => {
             search: {},
             hash: { preset: 'broken' },
             expected: {
-                path: '/visual_review/repos/PostHog/posthog/flakiness',
+                path: '/visual-review/repos/PostHog/posthog/flakiness',
                 searchParams: {},
                 hashParams: { preset: 'broken' },
             },
@@ -39,7 +39,7 @@ describe('forwardUrls', () => {
             search: {},
             hash: {},
             expected: {
-                path: '/visual_review/repos/PostHog/posthog/storybook/snapshots/scenes%2Fapp--light',
+                path: '/visual-review/repos/PostHog/posthog/storybook/snapshots/scenes%2Fapp--light',
                 searchParams: {},
                 hashParams: {},
             },
@@ -50,7 +50,7 @@ describe('forwardUrls', () => {
             search: { snapshot: 'snap-1', utm_source: 'github' },
             hash: {},
             expected: {
-                path: '/visual_review/repos/PostHog/posthog/runs/run-1',
+                path: '/visual-review/repos/PostHog/posthog/runs/run-1',
                 searchParams: { utm_source: 'github' },
                 hashParams: { snapshot: 'snap-1' },
             },
@@ -61,7 +61,7 @@ describe('forwardUrls', () => {
             search: {},
             hash: { snapshot: 'snap-2' },
             expected: {
-                path: '/visual_review/repos/PostHog/posthog/runs/run-1',
+                path: '/visual-review/repos/PostHog/posthog/runs/run-1',
                 searchParams: {},
                 hashParams: { snapshot: 'snap-2' },
             },

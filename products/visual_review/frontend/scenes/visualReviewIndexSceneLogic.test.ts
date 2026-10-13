@@ -41,11 +41,11 @@ describe('visualReviewIndexSceneLogic', () => {
         {
             name: 'forwards an old run link to the owner/name URL',
             leave: false,
-            expected: '/visual_review/repos/PostHog/posthog/runs/',
+            expected: '/visual-review/repos/PostHog/posthog/runs/',
         },
         { name: 'stays on the page the user moved to during the lookup', leave: true, expected: '/settings/project' },
     ])('$name', async ({ leave, expected }) => {
-        router.actions.push(`/visual_review/runs/${RUN_ID}`, {}, { snapshot: 'kept' })
+        router.actions.push(`/visual-review/runs/${RUN_ID}`, {}, { snapshot: 'kept' })
         const logic = visualReviewIndexSceneLogic()
         logic.mount()
         logic.actions.forward({ kind: 'run', runId: RUN_ID })

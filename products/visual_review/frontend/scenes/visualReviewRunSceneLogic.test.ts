@@ -274,13 +274,13 @@ describe('visualReviewRunSceneLogic', () => {
             name: 'moves a renamed repo path to the run repo',
             pathName: 'PostHog/old-name',
             leaveTo: null,
-            expectedPath: '/visual_review/repos/PostHog/posthog/runs/',
+            expectedPath: '/visual-review/repos/PostHog/posthog/runs/',
         },
         {
             name: 'keeps a path that differs only in case',
             pathName: 'posthog/POSTHOG',
             leaveTo: null,
-            expectedPath: '/visual_review/repos/posthog/POSTHOG/runs/',
+            expectedPath: '/visual-review/repos/posthog/POSTHOG/runs/',
         },
         {
             name: 'stays on the page the user moved to before the repo loaded',
@@ -304,7 +304,7 @@ describe('visualReviewRunSceneLogic', () => {
             },
         })
         const [owner, name] = pathName.split('/')
-        router.actions.push(`/visual_review/repos/${owner}/${name}/runs/${NAMED_RUN_ID}`, {}, { snapshot: 'kept' })
+        router.actions.push(`/visual-review/repos/${owner}/${name}/runs/${NAMED_RUN_ID}`, {}, { snapshot: 'kept' })
         const namedLogic = visualReviewRunSceneLogic({ runId: NAMED_RUN_ID, repoFullName: pathName })
         namedLogic.mount()
         if (leaveTo) {

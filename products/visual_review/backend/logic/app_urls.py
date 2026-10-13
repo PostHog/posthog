@@ -12,7 +12,7 @@ from ..models import Repo, Run, RunSnapshot
 
 
 def _app_url(repo: Repo) -> str:
-    return f"{settings.SITE_URL}/project/{repo.team_id}/visual_review"
+    return f"{settings.SITE_URL}/project/{repo.team_id}/visual-review"
 
 
 def repo_url(repo: Repo) -> str:
