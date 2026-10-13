@@ -1,28 +1,48 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, View } from 'react-native'
+import Animated, { Extrapolation, interpolate, type SharedValue, useAnimatedStyle } from 'react-native-reanimated'
 
 import { BackChip } from '@/ui/BackChip'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { SegmentedPill } from '@/ui/SegmentedPill'
-import { layout } from '@/ui/tokens'
+import { colors, layout, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+
+const CHROME_TOP = 58
+const CHROME_ROW_HEIGHT = 46
+const CHROME_BOTTOM_PADDING = 10
+/** Design-frame offset of the chrome's bottom edge, so the scroll view can tell when the headline passes under it. */
+export const TOP_CHROME_BOTTOM = CHROME_TOP + CHROME_ROW_HEIGHT + CHROME_BOTTOM_PADDING
+
+/** How far the headline rises before the chrome title is fully visible. */
+const TITLE_REVEAL_DISTANCE = 28
+const TITLE_REVEAL_RISE = 8
+
+export interface ChromeTitle {
+    text: string
+    scrollY: SharedValue<number>
+    /** Scroll offset at which the headline has fully passed under the chrome. Zero until it is measured. */
+    revealEnd: number
+}
 
 interface TopChromeProps {
     onBack: () => void
     onPrevious?: () => void
     onNext?: () => void
+    title?: ChromeTitle
 }
 
-export function TopChrome({ onBack, onPrevious, onNext }: TopChromeProps): ReactElement {
+export function TopChrome({ onBack, onPrevious, onNext, title }: TopChromeProps): ReactElement {
     const insets = useScreenInsets()
     return (
-        <View style={[styles.chrome, { paddingTop: topOffset(insets, 58) }]}>
+        <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
             <FadeEdge direction="down" solid={0.7} />
             <BackChip onPress={onBack} testID="report-back" />
+            <View style={styles.titleSlot}>{title ? <ScrollTitle title={title} /> : null}</View>
             <SegmentedPill
-                height={46}
+                height={CHROME_ROW_HEIGHT}
                 raised
                 segmentWidth={44}
                 segments={[
@@ -48,6 +68,33 @@ export function TopChrome({ onBack, onPrevious, onNext }: TopChromeProps): React
     )
 }
 
+function ScrollTitle({ title }: { title: ChromeTitle }): ReactElement {
+    const { scrollY, revealEnd } = title
+    const animatedStyle = useAnimatedStyle(() => {
+        if (revealEnd <= 0) {
+            return { opacity: 0 }
+        }
+        const start = Math.max(0, revealEnd - TITLE_REVEAL_DISTANCE)
+        const progress = interpolate(scrollY.value, [start, revealEnd], [0, 1], Extrapolation.CLAMP)
+        return {
+            opacity: progress,
+            transform: [{ translateY: TITLE_REVEAL_RISE * (1 - progress) }],
+        }
+    })
+    // The headline in the content is the accessible header, so the chrome copy stays out of the accessibility tree.
+    return (
+        <Animated.Text
+            style={[styles.title, animatedStyle]}
+            numberOfLines={1}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            testID="report-chrome-title"
+        >
+            {title.text}
+        </Animated.Text>
+    )
+}
+
 const styles = StyleSheet.create({
     chrome: {
         position: 'absolute',
@@ -59,7 +106,18 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: layout.detailGutter,
-        paddingBottom: 10,
+        paddingBottom: CHROME_BOTTOM_PADDING,
         pointerEvents: 'box-none',
+    },
+    titleSlot: {
+        flex: 1,
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        pointerEvents: 'none',
+    },
+    title: {
+        ...type.sectionHeader,
+        color: colors.ink,
+        textAlign: 'center',
     },
 })

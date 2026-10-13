@@ -1,12 +1,13 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
-import type { SnoozeChoice } from '@/model/types'
+import type { ReportView, SnoozeChoice } from '@/model/types'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Sparkline } from '@/ui/Sparkline'
 import { LoadingView, StateView } from '@/ui/StateView'
@@ -25,11 +26,15 @@ import { SnoozeSheet } from '../snooze/SnoozeSheet'
 import { Activity } from './Activity'
 import { Evidence } from './Evidence'
 import { Facts } from './Facts'
-import { Headline } from './Headline'
+import { Headline, headlineText } from './Headline'
 import { useReportActions, useReportNeighbors } from './hooks'
-import { TopChrome } from './TopChrome'
+import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
 
 type Overlay = 'none' | 'handoff' | 'snooze' | 'assignee'
+
+const CONTENT_TOP = 116
+/** The gap between the chrome and the headline at rest, so the title reveal ends as the headline fully passes under. */
+const HEADLINE_GAP = CONTENT_TOP - TOP_CHROME_BOTTOM
 
 interface ReportScreenProps {
     reportId: string
@@ -68,7 +73,6 @@ function ReportNotFound(): ReactElement {
 
 function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const router = useRouter()
-    const insets = useScreenInsets()
     const viewer = useViewer()
     const query = useReportWithLiveRun(reportId)
     const inbox = useInboxItems()
@@ -122,26 +126,14 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
 
     return (
         <View style={styles.screen} testID="report-screen">
-            <View style={styles.body}>
-                <ScrollView
-                    key={report.id}
-                    style={styles.scroll}
-                    contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, 116) }]}
-                    keyboardShouldPersistTaps="handled"
-                    testID="report-scroll"
-                >
-                    <Headline headline={report.headline} accent={report.accent} lede={report.lede} />
-                    <Evidence blocks={report.evidence} />
-                    <Facts facts={report.facts} />
-                    {report.metric ? (
-                        <View style={styles.metric}>
-                            <Sparkline metric={report.metric} accent={report.accent} />
-                        </View>
-                    ) : null}
-                    <Activity events={report.activity} viewerName={viewer.name} />
-                </ScrollView>
-                <TopChrome onBack={goBack} onPrevious={goTo(neighbors.previousId)} onNext={goTo(neighbors.nextId)} />
-            </View>
+            <ReportBody
+                key={report.id}
+                report={report}
+                viewerName={viewer.name}
+                onBack={goBack}
+                onPrevious={goTo(neighbors.previousId)}
+                onNext={goTo(neighbors.nextId)}
+            />
             <ActionBar
                 report={report}
                 state={state}
@@ -173,6 +165,61 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 onClose={closeOverlay}
                 onSave={actions.setReviewers}
                 pending={actions.pending.reviewers}
+            />
+        </View>
+    )
+}
+
+interface ReportBodyProps {
+    report: ReportView
+    viewerName: string
+    onBack: () => void
+    onPrevious?: () => void
+    onNext?: () => void
+}
+
+// Keyed by report id from the parent, so the scroll offset and the measured headline start fresh for each report.
+function ReportBody({ report, viewerName, onBack, onPrevious, onNext }: ReportBodyProps): ReactElement {
+    const insets = useScreenInsets()
+    const [headlineHeight, setHeadlineHeight] = useState(0)
+    const scrollY = useSharedValue(0)
+    const onScroll = useAnimatedScrollHandler((event) => {
+        scrollY.value = event.contentOffset.y
+    })
+    return (
+        <View style={styles.body}>
+            <Animated.ScrollView
+                style={styles.scroll}
+                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, CONTENT_TOP) }]}
+                keyboardShouldPersistTaps="handled"
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+                testID="report-scroll"
+            >
+                <Headline
+                    headline={report.headline}
+                    accent={report.accent}
+                    lede={report.lede}
+                    onHeadlineHeight={setHeadlineHeight}
+                />
+                <Evidence blocks={report.evidence} />
+                <Facts facts={report.facts} />
+                {report.metric ? (
+                    <View style={styles.metric}>
+                        <Sparkline metric={report.metric} accent={report.accent} />
+                    </View>
+                ) : null}
+                <Activity events={report.activity} viewerName={viewerName} />
+            </Animated.ScrollView>
+            <TopChrome
+                onBack={onBack}
+                onPrevious={onPrevious}
+                onNext={onNext}
+                title={{
+                    text: headlineText(report.headline),
+                    scrollY,
+                    revealEnd: headlineHeight > 0 ? headlineHeight + HEADLINE_GAP : 0,
+                }}
             />
         </View>
     )

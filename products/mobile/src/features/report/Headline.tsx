@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { type LayoutChangeEvent, StyleSheet, Text, type TextStyle, View } from 'react-native'
 
 import type { Accent, Headline as HeadlineModel } from '@/model/types'
 import { accentColor, colors, prettyWrap, type } from '@/ui/tokens'
@@ -8,12 +8,23 @@ interface HeadlineProps {
     headline: HeadlineModel
     accent: Accent
     lede: string
+    onHeadlineHeight?: (height: number) => void
 }
 
-export function Headline({ headline, accent, lede }: HeadlineProps): ReactElement {
+export function headlineText(headline: HeadlineModel): string {
+    return headline.number ? `${headline.number} ${headline.rest}` : headline.rest
+}
+
+export function Headline({ headline, accent, lede, onHeadlineHeight }: HeadlineProps): ReactElement {
+    const onLayout = (event: LayoutChangeEvent): void => onHeadlineHeight?.(event.nativeEvent.layout.height)
     return (
         <View>
-            <Text style={[styles.headline, prettyWrap]} accessibilityRole="header" lineBreakStrategyIOS="standard">
+            <Text
+                style={[styles.headline, prettyWrap]}
+                accessibilityRole="header"
+                lineBreakStrategyIOS="standard"
+                onLayout={onLayout}
+            >
                 {headline.number ? <Text style={NUMBER_STYLES[accent]}>{headline.number} </Text> : null}
                 {headline.rest}
             </Text>
