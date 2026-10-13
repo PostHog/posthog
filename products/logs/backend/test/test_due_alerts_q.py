@@ -44,6 +44,7 @@ class TestDueAlertsQ(BaseTest):
                 {"owner": "platform", "owner_changed_at": NOW - timedelta(days=8)},
                 False,
             ),
+            ("platform_owned_without_a_cutover_time", {"owner": "platform", "owner_changed_at": None}, False),
             (
                 "source_owned_long_after_a_rollback",
                 {"owner": "source", "owner_changed_at": NOW - timedelta(days=30)},

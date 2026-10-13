@@ -123,6 +123,7 @@ class TestNotifiedAlertCollection(APIBaseTest):
         alert: LogsAlertConfiguration,
         notification: NotificationAction,
         notification_failed: bool,
+        shadowed: bool = False,
     ) -> _DispatchedAlert:
         evaluation = _AlertEvaluation(
             alert=alert,
@@ -138,16 +139,15 @@ class TestNotifiedAlertCollection(APIBaseTest):
             date_to=datetime(2025, 1, 1, tzinfo=UTC),
             state_before="not_firing",
         )
-        return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed)
+        return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed, shadowed=shadowed)
 
-    def _make_alert(self, owner: str = "source") -> LogsAlertConfiguration:
+    def _make_alert(self) -> LogsAlertConfiguration:
         return LogsAlertConfiguration.objects.create(
             team=self.team,
             name="Checkout 5xx",
             threshold_count=100,
             window_minutes=5,
             filters={"serviceNames": ["checkout"]},
-            owner=owner,
         )
 
     def test_build_notified_from_saved_includes_fired_notification(self):
@@ -164,16 +164,16 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_notification", NotificationAction.NONE, False, "source"),
-            ("not_signalable", NotificationAction.RESOLVE, False, "source"),
-            ("notification_failed", NotificationAction.FIRE, True, "source"),
-            ("owned_by_the_platform", NotificationAction.FIRE, False, "platform"),
+            ("no_notification", NotificationAction.NONE, False, False),
+            ("not_signalable", NotificationAction.RESOLVE, False, False),
+            ("notification_failed", NotificationAction.FIRE, True, False),
+            ("shadowed_for_the_platform", NotificationAction.FIRE, False, True),
         ]
     )
-    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed, owner):
-        alert = self._make_alert(owner=owner)
+    def test_build_notified_from_saved_excludes(self, _name, notification, notification_failed, shadowed):
+        alert = self._make_alert()
 
-        notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed)])
+        notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed, shadowed)])
 
         assert notified == []
 

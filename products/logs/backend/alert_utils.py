@@ -96,5 +96,9 @@ def due_alerts_q(now: datetime, *, broken_state: str, snoozed_state: str) -> Q:
         & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         & ~Q(state=broken_state)
         & ~Q(state=snoozed_state, snooze_until__gt=now)
-        & ~Q(owner=PlatformAlertOwner.PLATFORM.value, owner_changed_at__lt=now - PLATFORM_SHADOW)
+        # A platform-owned row with no cutover time has no shadow to finish, so it is not evaluated.
+        & ~(
+            Q(owner=PlatformAlertOwner.PLATFORM.value)
+            & (Q(owner_changed_at__isnull=True) | Q(owner_changed_at__lt=now - PLATFORM_SHADOW))
+        )
     )

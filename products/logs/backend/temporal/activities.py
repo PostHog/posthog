@@ -308,6 +308,8 @@ class _DispatchedAlert:
     produce_result: ProduceResult | None = None
     incident_produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
+    # The platform owns the alert, so nothing was sent and no signal follows.
+    shadowed: bool = False
 
     @property
     def produced(self) -> bool:
@@ -1097,7 +1099,7 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
     if current_alert.platform_owned:
         # Counted as delivered, so the state and cooldown move as they would have, and the two
         # stacks stay comparable while the platform sends the real message.
-        return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
+        return _DispatchedAlert(evaluation=evaluation, notification_failed=False, shadowed=True)
 
     produce_result = _dispatch_notification(
         evaluation.outcome,
@@ -1416,7 +1418,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
     """
     notified: list[NotifiedAlert] = []
     for d in saved:
-        if d.notification_failed or d.evaluation.alert.platform_owned:
+        if d.notification_failed or d.shadowed:
             continue
         mapping = signal_action_and_weight(d.evaluation.outcome.notification)
         if mapping is None:
