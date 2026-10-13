@@ -206,14 +206,14 @@ Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://a
 
 ## Adyen — gaps
 
-Today (7): `AccountHolders`, `BalanceAccounts`, `Companies`, `MerchantAccounts`, `SettlementDetailReports`, `Transactions`, `Transfers`
+Today (10): `AccountHolders`, `BalanceAccounts`, `Companies`, `LegalEntities`, `MerchantAccounts`, `PaymentInstruments`, `SettlementDetailReports`, `Stores`, `Transactions`, `Transfers`
 
 Diffed against: <https://raw.githubusercontent.com/Adyen/adyen-openapi/main/json/BalancePlatformService-v2.json>
 
-- [ ] `Legal entities (Legal Entity API v4, GET /legalEntities/{id})` — resolve legalEntityId in account holders to business identity and verification information (high)
-- [ ] `Payment instruments (Balance Platform API v2, GET /balanceAccounts/{id}/paymentInstruments)` — resolve payment instrument references in transactions and transfers to cards, account details, and status (high)
-- [ ] `Stores (Management API v3, GET /stores)` — resolve store identifiers in settlement reports and compare payment outcomes across physical locations (high)
-- [ ] `Disputes (Transaction API v4, GET /disputes)` — measure issuing dispute rates, disputed amounts, and outcomes alongside card transactions (high)
+- [x] `Legal entities (Legal Entity API v4, GET /legalEntities/{id})` — resolve legalEntityId in account holders to business identity and verification information (high). Added as `LegalEntities` (one lookup per distinct account holder `legalEntityId`; full refresh; off by default).
+- [x] `Payment instruments (Balance Platform API v2, GET /balanceAccounts/{id}/paymentInstruments)` — resolve payment instrument references in transactions and transfers to cards, account details, and status (high). Added as `PaymentInstruments` (fan-out over balance accounts; full refresh).
+- [x] `Stores (Management API v3, GET /stores)` — resolve store identifiers in settlement reports and compare payment outcomes across physical locations (high). Added as `Stores` (full refresh).
+- [ ] `Disputes (Transaction API v4, GET /disputes)` — measure issuing dispute rates, disputed amounts, and outcomes alongside card transactions (high); skipped, the Raise Disputes v4 spec contradicts itself on pagination and response shape, and the dispute object has no timestamp to sync on
 - [ ] `Grants (Transfers API v4, GET /grants)` — analyze capital financing balances and repayment obligations alongside transfers (medium)
 - [ ] `Managed payout executions (Balance Platform API v2, GET /balanceAccounts/{balanceAccountId}/payoutSchedules/{id}/executions)` — track scheduled payout attempts and outcomes beyond completed transfers (medium)
 - [ ] `Terminals (Management API v3, GET /terminals)` — analyze terminal inventory and allocation across merchants and stores (medium)
