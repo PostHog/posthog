@@ -248,11 +248,12 @@ tools:
                     surveyPopupDelaySeconds must be non-negative.
             schedule:
                 description: >
-                    How often a person can see the survey: once, recurring, or always. Use always when the user wants
-                    the survey to show every time its display conditions are met, also after the person responds or
-                    dismisses it. The survey editor calls this "Every time the display conditions are met". When you
-                    change away from recurring, the iteration fields are cleared. An always popover without display
-                    conditions or a wait period shows again and again, so suggest a URL condition or
+                    How often a person can see the survey: once, recurring, or always. Omit this to keep the current
+                    schedule. When setting recurring, also set iteration_count and iteration_frequency_days. Use always
+                    when the user wants the survey to show every time its display conditions are met, also after the
+                    person responds or dismisses it. The survey editor calls this "Every time the display conditions are
+                    met". When you change away from recurring, the iteration fields are cleared. An always popover
+                    without display conditions or a wait period shows again and again, so suggest a URL condition or
                     seenSurveyWaitPeriodInDays.
             questions:
                 description: >
