@@ -232,33 +232,44 @@ describe('replayScannerLogic', () => {
         })
 
         it.each([
-            { flow: 'free', budget: 2500, freeOnly: true, creditLimit: null },
-            { flow: 'budget', budget: 4000, freeOnly: false, creditLimit: 4000 },
-        ])('applies the spend choice to the drafted scanner: $flow', async ({ budget, freeOnly, creditLimit }) => {
-            draftSpy.mockReturnValue([
-                200,
-                {
-                    name: 'Overview',
-                    description: 'Summarizes sessions.',
-                    scanner_type: 'summarizer',
-                    scanner_config: { prompt: 'Summarize the session.' },
-                    rationale: '',
-                    query: null,
-                    credit_limit: 4000,
-                },
-            ])
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            { flow: 'goal flow, free', goalFlow: true, freeOnly: true, expectFree: true, creditLimit: null },
+            { flow: 'goal flow, budget', goalFlow: true, freeOnly: false, expectFree: false, creditLimit: 4000 },
+            {
+                flow: 'legacy draft asked for free',
+                goalFlow: false,
+                freeOnly: true,
+                expectFree: false,
+                creditLimit: 4000,
+            },
+        ])(
+            'applies the spend choice to the drafted scanner: $flow',
+            async ({ goalFlow, freeOnly, expectFree, creditLimit }) => {
+                draftSpy.mockReturnValue([
+                    200,
+                    {
+                        name: 'Overview',
+                        description: 'Summarizes sessions.',
+                        scanner_type: 'summarizer',
+                        scanner_config: { prompt: 'Summarize the session.' },
+                        rationale: '',
+                        query: null,
+                        credit_limit: 4000,
+                        ...(goalFlow ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                    },
+                ])
+                router.actions.push(urls.replayVisionScannerTemplate('new'))
 
-            await expectLogic(logic, () =>
-                logic.actions.draftScannerFromGoal('what are users doing?', budget, undefined, freeOnly)
-            ).toFinishAllListeners()
+                await expectLogic(logic, () =>
+                    logic.actions.draftScannerFromGoal('what are users doing?', 2500, undefined, freeOnly)
+                ).toFinishAllListeners()
 
-            expect(!!logic.values.scanner?.free_only).toEqual(freeOnly)
-            expect(logic.values.scanner?.credit_limit ?? null).toEqual(creditLimit)
-        })
+                expect(!!logic.values.scanner?.free_only).toEqual(expectFree)
+                expect(logic.values.scanner?.credit_limit ?? null).toEqual(creditLimit)
+            }
+        )
 
         it.each([
-            { case: 'free credits left', mode: 'free' as const, left: 800, expected: { mode: 'free', budget: 800 } },
+            { case: 'free credits left', mode: 'free' as const, left: 800, expected: { mode: 'free', budget: 2500 } },
             {
                 case: 'free credits used up',
                 mode: 'free' as const,
@@ -1826,6 +1837,7 @@ describe('replayScannerLogic', () => {
             expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                 creation_method: 'ai',
                 template_key: reportedKey,
+                spend_mode: null,
                 goal_length: 'find users who get stuck'.length,
             })
         })

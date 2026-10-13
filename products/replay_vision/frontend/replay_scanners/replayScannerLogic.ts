@@ -422,7 +422,7 @@ export const DEFAULT_GOAL_BUDGET = 2500
 
 export interface GoalSpendChoice {
     mode: GoalSpendMode
-    /** What the drafter sizes the scanner to: the free credits left in free mode, else the typed budget. */
+    /** What the drafter sizes the scanner to: the monthly free credits in free mode, else the typed budget. */
     budget: number | undefined
     freeDisabledReason: string | null
 }
@@ -440,7 +440,8 @@ export function goalSpendChoice(
     const effectiveMode = freeDisabledReason ? 'budget' : mode
     return {
         mode: effectiveMode,
-        budget: effectiveMode === 'free' ? (freeCreditsLeft ?? DEFAULT_GOAL_BUDGET) : (budgetInput ?? undefined),
+        // A scanner outlives this period, so free mode sizes it to the monthly free credits, not to what is left now.
+        budget: effectiveMode === 'free' ? DEFAULT_GOAL_BUDGET : (budgetInput ?? undefined),
         freeDisabledReason,
     }
 }
@@ -2201,11 +2202,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // Fires on request rather than result, so failed drafts still count as entering the AI path.
-            draftScannerFromGoal: ({ goal, monthlyCreditBudget, templateKey }) => {
+            draftScannerFromGoal: ({ goal, monthlyCreditBudget, templateKey, freeOnly }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
                     template_key: templateKey ?? null,
+                    spend_mode: monthlyCreditBudget == null ? null : freeOnly ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })
@@ -2247,6 +2249,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // one while the scanner saves the new one. Drop the card and let it rebuild.
                     actions.setExperimentContext(null)
                 }
+                // Solved dials mark a goal-flow draft; a legacy draft reaches the control arm, which never gets free-only.
+                const isGoalFlowDraft = goalDraft.sampling_mode != null || goalDraft.sampling_rate != null
                 const base = newScanner(null, teamLogic.values.currentTeam?.name)
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context, asExperimentScanner) : base)
                 const draftQuery = goalDraft.query as RecordingsQuery | undefined
@@ -2283,7 +2287,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The model the draft chose for the goal, and the credit cap set to the stated
                     // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
                     ...(goalDraft.model ? { model: goalDraft.model } : {}),
-                    ...(payload?.freeOnly
+                    ...(payload?.freeOnly && isGoalFlowDraft
                         ? { free_only: true, credit_limit: null, credit_limit_enabled: false }
                         : goalDraft.credit_limit != null
                           ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
@@ -2297,10 +2301,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Loads the experiment so the editor shows its name and variants, the same way it
                 // does for a scanner started from the experiment itself.
                 actions.rebuildExperimentContext()
-                // Solved dials mark a goal-flow draft, which reviews on the overview; legacy drafts
-                // open the details step. The goal flow is already on the overview (pushed on request),
-                // so this only navigates the legacy path.
-                const isGoalFlowDraft = goalDraft.sampling_mode != null || goalDraft.sampling_rate != null
+                // The goal flow is already on the overview, so only a legacy draft navigates, to the details step.
                 if (isGoalFlowDraft) {
                     // The form now carries the drafted filter, so count what it will actually watch.
                     actions.loadScannerEstimate()

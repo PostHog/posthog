@@ -58,7 +58,7 @@ function statusCopy(
             return {
                 label: 'Stopped',
                 tone: 'danger',
-                detail: limitReachedTooltip(status.freeOnly),
+                detail: limitReachedTooltip(status),
             }
         case 'quota_exhausted':
             return {

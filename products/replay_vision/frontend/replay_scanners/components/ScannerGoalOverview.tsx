@@ -19,7 +19,7 @@ import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { DEFAULT_GOAL_BUDGET, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
@@ -302,7 +302,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // The budget is credits, so compare the projected credit cost against the cap (which the draft
     // set to the stated budget). The rate cannot go below the minimum, so a budget under that floor
     // projects above it.
-    const budgetCredits = scanner.credit_limit ?? goalBudgetInput
+    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? DEFAULT_GOAL_BUDGET : goalBudgetInput)
     const overBudget = monthlyCredits != null && budgetCredits != null && monthlyCredits > budgetCredits
 
     const saveDisabledReason =

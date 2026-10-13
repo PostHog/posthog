@@ -186,8 +186,8 @@ export function ReplayScannersScene(): JSX.Element {
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
                     {scanner.limit_reached && (
-                        <Tooltip title={limitReachedTooltip(scanner.free_only)}>
-                            <LemonTag type="danger">{limitReachedLabel(scanner.free_only)}</LemonTag>
+                        <Tooltip title={limitReachedTooltip(scanner)}>
+                            <LemonTag type="danger">{limitReachedLabel(scanner)}</LemonTag>
                         </Tooltip>
                     )}
                 </div>

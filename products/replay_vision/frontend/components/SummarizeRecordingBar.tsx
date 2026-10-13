@@ -59,7 +59,7 @@ function useSummarizeBlockedReason(
         getReplayVisionEditDisabledReason((scanner?.user_access_level as AccessControlLevel | null) ?? undefined) ??
         // `observe` answers 402 for a scanner that has spent its own credit limit, so a capped one is
         // refused here rather than by a failed request. The built-in prompt has no per-scanner limit.
-        (scanner?.limit_reached ? limitReachedTooltip(scanner?.free_only) : null) ??
+        (scanner?.limit_reached ? limitReachedTooltip(scanner) : null) ??
         scanBlock?.reason ??
         quotaDisabledReason
 }

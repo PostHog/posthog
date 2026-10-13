@@ -8,10 +8,17 @@ const FREE_CREDITS_USED_TOOLTIP =
     'It starts again when the period resets. Sessions skipped until then are not scanned later. ' +
     'To keep scanning now, turn off "Free credits only" in its settings.'
 
-export function limitReachedTooltip(freeOnly: boolean | undefined): string {
-    return freeOnly ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
+type LimitFields = { free_only?: boolean; credit_limit?: number | null } | null | undefined
+
+// The API only says a scanner stopped, so the free-credits copy needs the free credits to be its only limit.
+function stoppedByFreeCredits(scanner: LimitFields): boolean {
+    return !!scanner?.free_only && scanner.credit_limit == null
 }
 
-export function limitReachedLabel(freeOnly: boolean | undefined): string {
-    return freeOnly ? 'Free credits used' : 'Limit reached'
+export function limitReachedTooltip(scanner: LimitFields): string {
+    return stoppedByFreeCredits(scanner) ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
+}
+
+export function limitReachedLabel(scanner: LimitFields): string {
+    return stoppedByFreeCredits(scanner) ? 'Free credits used' : 'Limit reached'
 }
