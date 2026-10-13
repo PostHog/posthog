@@ -21,7 +21,11 @@ from products.workflows.backend.facade.contracts import PeopleImportInvalid
 from products.workflows.backend.services import people_import
 from products.workflows.backend.services.people_import import start_people_import
 from products.workflows.backend.tasks import people_import as people_import_tasks
-from products.workflows.backend.tasks.people_import import capture_people_import, fill_people_import_cohort
+from products.workflows.backend.tasks.people_import import (
+    capture_people_import,
+    fail_people_import_if_stalled,
+    fill_people_import_cohort,
+)
 
 
 class _MemoryStorage:
@@ -48,6 +52,9 @@ class _StorageMixin:
         dispatch = patch("products.workflows.backend.tasks.people_import.capture_people_import.delay")
         self.dispatch = dispatch.start()
         self.addCleanup(dispatch.stop)  # type: ignore[attr-defined]
+        stall_check = patch("products.workflows.backend.tasks.people_import.fail_people_import_if_stalled.apply_async")
+        self.stall_check = stall_check.start()
+        self.addCleanup(stall_check.stop)  # type: ignore[attr-defined]
 
     def stored_people(self) -> list[dict[str, Any]]:
         [content] = self.storage.objects.values()
@@ -88,6 +95,24 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             True,
         )
         self.dispatch.assert_called_once()
+        assert self.stall_check.call_args.kwargs["countdown"] == 3600
+
+    @parameterized.expand(
+        [
+            ("id_names_the_person", {"email": "a@example.com", "ID": "user-7"}, ("user-7", {"email": "a@example.com"})),
+            (
+                "distinct_id_column_wins",
+                {"email": "a@example.com", "distinct_id": "user-7", "id": "cio-1"},
+                ("user-7", {"email": "a@example.com", "id": "cio-1"}),
+            ),
+        ]
+    )
+    def test_id_column_names_the_person_without_a_distinct_id_column(
+        self, _name: str, row: dict[str, str], expected: tuple[str, dict[str, str]]
+    ) -> None:
+        start_people_import(team=self.team, user=self.user, name="List", rows=[row])
+
+        assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [expected]
 
     @parameterized.expand(
         [
@@ -184,7 +209,7 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (event["event"], event["distinct_id"], event["properties"]) == (
             "$set",
             "user-1",
-            {"$set": {"email": "user-1@example.com"}},
+            {"$set": {"email": "user-1@example.com"}, "$geoip_disable": True},
         )
         assert capture.call_args.kwargs["process_person_profile"] is True
         fill.assert_called_once()
@@ -283,6 +308,16 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert calculate.called is (outcome == "fills")
         assert (key in self.storage.objects) is (outcome == "waits")
         assert cohort.is_calculating is (outcome != "fails")
+
+    @parameterized.expand([("still_calculating", True, True), ("finished", False, False)])
+    def test_stall_check_ends_an_import_that_never_finished(self, _name: str, calculating: bool, ended: bool) -> None:
+        cohort_id, key = self._stage()
+        Cohort.objects.filter(pk=cohort_id).update(is_calculating=calculating)
+
+        fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert (cohort.errors_calculating, key in self.storage.objects) == ((1, False) if ended else (0, True))
 
 
 class TestPeopleImportAPI(_StorageMixin, ClickhouseTestMixin, APIBaseTest):

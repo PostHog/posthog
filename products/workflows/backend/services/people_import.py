@@ -3,6 +3,7 @@
 import re
 import json
 import uuid
+from datetime import timedelta
 from typing import TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -20,7 +21,11 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition
-from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
+from posthog.models.person.util import (
+    get_distinct_ids_for_persons,
+    get_person_ids_and_uuids_by_uuids,
+    get_person_uuids_and_matched_distinct_ids,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.storage import object_storage
@@ -38,6 +43,9 @@ MAX_PEOPLE_IMPORT_ROW_BYTES = 4096
 EMAIL_LOOKUP_CHUNK_SIZE = 10_000
 # Bounds each personhog lookup of distinct IDs.
 PERSON_LOOKUP_CHUNK_SIZE = 1000
+
+# An import finishes in under 30 minutes, including the waits for ingestion and the capture retries.
+STALLED_IMPORT_AFTER = timedelta(hours=1)
 
 # Capture rejects longer distinct IDs (CAPTURE_V1_DISTINCT_ID_MAX_SIZE in rust/capture).
 MAX_DISTINCT_ID_BYTES = 200
@@ -68,6 +76,8 @@ ILLEGAL_DISTINCT_IDS = frozenset(
 )
 # Only these headers are matched loosely. Every other header is a person property name, kept as written.
 _IDENTITY_HEADERS = ("email", "distinct_id")
+# Customer.io exports name the person's ID "id", so it names the distinct ID when the file has no distinct_id column.
+_ID_HEADER = "id"
 
 _STORAGE_FOLDER = "workflows_people_imports"
 _HEADER_SEPARATORS = re.compile(r"[^a-z0-9]+")
@@ -118,11 +128,20 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
     storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{cohort.pk}-{uuid.uuid4()}.json"
 
     # The task module imports this one, so a module-level import would be circular.
-    from products.workflows.backend.tasks.people_import import capture_people_import  # noqa: PLC0415
+    from products.workflows.backend.tasks.people_import import (  # noqa: PLC0415
+        capture_people_import,
+        fail_people_import_if_stalled,
+    )
 
     try:
         object_storage.write(storage_key, json.dumps(people))
         capture_people_import.delay(team_id=team.id, cohort_id=cohort.pk, storage_key=storage_key)
+        # A worker that dies mid-task, or a task that can't schedule the next one, leaves the cohort calculating.
+        # The stuck-cohort sweep skips uploaded cohorts, so this check ends the import instead.
+        fail_people_import_if_stalled.apply_async(
+            kwargs={"team_id": team.id, "cohort_id": cohort.pk, "storage_key": storage_key},
+            countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
+        )
     except Exception:
         # No task would finish this cohort, and the stuck-cohort sweep skips uploads.
         fail_people_import(team.id, cohort.pk, storage_key)
@@ -159,6 +178,13 @@ def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
         logger.exception("people_import_cleanup_failed", team_id=team_id, cohort_id=cohort_id)
 
 
+def fail_stalled_people_import(team_id: int, cohort_id: int, storage_key: str) -> bool:
+    if not Cohort.objects.filter(pk=cohort_id, team_id=team_id, is_calculating=True).exists():
+        return False
+    fail_people_import(team_id, cohort_id, storage_key)
+    return True
+
+
 def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
     found: set[str] = set()
     for start in range(0, len(distinct_ids), PERSON_LOOKUP_CHUNK_SIZE):
@@ -170,6 +196,7 @@ def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
 
 
 def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
+    id_names_distinct_id = "distinct_id" not in {_loose_header(header) for raw in rows for header in raw}
     kept: list[dict[str, str]] = []
     columns: dict[str, None] = {}
     seen_emails: set[str] = set()
@@ -178,7 +205,7 @@ def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
     for line, raw in enumerate(rows, start=2):
         row: dict[str, str] = {}
         for header, value in raw.items():
-            key = _column_key(header)
+            key = _column_key(header, id_names_distinct_id)
             if not key:
                 # Skipping a column that holds data would lose that data without saying so.
                 if str(value).strip():
@@ -261,13 +288,13 @@ def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, st
 def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> dict[str, str]:
     if not emails:
         return {}
+    # Querying persons directly lets HogQL filter people by email before it groups their versions.
     # The lowest person ID per email is the same person the email dedupe of a filtered audience picks.
     query = parse_select(
         """
-        SELECT lower(trim(toString(person.properties.email))) AS normalized_email,
-            argMin(distinct_id, person_id) AS matched_distinct_id
-        FROM person_distinct_ids
-        WHERE lower(trim(toString(person.properties.email))) IN {emails}
+        SELECT lower(trim(toString(properties.email))) AS normalized_email, min(id) AS person_uuid
+        FROM persons
+        WHERE lower(trim(toString(properties.email))) IN {emails}
         GROUP BY normalized_email
         LIMIT {limit}
         """,
@@ -277,11 +304,32 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
     tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
     # With the user, property access rules that hide email from the team default still let this user match.
     response = execute_hogql_query(query=query, team=team, user=user, workload=Workload.OFFLINE)
-    return {email: str(distinct_id) for email, distinct_id in response.results}
+    uuid_by_email = {email: uuid.UUID(str(person_uuid)) for email, person_uuid in response.results}
+    id_by_uuid = {
+        uuid.UUID(str(person_uuid)): person_id
+        for person_id, person_uuid in get_person_ids_and_uuids_by_uuids(
+            team.id, [str(person_uuid) for person_uuid in set(uuid_by_email.values())]
+        )
+    }
+    # Any of the person's distinct IDs will do: the row writes its properties to the person behind it.
+    distinct_ids = get_distinct_ids_for_persons(team.id, list(id_by_uuid.values()), limit_per_person=1)
+    matched: dict[str, str] = {}
+    for email, person_uuid in uuid_by_email.items():
+        person_id = id_by_uuid.get(person_uuid)
+        if person_id is not None and distinct_ids.get(person_id):
+            matched[email] = distinct_ids[person_id][0]
+    return matched
 
 
-def _column_key(header: object) -> str:
+def _loose_header(header: object) -> str:
+    return _HEADER_SEPARATORS.sub("_", str(header).strip().lower()).strip("_")
+
+
+def _column_key(header: object, id_names_distinct_id: bool) -> str:
     """The identity column a header names, or else the header itself as the person property name."""
-    name = str(header).strip()
-    loose = _HEADER_SEPARATORS.sub("_", name.lower()).strip("_")
-    return loose if loose in _IDENTITY_HEADERS else name
+    loose = _loose_header(header)
+    if loose in _IDENTITY_HEADERS:
+        return loose
+    if loose == _ID_HEADER and id_names_distinct_id:
+        return "distinct_id"
+    return str(header).strip()

@@ -2159,7 +2159,7 @@ export interface PeopleImportCreateApi {
      */
     name: string
     /**
-     * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create; without it, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+     * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
      * @maxItems 50000
      */
     rows: PeopleImportCreateApiRowsItem[]

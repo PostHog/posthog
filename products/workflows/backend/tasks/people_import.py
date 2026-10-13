@@ -14,6 +14,7 @@ from products.workflows.backend.services.people_import import (
     delete_people,
     existing_distinct_ids,
     fail_people_import,
+    fail_stalled_people_import,
     read_people,
 )
 
@@ -94,12 +95,21 @@ def fill_people_import_cohort(*, team_id: int, cohort_id: int, storage_key: str,
     delete_people(storage_key)
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def fail_people_import_if_stalled(*, team_id: int, cohort_id: int, storage_key: str) -> None:
+    """Ends an import whose cohort is still calculating long after it should have finished."""
+    if fail_stalled_people_import(team_id, cohort_id, storage_key):
+        logger.warning("people_import_stalled", team_id=team_id, cohort_id=cohort_id)
+
+
 def _set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, object]]:
     return [
         {
             "event": "$set",
             "distinct_id": person["distinct_id"],
-            "properties": {"$set": person["properties"]},
+            # The server's IP says nothing about where the person is.
+            "properties": {"$set": person["properties"], "$geoip_disable": True},
             # A stable uuid per person lets a retry find which events capture didn't acknowledge.
             "event_uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{storage_key}/{person['distinct_id']}")),
         }
