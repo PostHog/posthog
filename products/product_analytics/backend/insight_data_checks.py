@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -21,7 +22,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.product_analytics.backend.facade.contracts import InsightDataCheck, InsightDataChecks
 from products.product_analytics.backend.facade.enums import (
@@ -30,11 +33,16 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataCheckLevel,
     InsightDataChecksStatus,
 )
+from products.product_analytics.backend.hogql_queries.trends.utils import is_groups_math
 
 # Each check is a share of the events, so a sample this large gives the same answer as every event.
 MAX_CHECKED_EVENTS = 1_000_000
+# The sample is drawn before the chart's filters, because a count after them reads every event. When the filters
+# keep fewer of the sampled events than the minimum, one larger sample is drawn that keeps about the second number.
+MIN_SAMPLED_EVENTS = 10_000
+RESAMPLED_EVENTS = 100_000
 MAX_EXECUTION_SECONDS = 20
-DEFAULT_DATE_RANGE = DateRange(date_from="-7d")
+DEFAULT_DATE_FROM = "-7d"
 
 LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
 # An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
@@ -57,18 +65,20 @@ _SERIES_QUERIES: dict[str, type[TrendsQuery | FunnelsQuery | StickinessQuery | L
 # Event names and dates are in the sort key of the events table, so this count reads no property of any event.
 _TOTAL_QUERY = "SELECT count() FROM events WHERE {filters} AND {event_condition}"
 
-# The traffic type runs once for each user agent and not for each event, which keeps a chart of every event cheap.
+# `uniq` is exact up to 65,536 values and an estimate above that, so one count for each user agent keeps the count of
+# distinct events exact for all but the most common user agents.
 _COUNTS_QUERY = """
     SELECT
         sum(event_count) AS events,
         sum(local_count) AS local_events,
-        sumIf(event_count, getTrafficType(user_agent) IN {crawler_traffic_types}) AS bot_events,
+        sum(bot_count) AS bot_events,
         sum(distinct_count) AS distinct_events
     FROM (
         SELECT
             toString(properties.$raw_user_agent) AS user_agent,
             count() AS event_count,
             countIf(match(toString(properties.$host), {local_host_pattern})) AS local_count,
+            countIf(`$virt_traffic_type` IN {crawler_traffic_types}) AS bot_count,
             uniq((
                 distinct_id,
                 event,
@@ -98,27 +108,43 @@ class DataCheckCounts:
 
 
 @frozen
+class _CheckedSeries:
+    # None for a series that reads every event.
+    event: str | None
+    properties: Any
+    # The group type the series counts. The chart leaves out an event that has no group of that type.
+    group_type_index: int | None = None
+
+
+@frozen
 class _CheckedQuery:
-    event_names: tuple[str, ...] | None
+    series: tuple[_CheckedSeries, ...]
     date_range: DateRange
     properties: Any
     filters_internal_users: bool
+    # A lifecycle chart leaves out an event with no person profile, and it has no weekday filter.
+    is_lifecycle: bool = False
+
+    @property
+    def event_names(self) -> tuple[str, ...] | None:
+        names = tuple(dict.fromkeys(series.event for series in self.series if series.event is not None))
+        return names if all(series.event is not None for series in self.series) else None
 
 
-def run_insight_data_checks(query: Mapping[str, Any], team: Team) -> InsightDataChecks:
+def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) -> InsightDataChecks:
     """Check the events an insight reads for the common ways they mislead.
 
-    Runs two ClickHouse queries: a cheap count that sets the sample, then the checks on that sample.
+    Runs two ClickHouse queries: a cheap count that sets the sample, then the checks on that sample. A chart whose
+    filters keep few of its events runs the checks a second time on a larger sample.
     """
     checked = _checked_query(query)
     if checked is None:
         return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
-        total = _count_events_in_range(checked, team)
+        total = _count_events_in_range(checked, team, user)
         if total == 0:
             return _not_checked(InsightDataChecksStatus.NO_EVENTS)
-        counts = _count_events(checked, team, total=total)
-    # The insight's own filters can remove every event the sample holds.
+        counts = _count_events(checked, team, user, total=total)
     if counts.events == 0:
         return _not_checked(InsightDataChecksStatus.NO_EVENTS)
     checks = evaluate_data_checks(counts)
@@ -152,22 +178,42 @@ def _checked_query(query: Mapping[str, Any]) -> _CheckedQuery | None:
     if not source.series:
         return None
 
-    names: list[str] = []
-    reads_every_event = False
+    checked_series: list[_CheckedSeries] = []
     for series in source.series:
         # An action or a data warehouse series has no event name to check.
         if not isinstance(series, EventsNode):
             return None
-        if series.event:
-            names.append(series.event)
-        else:
-            reads_every_event = True
+        checked_series.append(
+            _CheckedSeries(
+                event=series.event or None,
+                properties=series.properties,
+                group_type_index=_counted_group_type(source, series),
+            )
+        )
+    date_range = source.dateRange or DateRange()
+    if not date_range.date_from:
+        date_range = date_range.model_copy(update={"date_from": DEFAULT_DATE_FROM})
     return _CheckedQuery(
-        event_names=None if reads_every_event else tuple(dict.fromkeys(names)),
-        date_range=source.dateRange or DEFAULT_DATE_RANGE,
+        series=tuple(checked_series),
+        date_range=date_range,
         properties=source.properties,
         filters_internal_users=bool(source.filterTestAccounts),
+        is_lifecycle=isinstance(source, LifecycleQuery),
     )
+
+
+def _counted_group_type(
+    source: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery, series: EventsNode
+) -> int | None:
+    if isinstance(source, FunnelsQuery):
+        return source.aggregation_group_type_index
+    if isinstance(source, TrendsQuery):
+        counts_groups = is_groups_math(series)
+    else:
+        counts_groups = isinstance(source, StickinessQuery) and series.math == "unique_group"
+    if counts_groups and series.math_group_type_index is not None:
+        return int(series.math_group_type_index)
+    return None
 
 
 def _event_condition(checked: _CheckedQuery) -> ast.Expr:
@@ -180,24 +226,101 @@ def _event_condition(checked: _CheckedQuery) -> ast.Expr:
     )
 
 
-def _count_events_in_range(checked: _CheckedQuery, team: Team) -> int:
+def _all_of(conditions: list[ast.Expr]) -> ast.Expr:
+    if not conditions:
+        return ast.Constant(value=True)
+    return conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
+
+
+def _series_filter(series: _CheckedSeries, team: Team) -> ast.Expr:
+    conditions: list[ast.Expr] = []
+    if series.event is not None:
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value=series.event)
+            )
+        )
+    if series.properties:
+        conditions.append(property_to_expr(series.properties, team))
+    if series.group_type_index is not None:
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=[f"$group_{int(series.group_type_index)}"]),
+                right=ast.Constant(value=""),
+            )
+        )
+    return _all_of(conditions)
+
+
+def _insight_filters(checked: _CheckedQuery, team: Team) -> ast.Expr:
+    """What the chart asks of an event, other than its name and its date."""
+    conditions: list[ast.Expr] = []
+    if checked.properties:
+        conditions.append(property_to_expr(checked.properties, team))
+    if any(series.properties or series.group_type_index is not None for series in checked.series):
+        series_filters = [_series_filter(series, team) for series in checked.series]
+        conditions.append(series_filters[0] if len(series_filters) == 1 else ast.Or(exprs=series_filters))
+    if checked.is_lifecycle:
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=["properties", "$process_person_profile"]),
+                right=ast.Constant(value="false"),
+            )
+        )
+    else:
+        weekdays = QueryDateRange(
+            date_range=checked.date_range, team=team, interval=None, now=datetime.now()
+        ).day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        if weekdays is not None:
+            conditions.append(weekdays)
+    return _all_of(conditions)
+
+
+def _query_settings() -> HogQLGlobalSettings:
+    # Without "throw", a query that reaches the time limit can return the events it counted so far as the answer.
+    return HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS, timeout_overflow_mode="throw")
+
+
+def _count_events_in_range(checked: _CheckedQuery, team: Team, user: User) -> int:
     """Every event with the insight's event names in its date range, before any property filter."""
     response = execute_hogql_query(
         query=_TOTAL_QUERY,
         team=team,
+        user=user,
         query_type="insight_data_checks_total",
         filters=HogQLFilters(dateRange=checked.date_range),
         placeholders={"event_condition": _event_condition(checked)},
-        settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS),
+        settings=_query_settings(),
     )
     return int(response.results[0][0] or 0) if response.results else 0
 
 
-def _count_events(checked: _CheckedQuery, team: Team, *, total: int) -> DataCheckCounts:
-    is_sampled = total > MAX_CHECKED_EVENTS
+def _count_events(checked: _CheckedQuery, team: Team, user: User, *, total: int) -> DataCheckCounts:
+    insight_filters = _insight_filters(checked, team)
+    sampled = min(total, MAX_CHECKED_EVENTS)
+    row = _query_counts(checked, team, user, insight_filters=insight_filters, sample=_sample(sampled, total))
+    if sampled < total and row[0] < MIN_SAMPLED_EVENTS:
+        sampled = min(total, sampled * RESAMPLED_EVENTS // max(row[0], 1))
+        row = _query_counts(checked, team, user, insight_filters=insight_filters, sample=_sample(sampled, total))
+    events, local_events, bot_events, distinct_events = row
+    return DataCheckCounts(
+        events=events,
+        local_events=local_events,
+        bot_events=bot_events,
+        distinct_events=distinct_events,
+        sample_rate=sampled / total,
+    )
+
+
+def _query_counts(
+    checked: _CheckedQuery, team: Team, user: User, *, insight_filters: ast.Expr, sample: ast.RatioExpr
+) -> tuple[int, int, int, int]:
     response = execute_hogql_query(
         query=_COUNTS_QUERY,
         team=team,
+        user=user,
         query_type="insight_data_checks",
         filters=HogQLFilters(dateRange=checked.date_range, filterTestAccounts=checked.filters_internal_users),
         placeholders={
@@ -205,23 +328,15 @@ def _count_events(checked: _CheckedQuery, team: Team, *, total: int) -> DataChec
             "local_host_pattern": ast.Constant(value=LOCAL_HOST_PATTERN),
             # The events table samples by distinct ID, so a sampled ID keeps all its events and no duplicate pair
             # is split.
-            "sample": _sample(MAX_CHECKED_EVENTS, total),
-            "insight_filters": (
-                property_to_expr(checked.properties, team) if checked.properties else ast.Constant(value=True)
-            ),
+            "sample": sample,
+            "insight_filters": insight_filters,
             "event_condition": _event_condition(checked),
         },
-        settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS),
+        settings=_query_settings(),
     )
     row = response.results[0] if response.results else []
     events, local_events, bot_events, distinct_events = (int(value or 0) for value in row or [0] * 4)
-    return DataCheckCounts(
-        events=events,
-        local_events=local_events,
-        bot_events=bot_events,
-        distinct_events=distinct_events,
-        sample_rate=MAX_CHECKED_EVENTS / total if is_sampled else 1.0,
-    )
+    return events, local_events, bot_events, distinct_events
 
 
 def _sample(limit: int, total: int) -> ast.RatioExpr:

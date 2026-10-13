@@ -9,11 +9,15 @@ from collections.abc import Mapping
 from typing import Any
 
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.product_analytics.backend import insight_data_checks
 from products.product_analytics.backend.facade.contracts import InsightDataChecks
 
 
-def run_insight_data_checks(query: Mapping[str, Any], *, team: Team) -> InsightDataChecks:
-    """Check the events an insight query reads for local traffic, bots and events sent twice."""
-    return insight_data_checks.run_insight_data_checks(query, team)
+def run_insight_data_checks(query: Mapping[str, Any], *, team: Team, user: User) -> InsightDataChecks:
+    """Check the events an insight query reads for local traffic, bots and events sent twice.
+
+    The checks read the events as `user`, so a property that person may not read stays hidden from them.
+    """
+    return insight_data_checks.run_insight_data_checks(query, team, user)

@@ -187,6 +187,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
     generate_insight_metadata,
 )
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
+from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
 
 from common.hogvm.python.utils import HogVMException
 
@@ -2487,8 +2488,7 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        checks = run_insight_data_checks(request.validated_data["query"], team=self.team)
-        return Response(InsightDataChecksSerializer(checks).data)
+        return self._data_checks_response(request.validated_data["query"])
 
     @validated_request(
         parameters=[INSIGHT_ID_PATH_PARAMETER],
@@ -2505,7 +2505,14 @@ When set, the specified dashboard's filters and date range override will be appl
     @action(methods=["GET"], detail=True, url_path="data_checks", required_scopes=["insight:read"])
     def saved_insight_data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         insight = self.get_object()
-        checks = run_insight_data_checks(upgrade(insight.query) if insight.query else {}, team=self.team)
+        return self._data_checks_response(upgrade(insight.query) if insight.query else {})
+
+    def _data_checks_response(self, query: dict[str, Any]) -> Response:
+        try:
+            with query_concurrency_slots(self.team):
+                checks = run_insight_data_checks(query, team=self.team, user=cast(User, self.request.user))
+        except (ExposedHogQLError, ExposedCHQueryError) as error:
+            raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
