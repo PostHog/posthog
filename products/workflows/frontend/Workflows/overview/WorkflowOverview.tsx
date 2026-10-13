@@ -54,7 +54,7 @@ function shareOf(part: number, whole: number, noun: string): JSX.Element | null 
 
 export function WorkflowOverview({ id }: { id: string }): JSX.Element {
     const logicKey = `hog-flow-overview-${id}`
-    const { getSingleTrendSeries, appMetricsTrendsLoading } = useValues(
+    const { getSingleTrendSeries: trendSeries, appMetricsTrendsLoading } = useValues(
         appMetricsLogic({
             logicKey,
             loadOnChanges: true,
@@ -76,7 +76,10 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
     const { loadConversionStats } = useActions(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
     const { hasEmail, hasPush } = messagingChannels
     const overviewLogic = workflowOverviewLogic({ id, logicKey })
-    const { trendsFailed, retrying } = useValues(overviewLogic)
+    const { trendsFailed, previousPeriodFailed, retrying } = useValues(overviewLogic)
+    // A failed previous-period read leaves the old baseline in place, so the comparison is hidden instead.
+    const getSingleTrendSeries = (name: string, previous?: boolean): AppMetricsTimeSeriesResponse | null =>
+        previous && previousPeriodFailed ? null : trendSeries(name, previous)
     const { retry } = useActions(overviewLogic)
     const retryAll = (): void => {
         retry()
@@ -113,7 +116,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
             <div className="flex flex-wrap items-center justify-end gap-2">
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
-            {trendsFailed ? (
+            {trendsFailed || previousPeriodFailed ? (
                 <LemonBanner
                     type="error"
                     action={{

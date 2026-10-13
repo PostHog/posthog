@@ -21,6 +21,8 @@ type LeaderboardRow = {
     clicked: number | null
     // Opens and clicks only happen on tracked sends, so rates read against this, not `sent`.
     engagementBase: number
+    // A step deleted from the workflow still has metrics in the range, but no step to open.
+    removed?: boolean
 }
 
 const METRIC_OPTIONS: { value: LeaderboardMetric; label: string }[] = [
@@ -38,6 +40,8 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
         pushTotalsByActionIdLoading,
         params,
         messageTotalsFailed,
+        emailTotalsByActionId,
+        pushTotalsByActionId,
     } = useValues(summaryLogic)
     const { loadEmailTotals, loadPushTotals } = useActions(summaryLogic)
     const [metric, setMetric] = useState<LeaderboardMetric>('sent')
@@ -63,8 +67,38 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
                 engagementBase: row.sent,
             })),
         ]
+        const known = new Set(all.map((row) => row.id))
+        for (const [actionId, totals] of Object.entries(emailTotalsByActionId)) {
+            if (!known.has(actionId) && (totals.email_sent ?? 0) > 0) {
+                const sent = totals.email_sent ?? 0
+                all.push({
+                    id: actionId,
+                    name: 'Removed email',
+                    channel: 'email',
+                    sent,
+                    opened: totals.email_opened ?? 0,
+                    clicked: totals.email_link_clicked ?? 0,
+                    engagementBase: Math.max(0, sent - (totals.email_untracked ?? 0)),
+                    removed: true,
+                })
+            }
+        }
+        for (const [actionId, totals] of Object.entries(pushTotalsByActionId)) {
+            if (!known.has(actionId) && (totals.push_sent ?? 0) > 0) {
+                all.push({
+                    id: actionId,
+                    name: 'Removed push notification',
+                    channel: 'push',
+                    sent: totals.push_sent ?? 0,
+                    opened: totals.push_opened ?? 0,
+                    clicked: null,
+                    engagementBase: totals.push_sent ?? 0,
+                    removed: true,
+                })
+            }
+        }
         return all.filter((row) => row[metric] !== null).sort((a, b) => (b[metric] ?? 0) - (a[metric] ?? 0))
-    }, [emailMetricsRows, pushMetricsRows, metric])
+    }, [emailMetricsRows, pushMetricsRows, emailTotalsByActionId, pushTotalsByActionId, metric])
 
     const columns: LemonTableColumns<LeaderboardRow> = [
         {
@@ -75,18 +109,27 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
         {
             title: 'Message',
             key: 'name',
-            render: (_, row) => (
-                <Link
-                    to={metricsStepUrl(id, row.id, params)}
-                    className="inline-flex items-center gap-1.5 font-medium"
-                    data-attr="workflow-overview-leaderboard-message"
-                >
-                    <span className="flex text-base text-secondary">
-                        {row.channel === 'email' ? <IconLetter /> : <IconNotification />}
-                    </span>
-                    {row.name}
-                </Link>
-            ),
+            render: (_, row) => {
+                const label = (
+                    <>
+                        <span className="flex text-base text-secondary">
+                            {row.channel === 'email' ? <IconLetter /> : <IconNotification />}
+                        </span>
+                        <span>{row.name}</span>
+                    </>
+                )
+                return row.removed ? (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-muted">{label}</span>
+                ) : (
+                    <Link
+                        to={metricsStepUrl(id, row.id, params)}
+                        className="inline-flex items-center gap-1.5 font-medium"
+                        data-attr="workflow-overview-leaderboard-message"
+                    >
+                        {label}
+                    </Link>
+                )
+            },
         },
         {
             title: METRIC_OPTIONS.find((o) => o.value === metric)?.label,
@@ -109,7 +152,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
     ]
 
     const loading = emailTotalsByActionIdLoading || pushTotalsByActionIdLoading
-    const hasMessages = emailMetricsRows.length > 0 || pushMetricsRows.length > 0
+    const hasMessages = rows.length > 0 || emailMetricsRows.length > 0 || pushMetricsRows.length > 0
 
     return (
         <div

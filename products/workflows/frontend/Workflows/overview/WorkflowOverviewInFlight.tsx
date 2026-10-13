@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -10,7 +10,9 @@ import { workflowOverviewLogic } from './workflowOverviewLogic'
 const MAX_STEPS = 5
 
 export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { inFlight, inFlightLoading, inFlightSteps } = useValues(workflowOverviewLogic({ id, logicKey }))
+    const logic = workflowOverviewLogic({ id, logicKey })
+    const { inFlight, inFlightLoading, inFlightSteps } = useValues(logic)
+    const { loadInFlight } = useActions(logic)
     const count = inFlight?.count ?? null
     const positionUnknown = inFlight?.position_unknown ?? 0
 
@@ -28,8 +30,17 @@ export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKe
             {inFlightLoading && !inFlight ? (
                 <LemonSkeleton className="h-16" />
             ) : count === null ? (
-                <span className="text-sm text-muted">
-                    We couldn't count people in the workflow right now. Try again later.
+                <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                    Couldn't count people in the workflow.
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={loadInFlight}
+                        loading={inFlightLoading}
+                        data-attr="workflow-overview-in-flight-retry"
+                    >
+                        Try again
+                    </LemonButton>
                 </span>
             ) : (
                 <>

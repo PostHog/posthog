@@ -20,7 +20,7 @@ export function WorkflowOverviewSuggestions({ id }: { id: string }): JSX.Element
         listsUnreadable,
         optimizationUnreadable,
     } = useValues(logic)
-    const { loadProposals, loadOptimization } = useActions(logic)
+    const { reloadLists, loadOptimization } = useActions(logic)
     const { workflow } = useValues(workflowLogic({ id }))
     const selfDrivingUrl = urls.workflow(id, 'self-driving')
     const watching = optimizationEnabled && workflow?.status === 'active'
@@ -57,7 +57,7 @@ export function WorkflowOverviewSuggestions({ id }: { id: string }): JSX.Element
                     <LemonButton
                         size="xsmall"
                         type="secondary"
-                        onClick={loadProposals}
+                        onClick={reloadLists}
                         loading={proposalsResponseLoading}
                         data-attr="workflow-overview-suggestions-retry"
                     >

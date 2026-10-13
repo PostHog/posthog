@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import type { Dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -59,11 +60,13 @@ function rateItem(
 }
 
 // A failed step does not fail the run when the step continues on error, so the run status filter would miss it.
-function loggedErrorsUrl(id: string, dateFrom?: string | null, dateTo?: string | null): string {
-    const search = new URLSearchParams({ inv_problems: '1', inv_date_from: dateFrom ?? '-7d' })
-    if (dateTo) {
-        search.set('inv_date_to', dateTo)
-    }
+// Absolute bounds, because Invocations resolves a relative range from the current time rather than the start of the day.
+function loggedErrorsUrl(id: string, dateFrom: Dayjs, dateTo: Dayjs): string {
+    const search = new URLSearchParams({
+        inv_problems: '1',
+        inv_date_from: dateFrom.toISOString(),
+        inv_date_to: dateTo.toISOString(),
+    })
     return `${urls.workflow(id, 'invocations')}?${search.toString()}`
 }
 
@@ -74,11 +77,12 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
         healthTotalsLoading,
         failedRuns,
         stepTotalsLoading,
-        params,
         stepTotalsFailed,
         healthTotalsFailed,
         retrying,
+        getDateRangeAbsolute,
     } = useValues(logic)
+    const range = getDateRangeAbsolute()
     const { retry } = useActions(logic)
     const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
     const { emailSendingPaused } = useValues(workflowLogic)
@@ -143,7 +147,7 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                         detail={
                             (failedRuns ?? 0) > 0 ? (
                                 <Link
-                                    to={loggedErrorsUrl(id, params.dateFrom, params.dateTo)}
+                                    to={loggedErrorsUrl(id, range.dateFrom, range.dateTo)}
                                     data-attr="workflow-overview-health-failures"
                                 >
                                     {`${started > 0 ? `${percentage((failedRuns ?? 0) / started, 1)} of started. ` : ''}View runs with errors`}

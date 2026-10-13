@@ -196,6 +196,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                 <WorkflowMetricsSummary
                     logicKey={logicKey}
                     id={props.id ?? ''}
+                    defaultRange={{ dateFrom: params.dateFrom, dateTo: params.dateTo, interval: params.interval }}
                     onSelectAction={(actionId) => selectMetricsAction(actionId)}
                     onMetricClick={onEmailMetricClick}
                 />

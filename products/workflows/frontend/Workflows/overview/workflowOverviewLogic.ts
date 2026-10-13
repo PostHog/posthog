@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { ApiConfig } from 'lib/api'
 import {
     AppMetricsCommonParams,
+    AppMetricsTimeSeriesResponse,
     AppMetricsTotalsRequest,
     appMetricsLogic,
     loadAppMetricsTotals,
@@ -12,7 +13,6 @@ import type { Dayjs } from 'lib/dayjs'
 
 import type { TeamPublicType, TeamType } from '~/types'
 
-import type { AppMetricsTimeSeriesResponse } from '../../../../../frontend/src/lib/components/AppMetrics/appMetricsLogic'
 import { hogFlowsInFlightRetrieve } from '../../generated/api'
 import type { HogFlowInFlightApi } from '../../generated/api.schemas'
 import type { HogFlow, HogFlowAction } from '../hogflows/types'
@@ -74,6 +74,7 @@ export interface workflowOverviewLogicValues {
     inFlightLoading: boolean
     inFlightSteps: InFlightStep[]
     orderedSteps: HogFlowAction[]
+    previousPeriodFailed: boolean
     retrying: boolean
     stepReach: StepReach[] | null
     stepTotals: Record<string, Partial<Record<StepMetric, number>>> | null
@@ -97,15 +98,35 @@ export interface workflowOverviewLogicActions {
     loadAppMetricsTrendsPreviousPeriod: () => {
         value: true
     } // appMetricsLogic
-    loadAppMetricsTrendsSuccess: (
-        appMetricsTrends: import('lib/components/AppMetrics/appMetricsLogic').AppMetricsTimeSeriesResponse,
+    loadAppMetricsTrendsPreviousPeriodFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // appMetricsLogic
+    loadAppMetricsTrendsPreviousPeriodSuccess: (
+        appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse,
         payload?:
             | {
                   value: true
               }
             | undefined
     ) => {
-        appMetricsTrends: import('lib/components/AppMetrics/appMetricsLogic').AppMetricsTimeSeriesResponse
+        appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse
+        payload?: {
+            value: true
+        }
+    } // appMetricsLogic
+    loadAppMetricsTrendsSuccess: (
+        appMetricsTrends: AppMetricsTimeSeriesResponse,
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
+    ) => {
+        appMetricsTrends: AppMetricsTimeSeriesResponse
         payload?: {
             value: true
         }
@@ -196,7 +217,11 @@ export interface workflowOverviewLogicMeta {
             inFlight: HogFlowInFlightApi | null,
             params: Partial<AppMetricsCommonParams>
         ) => StepReach[] | null
-        retrying: (appMetricsTrendsLoading: any, stepTotalsLoading: boolean, healthTotalsLoading: boolean) => boolean
+        retrying: (
+            appMetricsTrendsLoading: boolean,
+            stepTotalsLoading: boolean,
+            healthTotalsLoading: boolean
+        ) => boolean
         failedRuns: (
             stepTotals: Record<string, Partial<Record<'failed' | 'filtered' | 'succeeded', number>>> | null
         ) => number | null
@@ -230,6 +255,8 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                 'loadAppMetricsTrendsPreviousPeriod',
                 'loadAppMetricsTrendsSuccess',
                 'loadAppMetricsTrendsFailure',
+                'loadAppMetricsTrendsPreviousPeriodSuccess',
+                'loadAppMetricsTrendsPreviousPeriodFailure',
             ],
         ],
     })),
@@ -242,6 +269,13 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
             {
                 loadAppMetricsTrendsFailure: () => true,
                 loadAppMetricsTrendsSuccess: () => false,
+            },
+        ],
+        previousPeriodFailed: [
+            false,
+            {
+                loadAppMetricsTrendsPreviousPeriodFailure: () => true,
+                loadAppMetricsTrendsPreviousPeriodSuccess: () => false,
             },
         ],
         stepTotalsFailed: [
@@ -387,8 +421,8 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
         setParams: () => {
             actions.loadStepTotals({})
             actions.loadHealthTotals({})
-            // appMetricsLogic only reloads its trends on a range change once a load has succeeded.
-            if (values.trendsFailed && !values.appMetricsTrends) {
+            // appMetricsLogic only reloads its trends on a range change once a load has finished.
+            if (!values.appMetricsTrends) {
                 actions.loadAppMetricsTrends()
                 actions.loadAppMetricsTrendsPreviousPeriod()
             }
