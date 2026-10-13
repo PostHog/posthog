@@ -168,25 +168,6 @@ API scopes and billing access checks still apply.
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
-Self-driving inbox reports are available as `system.inbox_reports` and their artifacts as `system.inbox_report_artefacts`.
-These names match the `inbox-reports-*` and `inbox-report-artefacts-*` MCP tools.
-Join them on `inbox_report_artefacts.report_id = inbox_reports.id`.
-Both tables require task read access and exclude deleted reports.
-The artifacts table also excludes staff-only ranking scores.
-Report metrics, check configuration, and artifact content require viewer-specific redaction and are omitted from SQL.
-Read these fields through the inbox MCP tools, which apply the API's permission checks.
-
-The report tables also include `system.inbox_report_actions`, `system.inbox_report_checks`, and `system.inbox_report_pull_requests`.
-The legacy associations remain queryable as `system.inbox_report_assignments` and `system.inbox_report_tasks`.
-These tables require task read access and filter through visible reports or report artifacts.
-The actions table omits per-user metadata.
-`system.task_artifacts` exposes living artifacts for tasks in public project spaces, using the same visibility rules as `system.tasks`.
-Scout configuration, runs, and findings are available as `system.scout_configs`, `system.scout_runs`, and `system.scout_run_emissions`.
-The scout tables require scout read access. Query them from the parent project environment that owns the scout data.
-Scout runs and emissions exclude private trial runs, and scout configurations omit staff-only rubric contents and member identity fields.
-Join emissions to runs with `scout_run_emissions.run_id = scout_runs.id`.
-Table and column descriptions are searchable through `system.information_schema.tables` and `system.information_schema.columns`.
-
 Example from the codebase:
 
 ```python

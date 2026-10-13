@@ -141,7 +141,6 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 - [Session Recording Playlists](./references/models-session-recording-playlists.md)
 - [Session Recordings](./references/models-session-recordings.md)
 - [Replay Vision scanners](./references/models-replay-vision.md)
-- [Inbox reports and scouts](./references/models-inbox-and-scouts.md)
 - [Support Tickets](./references/models-support-tickets.md)
 - [Surveys](./references/models-surveys.md)
 - [Usage Metrics](./references/models-usage-metrics.md)
