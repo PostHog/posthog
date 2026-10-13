@@ -329,11 +329,18 @@ Nothing here touches the prod bucket: the reader credential is read-only and the
 
 ### The multi-head prototype
 
-`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up:
+`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up.
+
+The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. No image installs the group.
 
 ```bash
+uv sync --group inbox-ranking
 DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead --output multihead.json
 ```
+
+`multihead/network.py` is the only module that imports torch. `multihead/inputs.py` holds the inputs and the settings, so the prototype and its callers build them without torch. Never import `network.py` from a module on the Django, Temporal or Dagster import path: `test_multihead_network.py` fails if torch reaches one. Without the group, the torch tests skip. `ci-inbox-ranking.yml` installs the group and runs them.
+
+`export_onnx(network, path)` writes the network as one ONNX graph and returns its head order. The inputs are `report` (N x 1536) and, for the network with project vectors, `project` (N x 4 x 1536) and `has_history` (N x 4), all float32. The one output is `probabilities` (N x heads), after the sigmoid. N is a dynamic axis.
 
 The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints pooled AUC, within-team AUC (`team_auc`), average precision and ECE per head for three models on each head's own holdout rows:
 
