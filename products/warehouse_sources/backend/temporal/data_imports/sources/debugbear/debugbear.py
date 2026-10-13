@@ -1,5 +1,5 @@
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -10,11 +10,17 @@ from dateutil import parser as dateutil_parser
 from requests import Session
 from requests.exceptions import RequestException
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    SortMode,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.settings import (
     BEFORE_PARAM,
     RUM_BACKFILL_DAYS,
@@ -32,6 +38,32 @@ _REQUEST_TIMEOUT = 30
 _MAX_PAGES_PER_PROJECT = 500
 # `rumMetrics` returns one array per metric alongside an `info` object describing the query.
 _RUM_METRICS_INFO_KEY = "info"
+
+
+# One endpoint's row stream, built from the session, the auth headers and the watermark an
+# incremental sync starts from.
+_RowFetcher = Callable[[Session, dict[str, str], Optional[datetime]], Iterator[dict[str, Any]]]
+# The same stream for a single project, for the endpoints that fan out over the project listing.
+_ProjectFetcher = Callable[[Session, dict[str, str], dict[str, Any], Optional[datetime]], Iterator[dict[str, Any]]]
+
+
+@frozen
+class _DatePartition:
+    """The date column a table partitions on, and the width of one partition."""
+
+    key: str
+    format: PartitionFormat
+
+
+@frozen
+class _Endpoint:
+    """One DebugBear endpoint: the table it fills, the rows it yields, and how they are keyed."""
+
+    table: str
+    rows: _RowFetcher
+    primary_keys: tuple[str, ...]
+    sort_mode: SortMode = "asc"
+    partition: _DatePartition | None = None
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -332,8 +364,10 @@ def _iter_rum_page_views_for_project(
 
 
 def _iter_annotations_for_project(
-    session: Session, headers: dict[str, str], project: dict[str, Any]
+    session: Session, headers: dict[str, str], project: dict[str, Any], since: datetime | None = None
 ) -> Iterator[dict[str, Any]]:
+    # `since` keeps every per-project fetcher one shape. The annotations endpoint takes no date
+    # filter, so an incremental sync reads the whole list.
     project_fields = _project_fields(project)
     if project_fields is None:
         return
@@ -355,12 +389,68 @@ def _iter_annotations_for_project(
         yield row
 
 
+def _per_project(fetch: _ProjectFetcher) -> _RowFetcher:
+    """Run a per-project fetcher over every project the account exposes."""
+
+    def rows(session: Session, headers: dict[str, str], since: datetime | None) -> Iterator[dict[str, Any]]:
+        for project in _iter_projects(session, headers):
+            yield from fetch(session, headers, project, since)
+
+    return rows
+
+
+_ENDPOINTS: dict[str, _Endpoint] = {
+    "Projects": _Endpoint(
+        table="projects",
+        rows=lambda session, headers, _since: iter(_iter_projects(session, headers)),
+        primary_keys=("id",),
+    ),
+    "Pages": _Endpoint(
+        table="pages",
+        rows=lambda session, headers, _since: _iter_pages(session, headers),
+        primary_keys=("project_id", "id"),
+    ),
+    "PageMetrics": _Endpoint(
+        table="page_metrics",
+        rows=_per_project(_iter_page_metrics_for_project),
+        primary_keys=("project_id", "page_id", "analysis_date"),
+        sort_mode="desc",
+        partition=_DatePartition(key="analysis_date", format="week"),
+    ),
+    "RumMetrics": _Endpoint(
+        table="rum_metrics",
+        rows=_per_project(_iter_rum_metrics_for_project),
+        primary_keys=("project_id", "metric", "date"),
+        # Buckets ascend within a project but the stream restarts at each project, so the
+        # watermark must only advance once every project has been read.
+        sort_mode="desc",
+        partition=_DatePartition(key="date", format="month"),
+    ),
+    "RumPageViews": _Endpoint(
+        table="rum_page_views",
+        rows=_per_project(_iter_rum_page_views_for_project),
+        primary_keys=("project_id", "id"),
+        sort_mode="desc",
+        partition=_DatePartition(key="date", format="week"),
+    ),
+    "Annotations": _Endpoint(
+        table="annotations",
+        rows=_per_project(_iter_annotations_for_project),
+        primary_keys=("project_id", "id"),
+    ),
+}
+
+
 def debugbear_source(
     api_key: str,
     endpoint: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    spec = _ENDPOINTS.get(endpoint)
+    if spec is None:
+        raise ValueError(f"Unknown DebugBear endpoint: {endpoint}")
+
     headers = _auth_headers(api_key)
     session = _session(api_key)
 
@@ -368,97 +458,18 @@ def debugbear_source(
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         incremental_since = _parse_datetime(db_incremental_field_last_value)
 
-    if endpoint == "Projects":
+    def items() -> Iterator[dict[str, Any]]:
+        yield from spec.rows(session, headers, incremental_since)
 
-        def _iter_project_rows() -> Iterator[dict[str, Any]]:
-            yield from _iter_projects(session, headers)
-
-        return SourceResponse(
-            name="projects",
-            items=_iter_project_rows,
-            primary_keys=["id"],
-            sort_mode="asc",
-        )
-
-    if endpoint == "Pages":
-
-        def _iter_page_rows() -> Iterator[dict[str, Any]]:
-            yield from _iter_pages(session, headers)
-
-        return SourceResponse(
-            name="pages",
-            items=_iter_page_rows,
-            primary_keys=["project_id", "id"],
-            sort_mode="asc",
-        )
-
-    if endpoint == "PageMetrics":
-
-        def _iter_page_metrics_rows() -> Iterator[dict[str, Any]]:
-            for project in _iter_projects(session, headers):
-                yield from _iter_page_metrics_for_project(session, headers, project, incremental_since)
-
-        return SourceResponse(
-            name="page_metrics",
-            items=_iter_page_metrics_rows,
-            primary_keys=["project_id", "page_id", "analysis_date"],
-            sort_mode="desc",
-            partition_count=1,
-            partition_size=1,
-            partition_mode="datetime",
-            partition_format="week",
-            partition_keys=["analysis_date"],
-        )
-
-    if endpoint == "RumMetrics":
-
-        def _iter_rum_metrics_rows() -> Iterator[dict[str, Any]]:
-            for project in _iter_projects(session, headers):
-                yield from _iter_rum_metrics_for_project(session, headers, project, incremental_since)
-
-        return SourceResponse(
-            name="rum_metrics",
-            items=_iter_rum_metrics_rows,
-            primary_keys=["project_id", "metric", "date"],
-            # Buckets ascend within a project but the stream restarts at each project, so the
-            # watermark must only advance once every project has been read.
-            sort_mode="desc",
-            partition_count=1,
-            partition_size=1,
-            partition_mode="datetime",
-            partition_format="month",
-            partition_keys=["date"],
-        )
-
-    if endpoint == "RumPageViews":
-
-        def _iter_rum_page_view_rows() -> Iterator[dict[str, Any]]:
-            for project in _iter_projects(session, headers):
-                yield from _iter_rum_page_views_for_project(session, headers, project, incremental_since)
-
-        return SourceResponse(
-            name="rum_page_views",
-            items=_iter_rum_page_view_rows,
-            primary_keys=["project_id", "id"],
-            sort_mode="desc",
-            partition_count=1,
-            partition_size=1,
-            partition_mode="datetime",
-            partition_format="week",
-            partition_keys=["date"],
-        )
-
-    if endpoint == "Annotations":
-
-        def _iter_annotation_rows() -> Iterator[dict[str, Any]]:
-            for project in _iter_projects(session, headers):
-                yield from _iter_annotations_for_project(session, headers, project)
-
-        return SourceResponse(
-            name="annotations",
-            items=_iter_annotation_rows,
-            primary_keys=["project_id", "id"],
-            sort_mode="asc",
-        )
-
-    raise ValueError(f"Unknown DebugBear endpoint: {endpoint}")
+    partition = spec.partition
+    return SourceResponse(
+        name=spec.table,
+        items=items,
+        primary_keys=list(spec.primary_keys),
+        sort_mode=spec.sort_mode,
+        partition_count=1 if partition else None,
+        partition_size=1 if partition else None,
+        partition_mode="datetime" if partition else None,
+        partition_format=partition.format if partition else None,
+        partition_keys=[partition.key] if partition else None,
+    )
