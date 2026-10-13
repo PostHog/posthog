@@ -6,6 +6,8 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
+import requests
+
 from posthog.models import Team
 
 from products.metrics.backend import sample_metrics
@@ -39,5 +41,12 @@ class Command(BaseCommand):
         self.stdout.write(f"Sent {len(history)} history points for {len(services)} services to team {team.id}.")
         while options["follow"]:
             time.sleep(options["interval"])
-            sample_metrics.send(options["url"], team.api_token, sample_metrics.export_request(services, [time.time()]))
+            try:
+                sample_metrics.send(
+                    options["url"], team.api_token, sample_metrics.export_request(services, [time.time()])
+                )
+            except requests.RequestException as error:
+                # Keep the feed alive while the dev stack restarts. The next point goes out after the interval.
+                self.stderr.write(f"{dt.datetime.now(dt.UTC):%H:%M:%S} could not send live points: {error}")
+                continue
             self.stdout.write(f"{dt.datetime.now(dt.UTC):%H:%M:%S} sent live points")
