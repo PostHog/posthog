@@ -189,8 +189,14 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     return <>{show ? <Spinner /> : null}</>
 }
 
-/** A countable companion to the exception, so scene-load failures can be measured across the fleet. */
-const captureSceneLoadFailure = (sceneId: string, stage: 'import' | 'logic_mount'): void => {
+/** Reports a scene-load failure to error tracking and to analytics together, so the two never drift apart. */
+const captureSceneLoadFailure = (
+    error: unknown,
+    sceneId: string,
+    stage: 'import' | 'logic_mount',
+    extra: Record<string, unknown> = {}
+): void => {
+    posthog.captureException(error, { extra: { sceneId, ...extra } })
     // pinned: analytics event name — renaming breaks dashboards
     posthog.capture('scene load failed', { scene_id: sceneId, stage })
 }
@@ -848,8 +854,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    posthog.captureException(error, { extra: { sceneId, sceneKey } })
-                    captureSceneLoadFailure(sceneId, 'logic_mount')
+                    captureSceneLoadFailure(error, sceneId, 'logic_mount', { sceneKey })
                     newLogicErrored = true
                 }
             } else {
@@ -1046,8 +1051,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Rethrowing here escapes the listener unhandled: the address bar sits on the
                     // scene that failed while the previous one stays rendered, and nothing reaches
                     // error tracking. Report it, then render an error where the URL points.
-                    posthog.captureException(error, { extra: { sceneId, sceneKey, source: 'sceneLogic.loadScene' } })
-                    captureSceneLoadFailure(sceneId, 'import')
+                    captureSceneLoadFailure(error, sceneId, 'import', { sceneKey, source: 'sceneLogic.loadScene' })
                     actions.setScene(Scene.ErrorSceneLoad, undefined, emptySceneParams, clickedLink)
                     return
                 } finally {
