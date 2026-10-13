@@ -334,6 +334,7 @@
       'IPv6StringToNum',
       'IPv6StringToNumOrDefault',
       'IPv6StringToNumOrNull',
+      'SHA1',
       '_finalizeAggregation',
       '_toUInt128',
       'aggregate_funnel',
