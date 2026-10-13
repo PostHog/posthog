@@ -199,8 +199,9 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         )
     })
 
-    it('leaves markdown edit mode with Escape and adds a code cell below with B', async () => {
-        const notebook = renderJupyterNotebook(TWO_CELLS)
+    it('keeps Shift+Enter as text input until Escape switches to cell commands', async () => {
+        const markdown = '# Title\n\nIntro'
+        const notebook = renderJupyterNotebook(markdown)
         const intro = [...notebook.container.querySelectorAll<HTMLElement>('[data-markdown-notebook-node-id]')].find(
             (element) => element.textContent === 'Intro'
         )!
@@ -212,15 +213,16 @@ describe('MarkdownNotebook in Jupyter mode', () => {
             window.getSelection()?.addRange(range)
         })
         const canvas = notebook.container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        expect(fireEvent.keyDown(canvas, { key: 'Enter', shiftKey: true })).toBe(true)
+        expect(notebook.latest()).toEqual(markdown)
+
         press(canvas, 'Escape')
         await flushFrames()
         expect(document.activeElement).toBe(notebook.sink())
 
-        press(notebook.sink(), 'b')
+        press(notebook.sink(), 'Enter', { shiftKey: true })
         await flushFrames()
-        expect(notebook.latest()).toEqual(
-            '# Title\n\nIntro\n\n<Py code="" />\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />'
-        )
+        expect(notebook.latest()).toEqual('# Title\n\nIntro\n\n<Py code="" />')
     })
 
     it('deletes every cell picked with Shift+Down', async () => {
