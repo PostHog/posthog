@@ -960,7 +960,7 @@ def _review_payload(
         "published": report.published_head_sha is not None,
         "turn_published": str(run_index) in (report.published_head_shas or {}),
         "review_mode": marker.review_mode if marker else None,
-        "review_design": snapshot.review_design,
+        "review_design": marker.review_design if marker else snapshot.review_design,
         "status_comment_url": f"{report.pr_url}#issuecomment-{report.status_comment_id}"
         if report.pr_url and report.status_comment_id
         else None,

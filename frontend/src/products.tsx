@@ -252,6 +252,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers': ['McpGateway', 'mcpGateway'],
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
+    '/metrics/dashboard-review': ['MetricsDashboardReview', 'metricsDashboardReview'],
+    '/metrics/dashboard-review/:templateId': ['MetricsDashboardReview', 'metricsDashboardReview'],
     '/ml-inference/playground': ['DecisionPlayground', 'decisionPlayground'],
     '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     '/person/*': ['Person', 'personByDistinctId'],
@@ -1034,6 +1036,14 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'metrics',
         docsHref: 'https://posthog.com/docs/metrics',
     },
+    MetricsDashboardReview: {
+        name: 'Dashboard review',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Metrics',
+        description: 'Review AI-generated metrics dashboards before projects see them.',
+        iconType: 'metrics',
+    },
     DecisionPlayground: {
         projectBased: true,
         name: 'Decisions playground',
@@ -1677,6 +1687,8 @@ export const productUrls = {
     mcpGatewayMember: (id: string | number): string => `/mcp-servers/member/${id}`,
     metrics: (activeTab?: MetricsSceneActiveTab): string =>
         activeTab ? `/metrics?activeTab=${activeTab}` : '/metrics',
+    metricsDashboardReview: (templateId?: string): string =>
+        templateId ? `/metrics/dashboard-review/${templateId}` : '/metrics/dashboard-review',
     decisionPlayground: (): string => '/ml-inference/playground',
     notebooks: (tab?: 'widgets'): string => (tab ? `/notebooks?tab=${tab}` : '/notebooks'),
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
@@ -2587,7 +2599,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-engineering-analytics-dark)',
         ],
         href: urls.engineeringAnalytics(),
-        searchKeywords: ['dora', 'ci health', 'cycle time'],
+        searchKeywords: ['ci', 'ci health', 'ci cost', 'github actions', 'build minutes', 'dora', 'cycle time'],
         searchTabs: [
             { name: 'Pull requests', href: urls.engineeringAnalyticsPullRequestList() },
             { name: 'CI workflows', href: urls.engineeringAnalyticsWorkflows() },
@@ -2893,7 +2905,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         tags: ['alpha'],
         sceneKey: 'Metrics',
-        sceneKeys: ['Metrics'],
+        sceneKeys: ['Metrics', 'MetricsDashboardReview'],
     },
     {
         path: 'Notebooks',
