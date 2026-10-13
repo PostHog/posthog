@@ -67,7 +67,7 @@ export class KubernetesSecretSource implements SecretSource {
     private resourceVersion: string | null = null
     /** The newest snapshot this source has produced. */
     private latest: SecretSnapshot | null = null
-    /** Counts snapshots the watch delivered, so a read can tell that one landed while it ran. */
+    /** Counts snapshots applied by the watch or a safety read, so a list can tell that one landed while it ran. */
     private changes = 0
     private endActiveWatch: ((reason: WatchEnd) => void) | null = null
     private readonly inFlight = new Set<AbortController>()
@@ -107,6 +107,7 @@ export class KubernetesSecretSource implements SecretSource {
         } else if (!this.endActiveWatch) {
             this.resourceVersion = listed.resourceVersion
         }
+        this.changes++
         this.latest = listed.snapshot
         return listed.snapshot
     }
@@ -138,6 +139,7 @@ export class KubernetesSecretSource implements SecretSource {
 
         while (!this.stopped) {
             if (this.resourceVersion === null) {
+                const changesBefore = this.changes
                 let listed: Listed
                 try {
                     listed = await this.list()
@@ -148,6 +150,12 @@ export class KubernetesSecretSource implements SecretSource {
                     const delayMs = this.backoffMs(quietRestarts++)
                     logger.warn('source:list_failed', { source: this.description, error: errorMessage(err), delayMs })
                     await this.sleep(delayMs)
+                    continue
+                }
+                if (this.changes !== changesBefore) {
+                    // A safety read or a watch event applied a snapshot while this list was in
+                    // flight, so this list can be older. Publishing it could bring back a
+                    // revoked key. Start over from whatever that snapshot left behind.
                     continue
                 }
                 this.resourceVersion = listed.resourceVersion
@@ -301,7 +309,10 @@ export class KubernetesSecretSource implements SecretSource {
                     }
                 })
                 res.on('end', () => finish('closed'))
-                res.on('error', () => finish('error'))
+                res.on('error', (err) => {
+                    logger.warn('source:watch_stream_failed', { source: this.description, error: errorMessage(err) })
+                    finish('error')
+                })
                 res.on('close', () => finish('closed'))
             })
         } finally {

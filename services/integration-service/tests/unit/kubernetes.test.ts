@@ -40,6 +40,8 @@ class FakeApiServer {
     watchStatuses: number[] = []
     /** While set, list responses wait for it, so a test can deliver a watch event first. */
     holdLists: Promise<void> | null = null
+    /** Like `holdLists`, but only for the next list, which is answered with the secret as it is now. */
+    holdNextList: Promise<void> | null = null
     readonly lists: Recorded[] = []
     readonly watches: Watch[] = []
 
@@ -91,19 +93,21 @@ class FakeApiServer {
         }
 
         this.lists.push(recorded)
+        const held = this.holdNextList
+        this.holdNextList = null
+        const body = JSON.stringify({
+            kind: 'SecretList',
+            metadata: { resourceVersion: this.listResourceVersion },
+            items: this.secret ? [secretObject(this.secret.resourceVersion, this.secret.data)] : [],
+        })
+        await held
         await this.holdLists
         if (this.listStatus !== 200) {
             res.statusCode = this.listStatus
             res.end()
             return
         }
-        res.end(
-            JSON.stringify({
-                kind: 'SecretList',
-                metadata: { resourceVersion: this.listResourceVersion },
-                items: this.secret ? [secretObject(this.secret.resourceVersion, this.secret.data)] : [],
-            })
-        )
+        res.end(body)
     }
 }
 
@@ -319,6 +323,28 @@ describe('kubernetes secret source', () => {
         release()
 
         expect(await reading).toEqual({ values: { [KEY]: 'new' }, revision: '400' })
+    })
+
+    it('discards a re-list after a 410 that a safety read overtook', async () => {
+        const { api, url } = await fakeApi({ [KEY]: 'one' })
+        const source = await kubernetesSource(url)
+        await source.read()
+        api.watchStatuses.push(410)
+        let release!: () => void
+        api.holdNextList = new Promise((resolve) => {
+            release = resolve
+        })
+        const pushed: (SecretSnapshot | null)[] = []
+        source.watch((snapshot) => pushed.push(snapshot))
+        await vi.waitFor(() => expect(api.lists).toHaveLength(2), WAIT)
+
+        api.secret = { resourceVersion: '500', data: { [KEY]: 'two' } }
+        api.listResourceVersion = '501'
+        expect(await source.read()).toEqual({ values: { [KEY]: 'two' }, revision: '500' })
+        release()
+
+        await vi.waitFor(() => expect(api.openWatch?.query.get('resourceVersion')).toBe('501'), WAIT)
+        expect(pushed).toEqual([])
     })
 
     it('closes the watch and stops reconnecting once stopped', async () => {
