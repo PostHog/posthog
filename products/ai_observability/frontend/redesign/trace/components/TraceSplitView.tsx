@@ -1,9 +1,9 @@
-import { TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 import { TraceTree } from './TraceTree'
 
 export interface TraceSplitViewProps {
-    tree: TraceTreeNode[]
+    tree: TraceNodeApi[]
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null

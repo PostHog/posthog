@@ -1687,6 +1687,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
     @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
+        compacted_model_input: list[BaseMessage] = []
+
+        def respond_after_compaction(model_input: list[BaseMessage]) -> messages.AIMessage:
+            compacted_model_input.extend(model_input)
+            return messages.AIMessage(content=[{"text": "After summary", "type": "text"}])
+
         mock_model.side_effect = cycle(  # Changed from return_value to side_effect
             [
                 FakeChatAnthropic(
@@ -1697,13 +1703,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                         )
                     ]
                 ),
-                FakeChatAnthropic(
-                    responses=[
-                        messages.AIMessage(
-                            content=[{"text": "After summary", "type": "text"}],
-                        )
-                    ]
-                ),
+                FakeAnthropicRunnableLambdaWithTokenCounter(respond_after_compaction),
             ]
         )
         mock_tool.return_value = ("Event list" * 200000, None)
@@ -1727,7 +1727,6 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 ),
             ),
             ("message", AssistantToolCallMessage(tool_call_id="1", content="Event list" * 200000)),
-            ("message", HumanMessage(content="First")),  # Should copy this message
             ("message", AssistantMessage(content="After summary")),
         ]
         output, _ = await self._run_assistant_graph(graph, message="First", conversation=self.conversation)
@@ -1735,12 +1734,17 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
         state = AssistantState.model_validate(snapshot.values)
-        # should be equal to the copied human message
-        new_human_message = cast(HumanMessage, output[3][1])
-        self.assertEqual(state.start_id, new_human_message.id)
-        # should be equal to the summary message (ContextMessage)
-        self.assertIsInstance(state.messages[4], ContextMessage)
-        self.assertEqual(state.root_conversation_start_id, state.messages[4].id)
+        original_request = cast(HumanMessage, output[0][1])
+        self.assertEqual(state.start_id, original_request.id)
+        self.assertEqual(
+            [message for message in state.messages if isinstance(message, HumanMessage)], [original_request]
+        )
+        summary_message = next(message for message in state.messages if message.id == state.root_conversation_start_id)
+        self.assertIsInstance(summary_message, ContextMessage)
+        model_input_text = str([message.content for message in compacted_model_input])
+        self.assertIn("Summary", model_input_text)
+        self.assertIn("First", model_input_text)
+        self.assertNotIn("Event list" * 200000, model_input_text)
 
     @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(

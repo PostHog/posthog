@@ -18,7 +18,7 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
   `create_autoresearch_daily_schedule()` registers schedule `autoresearch-daily-coordinator` driving workflow id `autoresearch-coordinator`.
   Overlap policy is **SKIP** — a tick that is still running causes the next one to be dropped rather than queued, so a slow day cannot pile up a backlog of duplicate scoring runs.
   An update keeps the schedule's live state, so a deploy does not resume a schedule an operator paused.
-  The queue defaults to the general-purpose fleet. Deploy a worker polling `autoresearch-task-queue` before you set `AUTORESEARCH_TASK_QUEUE` to it.
+  The queue defaults to `self-driving-task-queue`, which the temporal-worker-self-driving fleet polls. Deploy a worker that polls a new queue before you set `AUTORESEARCH_TASK_QUEUE` to it, or the schedule strands its runs.
 - `__init__.py`
   The registration surface. `WORKFLOWS` and `ACTIVITIES` are what the worker reads; a workflow that is not in these lists does not exist as far as production is concerned.
 
@@ -38,7 +38,10 @@ The coordinator decides _whether_ each pipeline is due; the child workflows do o
 Validation runs on every daily sweep, because a matured date should not wait for the next scoring day.
 Scoring and training kickoff run on a cadence day only, compared by calendar day, and kickoff starts after scoring ends.
 Discovery pauses a pipeline whose creator has lost access to the team, and skips one outside the flag rollout.
+Discovery also fails every inference run still RUNNING after `INFERENCE_WORKFLOW_TIMEOUT` (`fail_stale_inference_runs()` in `../inference/failures.py`), with `failure_kind` `other`, because a lost worker never records an outcome.
+A retry of a scheduled scoring attempt fills the RUNNING row of the attempt before it, so one date keeps one row.
 Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does.
+A pipeline with no iteration budget left gets no run, except when `find_unscorable_champion()` finds that its champion cannot score. Then kickoff launches a rescue run of `RESCUE_ITERATION_BUDGET` iterations that does not come out of the budget, at most once in each window of `UNSCORABLE_AFTER_FAILED_DAYS` UTC days, and reports `rescue_unscorable`.
 
 Note that training is launched by an _activity_, not a child workflow, because the actual agent run happens in a Tasks sandbox with its own lifecycle. Autoresearch does not own that workflow; it fires it and the `TaskRun` `post_save` signal (`../training/ingestion.py`) picks the result back up.
 

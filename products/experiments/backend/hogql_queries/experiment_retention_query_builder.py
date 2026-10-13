@@ -20,6 +20,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 
 if TYPE_CHECKING:
@@ -37,9 +38,18 @@ class RetentionQueryBuilder:
     through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder", maturity: MaturityGate | None = None):
+    def __init__(
+        self,
+        builder: "ExperimentQueryBuilder",
+        exposure: ExposureQueryBuilder,
+        *,
+        maturity: MaturityGate | None = None,
+        metric_events_job_ids: list[str] | None = None,
+    ):
         self._b = builder
+        self._exposure = exposure
         self._maturity = maturity
+        self._metric_events_job_ids = metric_events_job_ids
 
     def get_retention_maturity_seconds(self) -> int:
         """
@@ -187,7 +197,7 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if self._b.metric_events_preaggregation_job_ids:
+        if self._metric_events_job_ids:
             # Read start/completion events from the precomputed table instead of scanning
             # events; the event predicates were applied at build time and survive as the
             # steps flags (steps[1] = matched start_event, steps[2] = matched completion_event).
@@ -302,7 +312,7 @@ class RetentionQueryBuilder:
         )
 
         placeholders = {
-            "exposure_select_query": self._b._get_exposure_query(self._maturity),
+            "exposure_select_query": self._exposure.select_query(),
             "entity_key": parse_expr(self._b.entity_key),
             "completion_event_predicate": self.build_completion_event_predicate(),
             "retention_window_start_interval": self.build_retention_window_interval(
@@ -326,8 +336,8 @@ class RetentionQueryBuilder:
             placeholders["start_event_predicate"] = self.build_start_event_predicate()
             placeholders["start_after_exposure_predicate"] = self.build_start_after_exposure_predicate()
 
-        if self._b.metric_events_preaggregation_job_ids:
-            placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
+        if self._metric_events_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self._metric_events_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
             placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()

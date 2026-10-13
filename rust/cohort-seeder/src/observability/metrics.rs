@@ -93,6 +93,9 @@ pub const PROJECTION_KEYS: &str = "seeder_projection_keys";
 /// and `team_id` (counter). Only `materialized` saves ClickHouse reads; `properties_blob` saves the
 /// transfer and evaluation of rows no condition matches.
 pub const SCAN_ROW_FILTER: &str = "seeder_scan_row_filter_total";
+/// Behavioral chunks by where the scan reads `properties` from, labelled by `source`
+/// (`whole`/`empty`/`columns`/`rebuilt_*`) and `team_id` (counter).
+pub const SCAN_PROPERTIES_SOURCE: &str = "seeder_scan_properties_source_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";
 pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";

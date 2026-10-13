@@ -43,6 +43,7 @@ const {
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
+    stripJsonComments,
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
@@ -183,7 +184,7 @@ test('the tach graph claims the python lanes rather than every lane', () => {
 // Only the root files narrow: a product's own manifests keep the product's lanes.
 test('a lockfile claims its own toolchain rather than every lane', () => {
     for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']) {
-        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT), file)
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['tsconfig.json'], CONTEXT), file)
     }
     for (const file of ['uv.lock', 'pyproject.toml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
@@ -383,7 +384,7 @@ test('every proto tree declaring a stub consumer has stubs there, and no other t
 // serializes against Rust, and a backend one no longer serializes against the
 // frontend.
 test('a language-scoped tripwire claims only that language', () => {
-    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
     assert.equal(javascript.includes('fe:core'), true)
     assert.equal(javascript.includes('fe:product:alpha'), true)
     assert.equal(javascript.includes('node:ingestion'), true)
@@ -451,13 +452,32 @@ test('the generated frontend product artifacts claim only the frontend lanes', (
 // story the workflows tell: a tool's own settings can only fail the code that
 // tool reads, so they no longer serialize a PR against the whole repo.
 test('single-language root configuration claims that language', () => {
-    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
     for (const file of ['postcss.config.js', '.stylelintrc.js', '.stylelintignore', '.kearc', 'posthog.json']) {
         assert.deepEqual(computeTargets([file], CONTEXT), javascript, file)
     }
     const python = computeTargets(['mypy.ini'], CONTEXT)
     for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), python, file)
+    }
+})
+
+test('the root oxc configs claim the JS lanes except node', () => {
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
+    for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+})
+
+test('the root oxc configs keep ignoring nodejs', () => {
+    for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
+        const config = JSON.parse(stripJsonComments(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8')))
+        const ignored = (config.ignorePatterns || []).map((pattern) => pattern.replace(/\/(\*\*)?$/, ''))
+        assert.equal(ignored.includes('nodejs'), true, `${file} must ignore nodejs/`)
     }
 })
 
@@ -523,7 +543,7 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
     assert.deepEqual(
         computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
+        computeTargets(['tsconfig.json'], CONTEXT)
     )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
@@ -559,14 +579,30 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
-    )
+    const javascript = computeTargets(['tsconfig.json'], CONTEXT)
+    for (const file of [
+        '.github/workflows/ci-frontend.yml',
+        '.github/workflows/ci-storybook.yml',
+        '.github/workflows/ci-storybook-update-test-timing.yml',
+    ]) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+    for (const file of ['.github/workflows/ci-nodejs.yml', '.github/workflows/ci-nodejs-container.yml']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            computeTargets(['Dockerfile.ml-mirror-image-scrub'], CONTEXT),
+            file
+        )
+    }
     for (const file of [
         '.github/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
         '.github/workflows/ci-clickhouse-multinode-migrations.yml',
+        '.github/workflows/ci-clickhouse-util-udfs.yml',
         // The backend test-timing pair and the IDOR coverage check run only in
         // ci-backend and its timing workflow.
         '.github/scripts/optimize_test_durations.py',
@@ -820,7 +856,7 @@ test('the agent-skills workflow claims both language families', () => {
     assert.equal(targets.includes('agents'), false)
     assert.equal(targets.includes('py:core'), true)
     assert.equal(targets.includes('fe:core'), true)
-    assert.deepEqual(targets, computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(targets, computeTargets(['mypy.ini', 'tsconfig.json'], CONTEXT))
 })
 
 test('the ml-mirror sidecar image and its workflow stay on the node lanes', () => {
@@ -1202,7 +1238,7 @@ test('a semgrep rule claims the lanes of the languages it declares', () => {
     )
     assert.deepEqual(
         computeTargets(['.semgrep/rules/devex/ts-rule.yaml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
+        computeTargets(['tsconfig.json'], CONTEXT)
     )
     // A rule spanning languages with no single lane mapping, and a rule file
     // the context never resolved, both keep the old radius.
@@ -1358,7 +1394,7 @@ test('an incomplete context falls back to the ALL sentinel', () => {
 
 test('tripwire domains are reported for telemetry', () => {
     assert.equal(tripwireDomain('hogli.yaml'), UNIVERSAL)
-    assert.equal(tripwireDomain('.oxlintrc.json'), JAVASCRIPT)
+    assert.equal(tripwireDomain('tsconfig.json'), JAVASCRIPT)
     assert.equal(tripwireDomain('mypy.ini'), PYTHON)
     assert.equal(tripwireDomain('.github/workflows/ci-rust.yml'), RUST)
     assert.equal(tripwireDomain('.github/pull_request_template.md'), null)
@@ -1994,6 +2030,13 @@ test('an unavailable tach graph widens backend changes instead of narrowing', ()
 test('core changes expand to every leaf target in their own domain', () => {
     const backend = computeTargets(['posthog/models/team.py'], CONTEXT)
     assert.deepEqual(backend, ['py:core', 'py:product:alpha', 'py:product:beta', 'py:product:gamma'])
+    for (const file of [
+        'posthog/user_scripts/json_drop_keys_udf_x86_64',
+        'clickhouse-udfs/util/cmd/json_drop_keys_udf/main.go',
+        'clickhouse-udfs/util/go.mod',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), backend, file)
+    }
 
     const frontend = computeTargets(['frontend/src/lib/components/Foo.tsx'], CONTEXT)
     assert.deepEqual(frontend, ['fe:core', 'fe:product:alpha', 'fe:product:beta', 'fe:product:gamma'])

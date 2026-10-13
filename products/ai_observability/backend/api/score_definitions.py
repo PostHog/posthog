@@ -186,6 +186,15 @@ class ScoreDefinitionMetadataSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255, required=False, help_text="Updated scorer name, saved with this version."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Updated scorer description, saved with this version.",
+    )
     config = ScoreDefinitionConfigField(help_text="Next immutable scorer configuration.")
     base_version = serializers.IntegerField(
         required=False,
@@ -196,6 +205,12 @@ class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
             "Omit to skip the optimistic-concurrency check."
         ),
     )
+
+    def validate_name(self, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise serializers.ValidationError("`name` cannot be blank.")
+        return normalized_value
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
@@ -296,7 +311,7 @@ class ScoreDefinitionViewSet(
         definition.create_new_version(config=config, created_by=cast(User, self.request.user))
         return definition
 
-    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> None:
         definition_data = dict(validated_data)
         changed_fields: list[str] = []
 
@@ -308,11 +323,28 @@ class ScoreDefinitionViewSet(
                 setattr(definition, field, value)
                 changed_fields.append(field)
 
-        if changed_fields:
-            definition.save(update_fields=[*changed_fields, "updated_at"])
+        if not changed_fields:
+            return
 
-        return changed_fields
+        definition.save(update_fields=[*changed_fields, "updated_at"])
+        event_properties: dict[str, str | bool | int | list[str]] = {
+            **self._event_properties(definition),
+            "changed_fields": changed_fields,
+        }
+        if "archived" in changed_fields:
+            event_properties["archived_new_value"] = definition.archived
 
+        transaction.on_commit(
+            lambda: report_user_action(
+                self.request.user,
+                "llma scorer updated",
+                event_properties,
+                team=self.team,
+                request=self.request,
+            )
+        )
+
+    @transaction.atomic
     def _create_definition_version(
         self, definition: ScoreDefinition, validated_data: dict[str, Any]
     ) -> ScoreDefinition:
@@ -321,7 +353,11 @@ class ScoreDefinitionViewSet(
             created_by=cast(User, self.request.user),
             base_version=validated_data.get("base_version"),
         )
-        definition.refresh_from_db(fields=["current_version", "updated_at"])
+        # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
+        definition.refresh_from_db()
+        self._update_definition_metadata(
+            definition, {field: validated_data[field] for field in ("name", "description") if field in validated_data}
+        )
         return definition
 
     @extend_schema(
@@ -378,24 +414,7 @@ class ScoreDefinitionViewSet(
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         definition = self.get_object()
-        changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
-
-        if changed_fields:
-            event_properties: dict[str, Any] = {
-                **self._event_properties(definition),
-                "changed_fields": changed_fields,
-            }
-
-            if "archived" in changed_fields:
-                event_properties["archived_new_value"] = definition.archived
-
-            report_user_action(
-                request.user,
-                "llma scorer updated",
-                event_properties,
-                team=self.team,
-                request=request,
-            )
+        self._update_definition_metadata(definition, dict(request.validated_data))
 
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
 

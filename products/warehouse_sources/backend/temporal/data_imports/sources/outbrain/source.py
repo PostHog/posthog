@@ -73,7 +73,7 @@ class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]
 Uses your Outbrain login credentials. Amplify API access must be enabled for your account — request it through your Outbrain account manager if API calls are rejected.""",
             iconPath="/static/services/outbrain.png",
             docsUrl="https://posthog.com/docs/cdp/sources/outbrain",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,7 +1,16 @@
 from dataclasses import dataclass, field
+from typing import Any
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+
+# Docs default the page size to 50 and cap it around 300; 100 keeps request volume low against the
+# 120 req/min ceiling without risking a rejected oversized page.
+PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class MixmaxEndpointConfig:
     name: str
     path: str
@@ -15,6 +24,31 @@ class MixmaxEndpointConfig:
     # Whether the table is selected for sync by default in the UI.
     should_sync_default: bool = True
     description: str | None = None
+    fanout: DependentEndpointConfig | None = None
+    # The remaining fields exist to satisfy the shared FanoutEndpointLike protocol; no Mixmax
+    # endpoint is incremental.
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: str | None = None
+    page_size: int = PAGE_SIZE
+
+
+# Parent rows carry their `_id` percent-encoded under this key, because the fan-out binds the
+# resolved value into the child URL with no escaping.
+MESSAGE_ID_PARAM_FIELD = "_message_id_param"
+
+# /livefeed/events takes a single `messageId` per request, so events fan out over the live feed's
+# messages. Event ids are only documented as unique, so the key also carries the parent message id.
+_LIVE_FEED_EVENTS_FANOUT = DependentEndpointConfig(
+    parent_name="live_feed",
+    resolve_param="message_id",
+    resolve_field=MESSAGE_ID_PARAM_FIELD,
+    include_from_parent=["_id"],
+    parent_field_renames={"_id": "message_id"},
+    parent_params={"limit": PAGE_SIZE},
+    child_params={"wasSentViaMixmax": "true"},
+    # A message deleted between the live feed listing and its events fetch 404s; skip it.
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
 
 
 # Mixmax exposes no server-side timestamp filter (`updated_after`/`since`), so every endpoint is
@@ -76,6 +110,15 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
         path="/livefeed",
         primary_keys=["uid"],
         description="Real-time email tracking events (opens, clicks, downloads). Full refresh only.",
+    ),
+    "live_feed_events": MixmaxEndpointConfig(
+        name="live_feed_events",
+        path="/livefeed/events?messageId={message_id}",
+        primary_keys=["message_id", "_id"],
+        fanout=_LIVE_FEED_EVENTS_FANOUT,
+        # One request per live feed message against the 120 req/min limit, so it is opt-in.
+        should_sync_default=False,
+        description="Individual open, click, download, and reply events for each live feed message (up to 200 per message).",
     ),
     "appointment_links": MixmaxEndpointConfig(
         name="appointment_links",

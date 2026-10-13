@@ -46,7 +46,6 @@ import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { isContainsShortcutItem } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { withHiddenEventsExcluded } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -306,12 +305,13 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         excludedOperators,
     } = opts
 
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const flagEvaluationsMode = currentTeam?.flag_evaluations_mode
     // Every surface below reads exclusions from this one record: the group builder, the Recent and
     // Pinned tabs, and the menu's shortcut rows. Folding the hidden names in here reaches all of them.
     const excludedProperties = useMemo(
-        () => withHiddenEventsExcluded(callerExcludedProperties, featureFlags, includeHiddenEvents),
-        [callerExcludedProperties, featureFlags, includeHiddenEvents]
+        () => withHiddenEventsExcluded(callerExcludedProperties, flagEvaluationsMode, includeHiddenEvents),
+        [callerExcludedProperties, flagEvaluationsMode, includeHiddenEvents]
     )
 
     const ctx = useTaxonomicGroupsContext({

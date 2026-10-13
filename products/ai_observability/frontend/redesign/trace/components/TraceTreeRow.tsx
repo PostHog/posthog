@@ -2,12 +2,12 @@ import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatsLine } from './NodeStatsLine'
 
 export interface TraceTreeRowProps {
-    node: TraceTreeNode
+    node: TraceNodeApi
     depth: number
     selectedNodeId: string | null
     onSelectNode: (id: string) => void

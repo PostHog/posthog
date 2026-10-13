@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import (
     DataWarehousePropertyFilter,
@@ -18,7 +18,7 @@ from ee.hogai.summarizers.property_filters import (
 )
 
 
-class TestPropertyFilterDescriber(BaseTest):
+class TestPropertyFilterDescriber(SimpleTestCase):
     def test_event_property_filter(self):
         # No taxonomy
         filter = EventPropertyFilter(key="prop", operator="exact", value="test")
@@ -136,7 +136,7 @@ class TestPropertyFilterDescriber(BaseTest):
         self.assertIn("DataWarehousePropertyFilter", str(context.exception))
 
 
-class TestPropertyFilterCollectionDescriber(BaseTest):
+class TestPropertyFilterCollectionDescriber(SimpleTestCase):
     def test_multiple_property_filters(self):
         # Create filters
         event_filter = EventPropertyFilter(key="$current_url", operator=PropertyOperator.NOT_ICONTAINS, value="url")

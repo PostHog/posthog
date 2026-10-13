@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -33,27 +35,66 @@ EVENTS_DEFAULT_LOOKBACK_DAYS = 30
 SNAPSHOTS_WINDOW_MS = 60 * 60 * 1000
 SNAPSHOTS_MAX_SIZE = 1000
 
-PaginationStyle = Literal["page", "none"]
+# The application-monitoring metrics APIs are POST-with-body time-series queries. They are synced
+# as a daily rollup: one-day windows aligned to UTC midnight with a one-day granularity, so every
+# window holds exactly one bucket per entity. Only complete days are requested.
+METRICS_WINDOW_MS = 24 * 60 * 60 * 1000
+METRICS_DEFAULT_LOOKBACK_DAYS = 7
+# An incremental run never reaches further back than this, so a bogus (e.g. epoch-zero) bucket
+# timestamp from the host can't turn every later sync into a day-by-day walk from 1970.
+METRICS_MAX_LOOKBACK_DAYS = 31
+# Golden signals. Each aggregation is one the spec allows for its metric.
+APPLICATION_METRICS: list[dict[str, str]] = [
+    {"metric": "calls", "aggregation": "SUM"},
+    {"metric": "erroneousCalls", "aggregation": "SUM"},
+    {"metric": "errors", "aggregation": "MEAN"},
+    {"metric": "latency", "aggregation": "MEAN"},
+    {"metric": "latency", "aggregation": "P50"},
+    {"metric": "latency", "aggregation": "P90"},
+    {"metric": "latency", "aggregation": "P99"},
+]
+
+# `/api/apdex/report/{apdexId}` requires a `from`/`to` window. Each sync replaces the table with
+# the scores over the trailing window.
+APDEX_REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+PaginationStyle = Literal["page", "offset", "none"]
 
 
-@dataclass
+@frozen
+class InstanaFanOutConfig:
+    # Endpoint whose rows are walked to build each child request.
+    parent: str
+    # Field on the parent row substituted into the child `path`.
+    parent_field: str
+    # Column the parent id is written to on every child row, so rows stay attributable.
+    child_field: str
+
+
+@frozen
 class InstanaEndpointConfig:
     name: str
     path: str
     # Key in the response body holding the list of records. ``None`` means the body itself is the list.
     data_path: Optional[str] = None
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     pagination: PaginationStyle = "none"
+    fan_out: Optional[InstanaFanOutConfig] = None
     # Only `events` filters server-side (from/to epoch-ms window on the event `start`); everything
     # else is a config/topology catalog with no updated-since cursor, so it ships full refresh.
     is_events: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Extra query params sent on every request.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Set on the application-monitoring metrics endpoints: the key in each response item holding
+    # the entity (`application`, `service` or `endpoint`) the metrics belong to.
+    metrics_entity: Optional[str] = None
+    # Fan-out children that require a time window get `from`/`to` covering this trailing span.
+    report_window_ms: Optional[int] = None
 
     @property
     def supports_incremental(self) -> bool:
-        return self.is_events
+        return self.is_events or self.metrics_entity is not None
 
 
 def _start_incremental_fields() -> list[IncrementalField]:
@@ -68,17 +109,29 @@ def _start_incremental_fields() -> list[IncrementalField]:
     ]
 
 
+def _timestamp_incremental_fields() -> list[IncrementalField]:
+    return [
+        {
+            "label": "timestamp",
+            "type": IncrementalFieldType.Integer,
+            "field": "timestamp",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ]
+
+
 # Endpoint catalog, verified against the official OpenAPI spec
 # (https://instana.github.io/openapi/openapi.yaml). Instana has no Airbyte/Fivetran connector to
 # mirror, so coverage follows what the UI surfaces: events, the application-monitoring catalogs
-# (applications/services/endpoints), website + synthetic monitoring configs, alerting settings,
-# and the infrastructure snapshot inventory. Metric time-series and trace analytics endpoints are
-# POST-with-body cursor APIs and are intentionally out of scope for the first release.
+# (applications/services/endpoints) and their daily golden-signal metrics, website, mobile app and
+# synthetic monitoring configs, alerting settings, event specifications, releases, SLOs, Apdex, and
+# the infrastructure snapshot inventory. Trace analytics and synthetic result endpoints are
+# POST-with-body cursor APIs and are intentionally out of scope.
 INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
     "events": InstanaEndpointConfig(
         name="events",
         path="/api/events",
-        primary_key="eventId",
+        primary_keys=["eventId"],
         is_events=True,
         incremental_fields=_start_incremental_fields(),
     ),
@@ -120,8 +173,91 @@ INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
         name="infrastructure_snapshots",
         path="/api/infrastructure-monitoring/snapshots",
         data_path="items",
-        primary_key="snapshotId",
+        primary_keys=["snapshotId"],
         extra_params={"windowSize": str(SNAPSHOTS_WINDOW_MS), "size": str(SNAPSHOTS_MAX_SIZE)},
+    ),
+    "built_in_event_specifications": InstanaEndpointConfig(
+        name="built_in_event_specifications",
+        path="/api/events/settings/event-specifications/built-in",
+    ),
+    "custom_event_specifications": InstanaEndpointConfig(
+        name="custom_event_specifications",
+        path="/api/events/settings/event-specifications/custom",
+    ),
+    # `from`/`to` only bound releases by time, and releases are edited in place (`lastUpdated`),
+    # so a start-windowed incremental sync would miss edits. The list is small; full refresh.
+    "releases": InstanaEndpointConfig(
+        name="releases",
+        path="/api/releases",
+    ),
+    "slo_configs": InstanaEndpointConfig(
+        name="slo_configs",
+        path="/api/settings/slo",
+        data_path="items",
+        pagination="page",
+    ),
+    # One report per SLO over the SLO's own time window (no `from`/`to` sent), so each sync
+    # replaces the table with current attainment and error budget.
+    "slo_reports": InstanaEndpointConfig(
+        name="slo_reports",
+        path="/api/slo/report/{sloId}",
+        primary_keys=["sloId", "fromTimestamp"],
+        fan_out=InstanaFanOutConfig(parent="slo_configs", parent_field="id", child_field="sloId"),
+    ),
+    "synthetic_test_ci_cds": InstanaEndpointConfig(
+        name="synthetic_test_ci_cds",
+        path="/api/synthetics/settings/tests/ci-cd",
+        primary_keys=["testResultId"],
+        pagination="offset",
+    ),
+    "synthetic_locations": InstanaEndpointConfig(
+        name="synthetic_locations",
+        path="/api/synthetics/settings/locations",
+        pagination="offset",
+    ),
+    "synthetic_datacenters": InstanaEndpointConfig(
+        name="synthetic_datacenters",
+        path="/api/synthetics/settings/datacenters",
+        primary_keys=["datacenterId"],
+    ),
+    "mobile_apps": InstanaEndpointConfig(
+        name="mobile_apps",
+        path="/api/mobile-app-monitoring/config",
+    ),
+    "application_metrics": InstanaEndpointConfig(
+        name="application_metrics",
+        path="/api/application-monitoring/metrics/applications",
+        data_path="items",
+        primary_keys=["applicationId", "timestamp"],
+        metrics_entity="application",
+        incremental_fields=_timestamp_incremental_fields(),
+    ),
+    "service_metrics": InstanaEndpointConfig(
+        name="service_metrics",
+        path="/api/application-monitoring/metrics/services",
+        data_path="items",
+        primary_keys=["serviceId", "timestamp"],
+        metrics_entity="service",
+        incremental_fields=_timestamp_incremental_fields(),
+    ),
+    "endpoint_metrics": InstanaEndpointConfig(
+        name="endpoint_metrics",
+        path="/api/application-monitoring/metrics/endpoints",
+        data_path="items",
+        primary_keys=["endpointId", "timestamp"],
+        metrics_entity="endpoint",
+        incremental_fields=_timestamp_incremental_fields(),
+    ),
+    "apdex_configs": InstanaEndpointConfig(
+        name="apdex_configs",
+        path="/api/settings/apdex",
+    ),
+    "apdex_reports": InstanaEndpointConfig(
+        name="apdex_reports",
+        path="/api/apdex/report/{apdexId}",
+        primary_keys=["apdexId", "from"],
+        fan_out=InstanaFanOutConfig(parent="apdex_configs", parent_field="id", child_field="apdexId"),
+        report_window_ms=APDEX_REPORT_WINDOW_MS,
     ),
 }
 

@@ -719,7 +719,7 @@ export interface hogFunctionConfigurationLogicMeta {
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
         hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
@@ -752,7 +752,8 @@ export interface hogFunctionConfigurationLogicMeta {
             currentProject: ProjectType | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
             contextId: HogFunctionConfigurationContextId,
-            survey: Survey | null
+            survey: Survey | null,
+            hogFunction: HogFunctionType | null
         ) => CyclotronJobInvocationGlobals
         sampleGlobalsWithInputs: (
             sampleGlobals: CyclotronJobInvocationGlobals | null,
@@ -1059,7 +1060,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         )
                     if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            source: 'traditional',
+                            ui_source: 'traditional',
                             trigger_event: errorTrackingTriggerEvent,
                             subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
@@ -1144,7 +1145,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
                     if (sampleGlobalsLoader) {
                         try {
-                            const globals = await sampleGlobalsLoader(values.exampleInvocationGlobals)
+                            const globals = await sampleGlobalsLoader(
+                                values.exampleInvocationGlobals,
+                                values.configuration?.filters
+                            )
                             breakpoint()
                             return globals
                         } catch (e: any) {
@@ -1399,13 +1403,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey, s.hogFunction],
             (
                 configuration: HogFunctionConfigurationType,
                 currentProject: null | import('~/types').ProjectType,
                 groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 contextId: HogFunctionConfigurationContextId,
-                survey: Survey | null
+                survey: Survey | null,
+                hogFunction: HogFunctionType | null
             ): CyclotronJobInvocationGlobals => {
                 // Log transformations are seeded with a sample record (no event), so the inline
                 // tester shows something useful to run against instead of an empty object.
@@ -1423,6 +1428,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const eventId = uuid()
                 const personId = uuid()
                 const source = {
+                    id: hogFunction?.id ?? '00000000-0000-0000-0000-000000000000',
                     name: configuration?.name ?? 'Unnamed',
                     url: currentUrl,
                 }

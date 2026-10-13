@@ -2,12 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { LLMTrace } from '~/queries/schema/schema-general'
-
 import { sanitizeTraceUrlSearchParams } from '../../../utils'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { LabeledLink } from '../types'
-import { hasTraceError } from './toTraceTree'
 
 export interface TraceNeighbours {
     olderTraceId: string | null
@@ -50,10 +47,14 @@ export function toBackLink(searchParams: SearchParams): LabeledLink {
     return { label: 'Back to traces', href: combineUrl(urls.aiObservabilityTraces(), listParams).url }
 }
 
-export function toHeader(trace: LLMTrace, neighbours: TraceNeighbours, searchParams: SearchParams): TraceHeaderProps {
+export function toHeader(
+    title: { name: string; hasError: boolean },
+    neighbours: TraceNeighbours,
+    searchParams: SearchParams
+): TraceHeaderProps {
     return {
-        name: trace.traceName || 'Untitled trace',
-        hasError: hasTraceError(trace),
+        name: title.name,
+        hasError: title.hasError,
         olderHref: neighbourHref(neighbours.olderTraceId, neighbours.olderTimestamp, searchParams),
         newerHref: neighbourHref(neighbours.newerTraceId, neighbours.newerTimestamp, searchParams),
         backLink: toBackLink(searchParams),

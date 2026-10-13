@@ -280,8 +280,8 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 # Applied when a run or a loop leaves the model unset: blank means "let PostHog pick", so the
 # choice can improve without rewriting anything stored.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    CLAUDE: "claude-sonnet-5",
-    CODEX: "gpt-5",
+    CLAUDE: "claude-sonnet-5-5",
+    CODEX: "gpt-6.1-sol",
 }
 
 

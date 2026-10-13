@@ -1,5 +1,5 @@
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/agent-contracts/product-engineer-prompt";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/agent-contracts/rich-output-prompt";
+import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/agent-contracts/rich-output-prompt";
 import { describe, expect, it } from "vitest";
 import { buildCloudSessionSystemPrompt } from "./agent-server";
 
@@ -33,7 +33,7 @@ describe("buildCloudSessionSystemPrompt", () => {
       const text = typeof prompt === "string" ? prompt : prompt.append;
 
       expect(text).toContain(PRODUCT_ENGINEER_PROMPT);
-      expect(text.includes(RICH_OUTPUT_TAGS_PROMPT)).toBe(richOutput);
+      expect(text.includes(RICH_OUTPUT_PROMPT_LEAD)).toBe(richOutput);
       expect(text.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
         text.indexOf("Cloud task instructions."),
       );

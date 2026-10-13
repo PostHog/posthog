@@ -181,6 +181,9 @@ class OfflineScorerSummary:
     true_count: int | None
     false_count: int | None
     true_rate: float | None
+    pass_count: int | None
+    fail_count: int | None
+    pass_rate: float | None
     categories: list[OfflineCategorySummary]
 
 

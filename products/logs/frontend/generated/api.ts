@@ -74,8 +74,8 @@ import type {
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
     _LogsServicesResponseApi,
+    _LogsSparklineBucketApi,
     _LogsSparklineRequestApi,
-    _LogsSparklineResponseApi,
     _LogsValuesResponseApi,
 } from './api.schemas'
 
@@ -252,7 +252,7 @@ export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,
@@ -1109,8 +1109,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<_LogsSparklineResponseApi> => {
-    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineBucketApi[]> => {
+    return apiMutator<_LogsSparklineBucketApi[]>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1256,7 +1256,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (

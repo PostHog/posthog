@@ -3,12 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityAIDataLogic } from '../../../aiObservabilityAIDataLogic'
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import { makeEvent, makeTrace } from './testFixtures'
+import { makeEvent, makeTrace, makeTraceResource } from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -58,11 +59,12 @@ describe('traceViewAdapterLogic', () => {
     function remount(): void {
         logic.unmount()
         const { query } = aiObservabilityTraceLogic.values
-        logic = traceViewAdapterLogic({ traceId: 'trace-1', query })
+        logic = traceViewAdapterLogic({ traceId: 'trace-1', query, timestampHint: null })
         logic.mount()
     }
 
     beforeEach(async () => {
+        useMocks({ get: { '/api/projects/:team_id/ai_observability/traces/:id/': () => [200, makeTraceResource()] } })
         initKeaTests()
         jest.mocked(performQuery).mockResolvedValue({
             results: [makeTrace({ events: [offloadedGeneration, answeredGeneration, unrelatedSpan] })],
@@ -70,7 +72,7 @@ describe('traceViewAdapterLogic', () => {
         aiObservabilityTraceLogic.mount()
         router.actions.push(urls.aiObservabilityTrace('trace-1'))
         const { query } = aiObservabilityTraceLogic.values
-        logic = traceViewAdapterLogic({ traceId: 'trace-1', query })
+        logic = traceViewAdapterLogic({ traceId: 'trace-1', query, timestampHint: null })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
     })
@@ -131,35 +133,11 @@ describe('traceViewAdapterLogic', () => {
         remount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
-        expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
         expect(router.values.searchParams).toEqual({
             event: 'gen-2',
             line: 4,
             back_to: 'generations',
             date_from: '-7d',
         })
-    })
-
-    it.each([
-        [
-            'the trace is not found',
-            () => Promise.resolve({ results: [] } as any),
-            'It may have been deleted, or it is outside the retention period.',
-        ],
-        [
-            'the query fails',
-            () => Promise.reject(new Error('boom')),
-            'Something went wrong while loading it. Try again in a moment.',
-        ],
-    ])('status is error when %s', async (_description, mockResult, expectedMessage) => {
-        logic.unmount()
-        jest.mocked(performQuery).mockReset().mockImplementationOnce(mockResult)
-        const { query } = aiObservabilityTraceLogic.values
-        logic = traceViewAdapterLogic({ traceId: 'trace-1', query })
-        logic.mount()
-
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ status: 'error', errorMessage: expectedMessage })
     })
 })

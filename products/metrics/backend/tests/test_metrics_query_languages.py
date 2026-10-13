@@ -1,0 +1,468 @@
+import json
+import math
+import datetime as dt
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+import time_machine
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+
+import requests
+from parameterized import parameterized
+
+from posthog.schema import DateRange, HogQLQuery, MetricsQuery, MetricsQueryClause
+
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.models import User
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.metrics.backend.facade.contracts import MetricPoint
+from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
+from products.metrics.backend.series import rank_and_fill_series
+from products.metrics.backend.tests._seeder import seed_metric
+
+FIXTURES: dict[str, dict[str, Any]] = json.loads(
+    (Path(__file__).parents[2] / "frontend/queryLanguages/__fixtures__/builder_sql.json").read_text()
+)
+NOW = dt.datetime(2026, 9, 19, 12, 0, tzinfo=dt.UTC)
+DATE_RANGE = DateRange(date_from="2026-09-19T11:00:00Z", date_to="2026-09-19T12:00:00Z")
+HISTOGRAM_BOUNDS = [10.0, 50.0, 100.0]
+# Gauges the fixtures need in a special shape: one series stops halfway, one service is missing, or every value is 0.
+SPARSE_METRIC = "sparse_queue_depth"
+API_ONLY_METRIC = "api_queue_depth"
+ZERO_METRIC = "idle_queue_depth"
+SERIES_LABELS = [
+    ("api", {"http.route": "/api/users", "http.request.method": "GET", "http.response.status_code": "200"}),
+    ("api", {"http.route": "/health", "http.request.method": "OPTIONS", "http.response.status_code": "500"}),
+    ("worker", {"http.route": "/api/jobs", "http.request.method": "GET", "http.response.status_code": "503"}),
+]
+
+
+def _metric_kinds() -> dict[str, str]:
+    kinds: dict[str, str] = {}
+    for fixture in FIXTURES.values():
+        for clause in fixture["builder"]["clauses"]:
+            aggregation = clause["aggregation"]
+            kinds[clause["metricName"]] = (
+                "histogram"
+                if aggregation == "histogram_quantile"
+                else "counter"
+                if aggregation in ("rate", "increase")
+                else "gauge"
+            )
+    return kinds
+
+
+def _comparable(series: list[Any], *, use_clause: bool) -> dict[tuple, dict[str, float | None]]:
+    # A SQL union fills the labels another series groups by with ''; the builder has no such label.
+    out: dict[tuple, dict[str, float | None]] = {}
+    for item in series:
+        labels = tuple(sorted((key, value) for key, value in item.labels.items() if value != ""))
+        key = (item.clause if use_clause else None, labels)
+        out[key] = {point.time: point.value for point in item.points}
+    return out
+
+
+@time_machine.travel(NOW, tick=False)
+class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
+    def _seed(self) -> None:
+        start = NOW - dt.timedelta(minutes=70)
+        for metric_name, kind in _metric_kinds().items():
+            for index, (service, labels) in enumerate(SERIES_LABELS):
+                if metric_name == API_ONLY_METRIC and service != "api":
+                    continue
+                minutes = range(0, 35 if metric_name == SPARSE_METRIC and service == "worker" else 70)
+                if kind == "gauge":
+                    points = [
+                        (
+                            start + dt.timedelta(minutes=m),
+                            0.0 if metric_name == ZERO_METRIC else float((index + 1) * 10 + m % 7),
+                        )
+                        for m in minutes
+                    ]
+                    seed_metric(
+                        team_id=self.team.pk,
+                        metric_name=metric_name,
+                        points=points,
+                        labels={**labels, "queue": 'it\'s a "quoted" \\ value'},
+                        service_name=service,
+                    )
+                elif kind == "counter":
+                    points = [(start + dt.timedelta(minutes=m), float((index + 1) * m * 3)) for m in minutes]
+                    seed_metric(
+                        team_id=self.team.pk,
+                        metric_name=metric_name,
+                        points=points,
+                        labels=labels,
+                        service_name=service,
+                        metric_type="sum",
+                        is_monotonic=True,
+                    )
+                else:
+                    for m in minutes:
+                        seed_metric(
+                            team_id=self.team.pk,
+                            metric_name=metric_name,
+                            points=[(start + dt.timedelta(minutes=m), 0.0)],
+                            labels=labels,
+                            service_name=service,
+                            metric_type="histogram",
+                            histogram_bounds=HISTOGRAM_BOUNDS,
+                            histogram_counts=[m * (index + 1), m * 3, m, 0],
+                        )
+
+    def _run(self, **fields: Any) -> list[Any]:
+        query = MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", **fields)
+        return MetricsQueryRunner(query=query, team=self.team).calculate().results
+
+    def test_generated_sql_matches_the_builder_engine(self) -> None:
+        self._seed()
+        for name, fixture in FIXTURES.items():
+            with self.subTest(fixture=name):
+                builder = fixture["builder"]
+                expected = self._run(
+                    clauses=[MetricsQueryClause(**clause) for clause in builder["clauses"]],
+                    formula=builder.get("formula"),
+                )
+                actual = self._run(clauses=[], language="sql", sql=fixture["sql"])
+
+                use_clause = len(builder["clauses"]) > 1 and not builder.get("formula")
+                expected_points = _comparable(expected, use_clause=use_clause)
+                actual_points = _comparable(actual, use_clause=use_clause)
+                # With no data the builder returns one series without points, and SQL returns none.
+                expected_points = {key: values for key, values in expected_points.items() if values}
+                assert set(actual_points) == set(expected_points), name
+                for key, expected_values in expected_points.items():
+                    assert list(actual_points[key]) == list(expected_values), (name, key)
+                    for time, value in expected_values.items():
+                        actual_value = actual_points[key][time]
+                        assert (actual_value is None) == (value is None), (name, key, time)
+                        if value is not None and actual_value is not None:
+                            assert math.isclose(actual_value, value, rel_tol=1e-6, abs_tol=1e-9), (name, key, time)
+
+    def test_mixed_histogram_bounds_fail_in_both_languages(self) -> None:
+        start = NOW - dt.timedelta(minutes=30)
+        for bounds, service in (([10.0], "api"), ([100.0], "worker")):
+            for m in range(0, 30):
+                seed_metric(
+                    team_id=self.team.pk,
+                    metric_name="http.server.duration",
+                    points=[(start + dt.timedelta(minutes=m), 0.0)],
+                    service_name=service,
+                    metric_type="histogram",
+                    histogram_bounds=bounds,
+                    histogram_counts=[m * 10, 0],
+                )
+        fixture = FIXTURES["histogram p99"]
+
+        with pytest.raises(ExposedHogQLError, match="histogram bounds differ"):
+            self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
+        with pytest.raises(Exception, match="different histogram bounds"):
+            self._run(clauses=[], language="sql", sql=fixture["sql"])
+
+    @parameterized.expand(
+        [
+            # 40 series in 288 buckets: more rows than an aggregated builder clause may return,
+            # but fewer than a clause without an aggregation may.
+            ("per_series_day_of_5_minute_buckets", 11_520, None),
+            ("over_the_row_limit", 100_000, "too many rows"),
+            # Each row its own clause: under the row limit, but too many series to chart.
+            ("a_clause_for_each_row", 9_000, "too many series"),
+        ]
+    )
+    def test_sql_output_limits(self, _name: str, rows: int, error: str | None) -> None:
+        clause = "toString(n) AS clause, " if error == "too many series" else ""
+        sql = (
+            f"SELECT toDateTime('2026-09-19 11:00:00') + toIntervalMinute(intDiv(n, 40) * 5) AS time, "
+            f"1 AS value, {clause}toString(n % 40) AS series FROM (SELECT arrayJoin(range({rows})) AS n)"
+        )
+        if error:
+            with pytest.raises(ExposedHogQLError, match=error):
+                self._run(clauses=[], language="sql", sql=sql)
+        else:
+            results = self._run(clauses=[], language="sql", sql=sql)
+            assert (len(results), {len(series.points) for series in results}) == (40, {288})
+
+    @parameterized.expand(
+        [
+            ("no_value_column", "SELECT timestamp AS time FROM posthog.metrics", 'a "time" and a "value" column'),
+            ("other_table", "SELECT timestamp AS time, 1 AS value FROM events", "can only read the metrics tables"),
+            (
+                "other_table_in_subquery",
+                "SELECT now() AS time, count() AS value FROM posthog.metrics WHERE metric_name IN (SELECT event FROM events)",
+                "can only read the metrics tables",
+            ),
+            (
+                "other_table_in_hogqlx_tag",
+                "SELECT 1 AS time, 1 AS value FROM <HogQLQuery query='SELECT event FROM events' />",
+                "can only read the metrics tables",
+            ),
+            (
+                "cte_name_from_another_scope",
+                "SELECT now() AS time, 1 AS value FROM posthog.metrics "
+                "WHERE 1 IN (WITH events AS (SELECT 1 AS x) SELECT x FROM events) "
+                "UNION ALL SELECT timestamp AS time, 1 AS value FROM events",
+                "can only read the metrics tables",
+            ),
+            (
+                "cte_that_reads_another_table",
+                "WITH events AS (SELECT * FROM events) SELECT timestamp AS time, 1 AS value FROM events",
+                "can only read the metrics tables",
+            ),
+        ]
+    )
+    def test_rejects_sql_outside_the_contract(self, _name: str, sql: str, message: str) -> None:
+        with pytest.raises(ExposedHogQLError, match=message):
+            self._run(clauses=[], language="sql", sql=sql)
+
+    @parameterized.expand(
+        [
+            (
+                "cte",
+                "WITH samples AS (SELECT * FROM posthog.metrics) SELECT now() AS time, count() AS value FROM samples AS s",
+            ),
+            (
+                "subquery_join",
+                "SELECT now() AS time, count() AS value FROM (SELECT metric_name FROM posthog.metrics) AS m "
+                "JOIN posthog.metric_names AS n ON m.metric_name = n.metric_name",
+            ),
+        ]
+    )
+    def test_accepts_ctes_and_subqueries_over_metrics_tables(self, _name: str, sql: str) -> None:
+        self._run(clauses=[], language="sql", sql=sql)
+
+    def test_date_placeholders_follow_the_date_range(self) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="queue_depth",
+            points=[(NOW - dt.timedelta(minutes=30), 4.0), (NOW - dt.timedelta(hours=3), 9.0)],
+        )
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, max(value) AS value FROM posthog.metrics "
+            "WHERE metric_name = 'queue_depth' AND timestamp >= {date_from} AND timestamp < {date_to} GROUP BY time"
+        )
+
+        [series] = self._run(clauses=[], language="sql", sql=sql)
+
+        assert [point.value for point in series.points] == [4.0]
+
+    def test_raw_sample_times_are_not_zero_filled(self) -> None:
+        for service, offset in (("api", 0), ("worker", 7)):
+            seed_metric(
+                team_id=self.team.pk,
+                metric_name="cpu",
+                points=[(NOW - dt.timedelta(minutes=30, seconds=offset + 15 * i), 50.0) for i in range(4)],
+                service_name=service,
+            )
+        sql = (
+            "SELECT timestamp AS time, service_name, value FROM posthog.metrics "
+            "WHERE metric_name = 'cpu' AND timestamp >= {date_from} AND timestamp < {date_to}"
+        )
+
+        results = self._run(clauses=[], language="sql", sql=sql)
+
+        assert {point.value for series in results for point in series.points} == {50.0, None}
+
+    @parameterized.expand([("UTC", "week", "-30d"), ("Asia/Kathmandu", "minute_30", "-3h")])
+    def test_interval_starts_are_zero_filled_in_any_timezone(
+        self, timezone: str, interval: str, date_from: str
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        sql = (
+            "SELECT toStartOfInterval({date_from} + toIntervalSecond(n * {interval_seconds}), {interval}) AS time, "
+            "if(n = 0, 'api', 'worker') AS service, 1 AS value FROM (SELECT arrayJoin([0, 1, 2]) AS n)"
+        )
+        query = MetricsQuery(
+            clauses=[], language="sql", sql=sql, interval=interval, dateRange=DateRange(date_from=date_from)
+        )
+
+        results = MetricsQueryRunner(query=query, team=self.team).calculate().results
+
+        by_service = {series.labels["service"]: [point.value for point in series.points] for series in results}
+        assert by_service == {"api": [1.0, 0.0, 0.0], "worker": [0.0, 1.0, 1.0]}
+
+    def test_caches_like_a_metrics_insight_not_a_sql_insight(self) -> None:
+        sql = "SELECT now() AS time, 1 AS value FROM posthog.metrics"
+        sql_runner = MetricsQueryRunner(query=MetricsQuery(clauses=[], language="sql", sql=sql), team=self.team)
+        builder_runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")]),
+            team=self.team,
+        )
+        other_sql_runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[], language="sql", sql=sql + " LIMIT 5"), team=self.team
+        )
+
+        sql_insight_runner = HogQLQueryRunner(query=HogQLQuery(query=sql), team=self.team)
+
+        sql_age = sql_runner.cache_target_age(NOW)
+        sql_insight_age = sql_insight_runner.cache_target_age(NOW)
+        assert sql_age is not None and sql_insight_age is not None
+        assert sql_age == builder_runner.cache_target_age(NOW)
+        assert sql_age < sql_insight_age
+        assert sql_runner.get_cache_key() != other_sql_runner.get_cache_key()
+        assert sql_runner.get_cache_payload()["query_runner"] == "MetricsQueryRunner"
+
+
+def _snuffle_response(status_code: int, payload: dict[str, Any]) -> MagicMock:
+    response = MagicMock(spec=requests.Response)
+    response.status_code = status_code
+    response.json.return_value = payload
+    response.headers = {}
+    return response
+
+
+@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091", SNUFFLE_APM_USER="reader", SNUFFLE_APM_PASSWORD="secret")
+@time_machine.travel(NOW, tick=False)
+class TestMetricsPromQLMode(APIBaseTest):
+    def _runner(self, promql: str = "sum by (job) (rate(http_requests_total))") -> MetricsQueryRunner:
+        query = MetricsQuery(clauses=[], language="promql", promql=promql, dateRange=DATE_RANGE)
+        return MetricsQueryRunner(query=query, team=self.team)
+
+    def test_runs_a_range_query_and_maps_the_matrix(self) -> None:
+        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
+        payload = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {"metric": {"job": "api", "clause": "a"}, "values": [[start, "1.5"], [start + 60, "NaN"]]},
+                    {"metric": {"__name__": "up", "job": "worker"}, "values": [[start + 60, "4"]]},
+                ],
+            },
+        }
+        with patch(
+            "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)
+        ) as request:
+            results = self._runner().calculate().results
+
+        method, url = request.call_args.args
+        sent = request.call_args.kwargs
+        assert (method, url) == ("POST", "http://snuffle.test:9091/api/v1/query_range")
+        assert sent["data"]["query"] == "sum by (job) (rate(http_requests_total))"
+        assert sent["data"]["step"] == "60"
+        assert sent["headers"]["X-Team-ID"] == str(self.team.pk)
+        by_job = {series.labels["job"]: series for series in results}
+        assert [point.value for point in by_job["worker"].points] == [None, 4.0]
+        assert [point.value for point in by_job["api"].points] == [1.5, None]
+        assert by_job["worker"].metricName == "up"
+
+    @parameterized.expand(
+        [
+            # (name, promql, the series' clause, its labels)
+            (
+                "builder_series_marker",
+                'label_replace(sum by (job) (rate(x)), "clause", "a", "", "")',
+                "a",
+                {"job": "api"},
+            ),
+            ("label_from_the_data", "sum by (job, clause) (rate(x))", None, {"job": "api", "clause": "a"}),
+        ]
+    )
+    def test_clause_label_marks_a_series_only_when_the_query_sets_it(
+        self, _name: str, promql: str, clause: str | None, labels: dict[str, str]
+    ) -> None:
+        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
+        payload = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [{"metric": {"job": "api", "clause": "a"}, "values": [[start, "1"]]}],
+            },
+        }
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            [series] = self._runner(promql).calculate().results
+
+        assert (series.clause, series.labels) == (clause, labels)
+
+    def test_empty_scalar_result_has_no_series(self) -> None:
+        payload = {"status": "success", "data": {"resultType": "scalar", "result": []}}
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            assert self._runner("1").calculate().results == []
+
+    @parameterized.expand(
+        [
+            (
+                "bad_query",
+                _snuffle_response(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"}),
+                "parse error at char 5",
+            ),
+            ("upstream_failure", _snuffle_response(503, {}), "backend failed"),
+        ]
+    )
+    def test_upstream_errors_are_shown_to_the_user(self, _name: str, response: MagicMock, message: str) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=response):
+            with pytest.raises(ExposedHogQLError, match=message):
+                self._runner().calculate()
+
+    def test_explains_when_snuffle_is_not_configured(self) -> None:
+        with override_settings(SNUFFLE_APM_URL=""):
+            with pytest.raises(ExposedHogQLError, match="not available"):
+                self._runner().calculate()
+
+    def test_timeout_is_shown_to_the_user(self) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", side_effect=requests.Timeout()):
+            with pytest.raises(ExposedHogQLError, match="timed out"):
+                self._runner().calculate()
+
+    @parameterized.expand([("request_user",), ("shared_link_viewer",), ("userless_refresh",)])
+    def test_needs_the_snuffle_flag(self, viewer: str) -> None:
+        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            return flag != "logs-metrics-snuffle-api"
+
+        with patch("posthoganalytics.feature_enabled", side_effect=flag_enabled):
+            with pytest.raises(UserAccessControlError):
+                if viewer == "request_user":
+                    self._runner().validate_query_runner_access(self.user)
+                else:
+                    # Shared links and scheduled refreshes skip validate_query_runner_access.
+                    user = (
+                        cast(User, SharedLinkUser(SharingConfiguration.objects.create(team=self.team, enabled=True)))
+                        if viewer == "shared_link_viewer"
+                        else None
+                    )
+                    MetricsQueryRunner(query=self._runner().query, team=self.team, user=user).calculate()
+
+
+def test_series_cap_applies_per_clause() -> None:
+    def row(clause: str, job: str, value: float) -> tuple[dict[str, str], None, str, list[MetricPoint]]:
+        return ({"job": job}, None, clause, [MetricPoint(time="2026-09-19T11:00:00+00:00", value=value)])
+
+    rows = [row("a", "big", 100.0), row("a", "huge", 900.0), row("b", "small", 1.0)]
+    with patch("products.metrics.backend.series.MAX_SERIES_PER_CLAUSE", 1):
+        series = rank_and_fill_series(rows, fill=None)
+
+    assert [(item.clause, item.labels["job"]) for item in series] == [("a", "huge"), ("b", "small")]
+
+
+def test_grid_keeps_the_times_of_series_the_cap_drops() -> None:
+    rows = [
+        ({"job": "big"}, None, "a", [MetricPoint(time="11:00", value=100.0)]),
+        ({"job": "small"}, None, "a", [MetricPoint(time="11:00", value=1.0), MetricPoint(time="11:05", value=1.0)]),
+    ]
+    with patch("products.metrics.backend.series.MAX_SERIES_PER_CLAUSE", 1):
+        [series] = rank_and_fill_series(rows, fill=0.0)
+
+    assert [(point.time, point.value) for point in series.points] == [("11:00", 100.0), ("11:05", 0.0)]
+
+
+@parameterized.expand([("too_many_series", 3, 1), ("too_many_points", 2, 3)])
+def test_output_is_bounded(_name: str, series_count: int, time_count: int) -> None:
+    rows = [
+        ({"job": str(index)}, None, str(index), [MetricPoint(time=str(time), value=1.0) for time in range(time_count)])
+        for index in range(series_count)
+    ]
+    with (
+        patch("products.metrics.backend.series.MAX_SERIES_TOTAL", 2),
+        patch("products.metrics.backend.series.MAX_POINTS_TOTAL", 4),
+        pytest.raises(ValueError, match="too many series"),
+    ):
+        rank_and_fill_series(rows, fill=None)

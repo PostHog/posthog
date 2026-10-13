@@ -39,13 +39,13 @@ export function PipelineOverviewScene(): JSX.Element {
     // Wait for the flags to land before refusing. Rendering NotFound first and the scene a beat
     // later reads as a broken page to anyone who does have the flag.
     if (receivedFeatureFlags && !featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
-        return <NotFound object="page" caption="ETL isn't available for this project yet." />
+        return <NotFound object="page" caption="ELT isn't available for this project yet." />
     }
 
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
-                name="ETL"
+                name="ELT"
                 description="Every source you import from and every destination you write to, with the health of each."
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
@@ -94,10 +94,7 @@ export function PipelineOverviewScene(): JSX.Element {
                 </>
             ) : null}
 
-            <SceneSection
-                title="Rows synced by destination"
-                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
-            >
+            <SceneSection title="Rows synced by destination">
                 <RowsByDestination />
             </SceneSection>
 

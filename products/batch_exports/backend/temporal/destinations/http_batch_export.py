@@ -203,9 +203,6 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if inputs.batch_export_schema is not None:
-            raise NotImplementedError("Batch export schema is not supported for HTTP export")
-
         if inputs.batch_export_model is not None:
             if inputs.batch_export_model.name != "events":
                 raise NotImplementedError("HTTP export only supports the events model")
@@ -234,7 +231,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=inputs.team_id, values=None, native_events_source=native_source
+                filters, team_id=inputs.team_id, values=None
             )
         else:
             filters_str = ""
@@ -422,7 +419,6 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,

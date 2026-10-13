@@ -7,6 +7,7 @@ import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { createTextCommentAnchor, resolveTextCommentAnchor } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
+import { ArtifactInlineThread, INLINE_THREAD_WIDTH_PX } from './ArtifactInlineThread'
 import { ArtifactPendingComment, PENDING_COMMENT_WIDTH_PX } from './ArtifactPendingComment'
 
 const EDGE_MARGIN_PX = 8
@@ -93,9 +94,11 @@ function outermostRects(rects: Iterable<DOMRect>): DOMRect[] {
  */
 export function ArtifactTextAnnotations({
     logicProps,
+    selectable = true,
     children,
 }: {
     logicProps: TaskArtifactCommentsLogicProps
+    selectable?: boolean
     children: ReactNode
 }): JSX.Element {
     const logic = taskArtifactCommentsLogic(logicProps)
@@ -176,7 +179,7 @@ export function ArtifactTextAnnotations({
         }
     }, [])
 
-    // A pick in the comments panel scrolls its quote into view.
+    // A pick in the comments menu scrolls its quote into view.
     useEffect(() => {
         const root = rootRef.current
         const thread = textThreads.find((candidate) => candidate.root.id === activeThreadId)
@@ -192,6 +195,9 @@ export function ArtifactTextAnnotations({
     }, [activeThreadId])
 
     useEffect(() => {
+        if (!selectable) {
+            return
+        }
         let frame = 0
         const readSelection = (): void => {
             const root = rootRef.current
@@ -247,7 +253,7 @@ export function ArtifactTextAnnotations({
             document.removeEventListener('pointerup', onRelease)
             document.removeEventListener('keyup', onRelease)
         }
-    }, [logic, setPendingAnchor, dismissPending])
+    }, [logic, setPendingAnchor, dismissPending, selectable])
 
     const firstRectIndex = new Map<string, number>()
     rects.forEach((rect, index) => {
@@ -255,6 +261,10 @@ export function ArtifactTextAnnotations({
             firstRectIndex.set(rect.id, index)
         }
     })
+
+    const activeEnd = rects.filter((rect) => rect.id === activeThreadId).at(-1)
+    const pendingText = pendingAnchor?.kind === 'text' && !!pendingPosition
+    const maxThreadLeft = (containerRef.current?.clientWidth ?? 0) - INLINE_THREAD_WIDTH_PX - EDGE_MARGIN_PX
 
     return (
         <div ref={containerRef} className="relative">
@@ -281,6 +291,15 @@ export function ArtifactTextAnnotations({
                     />
                 ))}
             </div>
+            {activeEnd && !pendingText && (
+                <ArtifactInlineThread
+                    logicProps={logicProps}
+                    style={{
+                        left: Math.max(EDGE_MARGIN_PX, Math.min(activeEnd.left, maxThreadLeft)),
+                        top: activeEnd.top + activeEnd.height + 6,
+                    }}
+                />
+            )}
             {pendingAnchor?.kind === 'text' && pendingPosition && (
                 <ArtifactPendingComment
                     logicProps={logicProps}

@@ -5,7 +5,14 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-CLEVER_BASE_URL = "https://api.clever.com/v3.0"
+CLEVER_API_VERSION_V3_0 = "v3.0"
+CLEVER_API_VERSION_V3_1 = "v3.1"
+
+# Clever selects the API version by the first URL path segment.
+CLEVER_BASE_URLS: dict[str, str] = {
+    CLEVER_API_VERSION_V3_0: "https://api.clever.com/v3.0",
+    CLEVER_API_VERSION_V3_1: "https://api.clever.com/v3.1",
+}
 
 # Clever's documented maximum page size (the default is 100 if omitted); requesting the max
 # means fewer round trips for a full district roster sync.
@@ -57,6 +64,14 @@ CLEVER_ENDPOINTS: dict[str, CleverEndpointConfig] = {
     # entity endpoints above to catch up.
     "Events": CleverEndpointConfig(name="Events", path="/events", incremental=True, partition_key="created"),
 }
+
+
+def clever_base_url(api_version: str) -> str:
+    try:
+        return CLEVER_BASE_URLS[api_version]
+    except KeyError:
+        raise ValueError(f"Unsupported Clever API version: {api_version}")
+
 
 ENDPOINTS = tuple(CLEVER_ENDPOINTS.keys())
 

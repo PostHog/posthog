@@ -38,6 +38,13 @@ PersonalAPIKey.objects.create(
     label="ci-smoke-test",
     secure_value=hash_key_value(raw_key),
     mask_value=mask_key_value(raw_key),
-    scopes=["query:read", "logs:read", "error_tracking:read", "session_recording:read", "tracing:read"],
+    scopes=[
+        "query:read",
+        "logs:read",
+        "error_tracking:read",
+        "session_recording:read",
+        "tracing:read",
+        "feature_flag:write",
+    ],
 )
 print(f"{team.api_token}|||{raw_key}")  # noqa: T201

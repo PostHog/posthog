@@ -31,10 +31,14 @@ describe('captureElementScreenshot', () => {
         )
     })
 
-    it('returns the blob on success', async () => {
+    it('returns a JPEG on a white background so transparent areas do not turn black', async () => {
         const blob = new Blob(['x'], { type: 'image/jpeg' })
         mockToBlob.mockResolvedValueOnce(blob)
 
         await expect(captureElementScreenshot(document.documentElement)).resolves.toBe(blob)
+        expect(mockToBlob).toHaveBeenCalledWith(
+            document.documentElement,
+            expect.objectContaining({ type: 'image/jpeg', backgroundColor: '#ffffff' })
+        )
     })
 })

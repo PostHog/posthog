@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
     BUFFER_LISTED_TAIL_KEY,
-    LEGACY_CONVERTED_AT_KEY,
     ListingProof,
     buffer_may_have_expired_unread,
     clear_listing,
@@ -119,19 +118,14 @@ class TestCompletedListingProof(BaseTest):
 
 
 class TestBufferExpiredUnread(BaseTest):
-    def _schema(self, *, synced_days_ago: int | None, converted_days_ago: int | None = None) -> ExternalDataSchema:
+    def _schema(self, *, synced_days_ago: int | None) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
             team=self.team, source_id="s", connection_id="c", status="Running", source_type="Postgres"
         )
         now = dt.datetime.now(tz=dt.UTC)
         synced = None if synced_days_ago is None else now - dt.timedelta(days=synced_days_ago)
-        config = (
-            {}
-            if converted_days_ago is None
-            else {LEGACY_CONVERTED_AT_KEY: (now - dt.timedelta(days=converted_days_ago)).isoformat()}
-        )
         return ExternalDataSchema.objects.create(
-            team=self.team, source=source, name="users", last_synced_at=synced, sync_type_config=config
+            team=self.team, source=source, name="users", last_synced_at=synced, sync_type_config={}
         )
 
     def _completed_job(self, schema: ExternalDataSchema, *, days_ago: int, snapshot: dict) -> None:
@@ -149,19 +143,17 @@ class TestBufferExpiredUnread(BaseTest):
 
     @parameterized.expand(
         [
-            ("never_synced", None, None, None, False),
-            ("no_completion_since_retention", 15, None, None, True),
-            ("only_stand_downs_since_retention", 1, (1, {}), None, True),
-            ("a_run_listed_the_buffer", 1, (10, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}), None, False),
-            ("a_snapshot_reseeded_the_table", 1, (3, {"sync_type_config": {"cdc_mode": "snapshot"}}), None, False),
+            ("never_synced", None, None, False),
+            ("no_completion_since_retention", 15, None, True),
+            ("only_stand_downs_since_retention", 1, (1, {}), True),
+            ("a_run_listed_the_buffer", 1, (10, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}), False),
+            ("a_snapshot_reseeded_the_table", 1, (3, {"sync_type_config": {"cdc_mode": "snapshot"}}), False),
             (
                 "the_last_listing_is_older_than_retention",
                 1,
                 (20, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}),
-                None,
                 True,
             ),
-            ("a_legacy_conversion_older_than_retention", 1, (1, {}), 20, True),
         ]
     )
     def test_only_a_listing_or_a_snapshot_proves_the_buffer_was_read(
@@ -169,10 +161,9 @@ class TestBufferExpiredUnread(BaseTest):
         _name: str,
         synced_days_ago: int | None,
         job: tuple[int, dict] | None,
-        converted_days_ago: int | None,
         expired: bool,
     ) -> None:
-        schema = self._schema(synced_days_ago=synced_days_ago, converted_days_ago=converted_days_ago)
+        schema = self._schema(synced_days_ago=synced_days_ago)
         if job is not None:
             self._completed_job(schema, days_ago=job[0], snapshot=job[1])
 

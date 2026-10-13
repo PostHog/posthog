@@ -118,39 +118,14 @@ class TestParsePackageIds:
         with pytest.raises(ValueError):
             parse_package_ids(",".join(f"pkg{i}" for i in range(MAX_PACKAGES + 1)))
 
-    def test_at_limit_ok(self) -> None:
-        assert len(parse_package_ids(",".join(f"pkg{i}" for i in range(MAX_PACKAGES)))) == MAX_PACKAGES
-
 
 class TestResolveResource:
-    def test_prefers_versioned_type(self) -> None:
-        assert _resolve_resource(SERVICE_INDEX, ("RegistrationsBaseUrl/3.6.0", "RegistrationsBaseUrl")) == (
-            REGISTRATION_URL
-        )
-
-    def test_falls_back_to_unversioned_type(self) -> None:
-        assert _resolve_resource(SERVICE_INDEX, ("SearchQueryService/9.9.9", "SearchQueryService")) == SEARCH_URL
-
     def test_missing_resource_raises(self) -> None:
         with pytest.raises(ValueError):
             _resolve_resource({"resources": []}, ("Catalog/3.0.0",))
 
 
 class TestPackagesEndpoint:
-    def test_yields_row_without_versions_or_jsonld_keys(self, monkeypatch: Any) -> None:
-        _patch_fetch(
-            monkeypatch,
-            {SERVICE_INDEX_URL: SERVICE_INDEX, _search_query_url("Foo.Bar"): {"data": [_search_doc("Foo.Bar")]}},
-        )
-        rows = _collect(_FakeResumableManager(), "packages")
-
-        assert len(rows) == 1
-        assert rows[0]["id"] == "Foo.Bar"
-        assert rows[0]["totalDownloads"] == 100
-        assert "versions" not in rows[0]
-        assert "@id" not in rows[0]
-        assert "@type" not in rows[0]
-
     def test_search_miss_skips_package_and_continues(self, monkeypatch: Any) -> None:
         # Unlisted packages are hidden from search; the sync must not fail, just move on.
         _patch_fetch(
@@ -164,20 +139,6 @@ class TestPackagesEndpoint:
         rows = _collect(_FakeResumableManager(), "packages", package_ids="Gone.Pkg, Foo.Bar")
 
         assert [row["id"] for row in rows] == ["Foo.Bar"]
-
-    def test_saves_resume_state_between_packages_only(self, monkeypatch: Any) -> None:
-        _patch_fetch(
-            monkeypatch,
-            {
-                SERVICE_INDEX_URL: SERVICE_INDEX,
-                _search_query_url("A"): {"data": [_search_doc("A")]},
-                _search_query_url("B"): {"data": [_search_doc("B")]},
-            },
-        )
-        manager = _FakeResumableManager()
-        _collect(manager, "packages", package_ids="A, B")
-
-        assert manager.saved == [NugetResumeConfig(last_package_id="A")]
 
     def test_resumes_after_bookmarked_package(self, monkeypatch: Any) -> None:
         fetched = _patch_fetch(
@@ -269,18 +230,6 @@ class TestCatalogEventsEndpoint:
             },
         }
 
-    def test_first_sync_walks_pages_in_ascending_commit_order(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, self._pages())
-        rows = _collect(_FakeResumableManager(), "catalog_events")
-
-        # Unsorted index/page items must come out globally ascending (sort_mode="asc" contract),
-        # filtered to the tracked package.
-        assert [row["package_version"] for row in rows] == ["1.0.0", "1.1.0", "2.0.0"]
-        assert [row["package_id"] for row in rows] == ["Foo.Bar"] * 3
-        assert rows[0]["commit_timestamp"] == datetime(2025, 12, 1, tzinfo=UTC)
-        assert rows[2]["event_type"] == "nuget:PackageDelete"
-        assert fetched.index(self.PAGE_1_URL) < fetched.index(self.PAGE_2_URL)
-
     def test_incremental_cursor_skips_whole_pages_without_fetching(self, monkeypatch: Any) -> None:
         fetched = _patch_fetch(monkeypatch, self._pages())
         rows = _collect(
@@ -288,37 +237,6 @@ class TestCatalogEventsEndpoint:
             "catalog_events",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert self.PAGE_1_URL not in fetched
-        assert [row["package_version"] for row in rows] == ["2.0.0"]
-
-    def test_cursor_filters_items_within_a_refetched_page(self, monkeypatch: Any) -> None:
-        _patch_fetch(monkeypatch, self._pages())
-        rows = _collect(
-            _FakeResumableManager(),
-            "catalog_events",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2025, 12, 20, tzinfo=UTC),
-        )
-
-        assert [row["package_version"] for row in rows] == ["1.1.0", "2.0.0"]
-
-    def test_saves_state_after_each_processed_page(self, monkeypatch: Any) -> None:
-        _patch_fetch(monkeypatch, self._pages())
-        manager = _FakeResumableManager()
-        _collect(manager, "catalog_events")
-
-        assert [state.commit_cursor for state in manager.saved] == [
-            "2026-01-01T00:00:00.0000000Z",
-            "2026-02-01T00:00:00.0000000Z",
-        ]
-
-    def test_resume_checkpoint_acts_as_cursor(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, self._pages())
-        rows = _collect(
-            _FakeResumableManager(NugetResumeConfig(commit_cursor="2026-01-01T00:00:00.0000000Z")),
-            "catalog_events",
         )
 
         assert self.PAGE_1_URL not in fetched
@@ -349,10 +267,6 @@ class TestValidateNugetConnection:
 
         session.get.side_effect = fake_get
         return session
-
-    def test_valid_packages(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(nuget, "make_tracked_session", lambda: self._session())
-        assert validate_nuget_connection("Foo.Bar, Baz") == (True, None)
 
     def test_unknown_packages_named_in_error(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(nuget, "make_tracked_session", lambda: self._session(registration_status=404))

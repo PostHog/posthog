@@ -15,8 +15,14 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultMetricsIngestionConsumerConfig } from './config'
-import { DEFAULT_METRICS_RETENTION_DAYS, MetricsIngestionConsumer } from './metrics-ingestion-consumer'
-import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
+import { MetricsIngestionConsumer } from './metrics-ingestion-consumer'
+import {
+    DEFAULT_METRICS_RETENTION_DAYS,
+    METRICS_DLQ_OUTPUT,
+    METRICS_OUTPUT,
+    MetricsDlqOutput,
+    MetricsOutput,
+} from './outputs/outputs'
 
 const createKafkaMessage = (headers: Record<string, string>): Message => {
     // The consumer passes the Avro payload through without decoding it.

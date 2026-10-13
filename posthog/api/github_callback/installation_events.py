@@ -98,7 +98,7 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 def _pause_loops_referencing_integrations(integrations: list[Integration], installation_id: str) -> None:
     """Auto-pause every loop referencing a GitHub integration that's about to be hard-deleted.
 
-    See products/tasks/docs/LOOPS.md "Lifecycle and reconciliation": the App uninstall hard-deletes
+    The App uninstall hard-deletes
     the Integration row with no downstream hooks, and loop references to it are JSON, so no FK
     machinery helps. Runs before the delete below and is fully isolated: a loops-side failure must
     never break the pre-existing Integration/UserIntegration deletion path.

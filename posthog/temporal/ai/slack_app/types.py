@@ -138,11 +138,16 @@ class SlackAppMessageReactionInput(BaseModel):
 
 
 class SlackAppModelOverrideInput(BaseModel):
-    """Single-argument input for the model-override classifier activity."""
+    """Single-argument input for the model-override classifier activity.
+
+    ``thread_ts`` only groups the captured generation into its thread's trace, so it
+    defaults to None: a task queued before it existed stays bindable on a new worker.
+    """
 
     integration_id: int
     slack_team_id: str
     event_text: str
+    thread_ts: str | None = None
 
 
 class SlackAppModelOverride(BaseModel):
@@ -160,6 +165,17 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
+class SlackAppModelRouterInput(BaseModel):
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    user_id: int
+    event_text: str
+    thread_ts: str | None = None
+    repository: str | None = None
+    model_override: SlackAppModelOverride | None = None
+
+
 class SlackAppProjectRouteInput(BaseModel):
     """Single-argument input for the project-route classifier activity.
 
@@ -172,6 +188,7 @@ class SlackAppProjectRouteInput(BaseModel):
     event_text: str
     user_id: int
     slack_user_id: str
+    thread_ts: str | None = None
 
 
 class SlackAppProjectRoute(BaseModel):

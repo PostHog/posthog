@@ -1,7 +1,7 @@
 import { Attributes } from '@opentelemetry/api'
 import { Counter, Gauge } from 'prom-client'
 
-import { instrumentFn, setSpanAttributes } from '~/common/tracing/tracing-utils'
+import { instrumentFn, setSpanAttributes, withTracingSpan } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
@@ -109,7 +109,7 @@ type LazyLoaderMap<T> = Record<string, T | null | undefined>
  * How a `loadViaCache` call was served: every key from the cache, by invoking the loader, or by
  * waiting on a load another caller already had in flight.
  */
-export type LazyLoaderSpanOutcome = 'all_cached' | 'loaded' | 'waited_pending'
+export type LazyLoaderSpanOutcome = 'loaded' | 'waited_pending'
 
 /**
  * A cached value together with the deadlines that govern it. These live on one object so that
@@ -233,19 +233,17 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
-        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name }, async () => {
+        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name, span: false }, async () => {
             // No prototype, for the same reason as the cache: keys are caller-supplied, and this
             // object is handed back to callers who may iterate or spread it.
             const results: Record<string, T | null> = Object.create(null)
             const keysToLoad = new Set<string>()
 
-            // First, check if all keys are already cached and update the lastUsed time
             for (const key of keys) {
                 const cached = this.cache[key]
 
                 if (cached !== undefined) {
                     results[key] = cached.value
-                    // Always update the lastUsed time
                     cached.lastUsed = Date.now()
 
                     const cacheUntil = cached.cacheUntil
@@ -257,7 +255,6 @@ export class LazyLoader<T> {
                         continue
                     }
 
-                    // If we haven't triggered a hard refresh, we check for a background refresh
                     if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
                         void this.load([key]).catch((err) => {
                             logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
@@ -279,26 +276,31 @@ export class LazyLoader<T> {
 
             if (keysToLoad.size === 0) {
                 lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-                setSpanAttributes(this.spanAttributes(keys, keysToLoad, 'all_cached'))
                 return results
             }
 
             lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-            // A span that only waits on another caller's in-flight load has no query child of its
-            // own, so record the distinction here or it looks like a slow cache lookup.
-            const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
-            setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
+            // Only a miss gets a span: with one span per lookup, hits outnumber every other span in a trace.
+            return await withTracingSpan(
+                'instrumented_function',
+                'lazyLoader.loadViaCache',
+                { tag: this.options.name },
+                async () => {
+                    // A span that only waits on another caller's in-flight load has no query child of its
+                    // own, so record the distinction here or it looks like a slow cache lookup.
+                    const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
+                    setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
 
-            // We have something to load so we schedule it and then await all of them
-            await this.load(Array.from(keysToLoad), options)
+                    await this.load(Array.from(keysToLoad), options)
 
-            for (const key of keys) {
-                // Grab the new cached result for all keys
-                results[key] = this.cache[key]?.value ?? null
-            }
+                    for (const key of keys) {
+                        results[key] = this.cache[key]?.value ?? null
+                    }
 
-            return results
+                    return results
+                }
+            )
         })
     }
 
@@ -324,7 +326,6 @@ export class LazyLoader<T> {
         for (const key of keys) {
             let pendingLoad = this.pendingLoads[key]
             if (pendingLoad) {
-                // If we already have a scheduled loader for this key we just add it to the list
                 keyPromises.push(pendingLoad)
                 lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 continue
@@ -338,7 +339,6 @@ export class LazyLoader<T> {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            // Add the key to the buffer and add a pendingLoad that waits for the buffer to resolve.
             // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise.finally(() => {
@@ -426,7 +426,7 @@ export class LazyLoader<T> {
             } catch (error) {
                 attempt++
                 if (error?.isRetriable !== true) {
-                    // Non-transient: rethrow immediately so genuine bugs surface rather than being masked.
+                    // Surface non-transient errors instead of masking them with retries.
                     throw error
                 }
                 if (performance.now() >= deadline) {
@@ -454,14 +454,13 @@ export class LazyLoader<T> {
         }
 
         // Evict extra headroom so we don't re-sort on every subsequent insert.
-        // Only apply headroom for caches large enough to benefit (>100 entries).
+        // Apply headroom only to caches large enough to benefit from fewer sorts.
         const headroom = this.maxSize > 100 ? Math.ceil(this.maxSize * 0.1) : 0
         const toEvict = this.cacheSize - this.maxSize + headroom
 
         const cacheKeys = Object.keys(this.cache)
         cacheKeys.sort((a, b) => (this.cache[a]?.lastUsed ?? 0) - (this.cache[b]?.lastUsed ?? 0))
 
-        // Evict the least recently used entries
         const evictCount = Math.min(toEvict, cacheKeys.length)
         for (let i = 0; i < evictCount; i++) {
             delete this.cache[cacheKeys[i]]

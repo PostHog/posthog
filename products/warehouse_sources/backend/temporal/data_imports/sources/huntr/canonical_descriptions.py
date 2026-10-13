@@ -80,4 +80,34 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "When the action was created (Unix seconds).",
         },
     },
+    "activity_categories": {
+        "description": "A category that classifies an activity, such as Apply, Phone Interview, or Offer Received.",
+        "docs_url": "https://docs.huntr.co",
+        "columns": {
+            "id": "The unique ID of the activity category.",
+            "name": "The name of the activity category.",
+        },
+    },
+    "tags": {
+        "description": "A tag the organization created to label records such as job posts.",
+        "docs_url": "https://docs.huntr.co",
+        "columns": {
+            "id": "The unique ID of the tag.",
+            "name": "The display name of the tag.",
+            "description": "An internal description of what the tag means.",
+            "color": "The hex color used to display the tag.",
+            "targetObjects": "The types of record the tag can be applied to (for example JOB_POST).",
+        },
+    },
+    "candidate_action_metrics": {
+        "description": "Per-candidate counts of an action type that employers performed, such as viewing the candidate profile.",
+        "docs_url": "https://docs.huntr.co",
+        "columns": {
+            "candidate_id": "The ID of the candidate the metrics belong to.",
+            "action_type": "The action the metrics count (for example CANDIDATE_PROFILE_VIEWED).",
+            "uniqueEmployersCt": "The number of unique employers that performed the action.",
+            "totalCt": "The total number of times the action was performed.",
+            "employers": "The employers that performed the action, each with its own count.",
+        },
+    },
 }

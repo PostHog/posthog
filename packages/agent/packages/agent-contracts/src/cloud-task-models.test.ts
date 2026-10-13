@@ -447,6 +447,26 @@ describe("applyAllowedModels", () => {
     ]);
   });
 
+  it("matches a pin echoed in canonical spelling", () => {
+    const result = applyAllowedModels(
+      {
+        data: [
+          { id: "claude-opus-5-5", canonical: "anthropic/claude-opus-5.5" },
+          { id: "gpt-6-sol", canonical: "openai/gpt-6-sol" },
+        ],
+      },
+      {
+        productModels: ["claude-opus-5-5", "gpt-6-sol"],
+        allowedModels: ["anthropic/claude-opus-5.5"],
+      },
+    ) as { data: Array<Record<string, unknown>> };
+
+    expect(result.data.map((m) => [m.id, m.allowed])).toEqual([
+      ["claude-opus-5-5", true],
+      ["gpt-6-sol", false],
+    ]);
+  });
+
   it("marks every kept entry allowed only when the pin is null", () => {
     const result = applyAllowedModels(goBody, {
       productModels: [],

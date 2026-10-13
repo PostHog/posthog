@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import type { OfflineHistoryPageApi, OfflineHistoryPointApi } from '../generated/api.schemas'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { OfflineScorerHistoryRunDetails } from './OfflineScorerHistoryRunDetails'
-import { formatOfflineScore } from './offlineScoreTrends'
+import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 
 export function OfflineScorerHistoryTable({
     periodKey,
@@ -72,11 +72,7 @@ export function OfflineScorerHistoryTable({
                     title: 'Score',
                     key: 'score',
                     width: '16%',
-                    render: (_, point) => (
-                        <Tooltip title={formatOfflineScore(point.summary)}>
-                            <span className="block tabular-nums truncate">{formatOfflineScore(point.summary)}</span>
-                        </Tooltip>
-                    ),
+                    render: (_, point) => <OfflineScoreSummaryDisplay summary={point.summary} />,
                 },
                 {
                     title: 'Coverage',

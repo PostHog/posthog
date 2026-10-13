@@ -122,7 +122,9 @@ class CanonicalSkill:
     ships the scout under. `deprecation` is the optional retirement marker from `scout-status` /
     `scout-deprecation`, set only on a scout PostHog is retiring.
     `structured_output_schema` is the record contract a measurement scout ships, read from the
-    bundled file `scout-structured-output-schema` names.
+    bundled file `scout-structured-output-schema` names. `precheck_query` is the optional
+    `scout-precheck-query` frontmatter value, the pre-check a scheduled run uses when the team set
+    none of its own.
     """
 
     name: str
@@ -136,6 +138,7 @@ class CanonicalSkill:
     display_name: str = ""
     deprecation: ScoutDeprecation | None = None
     structured_output_schema: dict | None = None
+    precheck_query: str | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +285,46 @@ def _parse_display_name(frontmatter: dict, skill_file: Path, *, is_scout: bool) 
     return display_name
 
 
+def _parse_precheck_query(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> str | None:
+    """Read the optional `scout-precheck-query` frontmatter value — the scout's default pre-check.
+
+    A scheduled run uses it when the team set no `precheck_query` of its own and did not turn the
+    pre-check off, and only for a team inside the skill's rollout (`precheck.resolve_effective_precheck`).
+    It is read from disk at evaluation time, not stamped on the config, so an edit reaches every
+    team on the next deploy. Validated here with the same parser the config API uses, so a broken
+    default fails the fleet sync once rather than erroring on every tick of every team.
+
+    Only scouts have a pre-check, so the key is rejected on a companion skill.
+    """
+    if "scout-precheck-query" not in frontmatter:
+        return None
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-precheck-query': {skill_file}")
+    raw = frontmatter["scout-precheck-query"]
+    if not isinstance(raw, str) or not (query := raw.strip()):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-precheck-query' must be a non-empty string: {skill_file}"
+        )
+    # Deferred: `precheck` reads the canonical default from this module.
+    from products.signals.backend.scout_harness.precheck import (  # noqa: PLC0415 — breaks a circular import
+        PRECHECK_MAX_QUERY_LENGTH,
+        parse_precheck_query,
+    )
+
+    if len(query) > PRECHECK_MAX_QUERY_LENGTH:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-precheck-query' exceeds the {PRECHECK_MAX_QUERY_LENGTH} "
+            f"character limit: {skill_file}"
+        )
+    try:
+        parse_precheck_query(query)
+    except Exception as error:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-precheck-query' is not a valid HogQL SELECT: {skill_file}: {error}"
+        ) from error
+    return query
+
+
 def _parse_structured_output_schema(
     frontmatter: dict, files: list[CanonicalSkillFile], skill_file: Path, *, is_scout: bool
 ) -> dict | None:
@@ -412,6 +455,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
     display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
+    precheck_query = _parse_precheck_query(frontmatter, skill_file, is_scout=is_scout)
     # A malformed marker is raised as a parse error like every other frontmatter fault, so the
     # callers that degrade to an empty fleet keep one failure mode rather than two.
     try:
@@ -470,6 +514,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         display_name=display_name,
         deprecation=deprecation,
         structured_output_schema=structured_output_schema,
+        precheck_query=precheck_query,
     )
 
 
@@ -622,6 +667,31 @@ def canonical_structured_output_schema_for(skill_name: str) -> dict | None:
 
 
 @lru_cache(maxsize=1)
+def _canonical_precheck_queries() -> dict[str, str]:
+    """The default pre-check per canonical scout name, for the scouts that ship one.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical, which leaves every scout running on
+    every due tick as before.
+    """
+    try:
+        return {skill.name: skill.precheck_query for skill in discover_canonical_skills() if skill.precheck_query}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_precheck_queries: malformed canonical skill on disk; reading no pre-check defaults")
+        return {}
+
+
+def canonical_precheck_query_for(skill_name: str) -> str | None:
+    """The default pre-check the canonical scout of this name ships, if any.
+
+    None for a custom scout, and for a canonical scout with no default. Callers must confirm the
+    name is canonical first — a team's own `signals-scout-*` skill can share a canonical name, and
+    it inherits nothing from disk.
+    """
+    return _canonical_precheck_queries().get(skill_name)
+
+
+@lru_cache(maxsize=1)
 def _canonical_deprecations() -> dict[str, ScoutDeprecation]:
     """The retirement marker per canonical scout name, for the scouts PostHog is retiring.
 
@@ -691,6 +761,7 @@ def reset_canonical_caches() -> None:
         _canonical_operational_scouts,
         _canonical_deprecations,
         _canonical_structured_output_schemas,
+        _canonical_precheck_queries,
     ):
         cache.cache_clear()
 

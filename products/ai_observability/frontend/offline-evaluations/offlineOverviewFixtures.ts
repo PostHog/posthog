@@ -11,8 +11,12 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         current_version_id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, '0')}`,
         config:
             index === 1
-                ? { true_label: 'Grounded', false_label: 'Ungrounded' }
-                : { min: 0, max: index === 2 ? 5000 : 1 },
+                ? { true_label: 'Grounded', false_label: 'Ungrounded', true_is_failure: false }
+                : {
+                      min: 0,
+                      max: index === 2 ? 5000 : 1,
+                      passing_rule: { operator: index === 2 ? 'lte' : 'gte', threshold: index === 2 ? 1800 : 0.8 },
+                  },
         created_by: null,
         created_at: '2026-09-01T12:00:00Z',
         updated_at: '2026-09-20T12:00:00Z',
@@ -79,6 +83,9 @@ export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPoint
                 true_count: scorer.kind === 'boolean' ? 90 - index : null,
                 false_count: scorer.kind === 'boolean' ? 5 + index : null,
                 true_rate: scorer.kind === 'boolean' ? (90 - index) / 95 : null,
+                pass_count: scorer.kind === 'boolean' ? 90 - index : 65 + index * 5,
+                fail_count: scorer.kind === 'boolean' ? 5 + index : 30 - index * 5,
+                pass_rate: (scorer.kind === 'boolean' ? 90 - index : 65 + index * 5) / 95,
                 categories: [],
             },
         }))

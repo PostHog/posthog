@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
+import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -20,6 +21,17 @@ export class MCPToolError extends Error {
         this.tool = tool
         this.originalError = originalError
         this.timestamp = new Date()
+    }
+}
+
+export class MCPToolResultError extends Error {
+    constructor(
+        message: string,
+        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>,
+        public readonly errorCode?: string
+    ) {
+        super(message)
+        this.name = 'MCPToolResultError'
     }
 }
 
@@ -82,6 +94,52 @@ function formatMissingOrganizationContextMessage(): string {
         '1. Call `organizations-get` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
         '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
     )
+}
+
+/**
+ * Thrown by `switch-project` and `switch-organization` when the request pins the
+ * context and carries no MCP session id. Nothing records the switch across
+ * requests, so the next request applies the pin again. Failing here tells the
+ * agent the truth instead of a success that the next call silently reverts.
+ */
+export class PinnedContextSwitchError extends Error {
+    constructor(pinned: { organizationId?: string | undefined; projectId?: string | undefined }) {
+        super(formatPinnedContextSwitchMessage(pinned))
+        this.name = 'PinnedContextSwitchError'
+    }
+}
+
+function formatPinnedContextSwitchMessage(pinned: {
+    organizationId?: string | undefined
+    projectId?: string | undefined
+}): string {
+    const target = pinned.projectId ? `project \`${pinned.projectId}\`` : `organization \`${pinned.organizationId}\``
+    return (
+        `This connection pins ${target} on every request and sends no MCP session id, so a switch cannot persist. ` +
+        'The next tool call would run against the pinned context again, so the switch was not applied.' +
+        '\n\n' +
+        `Keep working in the pinned ${pinned.projectId ? 'project' : 'organization'}, or ask the user to change the pin in the MCP client configuration ` +
+        '(the `project_id` / `organization_id` URL parameters or the `x-posthog-project-id` / `x-posthog-organization-id` headers).'
+    )
+}
+
+export const SESSION_RESET_REQUIRED_REASON = 'session_reset_required'
+
+/**
+ * Thrown before any tool runs when an MCP session saved its project and
+ * organization selection under the store key that held only the session id.
+ * The server does not trust those values, because any credential can send the
+ * same session id, and it does not silently start over from the pin or the
+ * shared token selection either. A new session starts with a clean selection.
+ */
+export class McpSessionResetRequiredError extends Error {
+    constructor() {
+        super(
+            'This MCP session started before a PostHog MCP server update, and the server cannot restore its project and organization selection. ' +
+                'No tool ran. Reconnect the PostHog MCP server to start a new session, then try again.'
+        )
+        this.name = 'McpSessionResetRequiredError'
+    }
 }
 
 export interface PostHogValidationErrorOptions {
@@ -179,6 +237,7 @@ export interface PostHogApiErrorOptions {
     url: string
     method: string
     message?: string
+    retryAfterSeconds?: number | null
 }
 
 /**
@@ -199,6 +258,7 @@ export class PostHogApiError extends Error {
     public readonly body: string
     public readonly url: string
     public readonly method: string
+    public readonly retryAfterSeconds: number | null
 
     constructor(options: PostHogApiErrorOptions) {
         super(options.message ?? buildDefaultApiErrorMessage(options))
@@ -208,6 +268,7 @@ export class PostHogApiError extends Error {
         this.body = options.body
         this.url = options.url
         this.method = options.method
+        this.retryAfterSeconds = options.retryAfterSeconds ?? null
     }
 }
 
@@ -235,14 +296,10 @@ export interface PostHogRateLimitErrorOptions {
 }
 
 /**
- * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
- * MCP server: sleeping here keeps the client's request open and lets pending
- * work pile up behind it, so the rate limit is surfaced immediately with the
- * server's Retry-After hint and the client decides when to retry.
+ * Thrown when an HTTP 429 reaches the caller, including after the JSON client's
+ * bounded retries. Preserves the server's Retry-After hint for the next attempt.
  */
 export class PostHogRateLimitError extends PostHogApiError {
-    public readonly retryAfterSeconds: number | null
-
     constructor(options: PostHogRateLimitErrorOptions) {
         const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
         super({
@@ -251,10 +308,10 @@ export class PostHogRateLimitError extends PostHogApiError {
             body: options.body,
             url: options.url,
             method: options.method,
+            retryAfterSeconds: options.retryAfterSeconds,
             message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
-        this.retryAfterSeconds = options.retryAfterSeconds
     }
 }
 
@@ -302,14 +359,14 @@ export class PostHogTransportError extends Error {
 
 /**
  * Parses a Retry-After header into whole seconds. Returns null for missing
- * headers, HTTP-date values, and bogus negatives.
+ * headers, HTTP-date values, and invalid delay values.
  */
 export function parseRetryAfterSeconds(header: string | null): number | null {
-    if (!header) {
+    if (!header || !/^\d+$/.test(header.trim())) {
         return null
     }
-    const seconds = Number.parseInt(header, 10)
-    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
+    const seconds = Number(header)
+    return Number.isSafeInteger(seconds) ? seconds : null
 }
 
 export interface PostHogPermissionErrorOptions {
@@ -484,7 +541,13 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
  *
  * @returns A structured error message.
  */
-export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
+export function handleToolError(
+    error: any,
+    tool?: string,
+    distinctId?: string,
+    sessionUuid?: string,
+    suppressAnalytics = false
+): CallToolResult {
     const toolName = tool || 'unknown'
 
     // Recoverable: expected agent or user state, not a bug — no project picked,
@@ -494,8 +557,10 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     if (
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError ||
         error instanceof ToolInputValidationError ||
-        error instanceof ExecCommandError
+        error instanceof ExecCommandError ||
+        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
     ) {
         return {
             content: [
@@ -539,6 +604,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             team: 'growth',
             tool: toolName,
             is_permission_error: true,
+            suppress_analytics: suppressAnalytics,
             missing_scope: permissionError.missingScope,
             $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
         }
@@ -573,6 +639,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         team: 'growth',
         tool: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
+        suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
     }
 
@@ -594,7 +661,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // reach here (4xx short-circuited earlier).
     const recoveryHint =
         recoverableApiError instanceof PostHogApiError
-            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            ? getToolRecoveryHint({
+                  url: recoverableApiError.url,
+                  status: recoverableApiError.status,
+                  retryAfterSeconds: recoverableApiError.retryAfterSeconds,
+              })
             : undefined
 
     return {

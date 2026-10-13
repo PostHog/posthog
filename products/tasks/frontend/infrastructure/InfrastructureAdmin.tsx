@@ -6,6 +6,7 @@ import { CustomImageInventory } from './CustomImageInventory'
 import { infrastructureLogic } from './infrastructureLogic'
 import { fresh, imageNames, imageState, sourceNames } from './infrastructureTypes'
 import { ReleasePipeline } from './ReleasePipeline'
+import { SourceFreshness } from './SourceFreshness'
 import { StageInspector } from './StageInspector'
 
 export function InfrastructureAdmin({ region }: { region: string }): JSX.Element {
@@ -55,6 +56,11 @@ export function InfrastructureAdmin({ region }: { region: string }): JSX.Element
                     timestamps.
                 </p>
             )}
+            {fresh(data.release, now) && data.release?.data?.runs_error && (
+                <p className="alert">
+                    The version pin is available, but build history is incomplete. Inspect Data sources for details.
+                </p>
+            )}
             <div className="summary-grid">
                 <Card className="summary">
                     <span className="muted">npm latest</span>
@@ -63,14 +69,16 @@ export function InfrastructureAdmin({ region }: { region: string }): JSX.Element
                 </Card>
                 <Card className="summary">
                     <span className="muted">Master pin</span>
-                    <strong>{data.release?.data?.pin || '…'}</strong>
+                    <strong>
+                        {data.release?.data?.pin || (data.release?.status === 'error' ? 'Unavailable' : '…')}
+                    </strong>
                     <span className="muted">Target agent version</span>
                 </Card>
                 <Card className="summary">
                     <span className="muted">Registry coverage</span>
                     <strong>
-                        {current}
-                        <small> / 6 images</small>
+                        <span>{fresh(data.release, now) ? current : 'Unverified'}</span>
+                        {fresh(data.release, now) && <small> / 6 images</small>}
                     </strong>
                     <span className="muted">Version and lineage on both platforms</span>
                 </Card>
@@ -100,28 +108,7 @@ export function InfrastructureAdmin({ region }: { region: string }): JSX.Element
                 </Button>
             </nav>
             {showSources ? (
-                <Card className="sources-panel">
-                    <div className="section-title">
-                        <h2>Source freshness</h2>
-                    </div>
-                    {sourceNames.map((name) => (
-                        <div key={name} className="source-row">
-                            <strong>{name.replace('_', ' ')}</strong>
-                            <span className="muted">
-                                {data[name]?.observed_at
-                                    ? new Date(data[name]!.observed_at!).toISOString()
-                                    : 'Not observed'}
-                            </span>
-                            <Badge variant={fresh(data[name], now) ? 'success' : 'warning'}>
-                                {fresh(data[name], now)
-                                    ? 'Fresh'
-                                    : data[name]?.status === 'ok'
-                                      ? 'Stale'
-                                      : data[name]?.status || 'Loading'}
-                            </Badge>
-                        </div>
-                    ))}
-                </Card>
+                <SourceFreshness sources={data} now={now} />
             ) : (
                 <div className="workspace">
                     <div className="workspace-main">

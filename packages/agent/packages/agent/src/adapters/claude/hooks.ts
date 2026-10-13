@@ -254,26 +254,9 @@ export const createPostToolUseHook =
 // Parents whose exact generation the SDK's `opus` alias can lag behind.
 const OPUS_ALIAS_LAGGING_MODELS = new Set(["claude-opus-5", "claude-opus-5-5"]);
 
-/**
- * Rewrites Agent tool calls targeting built-in subagent types to use our custom
- * definitions instead. This works around a Claude Agent SDK bug where
- * `options.agents` cannot override built-in agent definitions because the
- * built-ins appear first in the agents array and `Array.find()` returns the
- * first match.
- *
- * By giving our custom agent a different name (e.g. "ph-explore") and rewriting
- * the subagent_type in the tool input, we sidestep the collision entirely.
- *
- * https://github.com/anthropics/claude-agent-sdk-typescript/issues/267
- */
-export const SUBAGENT_REWRITES: Record<string, string> = {
-  Explore: "ph-explore",
-};
-
 export const createSubagentRewriteHook =
   (
     logger: Logger,
-    registeredAgents: ReadonlySet<string>,
     getCurrentModelId?: () => string | undefined,
   ): HookCallback =>
   async (input: HookInput, _toolUseID: string | undefined) => {
@@ -290,48 +273,29 @@ export const createSubagentRewriteHook =
       return { continue: true };
     }
 
-    const updatedInput = { ...toolInput };
-    let changed = false;
-    const subagentType = toolInput.subagent_type;
-    if (typeof subagentType === "string" && SUBAGENT_REWRITES[subagentType]) {
-      const target = SUBAGENT_REWRITES[subagentType];
-      if (registeredAgents.has(target)) {
-        logger.info(
-          `[SubagentRewriteHook] Rewriting subagent_type: ${subagentType} → ${target}`,
-        );
-        updatedInput.subagent_type = target;
-        changed = true;
-      } else {
-        logger.warn(
-          `[SubagentRewriteHook] Skipping rewrite ${subagentType} → ${target}: target agent not registered for this session. Falling back to built-in ${subagentType}.`,
-        );
-      }
-    }
-
     // The SDK's Agent tool exposes family aliases rather than canonical model
     // IDs. Its `opus` alias can lag behind the parent session's selected Opus
     // generation, while `inherit` preserves that exact selection.
     const parentModelId = getCurrentModelId?.();
     if (
-      toolInput.model === "opus" &&
-      parentModelId !== undefined &&
-      OPUS_ALIAS_LAGGING_MODELS.has(parentModelId)
+      toolInput.model !== "opus" ||
+      parentModelId === undefined ||
+      !OPUS_ALIAS_LAGGING_MODELS.has(parentModelId)
     ) {
-      logger.info(
-        `[SubagentRewriteHook] Rewriting model: opus → inherit for ${parentModelId} parent`,
-      );
-      updatedInput.model = "inherit";
-      changed = true;
+      return { continue: true };
     }
 
-    if (!changed) return { continue: true };
+    logger.info(
+      `[SubagentRewriteHook] Rewriting model: opus → inherit for ${parentModelId} parent`,
+    );
 
     return {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse" as const,
         updatedInput: {
-          ...updatedInput,
+          ...toolInput,
+          model: "inherit",
         },
       },
     };

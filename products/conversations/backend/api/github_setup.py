@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 
@@ -116,7 +117,7 @@ class GithubReposView(APIView):
         except Integration.DoesNotExist:
             return Response({"error": "GitHub integration not found"}, status=404)
 
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="conversations", priority=Priority.CRITICAL)
         repos, _has_more = github.list_cached_repositories(limit=200)
 
         return Response(

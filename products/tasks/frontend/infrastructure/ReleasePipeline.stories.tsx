@@ -7,6 +7,7 @@ import { ThemeProvider } from '@posthog/quill'
 import { CustomImageInventory } from './CustomImageInventory'
 import { Sources, imageNames } from './infrastructureTypes'
 import { ReleasePipeline } from './ReleasePipeline'
+import { SourceFreshness } from './SourceFreshness'
 
 function exampleSources(): Sources {
     const observed_at = new Date().toISOString()
@@ -101,4 +102,45 @@ export const Narrow: StoryObj<typeof ReleasePipeline> = {
             <ReleasePipeline sources={exampleSources()} selected="custom" onSelect={() => {}} />
         </div>
     ),
+}
+
+export const DataSources: StoryObj<typeof ReleasePipeline> = {
+    render: () => {
+        const now = Date.parse('2026-01-01T12:00:00Z')
+        const sources = exampleSources()
+        for (const source of Object.values(sources)) {
+            source.observed_at = new Date(now).toISOString()
+        }
+        sources.release = { status: 'error', observed_at: null, data: null }
+        sources.vm!.observed_at = new Date(now - 300_000).toISOString()
+        sources.dev_stack!.status = 'refreshing'
+        return <SourceFreshness sources={sources} now={now} />
+    },
+}
+
+export const DataSourcesNarrow: StoryObj<typeof ReleasePipeline> = {
+    ...DataSources,
+    decorators: [
+        (Story) => (
+            <div className="w-130 max-w-full">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+export const DataSourcesLoading: StoryObj<typeof ReleasePipeline> = {
+    render: () => <SourceFreshness sources={{}} now={Date.now()} />,
+}
+
+export const LastSeenReleases: StoryObj<typeof ReleasePipeline> = {
+    render: () => {
+        const sources = exampleSources()
+        sources.package!.data!.version = '1.1.0'
+        sources.release = { status: 'error', observed_at: null, data: null }
+        for (const source of Object.values(sources)) {
+            source.status = 'error'
+        }
+        return <ReleasePipeline sources={sources} selected="base" onSelect={() => {}} />
+    },
 }

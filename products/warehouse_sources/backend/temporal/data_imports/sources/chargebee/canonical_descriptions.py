@@ -23,6 +23,20 @@ def _columns(**overrides: str) -> dict[str, str]:
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "CreditUnits": {
+        "description": "A credit unit for credit-based billing: a consumption unit, such as AI credits or API calls, that customers prepay and then spend as they use features.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/credit_units",
+        "columns": _columns(
+            name="Internal display name for the credit unit, unique across the site.",
+            external_name="Customer-facing display name for the credit unit, unique across the site.",
+            status="Lifecycle status of the credit unit: active or archived.",
+            is_unlimited="Whether the credit unit allows unlimited overdraft consumption after the allocated grants run out.",
+            overdraft_amount="Amount of overdraft consumption allowed after the allocated grants run out, as a decimal string. Applies only when is_unlimited is false.",
+            created_by="Source or user that created the credit unit.",
+            updated_by="Source or user that last updated the credit unit.",
+            resource_version="Version number that increments whenever the credit unit is modified, as a Unix timestamp in milliseconds.",
+        ),
+    },
     "Customers": {
         "description": "A Chargebee customer, who owns subscriptions, invoices, and payment methods.",
         "docs_url": "https://apidocs.chargebee.com/docs/api/customers",
@@ -128,6 +142,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             archived_at="Time at which the item was archived, as a Unix timestamp.",
             resource_version="Version number that increments whenever the item is modified, as a Unix timestamp in milliseconds.",
             deleted="Whether the item has been deleted.",
+        ),
+    },
+    "Meters": {
+        "description": "A meter that defines how usage of a metered feature is measured from usage events, for usage-based billing.",
+        "docs_url": "https://apidocs.chargebee.com/docs/api/meters",
+        "columns": _columns(
+            id="Unique identifier for the meter. This is the same as the identifier of its feature.",
+            name="Case-sensitive name of the meter, such as 'API Calls'.",
+            description="Brief description of the meter.",
+            type="How usage is measured: simple (a SQL query over usage event properties) or compound (a formula that combines other meters).",
+            status="Status of the meter: active, archived, or deleted.",
+            query="SQL query that measures usage from usage event properties.",
+            column_definitions="Definitions of the usage event columns or properties that the meter's query references.",
+            features="The feature associated with the meter. This list always has one element.",
         ),
     },
     "Orders": {
