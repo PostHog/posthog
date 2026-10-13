@@ -76,6 +76,8 @@ export interface Send {
   reopening: Set<string>;
   // The backend could not deliver a chat's message: it goes back into the pane's composer if it was sent before `at`.
   undelivered: (paneId: string, taskId: string, at: number) => void;
+  // The chat shows its pending message now, so it is no longer on its way.
+  delivered: (taskId: string) => void;
   // A first run's sign-in sheet, which goes on to ask who pays once signed in.
   welcome: (paneId: string) => void;
   // Where the first run's welcome is; null once it is done or dismissed.
@@ -877,5 +879,21 @@ export function useSend({
     );
   };
 
-  return { onSubmit, pending, reopening, undelivered, welcome, welcomeStep };
+  const delivered = (taskId: string): void =>
+    setPending((messages) => {
+      if (!messages.has(taskId)) return messages;
+      const next = new Map(messages);
+      next.delete(taskId);
+      return next;
+    });
+
+  return {
+    onSubmit,
+    pending,
+    reopening,
+    undelivered,
+    delivered,
+    welcome,
+    welcomeStep,
+  };
 }
