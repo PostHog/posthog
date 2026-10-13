@@ -164,7 +164,14 @@ export function SearchPerformanceTable({
                         render: (_, row) => (
                             <div className="min-w-0">
                                 {onSelect && (row.page || row.keyword) ? (
-                                    <LemonButton type="tertiary" size="xsmall" noPadding onClick={() => onSelect(row)}>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        noPadding
+                                        fullWidth
+                                        truncate
+                                        onClick={() => onSelect(row)}
+                                    >
                                         <span
                                             className="block truncate text-link"
                                             title={row.page ?? row.keyword ?? ''}
@@ -308,7 +315,7 @@ export function SearchPerformanceTable({
                                         ? (row.currency as CurrencyCode)
                                         : null
                                 return (
-                                    <div>
+                                    <div className="SearchPerformanceTable__metric">
                                         <ChangeValueCell
                                             value={value == null ? null : [value, previous ?? null]}
                                             compare={!!query.compareFilter?.compare}

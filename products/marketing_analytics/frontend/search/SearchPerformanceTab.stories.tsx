@@ -13,7 +13,7 @@ import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-ana
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { MockSignature, Mocks } from '~/mocks/utils'
+import { MockResolverInfo, MockSignature, Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     AttributionMode,
@@ -928,4 +928,40 @@ export const PostHogConversionsError: Story = {
         ).resolves.toBeVisible()
         await expect(within(canvasElement).findByText('00000000-0000-4000-8000-000000000000')).resolves.toBeVisible()
     },
+}
+
+export const LongLandingPages: Story = {
+    ...PostHogConversions,
+    parameters: {
+        ...PostHogConversions.parameters,
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async (
+                        info: MockResolverInfo
+                    ) => {
+                        const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
+                        const result = typeof resolver === 'function' ? await resolver(info) : resolver
+                        const [status, response] = result as [number, { results: MarketingAnalyticsSearchRow[] }]
+                        return [
+                            status,
+                            {
+                                ...response,
+                                results: response.results.map((row) => ({
+                                    ...row,
+                                    page: `${row.page}/guides/understanding-search-performance-and-conversion-attribution?campaign=organic-search`,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const LongLandingPagesNarrow: Story = {
+    ...LongLandingPages,
+    decorators: PostHogConversionsNarrow.decorators,
 }
