@@ -43,8 +43,13 @@ function setToolCallState(event: PluginEvent): void {
     }
 }
 
+// Same ceiling as MAX_OLDER_SPEC_EVENTS_LENGTH in attribute-mapping.ts. It bounds what one value
+// can make the worker allocate.
+const MAX_TOOL_CALL_VALUE_LENGTH = 500_000
+
 function parseToolCallValue(value: unknown): unknown {
-    if (typeof value !== 'string') {
+    // A longer string stays as text.
+    if (typeof value !== 'string' || value.length > MAX_TOOL_CALL_VALUE_LENGTH) {
         return value
     }
     let parsed: unknown
