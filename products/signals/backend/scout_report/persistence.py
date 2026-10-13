@@ -36,6 +36,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from pydantic import JsonValue, TypeAdapter, ValidationError
 from rest_framework.renderers import JSONRenderer
 
@@ -78,6 +79,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
+from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
 
 if TYPE_CHECKING:
@@ -1425,18 +1427,10 @@ def soft_delete_scout_signal(
     _validate_report_id(report_id)
     if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
         raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
-    metadata = _signal_metadata(report_id=report_id, source_id=source_id, weight=weight, extra=extra)
-    metadata["deleted"] = True
-    emit_embedding_request(
-        content=description,
+    async_to_sync(submit_signal_metadata_updates)(
         team_id=team_id,
-        product=_EMBEDDING_PRODUCT,
-        document_type=_EMBEDDING_DOCUMENT_TYPE,
-        rendering=_EMBEDDING_RENDERING,
-        document_id=document_id,
-        models=[m.value for m in EmbeddingModelName],
-        timestamp=timestamp,
-        metadata=metadata,
+        signal_ids=[document_id],
+        change=SignalMetadataChange(deleted=True, expected_report_id=report_id),
     )
 
 

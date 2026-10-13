@@ -3,6 +3,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import time_machine
@@ -208,6 +209,49 @@ class TestSignalSpend(BaseTest):
         assert spend.token_cost_microusd == cost
         assert spend.accounting_failed is (cost is None)
         assert spend.stage == "summarization"
+
+    @parameterized.expand([("unavailable",), ("hung",), ("activity_deadline",)])
+    async def test_usage_timeout_preserves_completed_generation(self, outcome: str) -> None:
+        driver = str(uuid4())
+        response = Mock(_request_id="generation-1")
+        generate = AsyncMock(return_value=response)
+
+        async def lookup(*args: object, **kwargs: object) -> None:
+            if outcome == "hung":
+                await asyncio.Event().wait()
+            return None
+
+        now = timezone.now()
+        info = SimpleNamespace(
+            started_time=now - timedelta(seconds=5),
+            scheduled_time=now - timedelta(seconds=5),
+            start_to_close_timeout=timedelta(seconds=5),
+            schedule_to_close_timeout=timedelta(seconds=60),
+        )
+        with (
+            patch("products.signals.backend.llm_spend.USAGE_WAIT_SECONDS", 0.01),
+            patch(
+                "products.signals.backend.llm_spend.activity.in_activity", return_value=outcome == "activity_deadline"
+            ),
+            patch("products.signals.backend.llm_spend.activity.info", return_value=info),
+            patch("products.signals.backend.llm_spend.fetch_gateway_cost", new=AsyncMock(side_effect=lookup)),
+        ):
+            priced = await generate_with_spend(
+                generate(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
+                team_id=self.team.id,
+                signal_id=driver,
+                stage="actionability",
+            )
+        assert priced.response is response
+        assert priced.spend is None
+        generate.assert_awaited_once()
+        receipt = await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
+        )()
+        assert receipt.source_id == "generation-1"
+        assert receipt.accounting_failed is True
+        assert receipt.stage == "actionability"
 
     @parameterized.expand(
         [(gateway, failure) for gateway in (True, False) for failure in ("timeout", "transport", "cancelled")]

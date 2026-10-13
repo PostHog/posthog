@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import structlog
@@ -9,19 +10,46 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig
-from posthog.llm.gateway_usage import fetch_gateway_cost
+from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.spend import record_llm_spend
 
 logger = structlog.get_logger(__name__)
+USAGE_WAIT_SECONDS = 10.0
 
 
 @frozen
 class PricedGeneration:
     response: Message
     spend: Decimal | None
+
+
+def _usage_wait_seconds() -> float:
+    budget = USAGE_WAIT_SECONDS
+    if activity.in_activity():
+        info = activity.info()
+        now = datetime.now(UTC)
+        for started, timeout in (
+            (info.started_time, info.start_to_close_timeout),
+            (info.scheduled_time, info.schedule_to_close_timeout),
+        ):
+            if timeout is not None:
+                budget = min(budget, (started + timeout - now).total_seconds() - 1)
+    return max(0, budget)
+
+
+async def _wait_for_gateway_cost(request_id: str, gateway: AIGatewayConfig) -> GatewayRequestCost:
+    delay = 0.01
+    while True:
+        cost = await fetch_gateway_cost(request_id, base_url=gateway.url, api_key=gateway.api_key)
+        if cost is not None:
+            return cost
+        if activity.in_activity():
+            activity.heartbeat()
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 1.0)
 
 
 async def _settle_generation(
@@ -36,16 +64,12 @@ async def _settle_generation(
     try:
         if gateway is None or not request_id or team_id is None or signal_id is None:
             return None
-        delay = 0.01
-        while True:
-            cost = await fetch_gateway_cost(request_id, base_url=gateway.url, api_key=gateway.api_key)
-            if cost is not None:
-                cost_microusd = cost.cost_microusd
-                return cost_to_spend(cost_microusd)
-            if activity.in_activity():
-                activity.heartbeat()
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, 1.0)
+        cost = await asyncio.wait_for(_wait_for_gateway_cost(request_id, gateway), timeout=_usage_wait_seconds())
+        cost_microusd = cost.cost_microusd
+        return cost_to_spend(cost_microusd)
+    except TimeoutError:
+        logger.warning("signals.spend.usage_wait_expired", stage=stage, team_id=team_id, signal_id=signal_id)
+        return None
     except Exception:
         logger.exception("signals.spend.accounting_failed", stage=stage, team_id=team_id, signal_id=signal_id)
         return None
@@ -69,8 +93,9 @@ async def generate_with_spend(
 ) -> PricedGeneration:
     """Generate once, then wait for its gateway usage. Spend is in USD cents.
 
-    Polling stays in the calling activity and is cancellable by its lifetime.
-    Missing request IDs preserve the response and mark its stage unaccounted.
+    Accounting waits up to ten seconds within the calling activity, leaving time
+    to return before its deadline. Missing usage preserves the completed response
+    and marks the stage unaccounted.
     """
     try:
         response = await generation

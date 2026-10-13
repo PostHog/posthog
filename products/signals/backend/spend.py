@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import field
 from datetime import timedelta
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -65,9 +66,18 @@ def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
 
 
 @frozen
+class SignalMetadataChange:
+    report_id: str | None = None
+    deleted: bool = False
+    clear_content: bool = False
+    expected_report_id: str | None = None
+
+
+@frozen
 class SignalSpendUpdate:
     team_id: int
     signal_id: str
+    changes: list[SignalMetadataChange] = field(default_factory=list)
 
 
 @frozen
@@ -77,24 +87,44 @@ class SignalSpendPublication:
     versions: dict[str, int]
 
 
-async def publish_signal_spend(*, team_id: int, signal_id: str) -> None:
+async def submit_signal_metadata_updates(
+    *,
+    team_id: int,
+    signal_ids: list[str],
+    change: SignalMetadataChange | None = None,
+    wait_for_completion: bool = False,
+) -> None:
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 — keeps Temporal off Django startup
 
     from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
 
-    try:
-        client = await asyncio.wait_for(async_connect(), timeout=5)
-        handle = await client.start_workflow(
-            "update-signal-spend",
-            SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
-            id=f"signal-spend-{team_id}-{signal_id}",
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            start_signal="refresh",
-            execution_timeout=timedelta(minutes=15),
-            rpc_timeout=timedelta(seconds=5),
+    if not signal_ids:
+        return
+    client = await asyncio.wait_for(async_connect(), timeout=5)
+    for start in range(0, len(signal_ids), 20):
+        handles = await asyncio.gather(
+            *(
+                client.start_workflow(
+                    "update-signal-spend",
+                    SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
+                    id=f"signal-spend-{team_id}-{signal_id}",
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    start_signal="update_metadata" if change else "refresh",
+                    start_signal_args=[change] if change else [],
+                    execution_timeout=timedelta(minutes=15),
+                    rpc_timeout=timedelta(seconds=5),
+                )
+                for signal_id in signal_ids[start : start + 20]
+            )
         )
-        await handle.result()
+        if wait_for_completion:
+            await asyncio.gather(*(handle.result() for handle in handles))
+
+
+async def publish_signal_spend(*, team_id: int, signal_id: str) -> None:
+    try:
+        await submit_signal_metadata_updates(team_id=team_id, signal_ids=[signal_id], wait_for_completion=True)
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="persist_metadata", team_id=team_id, signal_id=signal_id

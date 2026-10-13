@@ -541,7 +541,8 @@ class TestScoutReportPersistence(BaseTest):
         assert SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT in types
         assert SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT in types
 
-    def test_soft_delete_re_emits_tombstone_preserving_id_and_timestamp(self) -> None:
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_soft_delete_preserves_signal_identity(self, connect: AsyncMock) -> None:
         # Soft-delete is a re-emit of the same document_id with metadata.deleted=True; the original
         # timestamp must be preserved so the tombstone lands in the same ReplacingMergeTree partition
         # and supersedes the live row rather than adding a sibling. The target report must be one the
@@ -565,11 +566,13 @@ class TestScoutReportPersistence(BaseTest):
             timestamp=ts,
             source_id="obs-1",
         )
-        kwargs = self.emit_mock.call_args.kwargs
-        assert kwargs["document_id"] == document_id
-        assert kwargs["timestamp"] == ts
-        assert kwargs["metadata"]["deleted"] is True
-        assert kwargs["metadata"]["report_id"] == report.report_id
+        call = connect.return_value.start_workflow.call_args
+        assert call.args[1].signal_id == document_id
+        assert call.args[1].team_id == self.team.id
+        change = call.kwargs["start_signal_args"][0]
+        assert change.deleted is True
+        assert change.expected_report_id == report.report_id
+        self.emit_mock.assert_not_called()
 
     def test_create_rejects_duplicate_supplied_document_ids(self) -> None:
         # Two backing signals sharing a document_id would collapse in the ReplacingMergeTree, leaving

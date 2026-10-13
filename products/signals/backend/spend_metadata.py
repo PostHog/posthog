@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from django.utils import timezone
@@ -24,6 +25,7 @@ from products.signals.backend.signal_metadata import (
     _signals_query_context,
 )
 from products.signals.backend.spend import (
+    SignalMetadataChange,
     SignalSpendPublication,
     SignalSpendSummary,
     SignalSpendUpdate,
@@ -40,10 +42,26 @@ class _SignalEmbedding:
     embedding: list[float]
     inserted_at: datetime
 
-    def matches(self, summary: SignalSpendSummary) -> bool:
-        return (
-            self.metadata.get("total_spend") == summary.total_spend
-            and self.metadata.get("spend_accounting_failed_stages") == summary.failed_stages
+    def with_updates(self, summary: SignalSpendSummary, changes: list[SignalMetadataChange]) -> "_SignalEmbedding":
+        metadata: dict[str, JsonValue] = {
+            **self.metadata,
+            "total_spend": summary.total_spend,
+            "spend_accounting_failed_stages": [*summary.failed_stages],
+        }
+        clear_content = False
+        for change in changes:
+            if change.expected_report_id is not None and metadata.get("report_id") != change.expected_report_id:
+                continue
+            if change.report_id is not None and not metadata.get("deleted"):
+                metadata["report_id"] = change.report_id
+            if change.deleted:
+                metadata["deleted"] = True
+            clear_content |= change.clear_content
+        return replace(
+            self,
+            metadata=metadata,
+            content="" if clear_content else self.content,
+            embedding=[0.0] * len(self.embedding) if clear_content else self.embedding,
         )
 
 
@@ -90,19 +108,15 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
         if row is None:
             raise RuntimeError("Signal embedding is not yet visible in ClickHouse")
         # Kafka's second-resolution timestamp is the replacement version in ClickHouse.
-        if not row.matches(summary) and int(row.inserted_at.timestamp()) >= version:
+        if row.with_updates(summary, signal.changes) != row and int(row.inserted_at.timestamp()) >= version:
             raise RuntimeError("Waiting for a strictly newer embedding replacement version")
         rows.append(row)
     versions = {}
     for row in rows:
-        if row.matches(summary):
+        updated = row.with_updates(summary, signal.changes)
+        if updated == row:
             versions[row.model.value] = int(row.inserted_at.timestamp())
             continue
-        metadata = {
-            **row.metadata,
-            "total_spend": summary.total_spend,
-            "spend_accounting_failed_stages": summary.failed_stages,
-        }
         payload = {
             "team_id": signal.team_id,
             "product": SIGNAL_DOCUMENT_PRODUCT,
@@ -111,9 +125,9 @@ def publish_signal_spend_metadata(signal: SignalSpendUpdate) -> SignalSpendPubli
             "document_id": signal.signal_id,
             "model_name": row.model.value,
             "timestamp": row.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-            "content": row.content,
-            "metadata": json.dumps(metadata),
-            "embedding": row.embedding,
+            "content": updated.content,
+            "metadata": json.dumps(updated.metadata),
+            "embedding": updated.embedding,
         }
         with producer_scope(topic=KAFKA_DOCUMENT_EMBEDDINGS_TOPIC, flush_timeout=5) as producer:
             delivery = producer.produce(
@@ -133,7 +147,7 @@ def confirm_signal_spend_metadata(publication: SignalSpendPublication) -> bool:
         row = _read_embedding(team, publication.signal.signal_id, model)
         if (
             row is None
-            or not row.matches(publication.summary)
+            or row.with_updates(publication.summary, publication.signal.changes) != row
             or int(row.inserted_at.timestamp()) < publication.versions[model.value]
         ):
             return False

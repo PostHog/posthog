@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
@@ -32,7 +32,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
-from products.signals.backend.spend import SignalSpendUpdate, record_llm_spend
+from products.signals.backend.spend import SignalMetadataChange, SignalSpendUpdate, record_llm_spend
 from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
@@ -59,6 +59,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         source_id: str | None = None,
         model: EmbeddingModelName = EMBEDDING_MODEL,
         spend_metadata: dict | None = None,
+        embedding: list[float] | None = None,
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
@@ -95,7 +96,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
                     inserted_at,
                     content,
                     json.dumps(metadata),
-                    [0.0] * int(model.value.rsplit("-", 1)[1]),
+                    embedding if embedding is not None else [0.0] * int(model.value.rsplit("-", 1)[1]),
                     inserted_at,
                     0,
                     0,
@@ -460,7 +461,15 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
 
 
 class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
-    def test_delayed_older_spend_cannot_replace_a_confirmed_newer_total(self) -> None:
+    @parameterized.expand(
+        [
+            ("spend", SignalMetadataChange()),
+            ("move", SignalMetadataChange(report_id="new-report", expected_report_id="example-report")),
+            ("delete", SignalMetadataChange(deleted=True, expected_report_id="example-report")),
+            ("retract", SignalMetadataChange(deleted=True, clear_content=True)),
+        ]
+    )
+    def test_delayed_spend_preserves_latest_total_and_metadata(self, _name: str, change: SignalMetadataChange) -> None:
         driver = str(uuid.uuid4())
         signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
         now = timezone.now().replace(microsecond=0)
@@ -471,6 +480,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
                 source_product="errors",
                 inserted_at=now - timedelta(seconds=2),
                 model=model,
+                embedding=[0.125] * int(model.value.rsplit("-", 1)[1]),
             )
         producer = MagicMock()
 
@@ -482,6 +492,8 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
                 inserted_at=datetime.fromtimestamp(version, UTC),
                 model=EmbeddingModelName(payload["model_name"]),
                 spend_metadata=json.loads(payload["metadata"]),
+                content=payload["content"],
+                embedding=payload["embedding"],
             )
 
         with (
@@ -501,7 +513,9 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             record_llm_spend(
                 "second", token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization"
             )
-            second = publish_signal_spend_metadata(signal)
+            second = publish_signal_spend_metadata(
+                SignalSpendUpdate(team_id=self.team.id, signal_id=driver, changes=[change])
+            )
             assert all(second.versions[key] > version for key, version in first.versions.items())
             for call in producer.__enter__.return_value.produce.call_args_list:
                 payload = call.kwargs["data"]
@@ -510,7 +524,30 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             for payload in first_payloads:
                 deliver(payload, first.versions[payload["model_name"]])
             assert confirm_signal_spend_metadata(second)
-            assert fetch_signals_for_report_sync(self.team, "example-report")[0]["total_spend"] == 0.03
+            producer.__enter__.return_value.produce.reset_mock()
+            clock.shift(timedelta(seconds=2))
+            record_llm_spend("third", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
+            third = publish_signal_spend_metadata(
+                SignalSpendUpdate(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    changes=[
+                        SignalMetadataChange(deleted=True, expected_report_id="example-report")
+                        if change.report_id
+                        else SignalMetadataChange(report_id="must-not-move", expected_report_id="stale-report")
+                    ],
+                )
+            )
+            for call in producer.__enter__.return_value.produce.call_args_list:
+                payload = call.kwargs["data"]
+                metadata = json.loads(payload["metadata"])
+                assert metadata["total_spend"] == 0.06
+                assert metadata["report_id"] == (change.report_id or "example-report")
+                assert metadata["deleted"] is change.deleted
+                assert payload["content"] == ("" if change.clear_content else "the signal content")
+                assert set(payload["embedding"]) == ({0.0} if change.clear_content else {0.125})
+                deliver(payload, third.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(third)
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
@@ -643,8 +680,10 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
 
 class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
     @patch("products.signals.backend.temporal.signal_queries._RETRACT_PAGE_SIZE", 2)
-    @patch("products.signals.backend.temporal.signal_queries.emit_embedding_request")
-    def test_retracts_every_page_of_the_source(self, emit: MagicMock) -> None:
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_retracts_every_page_of_the_source(self, connect: AsyncMock) -> None:
+        client = connect.return_value
+        client.start_workflow = AsyncMock()
         for document_id in ("a", "b", "c"):
             self._emit_version(
                 document_id=document_id,
@@ -668,6 +707,9 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
         )
 
         assert retracted == 3
-        assert sorted(call.kwargs["document_id"] for call in emit.call_args_list) == ["a", "b", "c"]
-        assert all(call.kwargs["content"] == "" for call in emit.call_args_list)
-        assert all(call.kwargs["metadata"]["deleted"] is True for call in emit.call_args_list)
+        calls = client.start_workflow.call_args_list
+        assert sorted(call.args[1].signal_id for call in calls) == ["a", "b", "c"]
+        assert all(
+            call.kwargs["start_signal_args"] == [SignalMetadataChange(deleted=True, clear_content=True)]
+            for call in calls
+        )
