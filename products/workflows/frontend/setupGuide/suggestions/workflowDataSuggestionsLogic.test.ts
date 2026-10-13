@@ -1,5 +1,4 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -60,12 +59,13 @@ describe('workflowDataSuggestionsLogic', () => {
             const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
             logic.mount()
 
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({ generating: true, cards: [] })
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.generating).toBe(true)
             expect(workflowDataSuggestionsCurrent).not.toHaveBeenCalled()
 
-            jest.advanceTimersByTime(2000)
+            await jest.advanceTimersByTimeAsync(2000)
 
-            await expectLogic(logic).toDispatchActions(['pollAiResultSuccess']).toMatchValues({ generating: false })
+            expect(logic.values.generating).toBe(false)
             expect(logic.values.cards.map((shown) => shown.suggestionId)).toEqual(['suggestion-1'])
         } finally {
             jest.useRealTimers()

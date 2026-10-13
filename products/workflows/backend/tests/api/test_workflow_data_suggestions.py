@@ -344,6 +344,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("generate answered from the cache", "generate", {}, True, 200),
             ("generate that has to run", "generate", {}, False, 429),
             ("refresh", "generate", {"refresh": True}, True, 429),
+            ("refresh sent as 1", "generate", {"refresh": "1"}, True, 429),
             ("build", "build", {"suggestion_id": "missing"}, True, 429),
         ]
     )

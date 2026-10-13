@@ -123,11 +123,16 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
         # against it. A generate call answered from the cache does not.
         if self.action == "build" or (
-            self.action == "generate"
-            and (self.request.data.get("refresh") in (True, "true") or not has_cached_data_suggestions(team=self.team))
+            self.action == "generate" and (self._wants_refresh() or not has_cached_data_suggestions(team=self.team))
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
+
+    def _wants_refresh(self) -> bool:
+        # Parsed like the endpoint parses it, so every value it accepts as true is throttled. Invalid input counts
+        # as a refresh, so it is throttled too.
+        payload = DataSuggestionGenerateRequestSerializer(data=self.request.data)
+        return not payload.is_valid() or payload.validated_data["refresh"]
 
     @extend_schema(operation_id="workflow_data_suggestions_current", responses={200: DataSuggestionsResponseSerializer})
     @action(detail=False, methods=["get"])
