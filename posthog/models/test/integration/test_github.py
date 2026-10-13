@@ -119,7 +119,9 @@ class TestCollaboratorPermission(SimpleTestCase):
         ]
     )
     def test_permission_counts_only_for_the_expected_account(self, _name, body, expected) -> None:
-        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        github = GitHubIntegration(
+            Integration(kind="github", config={}, sensitive_config={}), source="test", priority=Priority.CRITICAL
+        )
         response = MagicMock(status_code=200)
         response.json.return_value = body
         with patch.object(github, "api_request", return_value=response):
@@ -1121,7 +1123,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=200)
         mock_response.json.return_value = {
             "number": 123,
@@ -1137,7 +1139,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_list_submitted_pull_request_reviewers_reads_every_page(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         first_page = MagicMock(status_code=200)
         first_page.links = {
             "next": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/123/reviews?page=2&per_page=100"}
@@ -1159,7 +1161,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_list_submitted_pull_request_reviewers_requires_every_page(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         first_page = MagicMock(status_code=200)
         first_page.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/123/reviews?page=2"}}
         first_page.json.return_value = [{"state": "APPROVED", "user": {"login": "approved"}}]
@@ -1218,7 +1220,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     def test_request_pull_request_reviews_posts_deduplicated_bounded_batches(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         mock_response = MagicMock(status_code=201)
         mock_response.json.return_value = {"requested_reviewers": [{"login": "alice"}]}
         requested = ["alice", "alice", *[f"user{i}" for i in range(20)]]
@@ -1244,7 +1246,7 @@ class TestGitHubIntegrationModel(BaseTest):
     @parameterized.expand([("first_batch", 3), ("later_batch", 18)])
     def test_request_pull_request_reviews_continues_after_rejected_reviewer(self, _name: str, invalid_index: int):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         requested = [f"user{i}" for i in range(31)]
         rejected = requested[invalid_index]
 
@@ -1267,7 +1269,7 @@ class TestGitHubIntegrationModel(BaseTest):
     @parameterized.expand([("forbidden", 403), ("unrelated_validation", 422)])
     def test_request_pull_request_reviews_stops_on_non_reviewer_error(self, _name: str, status_code: int):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
         response = MagicMock(status_code=status_code, text="Request failed")
         response.json.return_value = {"errors": [{"field": "pull_request", "code": "invalid"}]}
 
