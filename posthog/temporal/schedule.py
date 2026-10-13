@@ -6,7 +6,6 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
-from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 from temporalio import common
 from temporalio.client import (
     Client,
@@ -147,6 +146,8 @@ from products.warehouse_suggestions.backend.facade.temporal import create_wareho
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
+
+from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 
