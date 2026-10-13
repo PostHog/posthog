@@ -170,7 +170,7 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
-_CLICKHOUSE_ERROR_START = re.compile(r"Code: \d+\. ")
+_CLICKHOUSE_ERROR_START = re.compile(r"(?:(?:std::exception|Poco::Exception)\. )?Code: \d+[.,] ")
 # ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
 _CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
 

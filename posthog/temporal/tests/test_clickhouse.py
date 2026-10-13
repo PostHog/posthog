@@ -581,6 +581,12 @@ _MEMORY_LIMIT_ERROR = (
     "Code: 241. DB::Exception: Query memory limit exceeded: would use 10.00 GiB, maximum: 10.00 GiB. "
     "(MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))"
 )
+_STD_EXCEPTION_ERROR = (
+    "std::exception. Code: 1001, type: std::bad_alloc, e.what() = std::bad_alloc (version x.x.x.x (official build))"
+)
+_POCO_EXCEPTION_ERROR = (
+    "Poco::Exception. Code: 1000, e.code() = 32, e.displayText() = Broken pipe (version x.x.x.x (official build))"
+)
 _MISSING_COLUMN_ERROR = (
     "Code: 47. DB::Exception: Missing columns: '__exception__' while processing query. "
     "(UNKNOWN_IDENTIFIER) (version x.x.x.x (official build))"
@@ -601,9 +607,24 @@ _MISSING_COLUMN_ERROR = (
             ClickHouseError,
             _MISSING_COLUMN_ERROR,
         ),
+        (f"{_STD_EXCEPTION_ERROR}\n".encode(), ClickHouseError, _STD_EXCEPTION_ERROR),
+        (
+            f"\r\n__exception__\r\nabcdefgh\r\n{_STD_EXCEPTION_ERROR}\r\n{len(_STD_EXCEPTION_ERROR)} abcdefgh\r\n__exception__\r\n".encode(),
+            ClickHouseError,
+            _STD_EXCEPTION_ERROR,
+        ),
+        (f"{_POCO_EXCEPTION_ERROR}\n".encode(), ClickHouseError, _POCO_EXCEPTION_ERROR),
         (b"not an arrow message and not an error", InvalidMessageFormat, None),
     ],
-    ids=["plain_error_tail", "wrapped_error_tail", "error_names_the_wrapper_token", "no_error_in_tail"],
+    ids=[
+        "plain_error_tail",
+        "wrapped_error_tail",
+        "error_names_the_wrapper_token",
+        "plain_std_exception_tail",
+        "wrapped_std_exception_tail",
+        "plain_poco_exception_tail",
+        "no_error_in_tail",
+    ],
 )
 async def test_astream_query_as_arrow_raises_error_appended_to_stream(
     clickhouse_client, tail, expected_exception, expected_message
