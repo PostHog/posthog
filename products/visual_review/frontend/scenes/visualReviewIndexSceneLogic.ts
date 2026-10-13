@@ -77,6 +77,9 @@ export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>(
     listeners(({ actions, values }) => ({
         forward: async ({ route }) => {
             const projectId = String(values.currentProjectId)
+            // The lookups below are async, so read the URL now, before the user can move to another page.
+            const { pathname } = router.values.location
+            const { searchParams, hashParams } = router.values
             let destination: ForwardUrl
             try {
                 if (route.kind === 'index') {
@@ -98,15 +101,15 @@ export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>(
                             ? (await visualReviewRunsRetrieve(projectId, route.runId)).repo_id
                             : route.repoId
                     const repoFullName = await resolveRepoFullName(projectId, repoId)
-                    destination = legacyForwardUrl(
-                        route,
-                        repoFullName,
-                        router.values.searchParams,
-                        router.values.hashParams
-                    )
+                    destination = legacyForwardUrl(route, repoFullName, searchParams, hashParams)
                 }
             } catch (error) {
-                actions.forwardFailed(isNotFound(error) ? 'not_found' : 'load_failed')
+                if (router.values.location.pathname === pathname) {
+                    actions.forwardFailed(isNotFound(error) ? 'not_found' : 'load_failed')
+                }
+                return
+            }
+            if (router.values.location.pathname !== pathname) {
                 return
             }
             router.actions.replace(destination.path, destination.searchParams, destination.hashParams)
