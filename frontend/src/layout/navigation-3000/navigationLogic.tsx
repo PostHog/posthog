@@ -13,6 +13,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { SceneConfig } from '../../scenes/sceneTypes'
+import type { ProjectType } from '../../types'
 import { navigationLogic } from '../navigation/navigationLogic'
 
 export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'embedded' | 'full'
@@ -23,7 +24,7 @@ export type ZenModeTrigger = 'shortcut' | 'account_menu' | 'help_menu' | 'exit_b
 export interface navigation3000LogicValues {
     mobileLayout: boolean // navigationLogic
     isCurrentOrganizationUnavailable: boolean // organizationLogic
-    currentProject: import('~/types').ProjectType | null // projectLogic
+    currentProject: ProjectType | null // projectLogic
     activeSceneId: string | null // sceneLogic
     sceneConfig: SceneConfig | null // sceneLogic
     mode: Navigation3000Mode
@@ -52,7 +53,7 @@ export interface navigation3000LogicMeta {
         mode: (
             sceneConfig: SceneConfig | null,
             isCurrentOrganizationUnavailable: boolean,
-            currentProject: import('~/types').ProjectType | null,
+            currentProject: ProjectType | null,
             zenMode: boolean,
             activeSceneId: string | null,
             featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
