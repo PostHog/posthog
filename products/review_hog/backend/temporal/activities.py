@@ -279,7 +279,7 @@ class ReviewMeta:
     review_design_reason: str = ""
     # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
     lens_chunk_count: int = 0
-    # True when the PR passed the lens part cap, so the status comment says it ran in larger parts.
+    # True when the PR passed the lens part cap, so the status comment or the Standard review says it ran in larger parts.
     lens_chunks_capped: bool = False
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
     # so a replay takes the same branch. Older histories decode as separate sessions.
@@ -513,6 +513,7 @@ class PublishInput:
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
+    capped_lens_parts: int | None = None
 
 
 @dataclass
@@ -2036,6 +2037,7 @@ def _publish(input: PublishInput) -> PublishResult:
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
         review_mode=input.review_mode,
+        capped_lens_parts=input.capped_lens_parts,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(

@@ -309,9 +309,20 @@ def _priority_counts(counts: dict[IssuePriority, int], priorities: Collection[Is
     )
 
 
-def render_review_summary(review_mode: str, head_sha: str | None, counts: dict[IssuePriority, int]) -> str:
+def large_pr_note(parts: int) -> str:
+    """The sentence that tells the reader a large pull request got a shallower single-agent review."""
+    return f"This pull request is large, so the review ran in {parts} parts with less depth than usual."
+
+
+def render_review_summary(
+    review_mode: str, head_sha: str | None, counts: dict[IssuePriority, int], capped_lens_parts: int | None = None
+) -> str:
     """The one-line summary a Standard review body opens with, because Standard posts no status comment."""
-    return f"**{_title(review_mode, 'reviewed', head_sha)}**: {_priority_counts(counts, PRIORITIES_BY_URGENCY)}."
+    found = _priority_counts(counts, PRIORITIES_BY_URGENCY) or "no findings"
+    summary = f"**{_title(review_mode, 'reviewed', head_sha)}**: {found}."
+    if capped_lens_parts is not None:
+        summary = f"{summary} {large_pr_note(capped_lens_parts)}"
+    return summary
 
 
 def render_final_body(
@@ -341,8 +352,7 @@ def render_final_body(
     note attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
-    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
-    note goes here and not in the review body, because a clean turn posts no review. `raised_elsewhere`
+    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. `raised_elsewhere`
     lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
     linked to that comment under `pr_url`; `raised_elsewhere_count` counts all of them.
     """
@@ -373,12 +383,7 @@ def render_final_body(
         summary = "Nothing to post."
     lines = [_header(review_mode, "reviewed", head_sha), "", summary, "", *_table(rows)]
     if capped_lens_parts is not None:
-        lines.extend(
-            [
-                "",
-                f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
-            ]
-        )
+        lines.extend(["", large_pr_note(capped_lens_parts)])
     if raised_elsewhere:
         shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
         lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
