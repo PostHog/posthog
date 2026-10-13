@@ -246,6 +246,19 @@ export interface AcceptWarehouseSuggestionApi {
      * @maximum 2592000
      */
     refresh_interval_seconds?: number
+    /**
+     * Materialize only: replaces the suggested refresh mode. A date or datetime output column whose advancing value marks new rows, so each refresh reads only those rows. Send null to rebuild the whole table on each refresh instead. Omit to keep the suggested refresh mode.
+     * @nullable
+     */
+    incremental_key?: string | null
+    /** Materialize only: output columns that identify a row, so a refresh updates rows instead of adding duplicates. Must include every GROUP BY column. Required when incremental_key is a column. */
+    unique_key?: string[]
+    /**
+     * Materialize only: how far before the last refresh's highest incremental_key value to read again, so late rows are picked up. Defaults to 0.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
 }
 
 export interface DismissWarehouseSuggestionApi {

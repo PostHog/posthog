@@ -14,6 +14,7 @@ from ..logic.rules import RULES
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
     CatalogEditAccessRequiredError,
+    RefreshOverride,
     SubjectEditAccessRequiredError,
     SubjectKinds,
     Suggestion,
@@ -145,6 +146,7 @@ def accept_suggestion(
     refresh_interval: timedelta | None,
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
+    refresh_override: RefreshOverride | None = None,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     _require_catalog_edit_access(row, user_access_control)
@@ -152,7 +154,11 @@ def accept_suggestion(
         team.pk,
         row.id,
         accept.AcceptRequest(
-            team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
+            team=team,
+            user=user,
+            refresh_interval=refresh_interval,
+            was_impersonated=was_impersonated,
+            refresh_override=refresh_override,
         ),
     )
     if outcome.newly_accepted:

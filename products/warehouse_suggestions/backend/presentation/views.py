@@ -30,7 +30,9 @@ from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
     AcceptFailedError,
     CatalogEditAccessRequiredError,
+    IncrementalKeysRefusedError,
     RefreshIntervalRefusedError,
+    RefreshOverride,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
@@ -206,6 +208,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 refresh_interval=timedelta(seconds=interval_seconds) if interval_seconds else None,
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
+                refresh_override=_refresh_override(request.validated_data),
             )
         )
 
@@ -241,5 +244,17 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise ValidationError({"refresh_interval_seconds": str(error)})
         except SuggestionOutdatedError as error:
             raise Conflict(str(error))
+        except IncrementalKeysRefusedError as error:
+            raise ValidationError({"incremental_key": str(error)})
         except AcceptFailedError as error:
             raise APIException(str(error))
+
+
+def _refresh_override(validated_data: dict[str, Any]) -> RefreshOverride | None:
+    if "incremental_key" not in validated_data:
+        return None
+    return RefreshOverride(
+        incremental_key=validated_data["incremental_key"],
+        unique_key=tuple(validated_data.get("unique_key", ())),
+        lookback_seconds=validated_data.get("lookback_seconds", 0),
+    )

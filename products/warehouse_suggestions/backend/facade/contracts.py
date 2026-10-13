@@ -139,6 +139,15 @@ class CertificationAsset:
 
 
 @frozen
+class RefreshOverride:
+    """The refresh mode a person chose when accepting. A None incremental_key means full refresh."""
+
+    incremental_key: str | None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+
+
+@frozen
 class MaterializationAsset:
     saved_query_id: str
     refresh_interval_seconds: int
@@ -204,6 +213,10 @@ class RefreshIntervalRefusedError(Exception):
 
 
 class SuggestionOutdatedError(Exception):
+    pass
+
+
+class IncrementalKeysRefusedError(Exception):
     pass
 
 
