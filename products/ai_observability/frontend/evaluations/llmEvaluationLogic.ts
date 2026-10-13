@@ -1582,7 +1582,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 : (model.supportsChat ?? !model.supportsDecisions)
                         ),
                     }))
-                    .filter((group) => group.models.length > 0 || group.disabledReason),
+                    .filter(
+                        (group) =>
+                            group.models.length > 0 ||
+                            group.disabledReason ||
+                            (judgeMethod === 'llm' && group.allowsCustomModel)
+                    ),
         ],
         numericBoundsRequired: [
             (s) => [s.evaluation, s.usesDecisionModel],

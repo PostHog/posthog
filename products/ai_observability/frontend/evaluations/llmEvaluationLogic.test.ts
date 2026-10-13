@@ -1682,10 +1682,21 @@ return result`,
         )
 
         it.each(['llm', 'decision'] as const)(
-            'keeps a dual-capability model and its key when selecting %s',
+            'keeps compatible models and custom deployments when selecting %s',
             async (method) => {
                 useMocks({
                     get: {
+                        '/api/environments/:teamId/llm_analytics/provider_keys/': {
+                            results: [
+                                ...mockProviderKeys,
+                                {
+                                    ...mockProviderKeys[0],
+                                    id: 'key-azure',
+                                    provider: 'azure_openai',
+                                    name: 'Azure Key',
+                                },
+                            ],
+                        },
                         '/api/llm_proxy/models/': ({ request }) => [
                             200,
                             new URL(request.url).searchParams.get('provider_key_id') === 'key-3'
@@ -1716,6 +1727,7 @@ return result`,
                         ],
                     },
                 })
+                await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
                 await expectLogic(modelPickerLogic).toFinishAllListeners()
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.selectModelFromPicker('example/dual-model', 'key-3')
@@ -1729,6 +1741,9 @@ return result`,
                 expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
                 expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
                     ['example/dual-model', method === 'llm' ? 'example/chat-model' : 'example/decision-model']
+                )
+                expect(logic.values.judgeModelGroups.find((group) => group.providerKeyId === 'key-azure')).toEqual(
+                    method === 'llm' ? expect.objectContaining({ allowsCustomModel: true }) : undefined
                 )
             }
         )
