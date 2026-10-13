@@ -11,7 +11,7 @@ for Django ORM + HogQL queries. Workflows are async and only orchestrate activit
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import date, timedelta
 from typing import Optional, TypeVar, cast
 
@@ -416,6 +416,9 @@ class PropertyCleanupWorkflowInput:
     run_id: Optional[str] = None
     # Who turned the setting off, archived, or deleted, so HogQL applies their access.
     user_id: Optional[int] = None
+    # The first pass leaves the run open, and the reconcile pass adds its count to the first one.
+    final_pass: bool = True
+    cleared_before: int = 0
 
 
 @frozen
@@ -429,7 +432,11 @@ class PropertyCleanupWorkflowResult:
 # a large population. The cleanup restarts from the first person that still holds the property.
 _CLEANUP_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(minutes=1))
 _CLEANUP_ATTEMPT_TIMEOUT = timedelta(hours=2)
-PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=7)
+# A scoring batch capture accepted just before the opt-out can still be ingesting when the first pass
+# runs, and its $set lands after it. A second pass after this delay removes those.
+_RECONCILE_DELAY = timedelta(hours=1)
+# Two passes of up to three attempts each, plus the delay between them.
+PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=14)
 
 
 @activity.defn(name="autoresearch-property-cleanup.remove_person_property")
@@ -450,7 +457,7 @@ def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> Proper
                 written_since=inp.written_since,
                 user=user,
                 query_context=BATCH_QUERY,
-                on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=cleared),
+                on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=inp.cleared_before + cleared),
             )
         except Exception as exc:
             _update_cleanup_run(
@@ -460,19 +467,17 @@ def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> Proper
                 completed_at=django_timezone.now(),
             )
             raise
-        metrics = {"output_person_property": inp.output_property, "stopped": outcome.stopped}
+        cleared = inp.cleared_before + outcome.persons_cleared
+        done = inp.final_pass or outcome.stopped is not None
+        status = AutoresearchRun.Status.COMPLETED if done else AutoresearchRun.Status.RUNNING
         _update_cleanup_run(
             inp.run_id,
-            status=AutoresearchRun.Status.COMPLETED,
-            rows_scored=outcome.persons_cleared,
-            metrics=metrics,
-            completed_at=django_timezone.now(),
+            status=status,
+            rows_scored=cleared,
+            metrics={"output_person_property": inp.output_property, "stopped": outcome.stopped},
+            completed_at=django_timezone.now() if done else None,
         )
-    return PropertyCleanupWorkflowResult(
-        persons_cleared=outcome.persons_cleared,
-        status=AutoresearchRun.Status.COMPLETED,
-        stopped=outcome.stopped,
-    )
+    return PropertyCleanupWorkflowResult(persons_cleared=cleared, status=status, stopped=outcome.stopped)
 
 
 def _update_cleanup_run(run_id: str | None, **fields: object) -> None:
@@ -489,13 +494,21 @@ def property_cleanup_workflow_id(pipeline_id: str) -> str:
 class AutoresearchPropertyCleanupWorkflow(PostHogWorkflow):
     """
     Removes a pipeline's output person property from persons, after someone turns off
-    write_person_property, or archives or deletes a pipeline that had it on.
+    write_person_property, or archives or deletes a pipeline that had it on. A reconcile pass
+    runs after _RECONCILE_DELAY for scores that were still ingesting during the first pass.
     """
 
     inputs_cls = PropertyCleanupWorkflowInput
 
     @workflow.run
     async def run(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+        first = await self._remove(replace(inp, final_pass=False))
+        if first.stopped is not None:
+            return first
+        await workflow.sleep(_RECONCILE_DELAY)
+        return await self._remove(replace(inp, final_pass=True, cleared_before=first.persons_cleared))
+
+    async def _remove(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
         return await workflow.execute_activity(
             activity_remove_person_property,
             inp,

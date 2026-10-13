@@ -606,6 +606,19 @@ def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
     return _pipeline_with_champion(_pipeline_row(team_id, pipeline_id, live_only=True))
 
 
+def pipeline_writes_person_property(team_id: int, pipeline_id: str | UUID) -> bool:
+    """Whether a live pipeline writes its output property, so archiving or deleting it starts a cleanup."""
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        return False
+    return (
+        AutoresearchPipeline.objects.for_team(team_id)
+        .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+        .filter(pk=pipeline_uuid, write_person_property=True)
+        .exists()
+    )
+
+
 def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) -> Pipeline:
     row = AutoresearchPipeline.objects.create(
         team_id=team_id,
@@ -675,6 +688,15 @@ def update_pipeline(
                     "What the pipeline predicts cannot change after a model has been trained. "
                     "Create a new pipeline to predict a different target."
                 )
+        renames_property = (
+            fields.get("output_person_property", row.output_person_property) != row.output_person_property
+        )
+        # A rename while writing would leave the old property on persons with no cleanup to remove it.
+        if row.write_person_property and fields.get("write_person_property", True) and renames_property:
+            raise AutoresearchConflict(
+                "Turn off writing scores to person profiles before you rename the person property. "
+                "Turning it off removes the old property from the people this model scored."
+            )
         stops_writing = row.write_person_property and fields.get("write_person_property") is False
         cleanup_property = row.output_person_property
         for key, value in fields.items():

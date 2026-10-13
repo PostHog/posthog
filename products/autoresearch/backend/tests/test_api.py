@@ -830,20 +830,70 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_writes_setting", {"write_person_property": False}, True),
-            ("other_fields", {"name": "Renamed"}, False),
+            ("patch_person_writes", "patch", "", {"write_person_property": False}, None, True),
+            ("patch_other_fields", "patch", "", {"name": "Renamed"}, None, False),
+            ("create_with_person_writes", "post", None, {"write_person_property": True}, None, True),
+            ("archive_writing_pipeline", "post", "archive/", None, True, True),
+            ("archive_other_pipeline", "post", "archive/", None, False, False),
+            ("delete_writing_pipeline", "delete", "", None, True, True),
         ]
     )
-    def test_changing_person_writes_needs_person_write(self, _name: str, body: dict, needs_person_write: bool):
-        missing = f"{self.base_url}/{uuid.uuid4()}/"
+    def test_person_writes_need_person_write(
+        self,
+        _name: str,
+        method: str,
+        suffix: str | None,
+        body: dict | None,
+        pipeline_writes: bool | None,
+        needs_person_write: bool,
+    ):
+        if suffix is None:
+            url = f"{self.base_url}/"
+        else:
+            pipeline_id = (
+                self._make_pipeline(
+                    status=AutoresearchPipeline.Status.RUNNING,
+                    output_person_property="predicted_p_pageview_7d",
+                    write_person_property=pipeline_writes,
+                ).id
+                if pipeline_writes is not None
+                else uuid.uuid4()
+            )
+            url = f"{self.base_url}/{pipeline_id}/{suffix}"
         self.client.logout()
-        without = self.create_personal_api_key_with_scopes(["autoresearch:write"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
-        expected = status.HTTP_403_FORBIDDEN if needs_person_write else status.HTTP_404_NOT_FOUND
-        assert self.client.patch(missing, body, format="json").status_code == expected
-        with_person = self.create_personal_api_key_with_scopes(["autoresearch:write", "person:write"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_person}")
-        assert self.client.patch(missing, body, format="json").status_code == status.HTTP_404_NOT_FOUND
+        with patch(f"{_FACADE}._start_property_cleanup"):
+            for scopes, refused in (
+                (["autoresearch:write"], needs_person_write),
+                (["autoresearch:write", "person:write"], False),
+            ):
+                key = self.create_personal_api_key_with_scopes(scopes)
+                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+                resp = getattr(self.client, method)(url, body, format="json")
+                assert (resp.status_code == status.HTTP_403_FORBIDDEN) == refused, (scopes, resp.content)
+
+    @parameterized.expand(
+        [
+            ("while_writing", True, {}, status.HTTP_400_BAD_REQUEST),
+            ("while_off", False, {}, status.HTTP_200_OK),
+            ("while_turning_writes_off", True, {"write_person_property": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_renaming_the_person_property_needs_writes_off(self, _name: str, writing: bool, extra: dict, expected: int):
+        pipeline = self._make_pipeline(
+            status=AutoresearchPipeline.Status.RUNNING,
+            output_person_property="predicted_p_pageview_7d",
+            write_person_property=writing,
+        )
+        with patch(f"{_FACADE}._start_property_cleanup"):
+            resp = self.client.patch(
+                f"{self.base_url}/{pipeline.id}/",
+                {"output_person_property": "predicted_p_pageview_renamed", **extra},
+                format="json",
+            )
+        assert resp.status_code == expected, resp.content
+        pipeline.refresh_from_db()
+        renamed = expected == status.HTTP_200_OK
+        assert (pipeline.output_person_property == "predicted_p_pageview_renamed") == renamed
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 

@@ -9,12 +9,13 @@ Persons who got the same property from somewhere else keep it.
 ``AutoresearchPropertyCleanupWorkflow`` in ``../temporal/workflows.py`` runs it.
 
 The cleanup is safe to repeat: ``$unset`` of a missing property does nothing, and each page
-reads the persons who still hold the property after the last person id it handled.
+reads only the persons who still hold the property.
 """
 
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import structlog
 
@@ -36,6 +37,8 @@ logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "autoresearch_property_cleanup"
 CLEANUP_PAGE_SIZE = 1000
+# HogQL returns at most 50,000 rows per query.
+SCORED_PAGE_SIZE = 50_000
 
 STOP_REENABLED = "reenabled"
 STOP_PROPERTY_IN_USE = "property_in_use"
@@ -85,6 +88,8 @@ def remove_output_person_property(
     Send ``$unset`` for ``output_property`` to the persons this pipeline wrote it to, one page at a time.
 
     ``written_since`` (ISO timestamp, the pipeline's creation) bounds the prediction-event scan.
+    The persons the pipeline scored come from its events in pages of ``SCORED_PAGE_SIZE``, so a
+    large population reads the event history a few times, not once per page of ``$unset``.
 
     Before each page it checks ``cleanup_stop_reason()``, so a re-enable stops the cleanup within
     one page. ``on_page`` receives the running count after each page.
@@ -92,54 +97,65 @@ def remove_output_person_property(
     cleared = 0
     after: str | None = None
     while True:
-        if stopped := cleanup_stop_reason(team_id=team.pk, pipeline_id=pipeline_id, output_property=output_property):
-            logger.info("autoresearch_property_cleanup_stopped", pipeline_id=pipeline_id, reason=stopped)
-            return CleanupOutcome(persons_cleared=cleared, stopped=stopped)
-        person_ids = _persons_with_property(
+        scored = _scored_person_ids(
             team=team,
             pipeline_id=pipeline_id,
-            output_property=output_property,
             written_since=written_since,
             after=after,
             user=user,
             query_context=query_context,
         )
-        if not person_ids:
+        for start in range(0, len(scored), CLEANUP_PAGE_SIZE):
+            if stopped := cleanup_stop_reason(
+                team_id=team.pk, pipeline_id=pipeline_id, output_property=output_property
+            ):
+                logger.info("autoresearch_property_cleanup_stopped", pipeline_id=pipeline_id, reason=stopped)
+                return CleanupOutcome(persons_cleared=cleared, stopped=stopped)
+            holders = _holders(
+                team=team,
+                output_property=output_property,
+                person_ids=scored[start : start + CLEANUP_PAGE_SIZE],
+                user=user,
+                query_context=query_context,
+            )
+            if not holders:
+                continue
+            distinct_id_by_person = _resolve_distinct_ids(team=team, pipeline_id=pipeline_id, person_ids=holders)
+            _send_unsets(
+                team=team,
+                pipeline_id=pipeline_id,
+                output_property=output_property,
+                distinct_ids=list(distinct_id_by_person.values()),
+            )
+            cleared += len(distinct_id_by_person)
+            if on_page is not None:
+                on_page(cleared)
+        if len(scored) < SCORED_PAGE_SIZE:
             return CleanupOutcome(persons_cleared=cleared)
-        distinct_id_by_person = _resolve_distinct_ids(team=team, pipeline_id=pipeline_id, person_ids=person_ids)
-        _send_unsets(
-            team=team,
-            pipeline_id=pipeline_id,
-            output_property=output_property,
-            distinct_ids=list(distinct_id_by_person.values()),
-        )
-        cleared += len(distinct_id_by_person)
-        after = person_ids[-1]
-        if on_page is not None:
-            on_page(cleared)
-        if len(person_ids) < CLEANUP_PAGE_SIZE:
-            return CleanupOutcome(persons_cleared=cleared)
+        after = scored[-1]
 
 
-def _persons_with_property(
+def _scored_person_ids(
     *,
     team: Team,
     pipeline_id: str,
-    output_property: str,
     written_since: str | None,
     after: str | None,
     user: User | None,
     query_context: QueryContext,
 ) -> list[str]:
+    """The current person ids the pipeline's live champion predictions went to, in id order.
+
+    ``person_id`` resolves merges, so a person who absorbed a scored person is included.
+    """
     values: dict[str, Any] = {
-        "property": output_property,
         "pipeline_id": pipeline_id,
         "event": PREDICTION_EVENT_NAME,
         "champion": AutoresearchModel.Role.CHAMPION.value,
     }
     after_clause = ""
     if after is not None:
-        after_clause = "AND id > toUUID({after})"
+        after_clause = "AND person_id > toUUID({after})"
         values["after"] = after
     since_clause = ""
     if written_since is not None:
@@ -150,19 +166,38 @@ def _persons_with_property(
         team=team,
         query=HogQLQuery(
             query=f"""
+                SELECT DISTINCT person_id FROM events
+                WHERE event = {{event}}
+                    AND properties.$autoresearch_pipeline_id = {{pipeline_id}}
+                    AND properties.$autoresearch_model_role = {{champion}}
+                    {since_clause} {after_clause}
+                ORDER BY person_id
+                LIMIT {SCORED_PAGE_SIZE}
+            """,
+            values=values,
+        ),
+        user=user,
+        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        query_context=query_context,
+    )
+    return [str(row[0]) for row in result.rows]
+
+
+def _holders(
+    *, team: Team, output_property: str, person_ids: list[str], user: User | None, query_context: QueryContext
+) -> list[str]:
+    """Which of ``person_ids`` still hold the property."""
+    tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+    result = run_hogql(
+        team=team,
+        query=HogQLQuery(
+            query=f"""
                 SELECT id FROM persons
-                WHERE JSONHas(properties, {{property}}) {after_clause}
-                    AND id IN (
-                        SELECT toUUID(properties.$autoresearch_person_id) FROM events
-                        WHERE event = {{event}}
-                            AND properties.$autoresearch_pipeline_id = {{pipeline_id}}
-                            AND properties.$autoresearch_model_role = {{champion}}
-                            {since_clause}
-                    )
+                WHERE id IN {{person_ids}} AND JSONHas(properties, {{property}})
                 ORDER BY id
                 LIMIT {CLEANUP_PAGE_SIZE}
             """,
-            values=values,
+            values={"property": output_property, "person_ids": [UUID(person_id) for person_id in person_ids]},
         ),
         user=user,
         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,

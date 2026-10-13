@@ -14,6 +14,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import User
 
+from products.autoresearch.backend.inference.person_property import CleanupOutcome
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -28,6 +29,7 @@ from products.autoresearch.backend.temporal.workflows import (
     KickoffTrainingInput,
     KickoffTrainingResult,
     LoadActivePipelinesInput,
+    PropertyCleanupWorkflowInput,
     RunInferenceInput,
     RunInferenceResult,
     RunValidationInput,
@@ -35,6 +37,7 @@ from products.autoresearch.backend.temporal.workflows import (
     ValidationWorkflowResult,
     activity_kickoff_training,
     activity_load_active_pipelines,
+    activity_remove_person_property,
     activity_run_inference,
     activity_run_validation,
     evaluate_pipeline_outcome,
@@ -249,6 +252,48 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             assert mock_validation.call_args.kwargs["query_context"] == BATCH_QUERY
             claim_deadline = mock_validation.call_args.kwargs["claim_deadline"]
             assert django_timezone.now() < claim_deadline < django_timezone.now() + _VALIDATION_ATTEMPT_TIMEOUT
+
+    @parameterized.expand(
+        [
+            ("first_pass_leaves_the_run_open", False, 0, AutoresearchRun.Status.RUNNING, 5),
+            ("reconcile_pass_adds_to_the_first", True, 3, AutoresearchRun.Status.COMPLETED, 8),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.remove_output_person_property")
+    def test_property_cleanup_run_stays_open_until_the_reconcile_pass(
+        self,
+        _name: str,
+        final_pass: bool,
+        cleared_before: int,
+        expected_status: str,
+        expected_cleared: int,
+        mock_remove: MagicMock,
+    ) -> None:
+        pipeline = self._create_pipeline(output_person_property="predicted_p_pageview")
+        run = AutoresearchRun.objects.create(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP,
+            status=AutoresearchRun.Status.PENDING,
+        )
+        mock_remove.return_value = CleanupOutcome(persons_cleared=5)
+        result = ActivityEnvironment().run(
+            activity_remove_person_property,
+            PropertyCleanupWorkflowInput(
+                pipeline_id=str(pipeline.id),
+                team_id=self.team.id,
+                output_property="predicted_p_pageview",
+                run_id=str(run.pk),
+                final_pass=final_pass,
+                cleared_before=cleared_before,
+            ),
+        )
+        run.refresh_from_db()
+        assert (run.status, run.rows_scored, result.persons_cleared) == (
+            expected_status,
+            expected_cleared,
+            expected_cleared,
+        )
+        assert (run.completed_at is not None) == final_pass
 
     @parameterized.expand(
         [

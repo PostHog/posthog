@@ -255,11 +255,16 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # Turning person-profile writes on or off writes to persons (scores, or the cleanup's $unset),
-        # so it needs person:write like /score does.
-        if self.action in ("update", "partial_update") and "write_person_property" in request.data:
-            return ["autoresearch:write", "person:write"]
-        return None
+        # Scores on persons and the cleanup's $unset are person writes, so any request that turns
+        # them on or off, or archives or deletes a pipeline that writes them, needs person:write
+        # like /score does.
+        if self.action in ("create", "update", "partial_update"):
+            writes_persons = "write_person_property" in request.data
+        elif self.action in ("archive", "destroy"):
+            writes_persons = api.pipeline_writes_person_property(self.team_id, self.kwargs["pk"])
+        else:
+            writes_persons = False
+        return ["autoresearch:write", "person:write"] if writes_persons else None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
