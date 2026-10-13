@@ -556,18 +556,39 @@ class TestResetLoadWritesTheQueuedScheme:
         assert kwargs["partition_mode"] == "md5"
         assert kwargs["partition_keys"] == ["id"]
 
-    def test_a_new_append_table_is_partitioned_by_its_date_cursor(self) -> None:
+    @pytest.mark.parametrize(
+        "saved_layout, reset_pipeline, expected_mode, expected_keys",
+        [
+            ({}, False, "datetime", ["ts"]),
+            (
+                {"partition_mode": "md5", "partition_count": _OLD_COUNT, "partitioning_keys": ["id"]},
+                True,
+                "datetime",
+                ["ts"],
+            ),
+            (
+                {"partition_mode": "md5", "partition_count": _OLD_COUNT, "partitioning_keys": ["id"]},
+                False,
+                "md5",
+                ["id"],
+            ),
+        ],
+        ids=["new_table", "reset_replaces_a_hash_bucket_table", "existing_table_keeps_its_layout"],
+    )
+    def test_an_append_table_is_partitioned_by_its_date_cursor_only_when_it_is_created(
+        self, saved_layout: dict[str, Any], reset_pipeline: bool, expected_mode: str, expected_keys: list[str]
+    ) -> None:
         schema = ExternalDataSchema(
             name="events",
             team_id=1,
             sync_type="append",
-            sync_type_config={"incremental_field": "ts", "incremental_field_type": "timestamp"},
+            sync_type_config={"incremental_field": "ts", "incremental_field_type": "timestamp", **saved_layout},
         )
 
-        kwargs = self._producer_kwargs(schema, reset_pipeline=False, source_mode=None)
+        kwargs = self._producer_kwargs(schema, reset_pipeline=reset_pipeline, source_mode=None)
 
-        assert kwargs["partition_mode"] == "datetime"
-        assert kwargs["partition_keys"] == ["ts"]
+        assert kwargs["partition_mode"] == expected_mode
+        assert kwargs["partition_keys"] == expected_keys
 
     @pytest.mark.asyncio
     async def test_the_reset_load_writes_the_queued_scheme_and_later_attempts_agree(self, tmp_path) -> None:

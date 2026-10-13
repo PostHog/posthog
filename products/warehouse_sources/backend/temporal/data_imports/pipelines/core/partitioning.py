@@ -37,14 +37,17 @@ DATE_CURSOR_TYPES = frozenset(
 )
 
 
-def append_cursor_partition_keys(schema: ExternalDataSchema) -> list[str] | None:
+def append_cursor_partition_keys(schema: ExternalDataSchema, *, table_is_replaced: bool = False) -> list[str] | None:
     """The cursor column of an append-only schema, when a new table can be partitioned by its date.
 
     An append-only sync never merges rows, so a hash of the primary key helps no read and no write.
     Its cursor only moves forward, so date partitions on the cursor let a query that filters on it
-    skip every other partition. A schema that already has partitioning keys keeps them.
+    skip every other partition. A schema that already has partitioning keys keeps them, unless the
+    run deletes the table and loads it again: the saved keys then describe a table that is gone.
     """
-    if not schema.is_append or schema.partitioning_keys_override or schema.partitioning_keys:
+    if not schema.is_append or schema.partitioning_keys_override:
+        return None
+    if schema.partitioning_keys and not table_is_replaced:
         return None
     if schema.incremental_field and schema.incremental_field_type in DATE_CURSOR_TYPES:
         return [schema.incremental_field]

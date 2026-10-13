@@ -278,12 +278,10 @@ class PipelineV3(Generic[ResumableData]):
         # A queued repartition target is the scheme of the table when this attempt deletes the table
         # and loads it again. The reset then stages that target (see `handle_reset_or_full_refresh`),
         # so no rewrite of the old table is necessary.
-        staged_scheme = (
-            self._schema.pending_scheme_for_table_replacement
-            if attempt <= 1
-            and resets_table_before_extraction(reset_pipeline, is_resume, self._schema, self._resource.webhook_only)
-            else None
+        replaces_table = attempt <= 1 and resets_table_before_extraction(
+            reset_pipeline, is_resume, self._schema, self._resource.webhook_only
         )
+        staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
         self._writes_staged_repartition_scheme = staged_scheme is not None
         if staged_scheme is not None:
             partition_count = staged_scheme.get("partition_count") or self._resource.partition_count
@@ -315,8 +313,11 @@ class PipelineV3(Generic[ResumableData]):
             partition_mode = (
                 self._schema.partition_mode_override or self._schema.partition_mode or self._resource.partition_mode
             )
-            if partition_mode is None:
-                cursor_keys = append_cursor_partition_keys(self._schema)
+            # The reset clears the saved layout only after this point, so a table that this attempt
+            # replaces must not inherit the mode of the table it deletes.
+            saved_mode = None if replaces_table else self._schema.partition_mode
+            if not (self._schema.partition_mode_override or saved_mode or self._resource.partition_mode):
+                cursor_keys = append_cursor_partition_keys(self._schema, table_is_replaced=replaces_table)
                 if cursor_keys:
                     partition_keys, partition_mode = cursor_keys, "datetime"
 
