@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -294,7 +295,7 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
         self._policy("experiment.launch")
 
         with self._scoped_by_owner(True), self.assertRaises(ValidationError) as caught:
-            self._create("live-flag", start_date="2026-01-01T00:00:00Z")
+            self._create("live-flag", start_date=datetime(2026, 1, 1, tzinfo=UTC))
 
         assert "draft" in str(caught.exception)
         assert not Experiment.objects.filter(team=self.team).exists()
@@ -313,7 +314,7 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
 
     def test_a_live_create_is_allowed_with_no_launch_policy(self, _mock_enabled) -> None:
         with self._scoped_by_owner(True):
-            experiment = self._create("live-ungated", start_date="2026-01-01T00:00:00Z")
+            experiment = self._create("live-ungated", start_date=datetime(2026, 1, 1, tzinfo=UTC))
 
         assert not experiment.is_draft
         assert experiment.feature_flag is not None
@@ -329,4 +330,4 @@ class TestCreatingALiveExperimentUnderALaunchPolicy(APIBaseTest):
         self._policy("feature_flag.enable")
 
         with self._scoped_by_owner(False), self.assertRaises(ApprovalRequired):
-            self._create("pre-rollout-flag", start_date="2026-01-01T00:00:00Z")
+            self._create("pre-rollout-flag", start_date=datetime(2026, 1, 1, tzinfo=UTC))
