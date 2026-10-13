@@ -66,7 +66,11 @@ def create_github_source(
 
 
 def create_trunk_source(
-    team: Team, *, prefix: str = "trunkprefix_", source_id: str = "trunk-source"
+    team: Team,
+    *,
+    prefix: str = "trunkprefix_",
+    source_id: str = "trunk-source",
+    job_inputs: dict[str, Any] | None = None,
 ) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -75,7 +79,7 @@ def create_trunk_source(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=ExternalDataSourceType.TRUNKIO,
         prefix=prefix,
-        job_inputs={},
+        job_inputs=job_inputs or {},
     )
 
 
