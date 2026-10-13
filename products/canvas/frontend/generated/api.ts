@@ -24,6 +24,7 @@ import type {
     CanvasConnectorCallResultApi,
     CanvasConnectorsResponseApi,
     CanvasCreateApi,
+    CanvasDataCheckApi,
     CanvasDraftApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
@@ -347,6 +348,24 @@ export const canvasesConnectorsCall = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasConnectorCallApi),
+    })
+}
+
+export const getCanvasesDataCheckRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/data_check/`
+}
+
+/**
+ * The latest nightly check of the data this canvas declares against the project's current schema.
+ */
+export const canvasesDataCheckRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasDataCheckApi> => {
+    return apiMutator<CanvasDataCheckApi>(getCanvasesDataCheckRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

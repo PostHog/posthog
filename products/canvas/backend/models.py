@@ -282,3 +282,27 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
                 name="canvas_state_shared_key",
             ),
         ]
+
+
+class CanvasDataCheck(TeamScopedRootMixin, UUIDModel):
+    """The latest result of the nightly check of a canvas's declared data dependencies.
+
+    One row per canvas, rewritten on every check. ``missing`` lists the declared events,
+    properties, and tables the project no longer has; a canvas with drift shows a notice
+    from which a person asks the authoring agent for a fix.
+    """
+
+    STATUS_OK = "ok"
+    STATUS_DRIFT = "drift"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    canvas = models.OneToOneField(Canvas, on_delete=models.CASCADE, related_name="data_check")
+    source_version = models.ForeignKey(
+        CanvasSourceVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    status = models.CharField(max_length=16)
+    missing = models.JSONField(default=dict)
+    checked_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "posthog_canvas_data_check"

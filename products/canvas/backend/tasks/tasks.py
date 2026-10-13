@@ -97,3 +97,22 @@ def cleanup_canvas_builds() -> None:
     except Exception as error:
         logger.exception("canvas_build_cleanup_failed", error=str(error))
         capture_exception(error, additional_properties={"task": "cleanup_canvas_builds"})
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=1200,
+    time_limit=1260,
+    name="products.canvas.backend.tasks.check_canvas_data_dependencies",
+)
+def check_canvas_data_dependencies() -> None:
+    """Compare every live canvas's declared data with the project's current schema (nightly)."""
+    from products.canvas.backend.logic.data_dependencies import run_data_dependency_checks  # noqa: PLC0415
+
+    try:
+        counts = run_data_dependency_checks()
+        logger.info("canvas_data_dependencies_checked", **counts)
+    except Exception as error:
+        logger.exception("canvas_data_dependency_check_failed", error=str(error))
+        capture_exception(error, additional_properties={"task": "check_canvas_data_dependencies"})

@@ -60,7 +60,7 @@ export function captureCanvasAction(
         tab?: string
         source?: 'highlight' | 'menu'
         open?: boolean
-        origin?: 'build' | 'runtime'
+        origin?: 'build' | 'runtime' | 'data'
         outcome?: string
         /** edit_toggle: the state being entered. */
         editing?: boolean
