@@ -7,7 +7,7 @@ import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
-import { withToolHooks } from '@/tools/tool-hooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -1050,7 +1050,7 @@ const updateFeatureFlag = (): ToolBase<
             const result = await context.api.request<Schemas.FeatureFlag>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
-                body,
+                body: await transformRequestBody(hooks_updateFeatureFlag, context, params, body),
             })
             return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
         }
