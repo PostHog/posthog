@@ -134,6 +134,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
+    post_failure_comment,
 )
 from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.coordinator_review import (
@@ -141,7 +142,12 @@ from products.review_hog.backend.reviewer.tools.coordinator_review import (
     CoordinatorUnit,
     coordinator_prompt,
 )
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    add_pr_reaction,
+    github_api_request,
+    remove_pr_reaction,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
     PRFilter,
@@ -642,6 +648,21 @@ class StatusCommentInput:
     review_design: str = REVIEW_DESIGN_PIPELINE
     # The failed turn, for the failure edit. None in payloads from before the field existed.
     run_index: int | None = None
+    # False when Temporal retries the turn after this failure. A Standard turn posts its failure
+    # comment only on the last attempt, so a retry that succeeds leaves no stale notice on the PR.
+    last_attempt: bool = True
+    # A Standard run that started before the reactions patch has a status comment to mark as failed.
+    uses_status_comment: bool = True
+
+
+@frozen
+class ReviewReactionInput:
+    """The 👀 a publishing turn keeps on the PR while it runs. `reaction_id` is set only for the removal."""
+
+    team_id: int
+    repository: str
+    pr_number: int
+    reaction_id: int | None = None
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -2408,7 +2429,14 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
         raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
+def _fail_run(
+    team_id: int,
+    report_id: str,
+    review_mode: str = REVIEW_MODE_FULL,
+    run_index: int | None = None,
+    last_attempt: bool = True,
+    uses_status_comment: bool = True,
+) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
@@ -2429,21 +2457,76 @@ def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL,
         review_mode=review_mode,
         head_sha=report.head_sha,
     )
-    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
+    # A Standard turn has no status comment to mark as failed, so it says so in a comment of its own.
+    if review_mode == REVIEW_MODE_FLASH and not uses_status_comment:
+        if last_attempt:
+            post_failure_comment(team_id, report_id, review_mode=review_mode)
+    else:
+        fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def fail_status_comment_activity(input: StatusCommentInput) -> None:
-    """Return the dead run's report to rest and rewrite the status comment as failed.
+    """Return the dead run's report to rest and tell the PR: the status comment of a Deep turn shows
+    the failure, and a Standard turn posts one failure comment per head.
 
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
     await database_sync_to_async(_fail_run, thread_sensitive=False)(
-        input.team_id, input.report_id, input.review_mode, input.run_index
+        input.team_id,
+        input.report_id,
+        input.review_mode,
+        input.run_index,
+        input.last_attempt,
+        input.uses_status_comment,
     )
+
+
+# --- The PR's "review in progress" reaction ----------------------------------------------------------
+
+
+def _add_eyes_reaction(input: ReviewReactionInput) -> int | None:
+    try:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+    except Exception:
+        logger.warning("No GitHub auth for %s; skipping the review reaction", input.repository, exc_info=True)
+        return None
+    return add_pr_reaction(input.repository, input.pr_number, "eyes", token=token, installation_id=installation_id)
+
+
+def _remove_eyes_reaction(input: ReviewReactionInput) -> None:
+    if input.reaction_id is None:
+        return
+    try:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+    except Exception:
+        logger.warning("No GitHub auth for %s; leaving the review reaction", input.repository, exc_info=True)
+        return
+    remove_pr_reaction(
+        input.repository, input.pr_number, input.reaction_id, token=token, installation_id=installation_id
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def add_review_reaction_activity(input: ReviewReactionInput) -> int | None:
+    """Put a 👀 on the PR while the turn runs, the way other review bots do. Returns the reaction id.
+
+    Stamphog waits while a trusted review bot has a fresh 👀 on the PR. Fail-open: never raises.
+    """
+    return await database_sync_to_async(_add_eyes_reaction, thread_sensitive=False)(input)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def remove_review_reaction_activity(input: ReviewReactionInput) -> None:
+    """Remove the turn's 👀 by the id the add returned. Raises only on a transient GitHub error, so Temporal retries it."""
+    await database_sync_to_async(_remove_eyes_reaction, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

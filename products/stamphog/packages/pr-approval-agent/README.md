@@ -111,7 +111,7 @@ Tier classification
   │
   ▼
 Wait for in-flight bot reviews (skipped when gates already denied)
-  - Reviewer bots (greptile, hex-security, codex) put 👀 on the PR while
+  - Reviewer bots (greptile, hex-security, codex, PostHog Review) put 👀 on the PR while
     reviewing and swap it for a verdict reaction minutes later; the review is
     triggered at the same moment, so an 👀 at fetch time is a race, not a
     lasting state

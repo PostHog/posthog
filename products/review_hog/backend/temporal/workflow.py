@@ -68,6 +68,7 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
+    ReviewReactionInput,
     SandboxStageInput,
     SelectPerspectivesInput,
     StatusCommentInput,
@@ -78,6 +79,7 @@ from products.review_hog.backend.temporal.activities import (
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    add_review_reaction_activity,
     append_code_review_artefact_activity,
     build_body_activity,
     coordinator_review_activity,
@@ -94,6 +96,7 @@ from products.review_hog.backend.temporal.activities import (
     post_status_comment_activity,
     publish_review_activity,
     record_turn_marker_activity,
+    remove_review_reaction_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -172,6 +175,12 @@ def _non_retryable_cause(exc: BaseException | None) -> ApplicationError | None:
             return exc
         exc = exc.__cause__
     return None
+
+
+def _out_of_attempts() -> bool:
+    info = workflow.info()
+    retry = info.retry_policy
+    return retry is None or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
 
 
 @dataclass
@@ -431,14 +440,7 @@ class ReviewPRWorkflow:
             non_retryable = True
             raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
-            info = workflow.info()
-            retry = info.retry_policy
-            terminal = (
-                completed
-                or non_retryable
-                or retry is None
-                or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
-            )
+            terminal = completed or non_retryable or _out_of_attempts()
             if (
                 workflow.patched("remove-reviewhog-trigger-label-2026-08")
                 and terminal
@@ -648,11 +650,14 @@ class ReviewPRWorkflow:
         # One gate, three consumers: the status comment, finalize's deferred idle write, and the
         # stage-7 publish dispatch all key off "this run publishes to a PR".
         publishes_to_pr = inputs.publish and meta.pr_number is not None
+        # The patch keeps a history from before the reactions on its old command sequence.
+        reacts = workflow.patched("reviewhog-pr-reactions-2026-10")
         # The PR's live status comment: posted once every gate has passed, refreshed by the pipeline
         # activities as they persist progress, and rewritten with the outcome below. Publish-path
         # only — eval / CLI / branch-target runs keep zero GitHub footprint. Best-effort throughout:
-        # a status comment must never cost a review.
-        status_comment = publishes_to_pr
+        # a status comment must never cost a review. A Standard turn has none: its 👀 shows that it
+        # runs, and its review, 👍, or failure comment shows the outcome.
+        status_comment = publishes_to_pr and not (reacts and inputs.review_mode == REVIEW_MODE_FLASH)
         if status_comment:
             try:
                 await workflow.execute_activity(
@@ -669,6 +674,9 @@ class ReviewPRWorkflow:
             except ActivityError:
                 workflow.logger.warning("Could not post the status comment; continuing without it")
 
+        eyes_reaction_id: int | None = None
+        if reacts and publishes_to_pr and meta.pr_number is not None:
+            eyes_reaction_id = await self._add_eyes_reaction(inputs.team_id, repository, meta.pr_number)
         publish_result: PublishResult | None = None
         marker: ReviewHogMarker | None = None
         flash_sessions: FlashSessionStats | None = None
@@ -809,11 +817,12 @@ class ReviewPRWorkflow:
                 workflow.logger.info("No PR to publish to (branch target); the review is stored only")
             else:
                 workflow.logger.info("Publishing disabled for this run (publish=False)")
-        except Exception:
+        except Exception as e:
             # A dead run must not read as forever in progress on the PR or in the Code review UI
             # (the activity also returns the report to rest, covering a publish that died with the
             # idle write still deferred); best-effort so the edit can never mask the original error.
-            if status_comment:
+            # A Standard turn without a status comment still needs the idle write and its failure comment.
+            if publishes_to_pr:
                 try:
                     await workflow.execute_activity(
                         fail_status_comment_activity,
@@ -823,6 +832,8 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             review_design=review_design,
                             run_index=meta.run_index,
+                            last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
+                            uses_status_comment=status_comment,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -856,6 +867,10 @@ class ReviewPRWorkflow:
                 except Exception:
                     workflow.logger.exception("Could not capture the review-failed analytics event")
             raise
+        finally:
+            # Also on cancellation, which is not an Exception, so a stopped turn leaves no 👀 behind.
+            if eyes_reaction_id is not None and meta.pr_number is not None:
+                await self._remove_eyes_reaction(inputs.team_id, repository, meta.pr_number, eyes_reaction_id)
 
         posted = publish_result is not None and publish_result.posted
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
@@ -1126,6 +1141,33 @@ class ReviewPRWorkflow:
             id=f"{workflow.info().workflow_id}/review",
             retry_policy=_RETRY,
         )
+
+    @staticmethod
+    async def _add_eyes_reaction(team_id: int, repository: str, pr_number: int) -> int | None:
+        try:
+            return await workflow.execute_activity(
+                add_review_reaction_activity,
+                ReviewReactionInput(team_id=team_id, repository=repository, pr_number=pr_number),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not add the review reaction; continuing without it")
+            return None
+
+    @staticmethod
+    async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:
+        try:
+            await workflow.execute_activity(
+                remove_review_reaction_activity,
+                ReviewReactionInput(
+                    team_id=team_id, repository=repository, pr_number=pr_number, reaction_id=reaction_id
+                ),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not remove the review reaction")
 
     @staticmethod
     async def _append_code_review_receipt(

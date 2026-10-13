@@ -31,6 +31,8 @@ STAMPHOG_TRUSTED_REACTOR_BOTS = frozenset(
         "copilot-pull-request-reviewer[bot]",
         "greptile-apps[bot]",
         "hex-security-app[bot]",
+        # PostHog Review, which posts as the PostHog GitHub App.
+        "posthog[bot]",
         "veria-ai[bot]",
     }
 )

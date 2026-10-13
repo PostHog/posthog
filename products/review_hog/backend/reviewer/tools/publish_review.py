@@ -1,5 +1,6 @@
 import re
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Required, TypedDict
 
@@ -24,12 +25,15 @@ from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
+from products.review_hog.backend.reviewer.status_comment import render_review_summary
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
+    add_pr_reaction,
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
     is_transient_github_error,
+    remove_own_pr_reactions,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -220,18 +224,29 @@ def publish_review(
     # publishable finding on an off-diff line has no inline anchor but is surfaced in the body's
     # "Other findings" section, so the body must still post rather than dropping the whole review. The
     # validator's priority override wins over the reviewer's, so the gate reads the effective priority.
-    publishable = [
-        finding
-        for finding, verdict in valid_findings
-        if effective_priority(finding.priority, verdict.adjusted_priority) in published_priorities
+    priorities = [
+        effective_priority(finding.priority, verdict.adjusted_priority) for finding, verdict in valid_findings
     ]
+    publishable = [priority for priority in priorities if priority in published_priorities]
+    repository = f"{owner}/{repo}"
     if not publishable:
         logger.info("No publishable issues found, skipping review")
+        # A clean Standard turn posts nothing, so the 👍 is the only sign that the review ran.
+        if review_mode == REVIEW_MODE_FLASH:
+            add_pr_reaction(repository, pr_number, "+1", token=token, installation_id=installation_id)
         return PublishOutcome(posted=False)
+    # An earlier clean turn's 👍 would sit next to this turn's findings and contradict them.
+    remove_own_pr_reactions(repository, pr_number, "+1", token=token, installation_id=installation_id)
 
     # When every publishable finding has its own inline comment, the body's tally repeats what the
-    # comments already show, so the review posts only the hidden marker with them.
-    inline_body = marker if len(comments) == len(publishable) else None
+    # comments already show. A Deep review then posts only the hidden marker. A Standard review keeps
+    # a one-line summary, because it has no status comment to connect the comments to the turn.
+    inline_body = None
+    if len(comments) == len(publishable):
+        inline_body = marker
+        if review_mode == REVIEW_MODE_FLASH:
+            summary = render_review_summary(review_mode, head_sha, Counter(publishable))
+            inline_body = f"{summary}\n\n{marker}"
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
     review_url = _post_github_review(

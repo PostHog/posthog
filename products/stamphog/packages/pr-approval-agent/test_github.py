@@ -285,6 +285,7 @@ def test_reaction_emoji_normalizes_rest_and_graphql(content: str, expected: str)
         pytest.param("ghost", False, id="deleted-user"),
         pytest.param("", False, id="empty-login"),
         pytest.param("greptile-apps[bot]", True, id="allowlisted-bot"),
+        pytest.param("posthog[bot]", True, id="posthog-review-bot"),
         pytest.param("inkeep[bot]", False, id="unlisted-bot"),
         pytest.param("teammate", True, id="org-member"),
         pytest.param("outsider", False, id="external-non-member"),

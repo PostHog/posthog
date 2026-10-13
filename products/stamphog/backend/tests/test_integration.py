@@ -1626,7 +1626,10 @@ def test_post_verdict_skips_when_the_base_moved_under_the_run(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stamphog_chain: StamphogChain) -> None:
+@pytest.mark.parametrize("bot_login", ["greptile-apps[bot]", "posthog[bot]"])
+def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(
+    team, stamphog_chain: StamphogChain, bot_login: str
+) -> None:
     # Anyone can react on a public PR, so an author could bury the trusted bot's fresh 👀 past the
     # first page with junk reactions; a first-page-only fetch would treat the bot as absent and let
     # stamphog approve while that reviewer is still mid-review.
@@ -1639,14 +1642,14 @@ def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stam
     )
     now_iso = timezone.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     junk = [{"user": {"login": f"rando-{i}"}, "content": "heart", "created_at": now_iso} for i in range(100)]
-    eyes = {"user": {"login": "greptile-apps[bot]"}, "content": "eyes", "created_at": now_iso}
+    eyes = {"user": {"login": bot_login}, "content": "eyes", "created_at": now_iso}
     stamphog_chain.recorder.pr_reactions[(REPO, 115)] = [*junk, eyes]
 
     result = _run_activity(
         list_in_flight_reviewer_bots, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
     )
 
-    assert result["in_flight"] == ["greptile-apps[bot]"]
+    assert result["in_flight"] == [bot_login]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

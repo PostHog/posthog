@@ -1,4 +1,5 @@
 from products.review_hog.backend.temporal.activities import (
+    add_review_reaction_activity,
     append_code_review_artefact_activity,
     build_body_activity,
     coordinator_review_activity,
@@ -15,6 +16,7 @@ from products.review_hog.backend.temporal.activities import (
     post_status_comment_activity,
     publish_review_activity,
     record_turn_marker_activity,
+    remove_review_reaction_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -80,6 +82,8 @@ ACTIVITIES = [
     post_status_comment_activity,
     finalize_status_comment_activity,
     fail_status_comment_activity,
+    add_review_reaction_activity,
+    remove_review_reaction_activity,
     track_review_completed_activity,
     track_review_failed_activity,
     track_review_started_activity,
