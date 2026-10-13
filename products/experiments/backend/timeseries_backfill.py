@@ -86,9 +86,9 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
                 team=experiment.team,
                 as_of=query_to_utc,
                 workload=Workload.OFFLINE,
-                # Scheduled backfill has no request user. Attribute the query to the experiment's creator
-                # so warehouse HogQL access control is enforced.
-                user=experiment.created_by,
+                # Userless background recompute. Warehouse access is enforced when the metric is authored,
+                # so resolve warehouse tables here instead of failing closed.
+                bypass_warehouse_access_control=True,
                 # Backfilling historical points is not user-visible pain — no terminal error event.
                 error_event_context=None,
             )
