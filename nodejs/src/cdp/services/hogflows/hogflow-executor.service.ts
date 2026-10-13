@@ -442,6 +442,17 @@ export class HogFlowExecutorService {
                         lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
                     } could not work out the date to wait for`,
                 })
+            } else if (result.invocation.state.currentAction?.cohortLookupFailed) {
+                // The default continue edge of a conditional branch is the path for people outside the
+                // cohort, so carrying on would route this person on a lookup that never answered.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not look up cohort membership`,
+                })
             }
         }
 
@@ -809,10 +820,15 @@ export class HogFlowExecutorService {
         try {
             const { invocation } = result
             // A delay that could not work out when to continue must never fall through, whatever on_error
-            // says: the next step would run immediately, which is what the wait exists to prevent. Bailing
-            // here also keeps the flag readable by shouldEndHogFlowExecution, since goToNextAction would
-            // replace currentAction with a fresh entry and drop it.
-            if (invocation.state.currentAction?.delayUntilUnresolved) {
+            // says: the next step would run immediately, which is what the wait exists to prevent. A cohort
+            // lookup that failed on every attempt must not fall through either, because the continue edge
+            // treats the person as outside the cohort. Bailing here also keeps the flag readable by
+            // shouldEndHogFlowExecution, since goToNextAction would replace currentAction with a fresh
+            // entry and drop it.
+            if (
+                invocation.state.currentAction?.delayUntilUnresolved ||
+                invocation.state.currentAction?.cohortLookupFailed
+            ) {
                 return
             }
             // Unless the current action's on_error is set to 'abort', we move to the next action instead of
