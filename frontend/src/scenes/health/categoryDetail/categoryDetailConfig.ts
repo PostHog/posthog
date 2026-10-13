@@ -2,6 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingHealthTable } from '../components/DataModelingHealthTable'
 import { ErrorTrackingHealthTable } from '../components/ErrorTrackingHealthTable'
+import { ExperimentsHealthTable } from '../components/ExperimentsHealthTable'
 import { IngestionWarningTable } from '../components/IngestionWarningTable'
 import { PipelineHealthTable } from '../components/PipelineHealthTable'
 import { WebAnalyticsHealthTable } from '../components/WebAnalyticsHealthTable'
@@ -60,5 +61,10 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
         guidance: 'These checks ensure your error tracking setup captures exceptions with readable stack traces.',
         redirectUrl: urls.errorTracking({ activeTab: 'recommendations' }),
         tableComponent: ErrorTrackingHealthTable,
+    },
+    experiments: {
+        docsUrl: 'https://posthog.com/docs/experiments',
+        guidance: 'These checks find setup problems that can leave experiment results empty or biased.',
+        tableComponent: ExperimentsHealthTable,
     },
 }
