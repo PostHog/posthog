@@ -25,7 +25,7 @@ class GridlyRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class GridlyResumeConfig:
     # Position to resume from. For `records` it is the offset of the next records page. For
     # `record_histories` and `automation_executions` it is the index of the next parent (record or
