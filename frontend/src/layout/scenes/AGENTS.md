@@ -27,6 +27,13 @@ you **must** make the same change in that scene's `SceneMenuBar`. A feature that
 This is a dual-write, not a move: keep the `ScenePanel` entry (flag-off path) **and** add the menu bar
 entry (flag-on path). Don't delete `ScenePanel` actions while the flag is still rolling out.
 
+### Title actions are a shortcut, never the only home
+
+Every action a user can reach from the `actions` prop of `<SceneTitleSection>` must also be in that scene's `SceneMenuBar`.
+The menu bar is the complete list of a scene's actions. The title row shows a few of them as a shortcut.
+Usage decides which actions the title row shows, and which ones stay only in the menus.
+Promote or demote an action on usage data, not on how important it looks.
+
 ### If the scene has no SceneMenuBar yet, create one
 
 Scenes get a co-located `<Resource>SceneMenuBar` component (`CohortSceneMenuBar`, `DashboardSceneMenuBar`,
