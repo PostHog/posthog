@@ -47,6 +47,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Property, Team, User
 from posthog.models.property import OperatorInterval, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.property import singular_interval
 from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
@@ -63,6 +64,7 @@ INTERVAL_TO_SECONDS = {
 
 
 def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
+    interval = singular_interval(interval)
     if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
         raise ValueError(f"Invalid interval: {interval}")
     else:

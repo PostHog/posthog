@@ -82,6 +82,15 @@ OperatorType = Literal[
 ]
 
 OperatorInterval = Literal["day", "week", "month", "year"]
+
+
+def singular_interval(interval: Any) -> Any:
+    # API clients send plural forms such as "days", but the cohort query accepts only singular ones.
+    if isinstance(interval, str) and interval.endswith("s"):
+        return interval[:-1]
+    return interval
+
+
 GroupTypeName = str
 PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
