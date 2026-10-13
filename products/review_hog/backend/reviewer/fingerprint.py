@@ -335,6 +335,7 @@ def record_turn_marker(
             base_branch=snapshot.pr_metadata.base_branch if snapshot is not None else None,
             base_sha=snapshot.merge_base_sha if snapshot is not None else None,
             skipped_paths=snapshot.skipped_paths if snapshot is not None else None,
+            review_design=review_design,
         ),
         attribution=ArtefactAttribution.system(),
     )

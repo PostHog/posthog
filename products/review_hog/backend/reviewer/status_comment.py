@@ -47,10 +47,12 @@ from products.review_hog.backend.reviewer.models.thread_resolution import Commit
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
 from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
+    TurnMarker,
     TurnStats,
     finding_counts,
     progress_payload,
     snapshot_stats,
+    turn_markers,
     turn_stats,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -215,11 +217,6 @@ def _table_row(step: str, status: str, result: str) -> str:
 
 def _table(rows: Sequence[tuple[str, str, str]]) -> list[str]:
     return [_TABLE_HEADER, _TABLE_DIVIDER, *(_table_row(*row) for row in rows)]
-
-
-def _review_design(snapshot: SnapshotStats, fallback: str) -> str:
-    # The fetch records the turn's design in the snapshot. Before that, the caller's design applies.
-    return (snapshot.review_design if snapshot.head_matched else None) or fallback
 
 
 def _step_results(
@@ -608,6 +605,15 @@ class _TurnState:
     snapshot: SnapshotStats
     turn: TurnStats
     pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+    marker: TurnMarker | None = None
+
+    def review_design(self, fallback: str) -> str:
+        # The marker belongs to this turn. The newest snapshot at the head can belong to a later turn on
+        # the same head. Before the marker exists, the fetch records the turn's design in the snapshot,
+        # and before the fetch the caller's design applies.
+        if self.marker is not None:
+            return self.marker.review_design
+        return (self.snapshot.review_design if self.snapshot.head_matched else None) or fallback
 
 
 def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnState:
@@ -617,6 +623,7 @@ def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnStat
         snapshot=snapshot_stats(team_id, heads).get(report_id, SnapshotStats()),
         turn=turn_stats(team_id, heads).get(report_id, TurnStats()),
         pairs=load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(report_id, run_index),
+        marker=turn_markers(team_id, [report_id]).get((report_id, run_index)),
     )
 
 
@@ -628,7 +635,7 @@ def _render_live_body(
         str(report.id),
         progress_payload(team_id, report, state.snapshot, state.turn, state.pairs),
         review_mode=review_mode,
-        review_design=_review_design(state.snapshot, review_design),
+        review_design=state.review_design(review_design),
         head_sha=report.head_sha,
         snapshot=state.snapshot,
         turn=state.turn,
@@ -722,7 +729,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             resolved_from=input.resolved_from,
             report_url=report_deep_link(input.team_id, input.report_id),
             review_mode=input.review_mode,
-            review_design=_review_design(state.snapshot, REVIEW_DESIGN_PIPELINE),
+            review_design=state.review_design(REVIEW_DESIGN_PIPELINE),
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,

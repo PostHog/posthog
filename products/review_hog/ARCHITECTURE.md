@@ -520,6 +520,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     and the Flash limits (finding cap, posted priorities, lens part size and count, prompt diff budget) instead.
     A change to any hashed input (a prompt, a skill, a model pin, or a Flash limit) changes it without a version bump.
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
+    and records the turn's design. The review list, the review drawer, and the status comment read a turn's design
+    from its marker, because a later turn on the same head writes a newer snapshot with its own design.
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final
     status comment as a hidden `<!-- reviewhog-version: <version id> <fingerprint> -->` line (no visible text).
     Best-effort like the events.
