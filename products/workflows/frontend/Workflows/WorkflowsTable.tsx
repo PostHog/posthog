@@ -118,6 +118,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 export function WorkflowsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -203,7 +204,12 @@ export function WorkflowsTable(): JSX.Element {
                             </Tooltip>
                         ) : (
                             <LemonTableLink
-                                to={urls.workflow(item.id, 'workflow')}
+                                to={urls.workflow(
+                                    item.id,
+                                    overviewTabEnabled && item.status === 'active' && item.trigger?.type !== 'batch'
+                                        ? 'overview'
+                                        : 'workflow'
+                                )}
                                 title={
                                     <span className="flex items-center gap-2 flex-wrap">
                                         {item.name}
