@@ -80,6 +80,20 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 }
                             />
                         </LemonField>
+                        <LemonField
+                            name="reply_to"
+                            label="Default reply-to address"
+                            help="Replies go here when an email step has no reply-to address of its own. Leave empty to send replies to the sender address."
+                            showOptional
+                        >
+                            <LemonInput
+                                type="text"
+                                placeholder="support@example.com"
+                                disabledReason={
+                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
+                                }
+                            />
+                        </LemonField>
                         {!savedIntegration && (
                             <div className="flex justify-end">
                                 <LemonButton

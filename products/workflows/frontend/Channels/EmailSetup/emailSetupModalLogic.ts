@@ -36,6 +36,7 @@ export interface EmailSenderFormType {
     name: string
     provider: 'ses' | 'maildev'
     mail_from_subdomain?: string
+    reply_to?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
@@ -61,6 +62,7 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         name: integration.config?.name ?? '',
         provider: integration.config?.provider ?? 'ses',
         mail_from_subdomain: integration.config?.mail_from_subdomain,
+        reply_to: integration.config?.reply_to ?? '',
     }
 }
 
@@ -196,8 +198,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 email: '',
                 name: '',
                 mail_from_subdomain: 'feedback',
+                reply_to: '',
             } as EmailSenderFormType,
-            errors: ({ email, name, provider, mail_from_subdomain }) => {
+            errors: ({ email, name, provider, mail_from_subdomain, reply_to }) => {
                 let emailError = undefined
                 if (!email) {
                     emailError = 'Email is required'
@@ -213,6 +216,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                         values.savedIntegration === null && !mail_from_subdomain
                             ? 'MAIL FROM subdomain is required for new senders'
                             : undefined,
+                    reply_to: reply_to && !EMAIL_REGEX.test(reply_to) ? 'Invalid email format' : undefined,
                 }
             },
             submit: async (config) => {

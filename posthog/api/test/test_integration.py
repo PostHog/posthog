@@ -628,12 +628,18 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain):
+    def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain, _mock_update):
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
+            {
+                **self.valid_config,
+                "mail_from_subdomain": "youmustnothavelikedmyemail",
+                "provider": "ses",
+                "reply_to": "support@posthog.com",
+            },
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,
@@ -646,6 +652,7 @@ class TestEmailIntegration:
             "name": self.valid_config["name"],
             "domain": "posthog.com",
             "mail_from_subdomain": "youmustnothavelikedmyemail",
+            "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
         }
@@ -658,6 +665,12 @@ class TestEmailIntegration:
             team_id=self.team.id,
             org_team_ids=[self.team.id],
         )
+
+        EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
+        assert integration.config["reply_to"] == "support@posthog.com"
+
+        EmailIntegration(integration).update_native_integration({"reply_to": ""}, self.team.id)
+        assert integration.config["reply_to"] == ""
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
@@ -713,6 +726,7 @@ class TestEmailIntegration:
             "name": self.valid_config["name"],
             "domain": "posthog.com",
             "mail_from_subdomain": "feedback",
+            "reply_to": "",
             "verified": False,
             "provider": "ses",
         }
@@ -749,6 +763,7 @@ class TestEmailIntegration:
             "name": self.valid_config["name"],
             "domain": "posthog.com",
             "mail_from_subdomain": "feedback",
+            "reply_to": "",
             "verified": True,
             "provider": "ses",
         }
