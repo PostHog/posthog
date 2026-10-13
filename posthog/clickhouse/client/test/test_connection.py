@@ -26,7 +26,7 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.execute import sync_execute
 
 if TYPE_CHECKING:
-    from pytest_django.fixtures import SettingsWrapper
+    from pytest_django.fixtures import Settings
 
 
 def _file_backed_default(monkeypatch, path, *, fallback="fallback"):
@@ -96,7 +96,7 @@ def test_connection_pool_creation_with_team_id(settings):
 
 @pytest.mark.parametrize("user", [ClickHouseUser.SIGNALS, ClickHouseUser.DEFAULT, ClickHouseUser.ERROR_TRACKING])
 def test_signals_readonly_queries_keep_dedicated_credentials_and_offline_host(
-    settings: "SettingsWrapper", monkeypatch: pytest.MonkeyPatch, tmp_path: Path, user: ClickHouseUser
+    settings: "Settings", monkeypatch: pytest.MonkeyPatch, tmp_path: Path, user: ClickHouseUser
 ) -> None:
     settings.READONLY_CLICKHOUSE_USER = "shared-readonly"
     settings.READONLY_CLICKHOUSE_PASSWORD = "shared-password"
@@ -280,11 +280,13 @@ def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatc
     assert mock_http_client.call_args.kwargs["password"] == "tok-0"
 
 
-def test_refreshing_pool_stamps_current_credential(tmp_path):
+@pytest.mark.parametrize("failure", [None, "missing", "empty"])
+def test_refreshing_pool_stamps_current_credential(tmp_path: Path, failure: str | None) -> None:
     token = tmp_path / "token"
     token.write_text("tok-0")
+    creds = ClickHouseCredentials(user="signals", password="", password_file=str(token), require_password=True)
     pool = RefreshingChPool(
-        credential_provider=lambda: token.read_text().strip(),
+        credential_provider=creds.read_password,
         host="localhost",
         port=1,
         connections_min=1,
@@ -294,6 +296,16 @@ def test_refreshing_pool_stamps_current_credential(tmp_path):
     client = pool.pull()
     assert client.connection.password == "tok-0"
     pool.push(client)
+
+    if failure is not None:
+        if failure == "missing":
+            token.unlink()
+        else:
+            token.write_text("")
+        for _ in range(3):
+            with pytest.raises(RuntimeError, match="signals"):
+                with pool.get_client():
+                    pytest.fail("Missing credentials must fail closed")
 
     token.write_text("tok-1")
     client = pool.pull()

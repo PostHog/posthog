@@ -596,8 +596,9 @@ class RefreshingChPool(ClickHouseChPool):
         super().__init__(**kwargs)
 
     def pull(self, key: str | None = None) -> SyncClient:
+        password = self._credential_provider()
         client = super().pull(key)
-        client.connection.password = self._credential_provider()
+        client.connection.password = password
         return client
 
 

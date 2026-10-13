@@ -40,7 +40,7 @@ The video-export and self-driving workers need `CLICKHOUSE_SIGNALS_USER=signals`
 
 Provision the `signals` user and its namespace/ServiceAccount mappings in `posthog-cloud-infra` before deploying the chart credentials, then deploy the application. The existing ClickHouse client rereads the projected token on use. Missing credentials fail explicitly instead of using `default`.
 
-Local development and tests use the `signals` user in the Docker ClickHouse configuration with its development-only password. Explicit environment credentials override those defaults.
+Local development and tests use the `signals` user in the Docker ClickHouse configuration. `.env.services` supplies its matching password to hobby workers, including ticket cleanup when Signals is disabled. Explicit environment credentials override development and test defaults.
 
 After rollout, inspect `system.query_log` for the exercised pipeline queries and verify `user` or `initial_user` is `signals`. Check workflow completion and capacity errors as well as query tags.
 
