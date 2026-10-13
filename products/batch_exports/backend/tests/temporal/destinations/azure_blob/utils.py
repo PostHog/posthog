@@ -166,7 +166,7 @@ async def assert_clickhouse_records_in_azure_blob(
     )
     model_name, fields, filters, extra_query_parameters = extract_model_configuration(batch_export_model)
 
-    if model_name == "events":
+    if model_name == "events" and fields is None:
         assert all("azure_blob_ingested_timestamp" in record for record in exported_records), (
             "Export didn't include ingested timestamp when expected"
         )
