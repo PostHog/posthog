@@ -1606,7 +1606,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.
-                    lemonToast.success('Resolving comments. Replies and fixes will appear on the pull request.')
+                    lemonToast.success(
+                        'PostHog Review is resolving the comments. Replies and fixes will appear on the pull request.'
+                    )
                 } else {
                     lemonToast.success('Review started. It will appear under Reviews as it runs.')
                     // The review's report row is created seconds later by the workflow's fetch step,

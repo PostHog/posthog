@@ -29,7 +29,7 @@ export function RepositoryMyCell({ entry }: { entry: ReviewRepositoryOverviewEnt
                 ) : (
                     <span className="text-secondary">Reviewed in {projectName(entry.owner_project)}</span>
                 )}
-                <span className="text-secondary"> · its rules decide your reviews here</span>
+                <span className="text-secondary">. Its rules decide your reviews here.</span>
             </span>
         )
     } else if (!entry.in_project) {

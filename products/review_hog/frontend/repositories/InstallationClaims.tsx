@@ -11,7 +11,7 @@ import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 function claimHint(installation: ReviewInstallationApi): string {
     if (installation.scope === 'all') {
-        return 'Includes repositories created later, except ones another project selected.'
+        return 'This includes repositories created later, except ones another project selected.'
     }
     if (installation.scope === 'selected') {
         return 'New repositories are not reviewed until you include them below.'

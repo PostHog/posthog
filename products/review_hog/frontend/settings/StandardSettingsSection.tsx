@@ -53,7 +53,7 @@ export function StandardSettingsSection(): JSX.Element {
         <SettingsTable>
             <SettingRow
                 title="Automatic reviews"
-                description="Who gets a Standard review on every push."
+                description="Choose who gets a Standard review on every push."
                 project={
                     <RuleControls
                         label="Project rule"
@@ -98,7 +98,7 @@ export function StandardSettingsSection(): JSX.Element {
             />
             <SettingRow
                 title="Bot pull requests"
-                description="Pull requests a bot opens, in every repository."
+                description="Choose whether pull requests opened by bots get a review."
                 project={
                     <LemonSelect<ReviewProjectSettingsBotPullRequestsEnumApi>
                         size="small"

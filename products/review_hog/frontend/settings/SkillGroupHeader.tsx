@@ -3,8 +3,7 @@ export function SkillGroupHeader({ title, rule, note }: { title: string; rule: s
     return (
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-t border-primary px-4 pt-3 pb-1">
             <h4 className="m-0 text-sm font-semibold">{title}</h4>
-            <span className="text-xs text-secondary">{rule}</span>
-            {note && <span className="text-xs text-secondary">· {note}</span>}
+            <span className="text-xs text-secondary">{note ? `${rule}, ${note}` : rule}</span>
         </div>
     )
 }

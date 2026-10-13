@@ -17,12 +17,12 @@ export function InboxSection(): JSX.Element {
     return (
         <SceneSection
             title="Inbox"
-            description="Pull requests the PostHog agent opens for Inbox reports assigned to you."
+            description="These settings cover the pull requests the PostHog agent opens for Inbox reports assigned to you."
         >
             <SettingsTable>
                 <SettingRow
                     title="Review PRs the agent opens for Inbox reports assigned to me"
-                    description="Runs a Deep review."
+                    description="PostHog Review runs a Deep review on them."
                     project={<span className="text-xs text-secondary">Personal only</span>}
                     mine={
                         <LemonSwitch

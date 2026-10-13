@@ -215,7 +215,7 @@ export function PipelineDetailModal(): JSX.Element {
                         <div>
                             <div className="text-[15px] font-bold">How we review your PRs</div>
                             <div className="mt-0.5 text-xs text-[#b3b9c0]">
-                                The steps a Deep review runs before it posts, and how it resolves comments after.
+                                A Deep review runs these steps before it posts, then resolves the comment threads.
                             </div>
                         </div>
                         <button

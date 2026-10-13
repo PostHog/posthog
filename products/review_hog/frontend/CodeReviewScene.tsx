@@ -48,7 +48,7 @@ import { CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './review
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
-import { DeepArea } from './settings/DeepArea'
+import { FullReviewSettingsSection } from './settings/FullReviewSettingsSection'
 import { InboxSection } from './settings/InboxSection'
 import { ReviewSkillsPanel } from './settings/ReviewSkillsPanel'
 import { StandardArea } from './settings/StandardArea'
@@ -95,10 +95,11 @@ function ReviewsScopeFilter(): JSX.Element {
 function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
     const scopeOption = REVIEWS_SCOPE_OPTIONS.find((option) => option.value === reviewsScope)
+    const owner = reviewsScope === ReviewHogReviewsListScope.Everyone ? "The project's" : 'Your'
     return (
         <Tooltip title={scopeOption?.tooltip}>
             <span className="text-xxs text-tertiary">
-                <span translate="no">{`Last ${reportCount} completed review${reportCount === 1 ? '' : 's'} · ${scopeOption?.label}`}</span>
+                <span translate="no">{`${owner} last ${reportCount} completed review${reportCount === 1 ? '' : 's'}`}</span>
             </span>
         </Tooltip>
     )
@@ -205,7 +206,7 @@ function SingleAgentDrawerSummary({ review }: { review: ReviewDetailApi }): JSX.
             {raised !== null ? (
                 <>
                     {' '}
-                    of <span className="font-semibold text-default">{raised}</span> issues raised ·{' '}
+                    of <span className="font-semibold text-default">{raised}</span> issues raised,{' '}
                     {/* Turns that predate the dropped-finding record have nothing to switch to. */}
                     {review.dropped_findings.length ? (
                         <Link onClick={() => setReviewDrawerTab('not_posted')}>{notPostedLabel}</Link>
@@ -252,7 +253,7 @@ function TriggerReviewSection(): JSX.Element {
     return (
         <SceneSection
             title="Review a pull request"
-            description="Runs a Deep review and posts it to the pull request."
+            description="PostHog Review runs a Deep review and posts it to the pull request."
             actions={
                 <LemonButton
                     type="secondary"
@@ -295,7 +296,7 @@ function TriggerReviewSection(): JSX.Element {
                                         onClick={() =>
                                             submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ReviewOnly)
                                         }
-                                        tooltip="Leaves comment threads alone, whatever your Resolve setting."
+                                        tooltip="This review does not touch the comment threads, whatever your Resolve setting is."
                                     >
                                         Review without resolving comments
                                     </LemonButton>
@@ -304,14 +305,14 @@ function TriggerReviewSection(): JSX.Element {
                                         onClick={() =>
                                             submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
                                         }
-                                        tooltip="Skips the review and works through the unresolved comment threads."
+                                        tooltip="This skips the review and replies to or fixes the unresolved comment threads."
                                     >
                                         Only resolve existing comments
                                     </LemonButton>
                                     <LemonButton
                                         fullWidth
                                         onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
-                                        tooltip="Lower cost. Does not resolve comments or use your review skills."
+                                        tooltip="A Standard review costs less. It does not resolve comments or use your review skills."
                                         disabledReason={flashAfterFullReason}
                                     >
                                         Standard review
@@ -464,14 +465,16 @@ function DrawerPublishedTab(): JSX.Element {
         return (
             <div className="text-sm text-secondary">
                 {isPublished
-                    ? 'No findings met the threshold, so nothing was posted.'
-                    : 'No findings met the threshold, and the review was not posted.'}
+                    ? 'No findings met the threshold, so the review posted nothing.'
+                    : 'No findings met the threshold, and the review is not posted.'}
             </div>
         )
     }
     return (
         <div className="flex flex-col gap-2">
-            {!isPublished && <p className="m-0 text-xs text-secondary">Not posted to the pull request yet.</p>}
+            {!isPublished && (
+                <p className="m-0 text-xs text-secondary">This review is not posted to the pull request yet.</p>
+            )}
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.published.map((finding, i) => (
                     <FindingCard key={i} finding={finding} />
@@ -552,7 +555,7 @@ function DrawerBelowThresholdTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-secondary">
-                Kept, but below this review's threshold. Not posted to the pull request.
+                The review kept these findings but did not post them, because they are below its threshold.
             </p>
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.belowThreshold.map((finding, i) => (
@@ -596,7 +599,7 @@ function DrawerChunksTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-secondary">
-                How the pull request was split, and the perspectives each chunk ran. Skipped ones are struck through.
+                Each chunk lists the perspectives it ran. Skipped perspectives are struck through.
             </p>
             <div className="flex flex-col divide-y divide-primary">
                 {selection.chunks.map((chunk) => (
@@ -705,11 +708,11 @@ function ReviewDetailDrawer(): JSX.Element {
     const tabs: (LemonTab<ReviewDrawerTab> | false)[] = [
         {
             key: 'published',
-            // "Published" is a claim about the PR, so only make it when the review
+            // "Posted" is a claim about the PR, so only make it when the review
             // actually posted; findings a store-only run kept above the bar read
             // "Kept". `review` falls back to the list row, so a published review
             // doesn't flash "Kept" while its detail loads.
-            label: `${review?.published ? (singleAgent ? 'Posted' : 'Published') : 'Kept'}${
+            label: `${review?.published ? 'Posted' : 'Kept'}${
                 reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
             }`,
             content: <DrawerPublishedTab />,
@@ -761,7 +764,7 @@ function ReviewDetailDrawer(): JSX.Element {
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span>
                             {review.repository}#{review.pr_number ?? review.head_branch}
-                            {review.pr_author ? ` · by ${review.pr_author}` : ''}
+                            {review.pr_author ? ` by ${review.pr_author}` : ''}
                         </span>
                         <ReviewModeTag mode={review.review_mode} />
                         {review.status_comment_url && (
@@ -787,8 +790,8 @@ function ReviewDetailDrawer(): JSX.Element {
                 ) : reviewDetail ? (
                     <div className="text-sm text-secondary">
                         <span className="font-semibold text-default">{reviewDetail.candidate_count}</span> findings
-                        raised · <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept
-                        · <span className="font-semibold text-default">{reviewDetail.dismissed_count}</span> dismissed
+                        raised, <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept,{' '}
+                        <span className="font-semibold text-default">{reviewDetail.dismissed_count}</span> dismissed
                     </div>
                 ) : (
                     <LemonSkeleton className="h-5 w-80" />
@@ -833,7 +836,7 @@ function SettingsTab(): JSX.Element {
     return (
         <>
             <StandardArea />
-            <DeepArea />
+            <FullReviewSettingsSection />
             <ReviewSkillsPanel />
             <InboxSection />
         </>

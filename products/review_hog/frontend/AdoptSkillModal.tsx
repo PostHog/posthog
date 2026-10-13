@@ -84,8 +84,8 @@ export function AdoptSkillModal(): JSX.Element {
             {adoptSource ? (
                 <div className="flex flex-col gap-4">
                     <p className="m-0 text-sm text-secondary">
-                        Copies <span className="font-semibold">{adoptSource.name}</span> into a new {kindLabel} skill
-                        and switches it on. Later edits to the original do not change the copy.
+                        This copies <span className="font-semibold">{adoptSource.name}</span> into a new {kindLabel}{' '}
+                        skill and switches it on. Later edits to the original do not change the copy.
                     </p>
                     {replacedSkillName && (
                         <LemonBanner type="info">
