@@ -309,12 +309,14 @@ class TestDeliverEvaluation(APIBaseTest):
             ("keeps_the_legacy_body", True, "1", "legacy"),
             ("moved_to_alertmanager", False, "2", "4"),
             ("flag_unreadable", RuntimeError("flags unreachable"), None, None),
+            # The SDK swallows a failed lookup and answers None.
+            ("flag_lookup_swallowed", None, None, None),
         ]
     )
     def test_a_webhook_gets_the_body_its_team_still_receives(
-        self, _name: str, keeps_legacy: bool | Exception, header: str | None, body_version: str | None
+        self, _name: str, keeps_legacy: bool | Exception | None, header: str | None, body_version: str | None
     ) -> None:
-        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool:
+        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool | None:
             if key == LIVE_DELIVERY_FLAG:
                 return True
             if isinstance(keeps_legacy, Exception):

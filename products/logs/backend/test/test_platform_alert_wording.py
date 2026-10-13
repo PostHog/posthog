@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, MessageDetail
 from products.cdp.backend.validation import generate_template_bytecode
-from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG
+from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.platform_alert_wording import describe_logs_transition, legacy_logs_webhook_body
 
@@ -110,7 +110,7 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
     )
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_the_legacy_webhook_body_matches_what_the_hog_function_sent(
-        self, _name: str, kind: AlertEventKind, legacy_kind: str
+        self, _name: str, kind: AlertEventKind, legacy_kind: EventKind
     ) -> None:
         filters = {"serviceNames": ["api"], "severityLevels": ["error"]}
         breach = kind in (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
@@ -149,13 +149,18 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         assert native == legacy
 
     def test_a_naive_history_timestamp_is_sent_as_utc(self) -> None:
-        transition = replace(_transition(), occurred_at=OCCURRED.replace(tzinfo=None))
+        naive = replace(_transition(), occurred_at=OCCURRED.replace(tzinfo=None))
 
         body = legacy_logs_webhook_body(
-            project_id=7, alert_id="alert-1", alert_name="API errors", consecutive_failures=0, transition=transition
+            project_id=7, alert_id="alert-1", alert_name="API errors", consecutive_failures=0, transition=naive
+        )
+        aware = legacy_logs_webhook_body(
+            project_id=7, alert_id="alert-1", alert_name="API errors", consecutive_failures=0, transition=_transition()
         )
 
         assert body["timestamp"] == OCCURRED.isoformat()
+        # The link's window carries the zone too, or a browser outside UTC shifts it.
+        assert body["data"]["logs_url"] == aware["data"]["logs_url"]
 
 
 def _render(node: Any, globals_: dict[str, Any]) -> Any:

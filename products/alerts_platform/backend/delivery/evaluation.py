@@ -74,7 +74,7 @@ def destinations_are_live(team: Team) -> bool:
     is where everything was before this existed. Reading a blip the other way starts sending.
     """
     try:
-        return _team_flag_enabled(LIVE_DELIVERY_FLAG, team)
+        return bool(_team_flag_enabled(LIVE_DELIVERY_FLAG, team))
     except Exception:
         logger.warning(
             "alerts_platform_live_delivery_flag_check_failed_defaulting_off",
@@ -84,19 +84,19 @@ def destinations_are_live(team: Team) -> bool:
         return False
 
 
-def _team_flag_enabled(flag: str, team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            flag,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            # This runs in a Temporal activity, where a captured event is silently dropped.
-            send_feature_flag_events=False,
-        )
+def _team_flag_enabled(flag: str, team: Team) -> bool | None:
+    """None when the flag could not be evaluated: the SDK logs and swallows a failed lookup, and it
+    answers None for a flag that does not exist too."""
+    return posthoganalytics.feature_enabled(
+        flag,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        # This runs in a Temporal activity, where a captured event is silently dropped.
+        send_feature_flag_events=False,
     )
 
 
@@ -127,6 +127,8 @@ class _WebhookTransports:
             keeps_legacy_body = _team_flag_enabled(legacy_webhook.LEGACY_WEBHOOK_BODY_FLAG, self._team)
         except Exception as error:
             raise DeliveryError("Could not read which webhook body this team receives.") from error
+        if keeps_legacy_body is None:
+            raise DeliveryError("Could not read which webhook body this team receives.")
         if not keeps_legacy_body:
             return None
         team_id = self._team.id

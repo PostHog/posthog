@@ -6,6 +6,7 @@ messages use: a count of logs in a window, the filters the alert watches, and a 
 Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
+from dataclasses import replace
 from datetime import UTC, timedelta
 from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
@@ -73,9 +74,17 @@ def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
 
 
+def _in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
+    # History rows come back from ClickHouse without a zone. A link or a body with zoneless times
+    # reads them in whatever zone the reader is in.
+    if transition.occurred_at.tzinfo is not None:
+        return transition
+    return replace(transition, occurred_at=transition.occurred_at.replace(tzinfo=UTC))
+
+
 def _window_params(transition: AnnouncedTransition) -> str:
     # The window the check counted, so the link opens on the logs that decided it.
-    date_to = transition.occurred_at
+    date_to = _in_utc(transition).occurred_at
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
     return build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
 
@@ -101,10 +110,8 @@ def legacy_logs_webhook_body(
     Its template rendered a lone placeholder as the value's own type, so counts stay numbers and
     filter lists stay lists here too.
     """
-    # History rows come back from ClickHouse without a zone, and the legacy body always had one.
-    occurred_at = (
-        transition.occurred_at.replace(tzinfo=UTC) if transition.occurred_at.tzinfo is None else transition.occurred_at
-    )
+    transition = _in_utc(transition)
+    occurred_at = transition.occurred_at
     filters = transition.source_config
     alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")
     data: dict[str, Any] = {
