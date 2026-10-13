@@ -4,6 +4,12 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.ecb_data_portal import (
     ECBResumeConfig,
@@ -46,14 +52,13 @@ class TestEcbDataPortalSource:
             (False, "ECB Data Portal is unreachable (status 503). Try again later."),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source.check_connection"
-    )
-    def test_validate_credentials(self, mock_check: mock.MagicMock, mock_return: tuple[bool, str | None]) -> None:
-        mock_check.return_value = mock_return
+    def test_validate_credentials(self, mock_return: tuple[bool, str | None]) -> None:
+        status_code = 200 if mock_return[0] else 503
 
-        assert self.source.validate_credentials(self.config, self.team_id) == mock_return
-        mock_check.assert_called_once_with()
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert self.source.validate_credentials(self.config, self.team_id) == mock_return
+
+        assert {request.path for request in network.requests_log} == {"/service/data/EXR/D.USD.EUR.SP00.A"}
 
     def test_get_non_retryable_errors_covers_waf_block(self) -> None:
         errors = self.source.get_non_retryable_errors()
@@ -65,25 +70,20 @@ class TestEcbDataPortalSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is ECBResumeConfig
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source.ecb_data_portal_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments_when_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(
-            schema_name="key_interest_rates",
-            should_use_incremental_field=True,
+    def test_source_for_pipeline_plumbs_arguments_when_incremental(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "key_interest_rates",
+            [ScriptedResponse(body=b"KEY,TIME_PERIOD,OBS_VALUE\nFM.B.U2.EUR.4F.KR.DFR.LEV,2024-01-01,4.5")],
+            incremental_field="TIME_PERIOD",
             db_incremental_field_last_value="2024-01-01",
         )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            endpoint="key_interest_rates",
-            resumable_source_manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-01-01",
-        )
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "key_interest_rates"
+        assert result.paths == ["/service/data/FM/B.U2.EUR.4F.KR..LEV"]
+        assert result.params("startPeriod") == ["2024-01-01"]
+        assert result.rows == [{"KEY": "FM.B.U2.EUR.4F.KR.DFR.LEV", "TIME_PERIOD": "2024-01-01", "OBS_VALUE": "4.5"}]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source.ecb_data_portal_source"

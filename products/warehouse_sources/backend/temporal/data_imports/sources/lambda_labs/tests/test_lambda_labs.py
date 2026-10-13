@@ -1,73 +1,29 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
+    LambdaLabsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.lambda_labs import (
     LambdaLabsResumeConfig,
     _format_iso8601,
-    lambda_labs_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the lambda_labs module.
-LAMBDA_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.lambda_labs.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.source import LambdaLabsSource
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: LambdaLabsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return lambda_labs_source(
-        api_key="secret_key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(LambdaLabsSource(), LambdaLabsSourceConfig(api_key="secret_key"))
 
 
 class TestExtractRecords:
@@ -128,14 +84,11 @@ class TestExtractRecords:
             ),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_extract_records(
-        self, MockSession: mock.MagicMock, endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
-        rows = _rows(_source(endpoint, _make_manager()))
-        assert rows == expected
+    def test_extract_records(self, endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == expected
 
 
 class TestFormatIso8601:
@@ -153,91 +106,70 @@ class TestFormatIso8601:
 
 
 class TestPaginationAndResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_yields_once_and_never_saves_state(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": [{"id": "i-1"}]})])
+    def test_unpaginated_endpoint_yields_once_and_never_saves_state(self) -> None:
+        result = _driver().run("instances", [ScriptedResponse(json={"data": [{"id": "i-1"}]})])
 
-        manager = _make_manager()
-        rows = _rows(_source("instances", manager))
+        assert result.raised is None
+        assert result.rows == [{"id": "i-1"}]
+        assert result.paths == ["/api/v1/instances"]
+        assert result.saved_states == []
 
-        assert rows == [{"id": "i-1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_saves_state_after_each_non_terminal_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginates_and_saves_state_after_each_non_terminal_page(self) -> None:
+        result = _driver().run(
+            "audit_events",
             [
-                _response({"data": [{"event_id": "e1"}], "page_token": "tok-1"}),
-                _response({"data": [{"event_id": "e2"}], "page_token": "tok-2"}),
-                _response({"data": [{"event_id": "e3"}], "page_token": None}),
+                ScriptedResponse(json={"data": [{"event_id": "e1"}], "page_token": "tok-1"}),
+                ScriptedResponse(json={"data": [{"event_id": "e2"}], "page_token": "tok-2"}),
+                ScriptedResponse(json={"data": [{"event_id": "e3"}], "page_token": None}),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("audit_events", manager))
-
-        assert rows == [{"event_id": "e1"}, {"event_id": "e2"}, {"event_id": "e3"}]
+        assert result.raised is None
+        assert result.rows == [{"event_id": "e1"}, {"event_id": "e2"}, {"event_id": "e3"}]
         # First page carries no cursor; subsequent pages carry the prior page's token only.
-        assert [p.get("page_token") for p in params] == [None, "tok-1", "tok-2"]
+        assert result.params("page_token") == [None, "tok-1", "tok-2"]
         # State is saved only for non-terminal pages, so a crash re-yields the last page.
-        assert [c.args[0] for c in manager.save_state.call_args_list] == [
+        assert result.saved_states == [
             LambdaLabsResumeConfig(page_token="tok-1"),
             LambdaLabsResumeConfig(page_token="tok-2"),
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_first_request_with_saved_token_only(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"data": [{"event_id": "e9"}], "page_token": None})])
-
-        manager = _make_manager(LambdaLabsResumeConfig(page_token="tok-resumed"))
-        _rows(
-            _source(
-                "audit_events",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2025, 1, 1, tzinfo=UTC),
-            )
+    def test_resume_seeds_first_request_with_saved_token_only(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [ScriptedResponse(json={"data": [{"event_id": "e9"}], "page_token": None})],
+            resume_state=LambdaLabsResumeConfig(page_token="tok-resumed"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2025, 1, 1, tzinfo=UTC),
         )
 
         # On resume the cursor already encodes the window, so only the token is sent — never `start`.
-        assert params[0] == {"page_token": "tok-resumed"}
+        assert result.raised is None
+        assert result.queries == [{"page_token": ("tok-resumed",)}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_first_sync_sends_start_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"data": [{"event_id": "e1"}], "page_token": None})])
-
-        manager = _make_manager()
-        _rows(
-            _source(
-                "audit_events",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
-            )
+    def test_incremental_first_sync_sends_start_filter(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [ScriptedResponse(json={"data": [{"event_id": "e1"}], "page_token": None})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
 
-        assert params[0] == {"start": "2025-06-01T12:00:00.000Z"}
+        assert result.raised is None
+        assert result.queries == [{"start": ("2025-06-01T12:00:00.000Z",)}]
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(("status", "expected"), [(200, True), (401, False), (403, False)])
-    @mock.patch(LAMBDA_SESSION_PATCH)
-    def test_status_maps_to_bool(self, mock_session: mock.MagicMock, status: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("secret_key") is expected
+    def test_status_maps_to_bool(self, status: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            assert validate_credentials("secret_key") is expected
 
-    @mock.patch(LAMBDA_SESSION_PATCH)
-    def test_transient_error_propagates(self, mock_session: mock.MagicMock) -> None:
+        assert [request.path for request in network.requests_log] == ["/api/v1/ssh-keys"]
+
+    def test_transient_error_propagates(self) -> None:
         # A 5xx is not a credential rejection — it must propagate so the caller reports a transient
         # failure rather than telling the user to rotate a valid key.
-        resp = mock.MagicMock(status_code=503)
-        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error", response=mock.MagicMock())
-        mock_session.return_value.get.return_value = resp
-        with pytest.raises(requests.HTTPError):
-            validate_credentials("secret_key")
+        with scripted_network(always(ScriptedResponse(status=503))):
+            with pytest.raises(requests.HTTPError):
+                validate_credentials("secret_key")

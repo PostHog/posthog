@@ -1,27 +1,21 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta, timezone
-from http import HTTPStatus
-from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium import (
-    BuildiumResumeConfig,
-    buildium_source,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium import BuildiumResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
     AUTH_ERROR,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.source import BuildiumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildium import (
     BuildiumSourceConfig,
 )
@@ -29,36 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 CONFIG = BuildiumSourceConfig(client_id="example-client", client_secret="example-secret")
 
 
-def response(rows: list[dict[str, Any]], status: int = 200, total: int | None = None) -> Response:
-    result = Response()
-    result.status_code = status
-    result.reason = HTTPStatus(status).phrase
-    result._content = json.dumps(rows).encode()
-    result.headers["Content-Type"] = "application/json"
-    result.url = "https://api.buildium.com/v1/leases"
-    if total is not None:
-        result.headers["X-Total-Count"] = str(total)
-    return result
-
-
-@pytest.fixture
-def manager() -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
-def source(
-    manager: MagicMock,
-    endpoint: str = "leases",
-    incremental: bool = False,
-    watermark: datetime | str | None = None,
-) -> SourceResponse:
-    return buildium_source(CONFIG, endpoint, "v1", 1, "test-job", manager, incremental, watermark)
-
-
-def source_items(result: SourceResponse) -> Iterable[list[dict[str, Any]]]:
-    return cast(Iterable[list[dict[str, Any]]], result.items())
+def driver() -> SourceDriver:
+    return SourceDriver(BuildiumSource(), CONFIG)
 
 
 @pytest.mark.parametrize(
@@ -71,24 +37,22 @@ def source_items(result: SourceResponse) -> Iterable[list[dict[str, Any]]]:
     ],
 )
 def test_pagination(
-    manager: MagicMock,
     pages: list[list[dict[str, object]]],
     total: int | None,
     expected_offsets: list[str],
     expected_ids: list[int],
 ) -> None:
-    with (
-        patch("products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium.PAGE_SIZE", 2),
-        patch("requests.Session.send", side_effect=[response(page, total=total) for page in pages]) as send,
-    ):
-        iterator = iter(source_items(source(manager)))
-        first = next(iterator, [])
-        rows = first + [row for page in iterator for row in page]
-        if len(expected_offsets) > 1:
-            assert manager.save_state.call_args.args[0] == BuildiumResumeConfig(offset=2)
-    assert [row["Id"] for row in rows] == expected_ids
-    assert [parse_qs(urlparse(call.args[0].url).query)["offset"][0] for call in send.call_args_list] == expected_offsets
-    assert manager.save_state.call_count == len(expected_offsets) - 1
+    script = [
+        ScriptedResponse(json=page, headers={"X-Total-Count": str(total)} if total is not None else {})
+        for page in pages
+    ]
+    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium.PAGE_SIZE", 2):
+        result = driver().run("leases", script)
+
+    assert result.raised is None
+    assert [row["Id"] for row in result.rows] == expected_ids
+    assert result.params("offset") == expected_offsets
+    assert result.saved_states == ([BuildiumResumeConfig(offset=2)] if len(expected_offsets) > 1 else [])
 
 
 @pytest.mark.parametrize("endpoint", ["leases", "applicants"])
@@ -103,42 +67,50 @@ def test_pagination(
     ],
 )
 def test_incremental_filter_and_timestamp(
-    manager: MagicMock, endpoint: str, incremental: bool, watermark: datetime | str | None, expected_filter: str | None
+    endpoint: str, incremental: bool, watermark: datetime | str | None, expected_filter: str | None
 ) -> None:
     data: list[dict[str, Any]] = [
         {"Id": 1, "LastUpdatedDateTime": "2026-01-03T00:00:00Z"},
         {"Id": 2, "LastUpdatedDateTime": None},
     ]
-    result = source(manager, endpoint, incremental, watermark)
-    with patch("requests.Session.send", return_value=response(data)) as send:
-        rows = [row for page in source_items(result) for row in page]
-    params = parse_qs(urlparse(send.call_args.args[0].url).query)
-    assert params.get("lastupdatedfrom") == ([expected_filter] if expected_filter else None)
-    assert params["orderby"] == ["Id asc"]
-    assert result.sort_mode == "desc"
-    assert rows == [
+    result = driver().run(
+        endpoint,
+        [ScriptedResponse(json=data)],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+
+    assert result.raised is None
+    assert result.requests[0].param("lastupdatedfrom") == expected_filter
+    assert result.requests[0].param("orderby") == "Id asc"
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+    assert result.rows == [
         {"Id": 1, "LastUpdatedDateTime": datetime(2026, 1, 3, tzinfo=UTC)},
         {"Id": 2, "LastUpdatedDateTime": None},
     ]
 
 
 @pytest.mark.parametrize("original_filter", [None, "2026-01-01T00:00:00Z"])
-def test_resume_keeps_filter_and_offset(manager: MagicMock, original_filter: str | None) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = BuildiumResumeConfig(offset=1000, updated_from=original_filter)
-    with patch("requests.Session.send", return_value=response([{"Id": 1001}])) as send:
-        assert list(source_items(source(manager, incremental=True, watermark="2026-01-05T00:00:00Z"))) == [
-            [{"Id": 1001}]
-        ]
-    params = parse_qs(urlparse(send.call_args.args[0].url).query)
-    assert params["offset"] == ["1000"]
-    assert params.get("lastupdatedfrom") == ([original_filter] if original_filter else None)
+def test_resume_keeps_filter_and_offset(original_filter: str | None) -> None:
+    result = driver().run(
+        "leases",
+        [ScriptedResponse(json=[{"Id": 1001}])],
+        resume_state=BuildiumResumeConfig(offset=1000, updated_from=original_filter),
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-01-05T00:00:00Z",
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"Id": 1001}]
+    assert result.requests[0].param("offset") == "1000"
+    assert result.requests[0].param("lastupdatedfrom") == original_filter
 
 
 @pytest.mark.parametrize(("status", "message"), [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
-def test_sync_error_mapping(manager: MagicMock, status: int, message: str) -> None:
-    with patch("requests.Session.send", return_value=response([], status=status)):
-        with pytest.raises(HTTPError) as raised:
-            list(source_items(source(manager)))
+def test_sync_error_mapping(status: int, message: str) -> None:
+    result = driver().run("leases", [ScriptedResponse(status=status, json=[])])
+
+    assert isinstance(result.raised, HTTPError)
     errors = BuildiumSource().get_non_retryable_errors()
-    assert next(value for key, value in errors.items() if key in str(raised.value)) == message
+    assert next(value for key, value in errors.items() if key in str(result.raised)) == message

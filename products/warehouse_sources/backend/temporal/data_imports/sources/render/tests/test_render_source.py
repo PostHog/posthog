@@ -1,36 +1,16 @@
 from datetime import UTC, datetime
 
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.render import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
-
-
-def _inputs(
-    schema_name: str = "services",
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: object = None,
-    incremental_field: str | None = None,
-) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-id",
-        source_id="source-id",
-        team_id=1,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-        db_incremental_field_earliest_value=None,
-        incremental_field=incremental_field,
-        incremental_field_type=None,
-        job_id="job-id",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestRenderSource:
@@ -60,18 +40,23 @@ class TestRenderSource:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["services", "deploys"])
         assert {schema.name for schema in schemas} == {"services", "deploys"}
 
-    @parameterized.expand([("valid", (True, None)), ("invalid", (False, KEY_REJECTED_MESSAGE))])
-    def test_validate_credentials(self, _name: str, probe_result: tuple[bool, str | None]) -> None:
-        with patch.object(source_module, "validate_render_credentials", return_value=probe_result):
+    @parameterized.expand(
+        [
+            ("valid", 200, (True, None)),
+            ("invalid", 401, (False, KEY_REJECTED_MESSAGE)),
+        ]
+    )
+    def test_validate_credentials(self, _name: str, status: int, probe_result: tuple[bool, str | None]) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert self.source.validate_credentials(self.config, team_id=1) == probe_result
 
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # A stale watermark leaking into a full refresh would silently skip older rows.
-        inputs = _inputs(
+        result = SourceDriver(self.source, self.config).run(
+            "services",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=False,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
-        with patch.object(source_module, "render_source") as mock_source:
-            self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.requests[0].param("updatedAfter") is None

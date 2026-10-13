@@ -6,6 +6,7 @@ from zipfile import ZipFile
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from posthog.egress.limiter.policies import Priority
 from posthog.plugins.utils import (
     download_plugin_archive,
     get_file_from_archive,
@@ -47,6 +48,7 @@ class TestPluginsUtils(BaseTest):
             "GET",
             "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
             source="plugins",
+            priority=Priority.CRITICAL,
             headers={},
             installation_id=None,
         )
@@ -96,6 +98,7 @@ class TestPluginsUtils(BaseTest):
             "GET",
             "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=",
             source="plugins",
+            priority=Priority.CRITICAL,
             headers={},
             installation_id=None,
         )
@@ -115,6 +118,7 @@ class TestPluginsUtils(BaseTest):
             "GET",
             "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=test/path/in/repo",
             source="plugins",
+            priority=Priority.CRITICAL,
             headers={},
             installation_id=None,
         )
@@ -198,6 +202,7 @@ class TestPluginsUtils(BaseTest):
             "GET",
             "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
             source="plugins",
+            priority=Priority.CRITICAL,
             headers={"Authorization": "Bearer TOKEN"},
             installation_id=None,
         )
@@ -229,6 +234,7 @@ class TestPluginsUtils(BaseTest):
                 "GET",
                 "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
                 source="plugins",
+                priority=Priority.CRITICAL,
                 headers={"Authorization": "Bearer MY_GITHUB_TOKEN"},
                 installation_id=None,
             )
@@ -249,6 +255,7 @@ class TestPluginsUtils(BaseTest):
                 "GET",
                 "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
                 source="plugins",
+                priority=Priority.CRITICAL,
                 headers={"Authorization": "Bearer TOKEN"},
                 installation_id=None,
             )

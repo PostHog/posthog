@@ -620,7 +620,15 @@ def _logs_request_body(start: datetime, end: datetime, token: Optional[str]) -> 
     pagination: dict[str, Any] = {"sort": "timestamp:asc", "limit": LOGS_PAGE_SIZE}
     if token is not None:
         pagination["token"] = token
-    return {"start": format_datetime(start), "end": format_datetime(end), "pagination": pagination}
+    # The Logs API's request schema marks `duration` required even though it only has an effect
+    # (recomputing `start` from `end`) when non-empty, so an empty string satisfies the
+    # requirement without overriding the explicit `start` our pagination depends on.
+    return {
+        "start": format_datetime(start),
+        "end": format_datetime(end),
+        "duration": "",
+        "pagination": pagination,
+    }
 
 
 def get_logs_rows(

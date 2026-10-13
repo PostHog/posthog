@@ -1324,7 +1324,7 @@ def send_warehouse_destination_paused(
             "team": team,
             "destination_name": destination_name,
             "latest_error": latest_error,
-            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations",
+            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations?destination={destination_id}",
         },
     )
     for membership in memberships_to_email:

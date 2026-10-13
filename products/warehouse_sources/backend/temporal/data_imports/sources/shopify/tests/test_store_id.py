@@ -1,6 +1,9 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     _get_shopify_access_token,
     normalize_store_id,
@@ -48,18 +51,11 @@ def test_normalize_store_id_rejects_invalid(raw):
 
 
 def test_access_token_url_has_no_doubled_suffix_for_messy_input():
-    response = mock.MagicMock()
-    response.ok = True
-    response.json.return_value = {"access_token": "shpat_x"}
-    session = mock.MagicMock(post=mock.MagicMock(return_value=response))
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
-        return_value=session,
-    ):
+    with scripted_network([ScriptedResponse(json={"access_token": "shpat_x"})]) as network:
         # Callers normalize before threading the store id through, so messy input has
         # already collapsed to the bare subdomain by the time it reaches this function.
         _get_shopify_access_token(normalize_store_id("https://my-store.myshopify.com"), "client-id", "client-secret")
 
-    called_url = session.post.call_args.args[0]
-    assert called_url == "https://my-store.myshopify.com/admin/oauth/access_token"
+    assert [request.url for request in network.requests_log] == [
+        "https://my-store.myshopify.com/admin/oauth/access_token"
+    ]

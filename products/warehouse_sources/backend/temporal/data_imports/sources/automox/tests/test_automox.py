@@ -1,7 +1,6 @@
 import json
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,8 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.au
     AutomoxRetryableError,
     _flatten_device_inventory,
     _incremental_param_value,
-    automox_source,
-    get_rows,
     resolve_organization,
     validate_credentials,
 )
@@ -27,26 +24,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.se
     AUTOMOX_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.automox.source import AutomoxSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.automox import (
+    AutomoxSourceConfig,
+)
 
 ORGS_BODY = [
     {"id": 123, "uuid": "uuid-123", "name": "Org A"},
     {"id": 456, "uuid": "uuid-456", "name": "Org B"},
 ]
-
-
-class _FakeResumableManager:
-    def __init__(self, state: AutomoxResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[AutomoxResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> AutomoxResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: AutomoxResumeConfig) -> None:
-        self.saved.append(data)
 
 
 def _response_with_status(status_code: int, body: Any = None) -> requests.Response:
@@ -56,8 +48,8 @@ def _response_with_status(status_code: int, body: Any = None) -> requests.Respon
     return response
 
 
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlparse(url).query)
+def _driver(organization_id: str | None = "123") -> SourceDriver:
+    return SourceDriver(AutomoxSource(), AutomoxSourceConfig(api_key="key", organization_id=organization_id))
 
 
 class TestFetchJson:
@@ -155,167 +147,114 @@ class TestMakeSession:
         # `/orgs` and `/users` responses carry org `access_key` secrets the name-based sample
         # scrubbers don't recognise, so the session must opt out of HTTP sample capture and mask
         # the bearer token in logged URLs.
-        with patch.object(automox, "make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             automox._make_session("secret-key")
-        kwargs = mock_session.call_args.kwargs
+        kwargs = network.session_options[0]
         assert kwargs["capture"] is False
         assert kwargs["redact_values"] == ("secret-key",)
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response: requests.Response) -> Any:
-        session = MagicMock()
-        session.get.return_value = response
-        return patch.object(automox, "make_tracked_session", return_value=session)
-
     def test_valid_key_single_org(self) -> None:
-        with self._patch_session(_response_with_status(200, [ORGS_BODY[0]])):
+        with scripted_network([ScriptedResponse(json=[ORGS_BODY[0]])]) as network:
             assert validate_credentials("key") == (True, None)
+        assert network.requests_log[0].path == "/api/orgs"
 
     def test_invalid_key_returns_friendly_error(self) -> None:
-        with self._patch_session(_response_with_status(401)):
+        with scripted_network([ScriptedResponse(status=401)]) as network:
             ok, error = validate_credentials("bad-key")
         assert ok is False
         assert error is not None
         assert "API key" in error
+        assert network.requests_log[0].headers["authorization"] == "Bearer bad-key"
 
     def test_multiple_orgs_without_id_returns_org_error(self) -> None:
-        with self._patch_session(_response_with_status(200, ORGS_BODY)):
+        with scripted_network([ScriptedResponse(json=ORGS_BODY)]) as network:
             ok, error = validate_credentials("key")
         assert ok is False
         assert error is not None
         assert MULTIPLE_ORGS_ERROR in error
+        assert network.requests_log[0].path == "/api/orgs"
 
 
 class TestGetRows:
-    @staticmethod
-    def _collect(
-        endpoint: str,
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: list[list[dict]],
-        organization_id: str | None = "123",
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-        orgs_body: list[dict] | None = None,
-    ) -> tuple[list[dict], list[str]]:
-        """Drive ``get_rows`` with canned page bodies, returning rows and requested URLs."""
-        fetched_urls: list[str] = []
-        config = AUTOMOX_ENDPOINTS[endpoint]
-
-        def fake_fetch_json(session: Any, url: str, logger: Any) -> Any:
-            fetched_urls.append(url)
-            parsed = urlparse(url)
-            query = parse_qs(parsed.query)
-            # Org resolution calls /orgs without our endpoint's page-size marker.
-            if parsed.path.endswith("/orgs") and query.get("limit") == ["500"] and endpoint != "organizations":
-                return orgs_body if orgs_body is not None else ORGS_BODY
-            index = int(query["page"][0])
-            page = pages[index] if index < len(pages) else []
-            return {"data": page, "metadata": {}} if config.data_selector else page
-
-        monkeypatch.setattr(automox, "_fetch_json", fake_fetch_json)
-        monkeypatch.setattr(automox, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for page in get_rows(
-            api_key="key",
-            organization_id=organization_id,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(page)
-        return rows, fetched_urls
-
-    def test_paginates_until_short_page_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
+    def test_paginates_until_short_page_and_saves_state_after_yield(self) -> None:
         page_size = AUTOMOX_ENDPOINTS["devices"].page_size
         full_page = [{"id": i} for i in range(page_size)]
         last_page = [{"id": page_size}]
-        manager = _FakeResumableManager()
-        rows, urls = self._collect("devices", manager, monkeypatch, [full_page, last_page])
+        result = _driver().run(
+            "devices",
+            [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=full_page), ScriptedResponse(json=last_page)],
+        )
 
-        assert len(rows) == page_size + 1
+        assert result.raised is None
+        assert len(result.rows) == page_size + 1
         # One org-resolution call plus two pages.
-        page_urls = [u for u in urls if "/servers" in u]
-        assert [_query(u)["page"] for u in page_urls] == [["0"], ["1"]]
+        assert result.paths == ["/api/orgs", "/api/servers", "/api/servers"]
+        assert result.params("page")[1:] == ["0", "1"]
         # The `o` org param rides on every page request.
-        assert all(_query(u)["o"] == ["123"] for u in page_urls)
+        assert result.params("o")[1:] == ["123", "123"]
         # State points at the next page and is only saved after a full (non-terminal) page.
-        assert manager.saved == [AutomoxResumeConfig(page=1, incremental_param_value=None)]
+        assert result.saved_states == [AutomoxResumeConfig(page=1, incremental_param_value=None)]
+        assert result.committed_states == [AutomoxResumeConfig(page=1, incremental_param_value=None)]
 
-    def test_resume_seeds_page_and_reuses_stored_incremental_value(self, monkeypatch: Any) -> None:
+    def test_resume_seeds_page_and_reuses_stored_incremental_value(self) -> None:
         # On resume the original run's time filter must be reused verbatim: recomputing it from the
         # advanced watermark would change the filtered result set under the saved page number.
-        manager = _FakeResumableManager(AutomoxResumeConfig(page=1, incremental_param_value="2026-01-01T00:00:00Z"))
-        _, urls = self._collect(
+        result = _driver().run(
             "policy_runs",
-            manager,
-            monkeypatch,
-            [[{"execution_token": "a"}], [{"execution_token": "b"}]],
-            should_use_incremental_field=True,
+            [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json={"data": [{"execution_token": "b"}]})],
+            resume_state=AutomoxResumeConfig(page=1, incremental_param_value="2026-01-01T00:00:00Z"),
+            incremental_field="run_time",
             db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
         )
-        page_urls = [u for u in urls if "policy-runs" in u]
-        assert [_query(u)["page"] for u in page_urls] == [["1"]]
-        assert all(_query(u)["start_time"] == ["2026-01-01T00:00:00Z"] for u in page_urls)
+        assert result.raised is None
+        assert result.paths == ["/api/orgs", "/api/policy-history/policy-runs"]
+        assert result.params("page")[1:] == ["1"]
+        assert result.params("start_time")[1:] == ["2026-01-01T00:00:00Z"]
 
-    def test_policy_runs_sends_org_uuid_sort_and_start_time(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, urls = self._collect(
+    def test_policy_runs_sends_org_uuid_sort_and_start_time(self) -> None:
+        result = _driver().run(
             "policy_runs",
-            manager,
-            monkeypatch,
-            [[{"execution_token": "a"}]],
-            should_use_incremental_field=True,
+            [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json={"data": [{"execution_token": "a"}]})],
+            incremental_field="run_time",
             db_incremental_field_last_value=datetime(2026, 3, 10, 12, 0, 0, tzinfo=UTC),
         )
-        run_urls = [u for u in urls if "policy-runs" in u]
-        assert len(run_urls) == 1
-        query = _query(run_urls[0])
-        assert query["org"] == ["uuid-123"]
-        assert query["sort"] == ["run_time:asc"]
+        assert result.raised is None
+        assert result.paths == ["/api/orgs", "/api/policy-history/policy-runs"]
+        assert result.params("org")[1:] == ["uuid-123"]
+        assert result.params("sort")[1:] == ["run_time:asc"]
         # 24h lookback applied to the watermark.
-        assert query["start_time"] == ["2026-03-09T12:00:00Z"]
+        assert result.params("start_time")[1:] == ["2026-03-09T12:00:00Z"]
 
-    def test_organizations_endpoint_restricts_to_configured_org(self, monkeypatch: Any) -> None:
+    def test_organizations_endpoint_restricts_to_configured_org(self) -> None:
         # `/orgs` lists every organization the API key can access, but the table must expose only
         # the org this source is configured for — otherwise a teammate could read metadata for
         # organizations the source owner never selected.
-        manager = _FakeResumableManager()
-        org_rows = [
-            {"id": 123, "uuid": "uuid-123", "name": "Org A"},
-            {"id": 456, "uuid": "uuid-456", "name": "Org B"},
-        ]
-        rows, _ = self._collect("organizations", manager, monkeypatch, [org_rows], organization_id="456")
-        assert rows == [{"id": 456, "uuid": "uuid-456", "name": "Org B"}]
+        result = _driver("456").run(
+            "organizations", [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=ORGS_BODY)]
+        )
+        assert result.raised is None
+        assert result.rows == [ORGS_BODY[1]]
 
-    def test_credential_fields_are_stripped_from_rows(self, monkeypatch: Any) -> None:
+    def test_credential_fields_are_stripped_from_rows(self) -> None:
         # Automox embeds an org enrollment `access_key` at the top level and again under nested
         # `orgs[]` entries, plus an `intercom_hmac` identity token on user rows; none may reach the
         # warehouse, at any depth.
-        manager = _FakeResumableManager()
         user_row = {
             "id": 7,
             "access_key": "org-enrollment-secret",
             "intercom_hmac": "identity-token",
             "orgs": [{"id": 123, "access_key": "nested-secret", "name": "Org A"}],
         }
-        rows, _ = self._collect("users", manager, monkeypatch, [[user_row]])
-        assert rows == [{"id": 7, "orgs": [{"id": 123, "name": "Org A"}]}]
+        result = _driver().run("users", [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=[user_row])])
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "orgs": [{"id": 123, "name": "Org A"}]}]
 
-    def test_missing_org_uuid_raises_for_policy_runs(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        with pytest.raises(AutomoxOrganizationError, match=ORG_NOT_FOUND_ERROR):
-            self._collect(
-                "policy_runs",
-                manager,
-                monkeypatch,
-                [[]],
-                orgs_body=[{"id": 123, "name": "Org A"}],
-            )
+    def test_missing_org_uuid_raises_for_policy_runs(self) -> None:
+        result = _driver().run("policy_runs", [ScriptedResponse(json=[{"id": 123, "name": "Org A"}])])
+        assert isinstance(result.raised, AutomoxOrganizationError)
+        assert ORG_NOT_FOUND_ERROR in str(result.raised)
 
 
 def _inventory_reading(name: str, value: Any, reading_type: str = "string") -> dict[str, Any]:
@@ -368,109 +307,77 @@ class TestFlattenDeviceInventory:
 
 class TestFanOutAndUnpaginatedEndpoints:
     @staticmethod
-    def _drive(
-        endpoint: str,
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        routes: dict[str, list[Any]],
-        organization_id: str | None = "123",
-        orgs_body: list[dict] | None = None,
-    ) -> tuple[list[dict], list[str]]:
-        """Drive ``get_rows`` with canned page bodies routed by URL path."""
-        requested: list[str] = []
-
-        def fake_fetch_json(session: Any, url: str, logger: Any) -> Any:
-            requested.append(url)
-            parsed = urlparse(url)
-            if parsed.path == "/api/orgs":
-                return orgs_body if orgs_body is not None else ORGS_BODY
-            pages = routes.get(parsed.path)
-            if pages is None:
-                raise AssertionError(f"unexpected request: {url}")
-            index = int(parse_qs(parsed.query).get("page", ["0"])[0])
-            if index < len(pages):
-                return pages[index]
-            # Past the last canned page, answer in the same shape the endpoint uses.
-            return {"data": []} if pages and isinstance(pages[0], dict) and "data" in pages[0] else []
-
-        monkeypatch.setattr(automox, "_fetch_json", fake_fetch_json)
-        monkeypatch.setattr(automox, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for page in get_rows(
-            api_key="key",
-            organization_id=organization_id,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(page)
-        return rows, requested
-
-    @staticmethod
-    def _inventory_routes(*device_uuids: str) -> dict[str, list[Any]]:
-        routes: dict[str, list[Any]] = {
-            "/api/servers": [[{"id": index, "uuid": uuid} for index, uuid in enumerate(device_uuids, start=1)]]
+    def _inventory_routes(*device_uuids: str) -> dict[str, list[ScriptedResponse]]:
+        routes = {
+            "/api/orgs": [ScriptedResponse(json=ORGS_BODY)],
+            "/api/servers": [
+                ScriptedResponse(json=[{"id": index, "uuid": uuid} for index, uuid in enumerate(device_uuids, start=1)])
+            ],
         }
         for uuid in device_uuids:
-            routes[f"/api/device-details/orgs/uuid-123/devices/{uuid}/inventory"] = [INVENTORY_BODY]
+            routes[f"/api/device-details/orgs/uuid-123/devices/{uuid}/inventory"] = [
+                ScriptedResponse(json=INVENTORY_BODY)
+            ]
         return routes
 
-    def test_device_inventory_calls_each_device_and_injects_parent_columns(self, monkeypatch: Any) -> None:
+    def test_device_inventory_calls_each_device_and_injects_parent_columns(self) -> None:
         # Readings aggregate across every device, so each row needs the device identifiers: they
         # join the table back to devices and complete the primary key.
-        manager = _FakeResumableManager()
-        rows, urls = self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1", "dev-2"))
+        result = _driver().run("device_inventory", route(self._inventory_routes("dev-1", "dev-2")))
 
-        inventory_urls = [u for u in urls if "/inventory" in u]
-        assert [urlparse(u).path for u in inventory_urls] == [
+        assert result.raised is None
+        assert [path for path in result.paths if "/inventory" in path] == [
             "/api/device-details/orgs/uuid-123/devices/dev-1/inventory",
             "/api/device-details/orgs/uuid-123/devices/dev-2/inventory",
         ]
-        assert len(rows) == 4
-        assert {(r["device_uuid"], r["device_id"]) for r in rows} == {("dev-1", 1), ("dev-2", 2)}
+        assert len(result.rows) == 4
+        assert {(r["device_uuid"], r["device_id"]) for r in result.rows} == {("dev-1", 1), ("dev-2", 2)}
 
-    def test_device_inventory_requires_an_org_uuid(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        with pytest.raises(AutomoxOrganizationError, match=ORG_NOT_FOUND_ERROR):
-            self._drive(
-                "device_inventory",
-                manager,
-                monkeypatch,
-                self._inventory_routes("dev-1"),
-                orgs_body=[{"id": 123, "name": "Org A"}],
-            )
+    def test_device_inventory_requires_an_org_uuid(self) -> None:
+        result = _driver().run("device_inventory", [ScriptedResponse(json=[{"id": 123, "name": "Org A"}])])
+        assert isinstance(result.raised, AutomoxOrganizationError)
+        assert ORG_NOT_FOUND_ERROR in str(result.raised)
 
-    def test_fan_out_resume_skips_parents_already_walked(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(AutomoxResumeConfig(page=0, parent_page=0, parent_index=1))
-        rows, urls = self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1", "dev-2"))
-        assert [urlparse(u).path for u in urls if "/inventory" in u] == [
+    def test_fan_out_resume_skips_parents_already_walked(self) -> None:
+        result = _driver().run(
+            "device_inventory",
+            route(self._inventory_routes("dev-1", "dev-2")),
+            resume_state=AutomoxResumeConfig(page=0, parent_page=0, parent_index=1),
+        )
+        assert result.raised is None
+        assert [path for path in result.paths if "/inventory" in path] == [
             "/api/device-details/orgs/uuid-123/devices/dev-2/inventory"
         ]
-        assert {r["device_uuid"] for r in rows} == {"dev-2"}
+        assert {r["device_uuid"] for r in result.rows} == {"dev-2"}
 
-    def test_remediation_issues_paginate_per_action_set(self, monkeypatch: Any) -> None:
+    def test_remediation_issues_paginate_per_action_set(self) -> None:
         page_size = AUTOMOX_ENDPOINTS["remediation_issues"].page_size
         full_page = {"data": [{"id": i, "issue_type": "unknown-host"} for i in range(page_size)]}
         last_page = {"data": [{"id": page_size, "issue_type": "unknown-host"}]}
-        manager = _FakeResumableManager()
-        rows, urls = self._drive(
+        result = _driver().run(
             "remediation_issues",
-            manager,
-            monkeypatch,
-            {
-                "/api/orgs/123/remediations/action-sets": [{"data": [{"id": 17194}]}],
-                "/api/orgs/123/remediations/action-sets/17194/issues": [full_page, last_page],
-            },
+            route(
+                {
+                    "/api/orgs": [ScriptedResponse(json=ORGS_BODY)],
+                    "/api/orgs/123/remediations/action-sets": [ScriptedResponse(json={"data": [{"id": 17194}]})],
+                    "/api/orgs/123/remediations/action-sets/17194/issues": [
+                        ScriptedResponse(json=full_page),
+                        ScriptedResponse(json=last_page),
+                    ],
+                }
+            ),
         )
 
-        issue_urls = [u for u in urls if u.endswith("issues") or "/issues?" in u]
-        assert [_query(u)["page"] for u in issue_urls] == [["0"], ["1"]]
-        assert len(rows) == page_size + 1
+        assert result.raised is None
+        assert [request.param("page") for request in result.requests if request.path.endswith("/issues")] == [
+            "0",
+            "1",
+        ]
+        assert len(result.rows) == page_size + 1
         # The issue id is only unique within its action set, so the action set id completes the key.
-        assert all(row["action_set_id"] == 17194 for row in rows)
+        assert all(row["action_set_id"] == 17194 for row in result.rows)
         # Mid-parent state points at the next child page, then advances past the finished parent.
-        assert manager.saved == [
+        assert result.saved_states == [
             AutomoxResumeConfig(page=1, parent_page=0, parent_index=0),
             AutomoxResumeConfig(page=0, parent_page=0, parent_index=1),
         ]
@@ -480,13 +387,14 @@ class TestAutomoxSourceResponse:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_shape(self, name: str) -> None:
         config = AUTOMOX_ENDPOINTS[name]
-        response = automox_source(
-            api_key="key",
-            organization_id="123",
-            endpoint=name,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+        terminal_body: Any = {"data": []} if name in {"policy_runs", "remediation_issues"} else []
+        result = _driver().run(
+            name,
+            [ScriptedResponse(json=ORGS_BODY), ScriptedResponse(json=terminal_body)],
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == name
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode

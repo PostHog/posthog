@@ -1,48 +1,33 @@
-from typing import Any
+from unittest.mock import patch
 
-from unittest.mock import MagicMock, Mock, patch
-
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene import codescene as codescene_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene import (
     CodesceneResumeConfig,
-    codescene_source,
     normalize_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.settings import CODESCENE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.source import CodesceneSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codescene import (
+    CodesceneSourceConfig,
+)
 
 
-class _FakeDltResource:
-    """Lightweight stand-in for a DltResource returned by rest_api_resources.
-
-    ``process_parent_data_item`` injects parent fields as ``_<parent_resource>_<field>``
-    (see ``make_parent_key_name``), so test data should include those prefixed keys to
-    exercise the row mappers.
-    """
-
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper: Any) -> "_FakeDltResource":
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self) -> Any:
-        return iter(self._rows)
-
-
-def _make_fake_manager(can_resume: bool = False, state: CodesceneResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(CodesceneSource(), CodesceneSourceConfig(api_token="token"))
 
 
 class TestNormalizeBaseUrl:
@@ -68,11 +53,6 @@ class TestNormalizeBaseUrl:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response: Mock) -> Any:
-        mock_session = MagicMock()
-        mock_session.get.return_value = response
-        return patch.object(codescene_module, "make_tracked_session", return_value=mock_session)
-
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -84,32 +64,32 @@ class TestValidateCredentials:
     def test_status_mapping(
         self, _name: str, status_code: int, expect_valid: bool, message_fragment: str | None
     ) -> None:
-        response = Mock(status_code=status_code)
-        with self._patch_session(response):
+        response = ScriptedResponse(status=status_code)
+        script = always(response) if status_code == 500 else [response]
+        with scripted_network(script) as network:
             valid, message = validate_credentials("token", None, team_id=1)
         assert valid is expect_valid
         if message_fragment:
             assert message_fragment in (message or "")
+        assert network.requests_log[0].path == "/v2/projects"
+        assert network.requests_log[0].param("page") == "1"
+        assert network.requests_log[0].param("page_size") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
     def test_request_exception_returns_failure(self) -> None:
-        import requests
-
-        mock_session = MagicMock()
-        mock_session.get.side_effect = requests.exceptions.ConnectionError("boom")
-        with patch.object(codescene_module, "make_tracked_session", return_value=mock_session):
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))) as network:
             valid, message = validate_credentials("token", None, team_id=1)
         assert valid is False
         assert "boom" in (message or "")
+        assert {request.path for request in network.requests_log} == {"/v2/projects"}
 
     def test_blocks_unsafe_host(self) -> None:
-        with (
-            patch.object(codescene_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(Mock(status_code=200)) as patched_session,
-        ):
-            valid, message = validate_credentials("token", "https://10.0.0.1", team_id=1)
+        with scripted_network([]) as network:
+            with patch.object(codescene_module, "_is_host_safe", return_value=(False, "internal address")):
+                valid, message = validate_credentials("token", "https://10.0.0.1", team_id=1)
         assert valid is False
         assert message == "internal address"
-        patched_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -124,61 +104,46 @@ class TestValidateCredentials:
     )
     def test_rejects_ambiguous_base_url_without_requesting(self, _name: str, base_url: str) -> None:
         # A structurally invalid URL must be rejected before any credential-bearing request.
-        with self._patch_session(Mock(status_code=200)) as patched_session:
+        with scripted_network([]) as network:
             valid, message = validate_credentials("token", base_url, team_id=1)
         assert valid is False
         assert message
-        patched_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_cloud_requires_https(self) -> None:
-        with (
-            patch.object(codescene_module, "is_cloud", return_value=True),
-            self._patch_session(Mock(status_code=200)) as patched_session,
-        ):
-            valid, message = validate_credentials("token", "http://codescene.example.com", team_id=1)
+        with scripted_network([]) as network:
+            with patch.object(codescene_module, "is_cloud", return_value=True):
+                valid, message = validate_credentials("token", "http://codescene.example.com", team_id=1)
         assert valid is False
         assert message and "HTTPS" in message
-        patched_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestCodesceneSourceFlatEndpoint:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.rest_api_resource")
-    def test_resume_state_seeds_paginator(self, mock_rest_api_resource: MagicMock) -> None:
-        mock_rest_api_resource.return_value = _FakeDltResource("Projects", [])
-        manager = _make_fake_manager(can_resume=True, state=CodesceneResumeConfig(next_page=4))
-
-        codescene_source(
-            api_token="token",
-            base_url=None,
-            endpoint="Projects",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_resume_state_seeds_paginator(self) -> None:
+        result = _driver().run(
+            "Projects",
+            [ScriptedResponse(json={"projects": [{"id": "project-4"}], "max_pages": 4})],
+            resume_state=CodesceneResumeConfig(next_page=4),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"page": 4}
+        assert result.raised is None
+        assert result.params("page") == ["4"]
+        assert result.rows == [{"id": "project-4"}]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.rest_api_resource")
-    def test_resume_hook_saves_state_only_when_next_page_present(self, mock_rest_api_resource: MagicMock) -> None:
-        mock_rest_api_resource.return_value = _FakeDltResource("Projects", [])
-        manager = _make_fake_manager()
-
-        codescene_source(
-            api_token="token",
-            base_url=None,
-            endpoint="Projects",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_resume_hook_saves_state_only_when_next_page_present(self) -> None:
+        result = _driver().run(
+            "Projects",
+            [
+                ScriptedResponse(json={"projects": [{"id": "project-1"}], "max_pages": 2}),
+                ScriptedResponse(json={"projects": [{"id": "project-2"}], "max_pages": 2}),
+            ],
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-        resume_hook({"page": 7})
-        manager.save_state.assert_called_once_with(CodesceneResumeConfig(next_page=7))
-
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.saved_states == [CodesceneResumeConfig(next_page=2)]
+        assert result.rows == [{"id": "project-1"}, {"id": "project-2"}]
 
 
 class TestCodesceneSourceFanout:
@@ -194,9 +159,6 @@ class TestCodesceneSourceFanout:
             ("author_statistics", "AuthorStatistics", None, None, SinglePagePaginator),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.build_dependent_resource"
-    )
     def test_fanout_wiring(
         self,
         _name: str,
@@ -204,25 +166,29 @@ class TestCodesceneSourceFanout:
         data_selector: str | None,
         page_size_param: str | None,
         paginator_type: type,
-        mock_build_dependent_resource: MagicMock,
     ) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        codescene_source(
-            api_token="token",
-            base_url=None,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_fake_manager(),
+        child_row = {"id": "child-1", "name": "file.py", "author": "Ada", "file_name": "file.py"}
+        child_body = [child_row] if data_selector is None else {data_selector: [child_row], "max_pages": 1}
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"projects": [{"id": "project-1"}], "max_pages": 1}),
+                ScriptedResponse(json=child_body),
+            ],
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == page_size_param
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "projects"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == data_selector
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], paginator_type)
-        assert kwargs["fanout"] is CODESCENE_ENDPOINTS[endpoint].fanout
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert result.paths[0] == "/v2/projects"
+        assert result.paths[1] == f"/v2{CODESCENE_ENDPOINTS[endpoint].path.format(project_id='project-1')}"
+        assert result.requests[0].param("page_size") == ("100" if page_size_param else None)
+        assert result.requests[1].param("page_size") == (
+            str(CODESCENE_ENDPOINTS[endpoint].page_size) if page_size_param else None
+        )
+        assert result.requests[1].param("page") == ("1" if paginator_type is PageNumberPaginator else None)
+        assert result.rows == [{**child_row, "project_id": "project-1"}]
+        assert result.response is not None
+        assert result.response.name == endpoint
 
 
 class TestCodesceneEndpointCatalog:

@@ -2,6 +2,12 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -43,13 +49,19 @@ class TestConektaSource:
             ((False, None), False, "Could not reach"),
         ],
     )
-    def test_validate_credentials_status_mapping(self, probe_result, expected_valid, expected_message_fragment):
-        with mock.patch(API_CLIENT_PATCH) as api_client:
-            api_client.validate_credentials.return_value = probe_result
-
+    def test_validate_credentials_status_mapping(
+        self,
+        probe_result: tuple[bool, int | None],
+        expected_valid: bool,
+        expected_message_fragment: str | None,
+    ) -> None:
+        _, status = probe_result
+        answer = ConnectionError("probe failed") if status is None else ScriptedResponse(status=status)
+        with scripted_network(always(answer)) as network:
             is_valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
+        assert network.requests_log[0].path == "/orders"
         if expected_message_fragment is None:
             assert message is None
         else:
@@ -66,25 +78,20 @@ class TestConektaSource:
         # A manager bound to the wrong dataclass fails to deserialize its own Redis state on resume.
         assert manager._data_class is ConektaResumeConfig
 
-    def test_source_for_pipeline_passes_the_users_incremental_selection_through(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "orders"
-        inputs.team_id = self.team_id
-        inputs.job_id = "job"
-        inputs.incremental_field = "created_at"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = 1676328434
-        inputs.api_version = None
-        manager = mock.MagicMock()
+    def test_source_for_pipeline_passes_the_users_incremental_selection_through(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "orders",
+            [ScriptedResponse(json={"data": [], "has_more": False})],
+            team_id=self.team_id,
+            incremental_field="created_at",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1676328434,
+        )
 
-        with mock.patch(API_CLIENT_PATCH) as api_client:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = api_client.conekta_source.call_args.kwargs
-        assert kwargs["endpoint"] == "orders"
-        assert kwargs["incremental_field"] == "created_at"
-        assert kwargs["db_incremental_field_last_value"] == 1676328434
-        assert kwargs["api_version"] == API_VERSION
+        assert result.raised is None
+        assert result.paths == ["/orders"]
+        assert result.params("created_at.gte") == ["1676328434"]
+        assert result.requests[0].headers["accept"] == f"application/vnd.conekta-v{API_VERSION}+json"
 
     def test_source_for_pipeline_withholds_the_watermark_on_a_full_refresh(self):
         inputs = mock.MagicMock()
