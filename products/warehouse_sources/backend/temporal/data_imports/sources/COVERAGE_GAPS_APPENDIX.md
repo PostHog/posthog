@@ -102,10 +102,10 @@ Today (10): `calendar_appointments`, `calendars`, `contacts`, `estimates`, `fina
 
 Diffed against: <https://apidocs.acculynx.com/llms.txt>
 
-- [ ] `Financial amendments (GET /api/v2/financials/{financialsId}/amendments)` — resolve amendment IDs linked from financials and explain changes to contract value (high)
-- [ ] `Estimate section items (GET /api/v2/estimates/{estimateId}/sections/{estimateSectionId}/items)` — analyze estimated quantities, material costs, labor costs, and item prices beyond estimate totals (high)
-- [ ] `Job milestone history (GET /api/v2/jobs/{jobId}/milestone-history)` — measure conversion between milestones and time spent in each stage of a job (high)
-- [ ] `Job change history (GET /api/v2/jobs/{jobId}/history)` — analyze job activity, changes, and responsible users over time (medium)
+- [x] `Financial amendments (GET /api/v2/financials/{financialsId}/amendments)` — resolve amendment IDs linked from financials and explain changes to contract value (high)
+- [x] `Estimate section items (GET /api/v2/estimates/{estimateId}/sections/{estimateSectionId}/items)` — analyze estimated quantities, material costs, labor costs, and item prices beyond estimate totals (high)
+- [x] `Job milestone history (GET /api/v2/jobs/{jobId}/milestone-history)` — measure conversion between milestones and time spent in each stage of a job (high)
+- [x] `Job change history (GET /api/v2/jobs/{jobId}/history)` — analyze job activity, changes, and responsible users over time (medium)
 - [ ] `Supplements and supplement items (GET /api/v2/supplements; GET /api/v2/supplements/{supplementId}/items)` — analyze supplemental work and item costs beyond aggregated financial totals (medium)
 - [ ] `Job contacts (GET /api/v2/jobs/{jobId}/contacts)` — connect each job to additional contacts beyond the primary contact included in jobs (medium)
 - [ ] `Job custom fields and definitions (GET /api/v2/jobs/{jobId}/custom-fields; GET /api/v2/company-settings/custom-fields)` — analyze custom job attributes using their field definitions (medium)
