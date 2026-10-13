@@ -1,5 +1,6 @@
 import base64
 import binascii
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -115,14 +116,12 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         public_key_id = self._credential_key_id(request)
         signing_secret = account_audits.signing_secret_for(public_key_id) if public_key_id else None
         webhook_id = request.headers.get("webhook-id")
-        timestamp = request.headers.get("webhook-timestamp")
-        signature = request.headers.get("webhook-signature")
         if (
             public_key_id is None
             or signing_secret is None
             or not webhook_id
             or len(webhook_id) > 255
-            or not self._valid_signature(signing_secret, webhook_id, timestamp, signature, raw_body)
+            or not self._valid_signature(signing_secret, raw_body, request.headers)
         ):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
 
@@ -132,7 +131,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
 
         serializer = AccountAuditStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        payload = AccountAuditRequest(**{"team_id": None, **serializer.validated_data})
+        payload = AccountAuditRequest(**serializer.validated_data)
         result = account_audits.start(payload, public_key_id, webhook_id)
         if result.status == "accepted":
             return Response(AccountAuditStartResponseSerializer(instance=result).data, status=202)
@@ -158,13 +157,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             return None
 
     @staticmethod
-    def _valid_signature(
-        signing_secret: str,
-        webhook_id: str,
-        timestamp: str | None,
-        signature: str | None,
-        raw_body: bytes,
-    ) -> bool:
+    def _valid_signature(signing_secret: str, raw_body: bytes, headers: Mapping[str, str]) -> bool:
         secret = signing_secret.removeprefix("whsec_")
         try:
             signing_key = base64.b64decode(secret, validate=True)
@@ -181,14 +174,4 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             timestamp_max_age_seconds=int(SIGNATURE_TOLERANCE.total_seconds()),
             timestamp_max_future_seconds=int(SIGNATURE_TOLERANCE.total_seconds()),
         )
-        return (
-            scheme.verify(
-                body=raw_body,
-                headers={
-                    "webhook-id": webhook_id,
-                    "webhook-timestamp": timestamp or "",
-                    "webhook-signature": signature or "",
-                },
-            ).outcome
-            == VerificationOutcome.VERIFIED
-        )
+        return scheme.verify(body=raw_body, headers=headers).outcome == VerificationOutcome.VERIFIED

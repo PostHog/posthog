@@ -6,7 +6,6 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -19,7 +18,6 @@ from products.account_audits.backend.models import AccountAuditAdmission, Accoun
 from products.account_audits.backend.tasks.tasks import reconcile_account_audits
 from products.skills.backend.facade.api import SkillPrompt
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import TaskRun
 
 
 @override_settings(SITE_URL="http://testserver")
@@ -49,7 +47,7 @@ class TestAuditExecution(BaseTest):
             task_origin_product="account_audit",
             created_by_id=self.user.id,
             created_by_distinct_id=self.user.distinct_id,
-            completed_at=timezone.now(),
+            completed_at=timezone.now() - timedelta(minutes=4),
             updated_at=timezone.now(),
             state={},
             output={"notebook_short_id": "audit123"},
@@ -151,9 +149,13 @@ class TestAuditExecution(BaseTest):
         self.capture.assert_not_called()
         self.assertIsNotNone(self.admission.finalized_at)
 
-    @parameterized.expand([(False,), (True,)])
-    def test_waits_for_accounting_then_emits_settled_or_unavailable_cost(self, expires: bool) -> None:
-        self.task_run.state["unprocessed_request_ids"] = []
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_waits_for_accounting_then_emits_settled_or_unavailable_cost(
+        self, expires: bool, tracks_requests: bool
+    ) -> None:
+        self.task_run.completed_at = timezone.now()
+        if tracks_requests:
+            self.task_run.state["unprocessed_request_ids"] = []
         self.cost.return_value.token_cost = 0
         self.finish()
         self.assertIsNone(self.admission.finalized_at)
@@ -179,7 +181,7 @@ class TestAuditExecution(BaseTest):
         self.assertIsNotNone(self.admission.finalized_at)
         self.capture.assert_not_called()
 
-    def test_retries_capture_failure_and_recovers_missed_notifications(self) -> None:
+    def test_retries_capture_failure_on_the_next_periodic_scan(self) -> None:
         self.capture.side_effect = RuntimeError("capture unavailable")
         with self.assertRaises(RuntimeError):
             self.finish()
@@ -192,7 +194,7 @@ class TestAuditExecution(BaseTest):
         self.finish()
         self.assertIsNotNone(self.admission.finalized_at)
 
-    def test_native_run_save_schedules_completion_only_after_commit(self) -> None:
+    def test_periodic_completion_finds_native_runs(self) -> None:
         with (
             patch("products.account_audits.backend.logic.execution.tasks_facade.create_and_run_task") as create,
             patch("products.account_audits.backend.tasks.tasks.finalize_account_audit.delay") as enqueue,
@@ -231,16 +233,12 @@ class TestAuditExecution(BaseTest):
             self.admission.task_run_id = created.latest_run.id
             self.admission.save(update_fields=["task_run_id"])
 
-            run = TaskRun.objects.get(id=created.latest_run.id)
             with self.captureOnCommitCallbacks(execute=True):
-                run.status = "completed"
-                run.save(update_fields=["status"])
                 enqueue.assert_not_called()
-            enqueue.assert_called_once_with(self.team.id, str(run.id))
+            reconcile_account_audits()
+            enqueue.assert_called_once_with(self.team.id, str(created.latest_run.id))
             enqueue.reset_mock()
-            with self.captureOnCommitCallbacks(execute=True):
-                with self.assertRaises(RuntimeError):
-                    with transaction.atomic():
-                        run.save(update_fields=["status"])
-                        raise RuntimeError("rollback")
+            self.admission.finalized_at = timezone.now()
+            self.admission.save(update_fields=["finalized_at"])
+            reconcile_account_audits()
             enqueue.assert_not_called()

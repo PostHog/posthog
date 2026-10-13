@@ -76,14 +76,8 @@ def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
     if not run.is_terminal:
         return
     if run.status == tasks_facade.TaskRunStatus.COMPLETED:
-        now = timezone.now()
-        settling = now < (run.completed_at or run.updated_at or admission.created_at) + COMPLETION_GRACE
         # Gateway callbacks can arrive after completion, even when the pending list is empty.
-        if (
-            settling
-            and isinstance(run.state.get("unprocessed_request_ids"), list)
-            and not run.state.get("token_cost_incomplete")
-        ):
+        if timezone.now() < (run.completed_at or run.updated_at or admission.created_at) + COMPLETION_GRACE:
             return
         notebook_id = admission.notebook_short_id
         notebook = notebooks_facade.get_notebook(team_id, notebook_id)
@@ -98,8 +92,6 @@ def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
                 for line in convert_notebook_content_to_markdown(notebook.content).splitlines()
             )
         )
-        if not valid and settling:
-            return
         team = (
             Team.objects.select_related("organization")
             .filter(id=team_id, organization_id=admission.organization_id)

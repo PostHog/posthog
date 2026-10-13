@@ -7,7 +7,7 @@ from posthog.dataclasses import frozen
 @frozen
 class AccountAuditRequest:
     organization_id: UUID
-    team_id: int | None
+    team_id: int | None = None
     reason: str
     skill_project: int
     skill_name: str

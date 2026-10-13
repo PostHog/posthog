@@ -63,7 +63,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
                 "skill_name": "account-audit",
                 **payload,
             }
-        raw_body = json.dumps(payload, separators=(",", ":")).encode()
+        raw_body = payload if isinstance(payload, bytes) else json.dumps(payload, separators=(",", ":")).encode()
         timestamp = timestamp if timestamp is not None else str(int(time.time()))
         signed_body = signing_body if signing_body is not None else raw_body
         signature = (
@@ -344,24 +344,8 @@ class TestAccountAuditStartAPI(APIBaseTest):
             )
         with self._request_patches():
             for index, raw_body in enumerate(payloads):
-                timestamp = str(int(time.time()))
-                signature = base64.b64encode(
-                    hmac.new(
-                        b"a" * 32,
-                        f"delivery-{index}.{timestamp}.".encode() + raw_body,
-                        hashlib.sha256,
-                    ).digest()
-                ).decode()
                 with self.subTest(index=index):
-                    response = self.client.post(
-                        self.url,
-                        data=raw_body,
-                        content_type="application/json",
-                        HTTP_X_POSTHOG_AUDIT_KEY=str(self.credential.public_key_id),
-                        HTTP_WEBHOOK_ID=f"delivery-{index}",
-                        HTTP_WEBHOOK_TIMESTAMP=timestamp,
-                        HTTP_WEBHOOK_SIGNATURE=f"v1,{signature}",
-                    )
+                    response = self._post(raw_body, webhook_id=f"delivery-{index}")
                     self.assertEqual(response.status_code, 400)
 
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
