@@ -888,6 +888,7 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         [
             ("new_message", {"live": "auto_rejected", "stale": "auto_rejected"}),
             ("stale_response", {"live": "pending", "stale": "auto_rejected"}),
+            ("stale_response_with_message", {"live": "auto_rejected", "stale": "auto_rejected"}),
         ]
     )
     async def test_unresumable_pending_approval_is_auto_rejected(self, trigger: str, expected: dict[str, str]) -> None:
@@ -916,6 +917,10 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         if trigger == "new_message":
             runner._latest_message = HumanMessage(content="are you stuck?", id=str(uuid4()))
             await runner._init_or_update_state()
+        elif trigger == "stale_response_with_message":
+            runner._latest_message = HumanMessage(content="are you stuck?", id=str(uuid4()))
+            runner._resume_payload = {"action": "reject", "proposal_id": stale_id}
+            self.assertIsInstance(await runner._init_or_update_state(), AssistantState)
         else:
             runner._resume_payload = {"action": "approve", "proposal_id": stale_id}
             with self.assertRaisesMessage(ValueError, "Approval does not match a pending operation"):

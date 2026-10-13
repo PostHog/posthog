@@ -3155,15 +3155,18 @@ describe('maxThreadLogic', () => {
         const visibleProposal = (): string | undefined => logic.values.activeDangerousOperationApproval?.proposalId
 
         it('keeps a streamed approval visible after the turn ends and moves past resolved ones', () => {
+            logic.actions.setConversation({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                pending_approvals: [approval('stale', 'pending')],
+            })
             logic.actions.addPendingApprovalData(approval('stale', 'pending'))
-            logic.actions.setPendingApproval('stale')
             logic.actions.setResolvedApprovalStatus('stale', 'approved')
 
             logic.actions.addPendingApprovalData(approval('new', 'pending'))
             logic.actions.setPendingApproval('new')
             expect(visibleProposal()).toBe('new')
 
-            logic.actions.setConversation({ ...MOCK_CONVERSATION, pending_approvals: [approval('stale', 'pending')] })
+            logic.actions.completeThreadGeneration()
             expect(visibleProposal()).toBe('new')
 
             logic.actions.setConversation(MOCK_CONVERSATION)
@@ -3175,6 +3178,7 @@ describe('maxThreadLogic', () => {
                 pending_approvals: [approval('new', 'pending'), approval('stale', 'auto_rejected')],
             })
             expect(visibleProposal()).toBe('new')
+            expect(logic.values.effectiveApprovalStatuses['stale'].status).toBe('auto_rejected')
         })
     })
 

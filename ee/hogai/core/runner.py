@@ -21,6 +21,7 @@ from opentelemetry import trace
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler, GenerationMetadata
 
 from posthog.schema import (
+    ApprovalDecisionStatus,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantMessage,
@@ -605,9 +606,13 @@ class BaseAgentRunner(ABC):
                 if approval_interrupt is None:
                     if isinstance(proposal_id, str):
                         await self._expire_pending_approvals({proposal_id})
-                    raise ValueError("Approval does not match a pending operation")
-                # A scalar resume targets the next interrupt, which may belong to a different approval card.
-                resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
+                    if not self._latest_message:
+                        raise ValueError("Approval does not match a pending operation")
+                    # The auto-reject that comes with a new message targets a card that is gone, so start a fresh run.
+                    self._resume_payload = None
+                else:
+                    # A scalar resume targets the next interrupt, which may belong to a different approval card.
+                    resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
 
             # If there are pending nodes (snapshot.next is non-empty), we need to resume.
             # This happens when:
@@ -768,7 +773,8 @@ class BaseAgentRunner(ABC):
         checkpoint's interrupt value (single source of truth). The serializer fetches it from there.
         """
         # Only store if not already in approval_decisions (don't overwrite resolved status)
-        if approval.proposal_id in self._conversation.approval_decisions:
+        existing = self._conversation.approval_decisions.get(approval.proposal_id)
+        if isinstance(existing, dict) and existing.get("decision_status") != ApprovalDecisionStatus.AUTO_REJECTED:
             return
 
         # Store with "pending" decision_status - updated to approved/rejected when user responds
@@ -803,12 +809,13 @@ class BaseAgentRunner(ABC):
         await self._conversation.asave(update_fields=["approval_decisions"])
 
     async def _expire_pending_approvals(self, proposal_ids: set[str] | None = None) -> None:
+        await self._conversation.arefresh_from_db(fields=["approval_decisions"])
         expired = False
         for proposal_id, decision in self._conversation.approval_decisions.items():
             if proposal_ids is not None and proposal_id not in proposal_ids:
                 continue
-            if isinstance(decision, dict) and decision.get("decision_status") == "pending":
-                decision["decision_status"] = "auto_rejected"
+            if isinstance(decision, dict) and decision.get("decision_status") == ApprovalDecisionStatus.PENDING:
+                decision["decision_status"] = ApprovalDecisionStatus.AUTO_REJECTED
                 expired = True
         if expired:
             await self._conversation.asave(update_fields=["approval_decisions"])

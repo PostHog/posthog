@@ -7,6 +7,8 @@ from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.schema import ApprovalDecisionStatus
+
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -385,11 +387,11 @@ class ConversationSerializer(ConversationMinimalSerializer):
             if not tool_name or not preview or not decision_status:
                 continue
             if (
-                decision_status == "pending"
+                decision_status == ApprovalDecisionStatus.PENDING
                 and cached_state.state is not None
                 and proposal_id not in cached_state.interrupt_payloads
             ):
-                decision_status = "auto_rejected"
+                decision_status = ApprovalDecisionStatus.AUTO_REJECTED
 
             # Get payload from checkpoint interrupts (single source of truth)
             payload = cached_state.interrupt_payloads.get(proposal_id, {}).get("payload", {})

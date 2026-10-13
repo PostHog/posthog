@@ -1154,10 +1154,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     if (!approvals) {
                         return state
                     }
-                    const stateResolved = approvals.some(
-                        (a) => a.proposal_id === state && a.decision_status !== 'pending'
-                    )
-                    if (state && !stateResolved) {
+                    if (state && approvals.some((a) => a.proposal_id === state && a.decision_status === 'pending')) {
                         return state
                     }
                     return approvals.find((a) => a.decision_status === 'pending')?.proposal_id ?? null
@@ -1202,10 +1199,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // This prevents losing approval cards when setConversation is called during askMax
                     const hasExistingData = Object.keys(state).length > 0
                     if (hasExistingData) {
-                        return {
-                            ...incomingApprovals,
-                            ...state,
+                        const merged = { ...incomingApprovals, ...state }
+                        for (const [proposalId, incoming] of Object.entries(incomingApprovals)) {
+                            if (incoming.decision_status !== 'pending') {
+                                merged[proposalId] = incoming
+                            }
                         }
+                        return merged
                     }
 
                     return incomingApprovals
@@ -2269,8 +2269,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
+            // The local approval list predates this turn, so leave approvals to the refetch below
             const newConversation = {
                 ...values.conversation,
+                pending_approvals: undefined,
                 status: ConversationStatus.Idle,
             }
 
@@ -2558,11 +2560,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     baseStatuses[proposalId] = { status: approval.decision_status }
                 }
 
-                // Frontend resolved statuses take precedence
-                return {
-                    ...baseStatuses,
-                    ...resolved,
+                // Frontend resolved statuses take precedence, except a backend auto-rejection: the operation never ran
+                const statuses = { ...baseStatuses, ...resolved }
+                for (const [proposalId, base] of Object.entries(baseStatuses)) {
+                    if (base.status === 'auto_rejected') {
+                        statuses[proposalId] = base
+                    }
                 }
+                return statuses
             },
         ],
 
