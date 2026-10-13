@@ -116,7 +116,7 @@ class TestActivityLogModel(BaseTest):
     def test_internal_event_detail_stays_under_kafka_limit(self, _name: str, after: str, truncated: bool) -> None:
         change = Change(type="FeatureFlag", field="filters", action="changed", before=None, after=after)
         with (
-            patch("posthog.cdp.internal_events.produce_internal_event") as mock_produce,
+            patch("products.cdp.backend.internal_events.produce_internal_event") as mock_produce,
             self.captureOnCommitCallbacks(execute=True),
         ):
             log_activity(

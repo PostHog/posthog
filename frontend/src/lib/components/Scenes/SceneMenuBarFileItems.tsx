@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconFolderMove, IconFolderOpen, IconStar, IconStarFilled } from '@posthog/icons'
 
@@ -19,16 +19,15 @@ type SceneMenuBarFileItemsProps = {
 
 /**
  * File-system actions for the current scene's tree entry, intended to be placed inside
- * a <SceneMenuBarMenu label="File">. Returns null if no project tree entry is registered.
+ * a <SceneMenuBarMenu label="File">. Returns null when `sceneFileLogic.hasFileItems` is false, so parents gate on it.
  */
 export function SceneMenuBarFileItems({ dataAttrKey }: SceneMenuBarFileItemsProps): JSX.Element | null {
-    useMountedLogic(sceneFileLogic)
+    const { fileItemsEntry: projectTreeRefEntry } = useValues(sceneFileLogic)
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
-    const { projectTreeRefEntry, shortcutNonFolderPaths, shortcutData } = useValues(projectTreeDataLogic)
+    const { shortcutNonFolderPaths, shortcutData } = useValues(projectTreeDataLogic)
     const { openMoveToModal } = useActions(moveToLogic)
-
     if (!projectTreeRefEntry) {
         return null
     }

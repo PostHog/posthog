@@ -61,6 +61,20 @@ WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     # pushed the branch cannot, which is what makes it the corroboration a merge-queue gate branch
     # is checked against before its name is trusted for attribution (see logic/merge_queue.py).
     "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # GitHub's numeric id of the workflow. It stays the same when the workflow's display name changes,
+    # so it identifies a workflow across a rename.
+    "workflow_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    # The event that triggered the run: 'push', 'pull_request', 'schedule', and so on.
+    "event": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Runs columns that a synced table can lack, each with the typed NULL a read selects in its place. A
+# query that names a column the table does not have fails, so the source resolver probes for these
+# and ``views.depot_ci`` selects the NULL when one is absent. The Depot runs rows select the same
+# NULLs, so both sides of the union agree on the column types.
+OPTIONAL_WORKFLOW_RUNS_COLUMNS: dict[str, str] = {
+    "workflow_id": "toInt(NULL)",
+    "event": "nullIf('', '')",
 }
 
 # Contract for the incoming ``github_workflow_jobs`` warehouse source (job-level CI: queue

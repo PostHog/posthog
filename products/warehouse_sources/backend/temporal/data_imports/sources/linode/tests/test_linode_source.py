@@ -1,16 +1,11 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linode import LinodeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linode.source import LinodeSource
-
-
-def _make_config() -> Any:
-    config = MagicMock()
-    config.api_token = "tok"
-    return config
 
 
 class TestLinodeSourceClass:
@@ -34,14 +29,16 @@ class TestLinodeSourceClass:
         ]
     )
     def test_schema_sync_modes(self, endpoint: str, supports_incremental: bool, supports_append: bool) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(_make_config(), self.team_id)}
+        schemas = {s.name: s for s in self.source.get_schemas(LinodeSourceConfig(api_token="tok"), self.team_id)}
         assert endpoint in schemas
         schema = schemas[endpoint]
         assert schema.supports_incremental is supports_incremental
         assert schema.supports_append is supports_append
 
     def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_make_config(), self.team_id, names=["events", "volumes"])
+        schemas = self.source.get_schemas(
+            LinodeSourceConfig(api_token="tok"), self.team_id, names=["events", "volumes"]
+        )
         assert {s.name for s in schemas} == {"events", "volumes"}
 
     @parameterized.expand(
@@ -55,25 +52,14 @@ class TestLinodeSourceClass:
         assert any(key in observed_error for key in non_retryable)
 
     def test_source_for_pipeline_omits_watermark_when_not_incremental(self) -> None:
-        # A full-refresh run must not forward a stale last-value, or the transport would build an
-        # X-Filter and silently window the results.
-        inputs = MagicMock()
-        inputs.schema_name = "volumes"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00"
-        inputs.incremental_field = None
+        # A full refresh must ignore an old cursor value. Otherwise, the transport adds an
+        # X-Filter and limits the results.
+        result = SourceDriver(self.source, LinodeSourceConfig(api_token="tok")).run(
+            "invoices",
+            [ScriptedResponse(json={"page": 1, "pages": 1, "results": 1, "data": [{"id": 1}]})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
 
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.linode.source.linode_source",
-            side_effect=fake_source,
-        ):
-            self.source.source_for_pipeline(_make_config(), MagicMock(), inputs)
-
-        assert captured["should_use_incremental_field"] is False
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].headers.get("x-filter") is None

@@ -165,7 +165,6 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -237,6 +236,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -443,7 +443,6 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -515,6 +514,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -721,7 +721,6 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -793,6 +792,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -1003,7 +1003,6 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -1081,6 +1080,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -1372,7 +1372,6 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
             mappings: zod
                 .array(
                     zod.object({
-                        name: zod.string().optional(),
                         inputs_schema: zod
                             .array(
                                 zod.object({
@@ -1450,6 +1449,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 })
                             )
                             .optional(),
+                        name: zod.string().optional(),
                         filters: zod
                             .object({
                                 source: zod

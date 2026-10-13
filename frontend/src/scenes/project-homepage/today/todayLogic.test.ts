@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -251,6 +252,61 @@ describe('todayLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.briefingItems[0].state).toEqual(finalState)
+    })
+
+    it('sends the Inbox ranking label events for the reports the home shows and acts on', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        briefingResponses = [[200, makeBriefing()]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        // A reload of the same briefing does not impress its reports again.
+        logic.actions.loadPersonalBriefing()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.itemOpened(logic.values.briefingItems[0], 'sidebar')
+        logic.actions.setReportVerdict(
+            { reportId: 'a', title: 'Signup form rejects emails', hasOpenPullRequest: false },
+            'dismiss',
+            'report_page'
+        )
+        logic.actions.leaveReportReview('a', 'sidebar')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const inboxEvents = capture.mock.calls.filter(([event]) => event.startsWith('Inbox '))
+        expect(inboxEvents).toHaveLength(4)
+        expect(inboxEvents).toEqual(
+            expect.arrayContaining([
+                [
+                    'Inbox reports impressed',
+                    expect.objectContaining({
+                        surface: 'today',
+                        list: 'briefing',
+                        impressions: [expect.objectContaining({ report_id: 'a', rank: 1 })],
+                    }),
+                    undefined,
+                ],
+                [
+                    'Inbox report opened',
+                    expect.objectContaining({ report_id: 'a', surface: 'today', list: 'briefing', rank: 1 }),
+                    undefined,
+                ],
+                [
+                    'Inbox report action',
+                    expect.objectContaining({ report_id: 'a', action_type: 'dismiss', surface: 'today' }),
+                    undefined,
+                ],
+                [
+                    'Inbox report action',
+                    expect.objectContaining({
+                        report_id: 'a',
+                        action_type: 'remove_suggested_reviewer',
+                        surface: 'today',
+                    }),
+                    undefined,
+                ],
+            ])
+        )
     })
 
     it('keeps the last briefing on screen, polls while the next is written, and stops when it is ready', async () => {

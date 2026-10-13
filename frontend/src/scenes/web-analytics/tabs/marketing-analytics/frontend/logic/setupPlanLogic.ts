@@ -42,7 +42,7 @@ export type Capability = 'cost' | 'attribution' | 'roas' | 'cac'
 /** Recorded server-side against the change, so it must describe the real origin. */
 export type ApplySource = 'setup_tab' | 'apply_all_safe'
 
-/** Mirrors the `ApplyOp` union in `services/setup_types.py`. Passed back to
+/** Mirrors the `ApplyOp` union in `products/marketing_analytics/backend/services/setup_types.py`. Passed back to
  * apply_setup_ops verbatim — never construct one client-side. */
 export interface ApplyOp {
     op: string

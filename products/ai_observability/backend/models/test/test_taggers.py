@@ -154,7 +154,7 @@ class TestTaggerModel(BaseTest):
         assert isinstance(tagger.conditions[0]["bytecode"], list)
 
     def test_sets_bytecode_error_when_compilation_fails(self):
-        with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
+        with patch("products.cdp.backend.filters.compile_filters_bytecode") as mock_compile:
             mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
 
             tagger = Tagger.objects.create(

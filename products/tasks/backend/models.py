@@ -43,6 +43,10 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.dev_stack_image_models import (
+    DevStackImageAttempt as DevStackImageAttempt,
+    DevStackImageTarget as DevStackImageTarget,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
@@ -333,6 +337,13 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
+    POSTHOG_MOBILE = "posthog_mobile", "PostHog Mobile"
+    POSTHOG_WEB = "posthog_web", "PostHog Web"
+
+
+def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(TaskClientProvenance.choices)
 
 
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -386,7 +397,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
-        # GitHub event or API. See products/tasks/docs/LOOPS.md.
+        # GitHub event or API.
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
@@ -404,6 +415,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Business knowledge sandbox questions. Reserved: only the sandbox endpoint creates
         # these, and they stay internal so the normal task APIs never list them.
         BUSINESS_KNOWLEDGE = "business_knowledge", "Business Knowledge"
+        # Metrics dashboard imports from a Grafana export or a screenshot. Reserved: only the
+        # metrics import endpoint creates these, and they stay internal so the task APIs never list them.
+        METRICS_IMPORT = "metrics_import", "Metrics Import"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -418,7 +432,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     client_provenance = models.CharField(
         max_length=32,
-        choices=TaskClientProvenance,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,
@@ -1179,14 +1193,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals or autoresearch task must carry no GitHub credential at all — team
-        # or personal. Provisioning injects whatever integration is attached, and these runs read
+        # A repo-less signals, autoresearch or metrics import task must carry no GitHub credential at
+        # all, team or personal. Provisioning injects whatever integration is attached, and these runs read
         # text any member can write, so an attached token turns planted text into repository access.
         github_resolution_allowed = bool(repository) or origin_product not in (
             Task.OriginProduct.SIGNALS_CHAT,
             Task.OriginProduct.SIGNAL_REPORT,
             Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             Task.OriginProduct.AUTORESEARCH,
+            Task.OriginProduct.METRICS_IMPORT,
         )
         github_integration = None
         if github_resolution_allowed:
@@ -2136,8 +2151,7 @@ class ChannelStar(TeamScopedRootMixin):
 class Loop(ModelActivityMixin, TeamScopedRootMixin):
     """A named, cloud-executed agent automation: instructions plus model config,
     fired by schedule/GitHub/API triggers. Each firing spawns an internal Task
-    that runs on the standard tasks pipeline as the loop's owner (created_by).
-    See products/tasks/docs/LOOPS.md."""
+    that runs on the standard tasks pipeline as the loop's owner (created_by)."""
 
     class Visibility(models.TextChoices):
         PERSONAL = "personal", "Personal"
@@ -2184,7 +2198,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Binding to a context (a "#channel" / desktop folder) this loop is attached to, or {} when
     # unattached. Shape: {folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}.
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
-    # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
+    # injected into every run's prompt.
     context_target = models.JSONField(default=dict, blank=True)
     # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
     # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
@@ -2205,7 +2219,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     )
     client_provenance = models.CharField(
         max_length=32,
-        choices=TaskClientProvenance,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,
@@ -2613,6 +2627,7 @@ class TaskRun(models.Model):
         "sandbox_jwt_kid",
         "sandbox_connect_token",
         "sandbox_backend",
+        "failure_error_type",
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
@@ -2916,6 +2931,31 @@ class TaskRun(models.Model):
             depth += 1
         chain.reverse()
         return chain
+
+    def get_history_chain(self, max_depth: int = 10) -> list["TaskRun"]:
+        """The runs whose logs make up this run's conversation, oldest first, ending with this run.
+
+        An ACP run continues its parent through `state.resume_from_run_id`, so its history is the
+        resume chain. A resumed Pi run continues a task session instead: the Pi server reopens the
+        session rather than replaying a parent run, so its history is the earlier runs of that
+        session. Only the `logs` endpoint reads this; resume and artifact lookups keep the resume chain.
+        """
+        if (
+            not (self.state or {}).get("resume_from_run_id")
+            and self.active_task_session_id is not None
+            and self.task.runtime == Task.Runtime.PI
+        ):
+            return self._task_session_chain(max_depth)
+        return self.get_resume_chain(max_depth)
+
+    def _task_session_chain(self, max_depth: int) -> list["TaskRun"]:
+        earlier = list(
+            self.task.runs.only("id", "team_id", "task_id", "created_at")
+            .filter(active_task_session_id=self.active_task_session_id, created_at__lt=self.created_at)
+            .order_by("-created_at")[:max_depth]
+        )
+        earlier.reverse()
+        return [*earlier, self]
 
     def find_artifact_in_resume_chain(self, storage_path: str) -> dict | None:
         """Find an artifact by storage_path on this run or any ancestor in the resume chain."""
@@ -3756,7 +3796,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     )
     client_provenance = models.CharField(
         max_length=32,
-        choices=TaskClientProvenance,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,

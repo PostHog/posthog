@@ -12,7 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
@@ -65,6 +65,13 @@ class NodeEndpointSerializer(serializers.Serializer):
 
 class LineageLookupError(Exception):
     """Raised when the lineage request names no node, or names one with an unparseable id."""
+
+
+class NodeLookup(models.TextChoices):
+    SAVED_QUERY = "saved_query"
+    WAREHOUSE_TABLE = "warehouse_table"
+    POSTHOG_TABLE = "posthog_table"
+    METRIC = "metric"
 
 
 class LineageIssueSerializer(serializers.Serializer):
@@ -285,7 +292,7 @@ def _get_upstream_nodes(
             team_id=node.team_id,
             dag=node.dag,
             target_id__in=current,
-        )
+        ).exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         if not include_tables:
             qs = qs.exclude(source__type=NodeType.TABLE)
         if hidden_types:
@@ -300,10 +307,14 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
     nodes: set[str] = set()
     current = [node.id]
     while current:
-        qs = Edge.objects.exclude(target__type=NodeType.TABLE).filter(
-            team_id=node.team_id,
-            dag=node.dag,
-            source_id__in=current,
+        qs = (
+            Edge.objects.exclude(target__type=NodeType.TABLE)
+            .filter(
+                team_id=node.team_id,
+                dag=node.dag,
+                source_id__in=current,
+            )
+            .exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         )
         if hidden_types:
             qs = qs.exclude(target__type__in=hidden_types)
@@ -365,6 +376,46 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
             raise PermissionDenied(message)
 
+    def safely_get_object(self, queryset: models.QuerySet) -> Node:
+        lookup = self.request.query_params.get("lookup")
+        if not lookup:
+            node = queryset.filter(pk=self.kwargs["pk"]).first()
+        elif lookup == NodeLookup.SAVED_QUERY:
+            node = queryset.filter(saved_query_id=self.kwargs["pk"]).order_by("created_at").first()
+        elif lookup == NodeLookup.WAREHOUSE_TABLE:
+            node = queryset.filter(properties__warehouse_table_id=self.kwargs["pk"]).order_by("created_at").first()
+        elif lookup == NodeLookup.POSTHOG_TABLE:
+            node = (
+                queryset.filter(
+                    name=self.kwargs["pk"],
+                    type=NodeType.TABLE,
+                    saved_query__isnull=True,
+                    properties__origin="posthog",
+                )
+                .order_by("created_at")
+                .first()
+            )
+        elif lookup == NodeLookup.METRIC:
+            node = queryset.filter(metric_id=self.kwargs["pk"]).order_by("created_at").first()
+        else:
+            raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {lookup}"})
+
+        if node is None:
+            raise NotFound()
+        return node
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="lookup",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=NodeLookup.values,
+                description="Resolve the path ID as this backing resource type instead of a node ID.",
+            )
+        ]
+    )
     def retrieve(self, request, *args, **kwargs):
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
         return super().retrieve(request, *args, **kwargs)

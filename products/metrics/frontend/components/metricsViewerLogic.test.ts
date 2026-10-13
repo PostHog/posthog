@@ -141,6 +141,21 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.groupByKeys).toEqual([])
     })
 
+    it('adds a sum aggregation when grouping a clause without one', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        expect(logic.values.aggregation).toBe('sum')
+        expect(logic.values.groupByKeys).toEqual(['container'])
+    })
+
+    it('keeps the chosen aggregation when grouping', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('max')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.aggregation).toBe('max')
+    })
+
     // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
     // silently saves insights that re-run a different query than the viewer showed.
     it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
@@ -510,6 +525,16 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('queue_depth')
         metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it.each([
+        ['from the full list', 'request_duration'],
+        ['from a server search', 'checkout_latency'],
+    ])('keeps the type of a metric picked %s while the service scope reloads', (_source, metricName) => {
+        metricNamePickerLogic.actions.searchItemsSuccess([{ name: 'checkout_latency', metric_type: 'histogram' }])
+        metricNamePickerLogic.actions.setServices(['web'])
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.selectedMetricType).toBe('histogram')
     })
 
     it('backfills the metric type when the picker loads after the metric was set', () => {
@@ -902,7 +927,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({ debounce: true })
+            metricNamePickerLogic.actions.loadItems()
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')

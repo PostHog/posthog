@@ -6147,6 +6147,9 @@
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
+                "colorBy": {
+                    "type": ["string", "null"]
+                },
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/BIField"
@@ -6178,6 +6181,13 @@
                 "filters": {
                     "items": {
                         "$ref": "#/definitions/BIFilter"
+                    },
+                    "type": "array"
+                },
+                "hierarchies": {
+                    "description": "Named dimension sequences saved with the worksheet; imports are independent copies.",
+                    "items": {
+                        "$ref": "#/definitions/BIHierarchy"
                     },
                     "type": "array"
                 },
@@ -6274,6 +6284,10 @@
                 "dateBucket": {
                     "$ref": "#/definitions/BIDateBucket"
                 },
+                "datePart": {
+                    "enum": ["month", "quarter", "day_of_week"],
+                    "type": "string"
+                },
                 "expression": {
                     "type": "string"
                 },
@@ -6282,6 +6296,9 @@
                 },
                 "localDefinition": {
                     "$ref": "#/definitions/BILocalFieldDefinition"
+                },
+                "localFieldId": {
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -6344,8 +6361,45 @@
             ],
             "type": "string"
         },
+        "BIHierarchy": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "levels": {
+                    "description": "Ordered from the broadest dimension to the most detailed.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "levels"],
+            "type": "object"
+        },
         "BILocalFieldDefinition": {
             "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "aggregate": {
+                            "type": "boolean"
+                        },
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "expression",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "aggregate"],
+                    "type": "object"
+                },
                 {
                     "additionalProperties": false,
                     "properties": {
@@ -6527,6 +6581,11 @@
                     "$ref": "#/definitions/ChartSettingsFormatting"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "shelf": {
+                    "description": "Measures in older worksheets belong to rows.",
+                    "enum": ["rows", "columns"],
                     "type": "string"
                 },
                 "tableCalculation": {
@@ -13098,6 +13157,35 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -18769,6 +18857,17 @@
                         }
                     ]
                 },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Period comparison forced onto every insight that supports one. Absent/null = inherit."
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
@@ -21277,6 +21376,10 @@
         "DataWarehouseSyncWarning": {
             "additionalProperties": false,
             "properties": {
+                "data_is_current": {
+                    "description": "True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date.",
+                    "type": "boolean"
+                },
                 "message": {
                     "description": "Human-readable warning shown to the user",
                     "type": "string"
@@ -27956,14 +28059,14 @@
                     "type": "array"
                 },
                 "searchKeywords": {
-                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
+                    "description": "Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
                 "searchTabs": {
-                    "description": "Tabs of this item that search lists as their own results",
+                    "description": "Tabs with their own URL that search lists as separate rows, below products and people",
                     "items": {
                         "$ref": "#/definitions/FileSystemSearchTab"
                     },
@@ -29172,6 +29275,11 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "calculation": {
+                    "description": "Recalculate from returned chart marks. An absent calculation uses the fixed value.",
+                    "enum": ["fixed", "mean", "median", "min", "max"],
+                    "type": "string"
+                },
                 "displayIfCrossed": {
                     "type": "boolean"
                 },
@@ -29183,6 +29291,11 @@
                 },
                 "position": {
                     "enum": ["start", "end"],
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "SQL chart calculations use the primary axis, across all series or separately per series.",
+                    "enum": ["all", "series"],
                     "type": "string"
                 },
                 "value": {
@@ -29937,6 +30050,10 @@
                 },
                 "start": {
                     "$ref": "#/definitions/integer"
+                },
+                "url": {
+                    "description": "An https page with more detail about the notice. The editor links to it from the notice's hover.",
+                    "type": "string"
                 }
             },
             "required": ["message"],
@@ -36537,6 +36654,44 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchConversion": {
+            "additionalProperties": false,
+            "properties": {
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "costPerConversion": {
+                    "type": ["number", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "previousConversions": {
+                    "type": ["number", "null"]
+                },
+                "previousCostPerConversion": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["conversions", "costPerConversion", "id", "name"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
@@ -36589,6 +36744,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includePostHogConversions": {
+                    "type": "boolean"
+                },
                 "keyword": {
                     "type": "string"
                 },
@@ -36599,6 +36757,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "normalizePageUrls": {
+                    "type": "boolean"
                 },
                 "page": {
                     "type": "string"
@@ -36640,6 +36801,35 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36738,6 +36928,19 @@
                 "position": {
                     "type": ["number", "null"]
                 },
+                "posthogConversions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "previous": {
                     "anyOf": [
                         {
@@ -36772,6 +36975,9 @@
             "additionalProperties": false,
             "properties": {
                 "keywordTable": {
+                    "type": "string"
+                },
+                "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
@@ -45091,6 +45297,35 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "placementUnavailable": {
+                            "type": "boolean"
+                        },
+                        "posthogAttributionMode": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/AttributionMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionGoals": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionsWarning": {
+                            "type": ["string", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -55440,6 +55675,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
                         },
                         {
                             "type": "null"

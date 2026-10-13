@@ -3543,6 +3543,13 @@ export interface CredentialApi {
  * * `ChessCom` - ChessCom
  * * `Userback` - Userback
  * * `Rewardful` - Rewardful
+ * * `Tracklution` - Tracklution
+ * * `StackAdapt` - StackAdapt
+ * * `CheckHQ` - CheckHQ
+ * * `RainforestPay` - RainforestPay
+ * * `Wise` - Wise
+ * * `LaravelCloud` - LaravelCloud
+ * * `Northbeam` - Northbeam
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4923,6 +4930,13 @@ export const ExternalDataSourceTypeEnumApi = {
     ChessCom: 'ChessCom',
     Userback: 'Userback',
     Rewardful: 'Rewardful',
+    Tracklution: 'Tracklution',
+    StackAdapt: 'StackAdapt',
+    CheckHQ: 'CheckHQ',
+    RainforestPay: 'RainforestPay',
+    Wise: 'Wise',
+    LaravelCloud: 'LaravelCloud',
+    Northbeam: 'Northbeam',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

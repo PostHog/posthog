@@ -66,7 +66,7 @@ class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeC
             docsUrl="https://posthog.com/docs/cdp/sources/llama-cloud",
             iconPath="/static/services/llama_cloud.svg",
             keywords=["llamaindex", "llamaparse", "document parsing", "rag"],
-            caption="""Enter a LlamaCloud API key to sync your parsing, extraction, and classification jobs, pipelines, projects, files, and usage metrics.
+            caption="""Enter a LlamaCloud API key to sync your parsing, extraction, and classification jobs, extraction agents and runs, pipelines, indexes, projects, files, and usage metrics.
 
 You can create an API key in [LlamaCloud](https://cloud.llamaindex.ai) under **Settings → API Keys**. API keys are project-scoped and region-specific, so pick the region your key was created in.
 """,
