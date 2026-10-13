@@ -929,17 +929,35 @@ def _blocking_facade_classes(status: IsolationStatus) -> list[str]:
     return sorted({c.class_name for c in (*status.facade_leaks, *status.unapproved_wiring)})
 
 
+def _class_list(names: set[str]) -> str:
+    shown = sorted(names)
+    return ", ".join(shown[:5]) + (f" +{len(shown) - 5} more" if len(shown) > 5 else "")
+
+
+def _blocked_reason(status: IsolationStatus) -> str:
+    """Each list needs a different move: a leak can go to contracts or a wiring location, wiring is already there."""
+    reasons = []
+    leaks = {c.class_name for c in status.facade_leaks}
+    if leaks:
+        reasons.append(
+            f"facade hands out {len(leaks)} non-contract class(es) ({_class_list(leaks)}): "
+            "convert them to contracts or move them to a wiring location"
+        )
+    wiring = {c.class_name for c in status.unapproved_wiring}
+    if wiring:
+        reasons.append(
+            f"{len(wiring)} wiring class(es) implement no approved interface ({_class_list(wiring)}): "
+            "return contracts from a facade function, register a plain function, or use an approved base"
+        )
+    return "; ".join(reasons) + " (see product:lint)"
+
+
 def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
     if status.test_skip_configured:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
-    blocking = _blocking_facade_classes(status)
-    if status.is_sealed and blocking:
-        shown = ", ".join(blocking[:5]) + (f" +{len(blocking) - 5} more" if len(blocking) > 5 else "")
-        return "BLOCKED", (
-            f"facade hands out {len(blocking)} non-contract class(es) ({shown}); "
-            "convert them to contracts or move them to a wiring location (see product:lint)"
-        )
+    if status.is_sealed and _blocking_facade_classes(status):
+        return "BLOCKED", _blocked_reason(status)
     if status.is_sealed:
         missing = []
         if not status.has_contract_check_script:
