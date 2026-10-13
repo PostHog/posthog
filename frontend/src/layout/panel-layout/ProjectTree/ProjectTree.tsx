@@ -32,6 +32,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -329,7 +330,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                         onItemClicked?.(folder)
                         resetPanelLayout(false)
                         if (keyboardActivation) {
-                            router.actions.push(folder.record.href)
+                            navigateToHref(folder.record.href)
                         }
                     }
                 }
