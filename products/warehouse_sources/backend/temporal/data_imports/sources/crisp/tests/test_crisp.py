@@ -67,6 +67,42 @@ def test_out_of_range_page_completes_without_discarding_rows(config: CrispSource
     assert result.paths[-1].endswith("/2")
 
 
+@pytest.mark.parametrize(
+    ("schema", "last_value", "filter_date_start"),
+    [
+        ("conversations", datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=UTC), "2026-01-02T03:04:05.678Z"),
+        ("conversations", None, None),
+        ("messages", datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05.000Z"),
+        ("messages", None, None),
+    ],
+)
+def test_incremental_sync_filters_conversations_by_update_date(
+    config: CrispSourceConfig, schema: str, last_value: datetime | None, filter_date_start: str | None
+) -> None:
+    script = [page([{"session_id": "one", "created_at": 1000, "updated_at": 2000}])]
+    if schema == "messages":
+        script += [page([{"fingerprint": 1, "timestamp": 1500}]), page([])]
+    result = SourceDriver(CrispSource(), config).run(
+        schema,
+        script,
+        incremental_field="updated_at" if schema == "conversations" else "conversation_updated_at",
+        db_incremental_field_last_value=last_value,
+    )
+    assert result.raised is None
+    expected = {
+        "per_page": ("50",),
+        "include_empty": ("1",),
+        "filter_inbox_id": ("all",),
+        "order_date_updated": ("1",),
+    }
+    if filter_date_start is not None:
+        expected["filter_date_start"] = (filter_date_start,)
+    assert result.queries[0] == expected
+    assert result.response is not None and result.response.sort_mode == "desc"
+    cursor = "updated_at" if schema == "conversations" else "conversation_updated_at"
+    assert [row[cursor] for row in result.rows] == [datetime.fromtimestamp(2, UTC)]
+
+
 def test_path_resume_uses_saved_page_after_interruption(config: CrispSourceConfig) -> None:
     driver = SourceDriver(CrispSource(), config)
     stopped = driver.run("visitors", [page([{"session_id": "one"}]), RunStopped("handoff")])

@@ -1,5 +1,6 @@
+import dataclasses
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -134,24 +135,45 @@ def endpoint_config(endpoint: CrispEndpoint, website_id: str) -> Endpoint:
     }
 
 
-def resource_config(endpoint: CrispEndpoint, website_id: str) -> EndpointResource:
+def format_updated_since(value: Any) -> str:
+    if isinstance(value, datetime):
+        utc = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if isinstance(value, date):
+        return format_updated_since(datetime.combine(value, datetime.min.time(), tzinfo=UTC))
+    return str(value)
+
+
+def list_params(endpoint: CrispEndpoint, inputs: SourceInputs) -> dict[str, Any]:
+    if not (inputs.should_use_incremental_field and endpoint.updated_since_param):
+        return dict(endpoint.params)
+    params: dict[str, Any] = dict(endpoint.incremental_params)
+    if inputs.db_incremental_field_last_value is not None:
+        params[endpoint.updated_since_param] = format_updated_since(inputs.db_incremental_field_last_value)
+    return params
+
+
+def resource_config(endpoint: CrispEndpoint, website_id: str, inputs: SourceInputs) -> EndpointResource:
+    config = endpoint_config(endpoint, website_id)
+    config["params"] = list_params(endpoint, inputs)
     return {
         "name": endpoint.name,
         "table_name": endpoint.name,
         "write_disposition": "replace",
-        "endpoint": endpoint_config(endpoint, website_id),
+        "endpoint": config,
     }
 
 
-def parent_path_map(field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def parent_path_map(field: str, included: list[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def encode_path(row: dict[str, Any]) -> dict[str, Any]:
-        return {**row, "_path_id": quote(str(row[field]), safe="")}
+        # The fan-out fails on a parent row that lacks an included field.
+        return {**dict.fromkeys(included), **row, "_path_id": quote(str(row[field]), safe="")}
 
     return encode_path
 
 
 def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
-    for name in ("created_at", "updated_at", "timestamp", "dispatched_at", "waiting_since"):
+    for name in ("created_at", "updated_at", "conversation_updated_at", "timestamp", "dispatched_at", "waiting_since"):
         value = row.get(name)
         if isinstance(value, int | float) and not isinstance(value, bool):
             row[name] = datetime.fromtimestamp(value / 1000, tz=UTC)
@@ -208,18 +230,25 @@ def crisp_source(
             *settings.fanout.child_response_actions,
             *(child_endpoint.get("response_actions") or []),
         ]
+        incremental = inputs.should_use_incremental_field and bool(settings.incremental_fields)
         resource = build_dependent_resource(
             endpoint_configs=ENDPOINTS,
             child_endpoint=settings.name,
-            fanout=settings.fanout,
+            fanout=dataclasses.replace(settings.fanout, parent_params=list_params(parent, inputs))
+            if incremental
+            else settings.fanout,
             client_config=client_config(config, api_version),
             path_format_values={"website_id": quote(config.website_id, safe="")},
             team_id=inputs.team_id,
             job_id=inputs.job_id,
-            db_incremental_field_last_value=None,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value if incremental else None,
+            should_use_incremental_field=incremental,
+            incremental_field=inputs.incremental_field,
+            # The watermark filters the parent list, so it binds to no child request param.
+            incremental_config_factory=lambda _field: None,
             parent_endpoint_extra=parent_endpoint,
             child_endpoint_extra=child_endpoint,
-            parent_data_map=parent_path_map(settings.fanout.resolve_param),
+            parent_data_map=parent_path_map(settings.fanout.resolve_param, settings.fanout.include_from_parent),
             page_size_param=None,
             resume_hook=save_state,
             initial_paginator_state=initial_state,
@@ -228,13 +257,13 @@ def crisp_source(
     else:
         rest_config: RESTAPIConfig = {
             "client": client_config(config, api_version),
-            "resources": [resource_config(settings, config.website_id)],
+            "resources": [resource_config(settings, config.website_id, inputs)],
         }
         resource = rest_api_resource(
             rest_config,
             inputs.team_id,
             inputs.job_id,
-            None,
+            inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
             resume_hook=save_state,
             initial_paginator_state=initial_state,
         )
@@ -249,6 +278,8 @@ def crisp_source(
         partition_keys=[settings.partition_key] if settings.partition_key else None,
         partition_mode="datetime" if settings.partition_key else None,
         partition_format="month" if settings.partition_key else None,
-        sort_mode="desc" if settings.pagination == "messages" else None,
+        # "desc" moves the watermark only when the run completes. Crisp does not document the
+        # direction of its date order, so a watermark from a partial run could skip rows.
+        sort_mode="desc" if settings.pagination == "messages" or inputs.should_use_incremental_field else None,
         on_complete=manager.clear_state,
     )
