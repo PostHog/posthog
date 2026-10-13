@@ -222,6 +222,45 @@ describe('entityFilterLogic', () => {
         })
     })
 
+    describe('updateSeriesMath resets property math settings', () => {
+        const revenueSeries = {
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            name: 'purchase',
+            math: 'sum',
+            math_property: 'revenue',
+            math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+            math_multiplier: 0.01,
+            math_property_revenue_currency: { property: 'currency' },
+        } as SeriesNode
+        const revenueSettings = { math_multiplier: 0.01, math_property_revenue_currency: { property: 'currency' } }
+        const noSettings = { math_multiplier: undefined, math_property_revenue_currency: undefined }
+
+        it.each([
+            [
+                'keeps them when the math changes on the same property',
+                { math: 'avg', math_property: 'revenue', math_hogql: undefined },
+                revenueSettings,
+            ],
+            [
+                'drops them when the math property changes',
+                { math: 'sum', math_property: 'item_count', math_hogql: undefined },
+                noSettings,
+            ],
+            [
+                'drops them when the math stops reading a property',
+                { math: 'total', math_property: undefined, math_hogql: undefined },
+                noSettings,
+            ],
+        ])('%s', (_name, update, expectedSettings) => {
+            logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: revenueSeries }])
+            logic.actions.updateSeriesMath(0, update)
+
+            const { math_multiplier, math_property_revenue_currency } = logic.values.series[0]
+            expect({ math_multiplier, math_property_revenue_currency }).toEqual(expectedSettings)
+        })
+    })
+
     describe('updateSeriesEntity across node kinds', () => {
         const personProperty: AnyPropertyFilter = {
             key: 'email',
@@ -313,8 +352,27 @@ describe('entityFilterLogic', () => {
             distinct_id_field: 'customer_id',
             dw_source_type: 'Stripe',
         } as SeriesNode
+        const limitedEventNode = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            limit: 100,
+            orderBy: ['timestamp DESC'],
+        } as SeriesNode
 
         it.each([
+            [
+                'drops limit and orderBy when an event becomes an action',
+                limitedEventNode,
+                { kind: NodeKind.ActionsNode, key: 7, name: 'Sign up' },
+                { kind: NodeKind.ActionsNode, id: 7, name: 'Sign up' },
+            ],
+            [
+                'drops limit and orderBy when an event becomes a data warehouse series',
+                limitedEventNode,
+                { kind: NodeKind.DataWarehouseNode, key: 'payments', name: 'payments' },
+                { kind: NodeKind.DataWarehouseNode, id: 'payments', name: 'payments', table_name: 'payments' },
+            ],
             [
                 'drops the event when an event becomes a data warehouse series',
                 eventNode,
@@ -374,32 +432,40 @@ describe('entityFilterLogic', () => {
             math: 'sum',
             math_property: 'revenue',
             math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+            math_multiplier: 0.01,
         } as SeriesNode
         const dataWarehousePropertyMath = {
             ...dataWarehouseNode,
             math: 'sum',
             math_property: 'amount',
             math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+            math_multiplier: 0.01,
         } as SeriesNode
+        const droppedPropertyMath = {
+            math: undefined,
+            math_property: undefined,
+            math_property_type: undefined,
+            math_multiplier: undefined,
+        }
 
         it.each([
             [
                 'drops property math when an event becomes a data warehouse series',
                 eventPropertyMath,
                 switchToPayments,
-                { math: undefined, math_property: undefined, math_property_type: undefined },
+                droppedPropertyMath,
             ],
             [
                 'drops property math when a data warehouse series becomes an event',
                 dataWarehousePropertyMath,
                 { kind: NodeKind.EventsNode, key: '$pageview', name: '$pageview' },
-                { math: undefined, math_property: undefined, math_property_type: undefined },
+                droppedPropertyMath,
             ],
             [
                 'drops property math when the data warehouse table changes',
                 dataWarehousePropertyMath,
                 { kind: NodeKind.DataWarehouseNode, key: 'orders', name: 'orders' },
-                { math: undefined, math_property: undefined, math_property_type: undefined },
+                droppedPropertyMath,
             ],
             [
                 'keeps property math when the data warehouse table is unchanged',
@@ -409,6 +475,7 @@ describe('entityFilterLogic', () => {
                     math: 'sum',
                     math_property: 'amount',
                     math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                    math_multiplier: 0.01,
                 },
             ],
             [
