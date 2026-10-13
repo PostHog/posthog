@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.alerts_platform.backend.delivery import legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.message import AlertMessage
@@ -340,6 +341,11 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
         assert post.call_args.args[1]["version"] == body_version
+
+    def test_logs_registers_its_legacy_webhook_body_at_startup(self) -> None:
+        # Every other case here patches the registry, so none of them notices a missing registration,
+        # which would send grandfathered teams the Alertmanager body without any error.
+        assert legacy_webhook.body_for(SourceKind.LOGS) is not None
 
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.

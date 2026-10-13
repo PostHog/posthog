@@ -148,6 +148,15 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
 
         assert native == legacy
 
+    def test_a_naive_history_timestamp_is_sent_as_utc(self) -> None:
+        transition = replace(_transition(), occurred_at=OCCURRED.replace(tzinfo=None))
+
+        body = legacy_logs_webhook_body(
+            project_id=7, alert_id="alert-1", alert_name="API errors", consecutive_failures=0, transition=transition
+        )
+
+        assert body["timestamp"] == OCCURRED.isoformat()
+
 
 def _render(node: Any, globals_: dict[str, Any]) -> Any:
     if isinstance(node, list) and node and node[0] in ("_H", "_h"):

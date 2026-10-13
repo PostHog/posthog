@@ -6,7 +6,7 @@ messages use: a count of logs in a window, the filters the alert watches, and a 
 Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
@@ -101,6 +101,10 @@ def legacy_logs_webhook_body(
     Its template rendered a lone placeholder as the value's own type, so counts stay numbers and
     filter lists stay lists here too.
     """
+    # History rows come back from ClickHouse without a zone, and the legacy body always had one.
+    occurred_at = (
+        transition.occurred_at.replace(tzinfo=UTC) if transition.occurred_at.tzinfo is None else transition.occurred_at
+    )
     filters = transition.source_config
     alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")
     data: dict[str, Any] = {
@@ -127,9 +131,9 @@ def legacy_logs_webhook_body(
         # The HogFunction path sent its event's id. A stable id per transition lets a receiver
         # drop a retried send.
         "id": str(
-            uuid5(NAMESPACE_URL, f"{alert_id}|{transition.grouping_key}|{transition.kind}|{transition.occurred_at}")
+            uuid5(NAMESPACE_URL, f"{alert_id}|{transition.grouping_key}|{transition.kind}|{occurred_at.isoformat()}")
         ),
         "type": _LEGACY_WEBHOOK_TYPES[transition.kind],
-        "timestamp": transition.occurred_at.isoformat(),
+        "timestamp": occurred_at.isoformat(),
         "data": data,
     }
