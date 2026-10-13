@@ -18,6 +18,7 @@ export interface visionQuotaLogicValues {
     billedCredits: number
     billedLimitCredits: number
     displayQuota: VisionQuotaApi | null
+    freeCreditsLeft: number | null
     onFreePlan: boolean
     quota: VisionQuotaApi | null
     quotaLoading: boolean
@@ -145,6 +146,17 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         ],
         /** Whether spend converts to a bill, so the `≈ $` anchors are worth showing. */
         showUsd: [(s) => [s.quota], (quota: VisionQuotaApi | null) => hasBillableSpend(quota)],
+        /** What a free-only scanner can still spend this period; the org limit can sit below the free credits. */
+        freeCreditsLeft: [
+            (s) => [s.quota],
+            (quota: VisionQuotaApi | null): number | null =>
+                quota
+                    ? Math.max(
+                          0,
+                          Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity) - quota.credits_used
+                      )
+                    : null,
+        ],
         /** On the free plan: shapes copy, since running out of free credits isn't hitting a spend limit. */
         onFreePlan: [(s) => [s.quota], (quota: VisionQuotaApi | null) => isFreeAllocationOnly(quota)],
         // Billed figures come off `displayQuota` so a startup-capped org's dollars respect the cap.

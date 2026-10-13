@@ -2,14 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconPlus, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { creditsToUsd } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { creditsToUsd, formatCredits } from '../../utils/credits'
+import { GoalSpendMode, goalDraftBudget, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
 import { ScannerResumeDraftBanner } from './ScannerResumeDraftBanner'
 import { SCANNER_TEMPLATE_ICONS } from './scannerTemplateIcons'
@@ -25,15 +26,22 @@ const MAX_SCAN_BUDGET = 100000000
  * step to review it, so a one-click start still gets a scanner fitted to the project. */
 export function ScannerGoalFlow(): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalBudgetInput, goalDraftLoading, experimentContext } = useValues(logic)
-    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput } = useActions(logic)
+    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, experimentContext } = useValues(logic)
+    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { freeCreditsLeft } = useValues(visionQuotaLogic)
     const [pendingDraft, setPendingDraft] = useState<{ goal: string; templateKey?: string } | null>(null)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
+    const freeDisabledReason =
+        freeCreditsLeft != null && freeCreditsLeft < MIN_SCAN_BUDGET
+            ? 'Your organization has used its free credits for this billing period'
+            : null
+    const spendMode: GoalSpendMode = freeDisabledReason ? 'budget' : goalSpendMode
     const budgetValid =
-        goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET
+        spendMode === 'free' ||
+        (goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET)
     const startDisabledReason =
         editDisabledReason ??
         (!budgetValid ? 'Enter a monthly credit budget' : goalDraftLoading ? 'Drafting your scanner' : null)
@@ -48,7 +56,14 @@ export function ScannerGoalFlow(): JSX.Element {
             setPendingDraft({ goal, templateKey })
             return
         }
-        draftScannerFromGoal(goal, goalBudgetInput ?? undefined, templateKey)
+        draft(goal, templateKey)
+    }
+    const draft = (goal: string, templateKey?: string): void => {
+        // The draft's success handler reads the stored mode, so a free mode that ran out is stored as budget first.
+        if (spendMode !== goalSpendMode) {
+            setGoalSpendMode(spendMode)
+        }
+        draftScannerFromGoal(goal, goalDraftBudget(spendMode, goalBudgetInput, freeCreditsLeft), templateKey)
     }
     const startFromTypedGoal = (): void => {
         if (!typedGoalDisabledReason) {
@@ -72,7 +87,7 @@ export function ScannerGoalFlow(): JSX.Element {
                 hidden={pendingDraft === null}
                 onApprove={() => {
                     if (pendingDraft) {
-                        draftScannerFromGoal(pendingDraft.goal, goalBudgetInput ?? undefined, pendingDraft.templateKey)
+                        draft(pendingDraft.goal, pendingDraft.templateKey)
                     }
                     setPendingDraft(null)
                 }}
@@ -107,31 +122,58 @@ export function ScannerGoalFlow(): JSX.Element {
                             ) : null}
                         </div>
 
-                        <div className="flex flex-col gap-1">
-                            <label htmlFor="vision-goal-flow-budget" className="text-sm font-semibold">
-                                About how much do you want to spend a month?
-                            </label>
-                            <div className="flex flex-wrap items-center gap-3">
-                                <LemonInput
-                                    id="vision-goal-flow-budget"
-                                    type="number"
-                                    min={MIN_SCAN_BUDGET}
-                                    max={MAX_SCAN_BUDGET}
-                                    value={goalBudgetInput ?? undefined}
-                                    onChange={(value) => setGoalBudgetInput(value ?? null)}
-                                    suffix={<span className="text-muted">credits</span>}
-                                    className="w-40"
-                                    data-attr="vision-goal-flow-budget"
-                                />
-                                {budgetValid && goalBudgetInput != null ? (
-                                    <span className="text-xs text-muted">
-                                        ≈ {creditsToUsd(goalBudgetInput)} a month
-                                    </span>
-                                ) : null}
-                            </div>
-                            <div className="text-xs text-muted">
-                                1,000 credits ≈ $10. The agent picks the model and fits the scanner to this.
-                            </div>
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-semibold">How much should this scanner use?</span>
+                            <LemonSegmentedButton<GoalSpendMode>
+                                size="small"
+                                value={spendMode}
+                                onChange={setGoalSpendMode}
+                                options={[
+                                    {
+                                        value: 'free',
+                                        label: 'Free',
+                                        disabledReason: freeDisabledReason ?? undefined,
+                                        'data-attr': 'vision-goal-flow-spend-free',
+                                    },
+                                    {
+                                        value: 'budget',
+                                        label: 'Set a budget',
+                                        'data-attr': 'vision-goal-flow-spend-budget',
+                                    },
+                                ]}
+                            />
+                            {spendMode === 'free' ? (
+                                <div className="text-xs text-muted">
+                                    The scanner only uses your free monthly credits
+                                    {freeCreditsLeft != null ? ` (${formatCredits(freeCreditsLeft)} left)` : ''}. It
+                                    pauses when they run out, so it never adds to your bill.
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <LemonInput
+                                            id="vision-goal-flow-budget"
+                                            aria-label="Monthly credit budget"
+                                            type="number"
+                                            min={MIN_SCAN_BUDGET}
+                                            max={MAX_SCAN_BUDGET}
+                                            value={goalBudgetInput ?? undefined}
+                                            onChange={(value) => setGoalBudgetInput(value ?? null)}
+                                            suffix={<span className="text-muted">credits a month</span>}
+                                            className="w-48"
+                                            data-attr="vision-goal-flow-budget"
+                                        />
+                                        {budgetValid && goalBudgetInput != null ? (
+                                            <span className="text-xs text-muted">
+                                                ≈ {creditsToUsd(goalBudgetInput)} a month
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <div className="text-xs text-muted">
+                                        1,000 credits ≈ $10. The agent picks the model and fits the scanner to this.
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-between mt-auto">

@@ -15,7 +15,7 @@ import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
-import { LIMIT_REACHED_TOOLTIP } from '../scannerCopy'
+import { limitReachedTooltip } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
 
@@ -55,7 +55,11 @@ function statusCopy(
                         : "This scanner doesn't scan new recordings.",
             }
         case 'limit_reached':
-            return { label: 'Stopped', tone: 'danger', detail: LIMIT_REACHED_TOOLTIP }
+            return {
+                label: 'Stopped',
+                tone: 'danger',
+                detail: limitReachedTooltip({ free_only: status.freeOnly }),
+            }
         case 'quota_exhausted':
             return {
                 label: 'Stopped',

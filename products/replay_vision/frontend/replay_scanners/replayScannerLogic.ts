@@ -58,7 +58,7 @@ import type {
 import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
-import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { neighborFilterParams } from '../observations/replayObservationLogic'
 import { lastObservationsPage } from '../observations/replayObservationSceneLogic'
 import { observationClipboardText } from '../utils/observation'
@@ -415,6 +415,23 @@ const CREDIT_LIMIT_SEED_HEADROOM = 2
 
 export type CreditLimitUnit = 'credits' | 'observations'
 
+export type GoalSpendMode = 'free' | 'budget'
+
+// Equals the free monthly credits (FREE_TIER_MONTHLY_CREDITS in backend/billing.py). Change both values together.
+export const DEFAULT_GOAL_BUDGET = 2500
+
+/** The budget the drafter sizes a scanner to: the free credits still left in free mode, else the typed budget. */
+export function goalDraftBudget(
+    mode: GoalSpendMode,
+    budgetInput: number | null,
+    freeCreditsLeft: number | null
+): number | undefined {
+    if (mode === 'free') {
+        return freeCreditsLeft ?? DEFAULT_GOAL_BUDGET
+    }
+    return budgetInput ?? undefined
+}
+
 // Admission needs the full price of a scan, so a remainder under one price admits nothing.
 export function creditsToObservations(credits: number, creditsPerObservation: number): number {
     return Math.floor(credits / creditsPerObservation)
@@ -456,6 +473,7 @@ export interface replayScannerLogicValues {
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
     goalBudgetInput: number | null
+    goalSpendMode: GoalSpendMode
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
@@ -742,6 +760,9 @@ export interface replayScannerLogicActions {
     setGoalBudgetInput: (budget: number | null) => {
         budget: number | null
     }
+    setGoalSpendMode: (mode: GoalSpendMode) => {
+        mode: GoalSpendMode
+    }
     setGoalDraftInput: (goal: string) => {
         goal: string
     }
@@ -972,6 +993,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         }),
         setGoalDraftInput: (goal: string) => ({ goal }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
+        setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -1269,13 +1291,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerSaved: () => '',
             },
         ],
-        // The monthly credit budget input on the goal-based creation flow. The default equals the free
-        // monthly credits (FREE_TIER_MONTHLY_CREDITS in backend/billing.py), so a first scanner fits the
-        // free tier and costs nothing unless the person raises it. Change both values together.
+        // The monthly credit budget input on the goal-based creation flow, used when the person sets a budget.
         goalBudgetInput: [
-            2500 as number | null,
+            DEFAULT_GOAL_BUDGET as number | null,
             {
                 setGoalBudgetInput: (_, { budget }) => budget,
+            },
+        ],
+        goalSpendMode: [
+            'free' as GoalSpendMode,
+            {
+                setGoalSpendMode: (_, { mode }) => mode,
             },
         ],
         // A template pick replaces the drafted form, so its rationale no longer describes the config.
@@ -2023,7 +2049,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
                     if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
                         actions.setGoalDraftInput(armedGoal)
-                        actions.draftScannerFromGoal(armedGoal, values.goalBudgetInput ?? undefined)
+                        actions.draftScannerFromGoal(
+                            armedGoal,
+                            goalDraftBudget(
+                                values.goalSpendMode,
+                                values.goalBudgetInput,
+                                visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
+                            )
+                        )
                     }
                     return
                 }
@@ -2234,9 +2267,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The model the draft chose for the goal, and the credit cap set to the stated
                     // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
                     ...(goalDraft.model ? { model: goalDraft.model } : {}),
-                    ...(goalDraft.credit_limit != null
-                        ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
-                        : {}),
+                    // Only the goal flow sends a budget; the legacy AI box has no spend choice, so it never drafts a free one.
+                    ...(payload?.monthlyCreditBudget != null && values.goalSpendMode === 'free'
+                        ? { free_only: true, credit_limit: null, credit_limit_enabled: false }
+                        : goalDraft.credit_limit != null
+                          ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
+                          : {}),
                     // The experiment type carries the experiment. Without it, the experiment the goal
                     // named (or the one the wizard was entered from) stays legacy targeting.
                     experiment_targeting: asExperimentScanner

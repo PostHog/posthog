@@ -19,7 +19,7 @@ interface ScannerCreditLimitProps {
 }
 
 export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.Element {
-    const { creditLimitState } = useValues(replayScannerLogic({ id: scannerId }))
+    const { creditLimitState, scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerValues, setCreditLimitUnit } = useActions(replayScannerLogic({ id: scannerId }))
     const {
         limit,
@@ -55,6 +55,21 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
         <LemonField name="credit_limit">
             {() => (
                 <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1">
+                            <LemonLabel>Free credits only</LemonLabel>
+                            <div className="text-xs text-muted">
+                                Scan only while your organization has free monthly credits left, so this scanner never
+                                adds to your bill. It pauses when they run out and starts again when the billing period
+                                resets.
+                            </div>
+                        </div>
+                        <LemonSwitch
+                            checked={!!scanner?.free_only}
+                            onChange={(checked) => setScannerValues({ free_only: checked })}
+                            data-attr="vision-scanner-free-only-toggle"
+                        />
+                    </div>
                     <div className="flex items-start justify-between gap-2">
                         <div className="space-y-1">
                             <LemonLabel>Scanner limit</LemonLabel>

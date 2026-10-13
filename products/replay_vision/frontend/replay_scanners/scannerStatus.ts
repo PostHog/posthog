@@ -13,7 +13,7 @@ const STARTING_MAX_AGE_MINUTES = 60
 
 export type ScannerStatus =
     | { kind: 'off'; reason: 'disabled' | 'no_sampling' }
-    | { kind: 'limit_reached' }
+    | { kind: 'limit_reached'; freeOnly: boolean }
     | { kind: 'quota_exhausted' }
     | { kind: 'starting' }
     | { kind: 'delayed'; lastCheckedAt: Dayjs }
@@ -23,7 +23,13 @@ export type ScannerStatus =
 
 export type ScannerStatusFields = Pick<
     ReplayScanner,
-    'enabled' | 'sampling_rate' | 'limit_reached' | 'sweep_throttle_factor' | 'created_at' | 'last_swept_at'
+    | 'enabled'
+    | 'sampling_rate'
+    | 'limit_reached'
+    | 'free_only'
+    | 'sweep_throttle_factor'
+    | 'created_at'
+    | 'last_swept_at'
 >
 
 /** The one status the scanner page leads with. Earlier checks win, so a scanner that is off never also reads as stopped. */
@@ -39,7 +45,7 @@ export function scannerStatus(
         return { kind: 'off', reason: 'no_sampling' }
     }
     if (scanner.limit_reached) {
-        return { kind: 'limit_reached' }
+        return { kind: 'limit_reached', freeOnly: !!scanner.free_only }
     }
     if (options.quotaExhausted) {
         return { kind: 'quota_exhausted' }
