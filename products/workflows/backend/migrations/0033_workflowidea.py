@@ -132,7 +132,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(fields=("team", "key"), name="unique_workflow_idea_key"),
                     models.CheckConstraint(
-                        condition=models.Q(("key__regex", "\\S")), name="workflow_idea_key_not_blank"
+                        condition=models.Q(("key", ""), _negated=True), name="workflow_idea_key_not_blank"
                     ),
                 ],
             },
