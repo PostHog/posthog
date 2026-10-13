@@ -106,7 +106,7 @@ function RunSurfaceRoot({
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
     const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
-    const piWebSessionsEnabled = useFeatureFlag('PI_WEB_SESSIONS')
+    const piAcpEnabled = useFeatureFlag('PI_ACP')
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
         // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
@@ -131,7 +131,7 @@ function RunSurfaceRoot({
         }
     }
 
-    if (task && isPiTaskRuntime(task.runtime) && !piWebSessionsEnabled) {
+    if (task && isPiTaskRuntime(task.runtime) && !piAcpEnabled) {
         return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
 
