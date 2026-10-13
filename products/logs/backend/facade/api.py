@@ -10,8 +10,7 @@ __all__ = ["close_incident_before_delete", "close_incident_on_commit", "next_all
 
 def _close_if_subscribed(*, team_id: int, alert_id: str, reason: IncidentCloseReason) -> None:
     alert = LogsAlertConfiguration.objects.filter(team_id=team_id, id=alert_id).first()
-    # The platform closes the incident of an alert it owns.
-    if alert is None or alert.platform_owned or not alert_incidents.has_incident_destination(alert):
+    if alert is None or not alert_incidents.has_incident_destination(alert):
         return
     alert_incidents.close_incident(alert, reason)
 

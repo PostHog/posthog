@@ -54,6 +54,10 @@ def close_incident(
     also shows in the delivery failure metric and log. Without it, the return value only says the
     close was queued. A web request passes none, because the flush waits on the process-wide producer.
     """
+    if alert.platform_owned:
+        # The platform closes the incident of an alert it owns. Reported as handed off, so a
+        # caller that waits for the close before a state change does not wait forever.
+        return True
     now = datetime.now(UTC)
     produce_result = produce_alert_internal_event(
         team_id=alert.team_id,

@@ -511,14 +511,8 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
             return
         if incident_edge(state_seen, AlertState.BROKEN) == IncidentEdge.CLOSED:
             alert_for_close = LogsAlertConfiguration.objects.get(pk=alert_id)
-            if (
-                not alert_for_close.platform_owned
-                and has_incident_destination(alert_for_close)
-                and not close_incident(
-                    alert_for_close,
-                    IncidentCloseReason.BROKEN,
-                    flush_timeout_seconds=NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
-                )
+            if has_incident_destination(alert_for_close) and not close_incident(
+                alert_for_close, IncidentCloseReason.BROKEN, flush_timeout_seconds=NOTIFICATION_FLUSH_TIMEOUT_SECONDS
             ):
                 logger.warning("Deferring BROKEN until the incident close is delivered", alert_id=alert_id)
                 return
@@ -1100,7 +1094,7 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
                 suppressed_by_quiet_hours=True,
             )
 
-    if evaluation.alert.platform_owned:
+    if current_alert.platform_owned:
         # Counted as delivered, so the state and cooldown move as they would have, and the two
         # stacks stay comparable while the platform sends the real message.
         return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
