@@ -239,6 +239,8 @@ export interface AutoresearchPipelineApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Whether live scoring writes the champion's score to output_person_property on each scored person. Feature flags, cohorts, workflows and insights that target people by score need it on. */
+    readonly write_person_property: boolean
     /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
      *
      * * `draft` - Draft
@@ -406,6 +408,8 @@ export interface AutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+    write_person_property?: boolean
 }
 
 /**
@@ -563,6 +567,7 @@ export interface PaginatedAutoresearchModelListApi {
 /**
  * * `inference` - Inference
  * * `validation` - Validation
+ * * `property_cleanup` - Property cleanup
  */
 export type AutoresearchRunRunTypeEnumApi =
     (typeof AutoresearchRunRunTypeEnumApi)[keyof typeof AutoresearchRunRunTypeEnumApi]
@@ -570,6 +575,7 @@ export type AutoresearchRunRunTypeEnumApi =
 export const AutoresearchRunRunTypeEnumApi = {
     Inference: 'inference',
     Validation: 'validation',
+    PropertyCleanup: 'property_cleanup',
 } as const
 
 /**
@@ -606,7 +612,8 @@ export interface AutoresearchRunApi {
     /** Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).
      *
      * * `inference` - Inference
-     * * `validation` - Validation */
+     * * `validation` - Validation
+     * * `property_cleanup` - Property cleanup */
     run_type: AutoresearchRunRunTypeEnumApi
     /** Run status: pending, running, completed, or failed.
      *
@@ -1519,6 +1526,8 @@ export interface PatchedAutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+    write_person_property?: boolean
 }
 
 export interface ConfusionCountsApi {
