@@ -536,6 +536,9 @@ class TestLogsRows:
         bodies = [request.json() for request in result.requests]
         assert [body["pagination"].get("token") for body in bodies] == [None, "t1", "t2"]
         assert {(body["start"], body["end"]) for body in bodies} == {(bodies[0]["start"], bodies[0]["end"])}
+        # Mailgun's Logs API rejects a request missing `duration` with a 400, even though an
+        # empty value has no effect on the explicit `start`/`end` window.
+        assert {body["duration"] for body in bodies} == {""}
         assert {body["pagination"]["sort"] for body in bodies} == {"timestamp:asc"}
         assert [row["id"] for row in result.rows] == ["e1", "e2", "e3"]
         assert "@timestamp" not in result.rows[0]
