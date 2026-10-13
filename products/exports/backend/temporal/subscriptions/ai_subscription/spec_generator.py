@@ -18,7 +18,6 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
-from products.event_definitions.backend.models import effective_project_id_expr
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
@@ -340,7 +339,9 @@ def _no_data_event_names(team: Team, limit: int) -> list[str]:
 
 def _person_property_names(team: Team, limit: int) -> list[str]:
     names = (
-        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
+        )
         .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON)
         .order_by("name")
         .values_list("name", flat=True)[:limit]
