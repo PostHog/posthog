@@ -2541,9 +2541,10 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             for kind in ("InsightActorsQuery", "InsightActorsQueryOptions", "ActorsQuery", "FunnelCorrelationQuery")
         ]
         + [(kind, True, False) for kind in ("InsightActorsQuery", "ActorsQuery")]
+        + [("EventsQuery", choice, None) for choice in (None, False, True)]
     )
     def test_actor_queries_inherit_the_source_route_unless_explicitly_overridden(
-        self, kind: str, source_choice: bool, wrapper_choice: bool | None
+        self, kind: str, source_choice: bool | None, wrapper_choice: bool | None
     ) -> None:
         modifiers = self.modifiers.model_copy(update={"useNewEventsCluster": source_choice})
         source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers)
@@ -2555,6 +2556,26 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             query = ActorsQuery(source=actors)
         elif kind == "InsightActorsQueryOptions":
             query = InsightActorsQueryOptions(source=actors)
+        elif kind == "EventsQuery":
+            from posthog.schema import EventsQuery, TrendsQuery
+
+            from posthog.hogql_queries.query_runner import query_node_modifiers
+
+            events_source = TrendsQuery(
+                series=[EventsNode(event="example")],
+                modifiers=modifiers.model_copy(update={"convertToProjectTimezone": True})
+                if source_choice is not None
+                else None,
+            )
+            self.team.timezone = "Europe/Amsterdam"
+            query = EventsQuery(
+                select=["timestamp"],
+                source=InsightActorsQuery(source=events_source),
+                modifiers=self.modifiers.model_copy(update={"convertToProjectTimezone": False}),
+            )
+            effective = query_node_modifiers(query)
+            assert effective is not None
+            self.assertIs(effective.convertToProjectTimezone, False)
         else:
             query = FunnelCorrelationQuery(funnelCorrelationType=FunnelCorrelationResultsType.EVENTS, source=actors)
         if wrapper_choice is not None:
@@ -2565,8 +2586,10 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         original = query.model_dump()
         runner = get_query_runner(query, self.team, user=self.user)
         native = source_choice if wrapper_choice is None else wrapper_choice
-        self.assertIs(runner.modifiers.useNewEventsSchema, native)
+        self.assertIs(runner.modifiers.useNewEventsSchema, bool(native))
         self.assertIs(runner.modifiers.useNewEventsCluster, native)
+        if kind == "EventsQuery":
+            self.assertIs(runner.modifiers.convertToProjectTimezone, False)
         self.assertEqual(query.model_dump(), original)
         if native:
             from posthog.hogql.errors import ExposedHogQLError
