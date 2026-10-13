@@ -250,7 +250,10 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 // manifest differs:
 //
 //   dist/toolbar-extension/<browser>/manifest.json
-//   dist/toolbar-extension/<browser>/popup.html, popup.js, popup.css, content.js, assets/, icons/
+//   dist/toolbar-extension/<browser>/popup.html, popup.js, popup.css, content.js, background.js,
+//   devtools.html, devtools.js, assets/, icons/
+//
+// The DevTools panel shows popup.html. The page code checks for the DevTools API to bind to the inspected tab.
 //
 // Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
 const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
@@ -289,12 +292,17 @@ export function getToolbarExtensionBuildConfig(dirname) {
 
 /**
  * The popup injects content.js into the active tab with `scripting.executeScript`, which runs a file as a
- * classic script. So the content script is one self-contained IIFE, without ESM chunks.
+ * classic script. So the content script is one self-contained IIFE, without ESM chunks. The background script
+ * and the DevTools page also load as classic scripts, because Firefox doesn't run a module as a background script.
  */
 export function getToolbarExtensionContentScriptBuildConfig(dirname) {
     return {
         name: 'Toolbar extension content script',
-        entryPoints: { content: 'src/toolbar/extension/content.tsx' },
+        entryPoints: {
+            content: 'src/toolbar/extension/content.tsx',
+            background: 'src/toolbar/extension/background.ts',
+            devtools: 'src/toolbar/extension/devtools.ts',
+        },
         format: 'iife',
         splitting: false,
         outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
@@ -314,6 +322,9 @@ export function getToolbarExtensionContentScriptBuildConfig(dirname) {
  * the saved PostHog host and the selected element (`storage`), scripts in the active tab after the user opens the
  * popup (`scripting` with `activeTab`), and the PostHog session on Cloud. A self-hosted origin is asked
  * for at runtime through `optional_host_permissions`.
+ *
+ * The DevTools panel adds no permission. `activeTab` doesn't apply to DevTools, so its heatmap and element tools
+ * need site access that the user grants in the browser, or the popup opened on that tab.
  */
 function buildToolbarExtensionManifest(browser) {
     const manifest = {
@@ -327,6 +338,7 @@ function buildToolbarExtensionManifest(browser) {
             default_popup: 'popup.html',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
+        devtools_page: 'devtools.html',
         permissions: ['activeTab', 'scripting', 'storage'],
         host_permissions: ['https://us.posthog.com/*', 'https://eu.posthog.com/*'],
         optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
@@ -335,8 +347,11 @@ function buildToolbarExtensionManifest(browser) {
         // Firefox needs an add-on ID for MV3 storage, and 128 is the first release with
         // optional_host_permissions.
         manifest.browser_specific_settings = { gecko: { id: 'toolbar@posthog.com', strict_min_version: '128.0' } }
+        // Firefox runs Manifest V3 background code as an event page, not as a service worker.
+        manifest.background = { scripts: ['background.js'] }
     } else {
         manifest.minimum_chrome_version = '116'
+        manifest.background = { service_worker: 'background.js' }
     }
     return manifest
 }
@@ -348,7 +363,9 @@ export function finalizeToolbarExtensionBuild(dirname) {
         const outDir = path.resolve(dirname, 'dist', 'toolbar-extension', browser)
         fs.rmSync(outDir, { recursive: true, force: true })
         fs.cpSync(buildDir, outDir, { recursive: true })
-        fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/popup.html'), path.resolve(outDir, 'popup.html'))
+        for (const page of ['popup.html', 'devtools.html']) {
+            fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension', page), path.resolve(outDir, page))
+        }
         for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
             fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
             fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))
