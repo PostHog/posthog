@@ -572,11 +572,11 @@ Today (5): `casts`, `etch_packets`, `organizations`, `weld_datas`, `welds`
 
 Diffed against: <https://www.useanvil.com/docs/api/graphql/reference/>
 
-- [ ] `Submissions (GraphQL weldData(eid) { submissions })` — provides form answers and completion times missing from workflow submission summaries (high)
+- [x] `Submissions (GraphQL weldData(eid) { submissions })` — provides form answers and completion times missing from workflow submission summaries (high)
 - [ ] `Organization users (GraphQL organization(organizationEid) { organizationUsers { user } })` — provides staff identities, roles, and membership dates for activity attribution (medium)
-- [ ] `Etch log events (GraphQL etchPacket(eid) { etchLogEvents }; weldData(eid) { etchLogEvents })` — tracks signing, viewing, downloading, and voiding events for document completion analysis (medium)
-- [ ] `WeldData log events (GraphQL weldData(eid) { weldDataLogEvents })` — tracks form activity and workflow progress beyond the latest status (medium)
-- [ ] `Workflow signers (GraphQL weldData(eid) { documentGroup { signers } })` — measures signer completion and delays for workflows that require signatures (medium)
+- [x] `Etch log events (GraphQL etchPacket(eid) { etchLogEvents }; weldData(eid) { etchLogEvents })` — tracks signing, viewing, downloading, and voiding events for document completion analysis (medium)
+- [x] `WeldData log events (GraphQL weldData(eid) { weldDataLogEvents })` — tracks form activity and workflow progress beyond the latest status (medium)
+- [x] `Workflow signers (GraphQL weldData(eid) { documentGroup { signers } })` — measures signer completion and delays for workflows that require signatures (medium)
 
 Note: Read the complete official GraphQL reference and compared query fields and nested lists with the source's selections. The linked SDL endpoint returned no usable schema. Packet signers already occur inside etch_packets, while workflow signers and event lists need requests for each WeldData or packet. Webhook logs, form configuration, file uploads, and signer tokens were excluded.
 
