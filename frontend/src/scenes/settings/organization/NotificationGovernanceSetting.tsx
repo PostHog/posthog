@@ -30,6 +30,7 @@ function MemberNotifications(): JSX.Element {
     const { members, pendingChangeCount, affectedMemberCount, savingChanges, loadFailed } =
         useValues(notificationGovernanceLogic)
     const { discardChanges, saveChanges, loadMembers } = useActions(notificationGovernanceLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     if (loadFailed) {
         return (
@@ -75,7 +76,9 @@ function MemberNotifications(): JSX.Element {
                 applies to that member's other organizations, if they belong to any.
             </LemonBanner>
 
-            {NOTIFICATION_CONCEPTS.map((concept) => (
+            {NOTIFICATION_CONCEPTS.filter(
+                (concept) => !concept.requiredFeature || hasAvailableFeature(concept.requiredFeature)
+            ).map((concept) => (
                 <NotificationConceptRow key={concept.setting} concept={concept} />
             ))}
 
