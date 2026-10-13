@@ -77,6 +77,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                            |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.        |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
+| `--infra-retries N`              | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
 | `--list`                          | Print the discovered suite ids (with their kinds) and exit.                      |
 
@@ -85,6 +86,17 @@ Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill
 The run exits with status 1 if a suite crashes or a case has an infrastructure error, even without `--fail-under`.
 Infrastructure errors remain separate from score averages.
 Case timeouts and low scores affect the exit status only through `--fail-under`.
+
+Temporary case setup failures and support-service readiness timeouts receive two retries by default.
+The default delays are 1 second and 2 seconds.
+Setup retries cover connection failures, temporary PostgreSQL failures, ClickHouse overload or query timeouts, and object-storage server errors.
+Each case setup retry creates fresh test data before the agent starts.
+The runner releases the team setup permit during the delay and stops the previous service process before a readiness retry.
+`CASE RETRY` and `STARTUP RETRY` messages show the next attempt and delay.
+The final summary counts case setup retries separately from case errors.
+Case metadata records `setup_attempts` and `setup_retry_errors`.
+The runner retries neither agent work nor low scores, case timeouts, authentication errors, setup code errors, or services that exit during startup.
+Existing sandbox-creation and storage-read retries still apply.
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.

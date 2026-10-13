@@ -109,6 +109,12 @@ The runner reports `FAIL` and exits with status 1 if a suite crashes or a case h
 This rule applies even without a score threshold.
 Infrastructure errors do not contribute to score averages.
 Case timeouts and low scores affect the exit status only through `--fail-under`.
+Temporary case setup failures and support-service readiness timeouts receive two retries by default, with delays of 1 second and 2 seconds.
+Use `--infra-retries 0` to disable these retries.
+Each case setup retry creates fresh test data before the agent starts.
+The runner stops the previous service process before a readiness retry.
+Retry messages show the next attempt and delay; only the final case result affects the error count.
+Authentication errors, setup code errors, agent work, and low scores do not trigger these retries.
 Bundled-mode evals explicitly disable `mcp-exec-skills` through the dev/test process override, which skips skill-catalog warmup and polling. Exec-mode evals allow 120 seconds for MCP startup, covering the 60-second warmup budget plus an in-flight download and development build; bundled mode keeps the 30-second startup limit. Production feature-flag evaluation does not control this process lifecycle.
 
 ## Rolling out MCP skill discovery
