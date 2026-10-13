@@ -56,18 +56,20 @@ The alert gives this lane a Depot run ID, ten characters such as `b1c2d3f4g5`, a
 The alerter reads the lane from Depot when it opens the incident, so the alerted run is the newest failing run.
 
 Depot posts a check for each job on the master commit that the run tested.
-Those checks give each job's conclusion and times, with no log text:
+Those checks give each job's conclusion and times, with no log text.
+Several hourly runs can test one commit, so keep the checks whose `details_url` holds the workflow ID from the alert's URL:
 
 ```bash
-gh api "repos/PostHog/posthog/commits/<sha>/check-runs?app_id=219785&per_page=100" --paginate \
-  --jq '.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at}'
+gh api "repos/PostHog/posthog/commits/<sha>/check-runs?app_id=219785&filter=all&per_page=100" --paginate \
+  --jq '.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
 ```
 
 The logs are in the warehouse once it has synced Depot, which can trail the run by hours.
-This query returns the number that the failure-log command takes for the run, and the run's failed and cancelled jobs:
+This query returns the number that the failure-log command takes for the run, and the run's failed and cancelled jobs.
+The date floor is the day the alerted run was created, and it keeps the scan small:
 
 ```text
-call execute-sql {"query": "SELECT run_id, job_name, conclusion FROM engineering_analytics_ci_job_history WHERE native_run_id = '<depot-run-id>' AND conclusion NOT IN ('success', 'skipped')"}
+call execute-sql {"query": "SELECT run_id, job_name, conclusion FROM engineering_analytics_ci_job_history WHERE native_run_id = '<depot-run-id>' AND created_at_raw >= '<YYYY-MM-DD>' AND conclusion NOT IN ('success', 'skipped')"}
 ```
 
 No rows means that the run has not synced: report the failing jobs from the checks, and say that their logs are not readable yet.
@@ -100,11 +102,12 @@ A run that ends with no gate verdict posts no gate check.
 Choose the first verdict that the evidence supports:
 
 - **Recovered before diagnosis:** the newest settled run of the lane passes, and an earlier failing run is visible. Say what had failed. A green run proves recovery, not a fix: say "fixed" only when an identified change addresses the exact failure and is in the passing run.
-- **Flaky test:** the same test failed and passed on the same SHA, and no change explains when the failures started.
-- **Real regression:** a deterministic lint, migration, codegen, or test failure is tied to committed state, or a change passes the attribution test below. A test that started to fail after a commit changed what it depends on is a regression, even when it passes on retry.
 - **Infrastructure:** the evidence names a platform, runner, network, or external-service failure before application tests ran, or history shows the same signature outside the code change.
+- **Real regression:** a deterministic lint, migration, codegen, or test failure is tied to committed state, or the failures have an onset and a change explains it. A test that was stable and then starts to fail was broken by something that merged shortly before, even when it fails only some of the time and passes on retry.
+- **Flaky test:** the same test failed and passed on the same SHA, and nothing that merged before the onset changes what the test exercises.
 
-Name a commit or a PR as the cause only when its diff changes what the error names and it merged before the failures started.
+Name a commit or a PR as the cause only when it merged before the failures started and its diff changes what the error names.
+That is usually the code under test, such as a module or a logic that the error mentions, and rarely the test's own file.
 A wrong attribution sends a person to the wrong PR while master is broken.
 When the evidence that you can reach does not settle the cause, say that you could not determine it, and give what you did establish: the failing job, the failing tests, their error, and when the failures started.
 
