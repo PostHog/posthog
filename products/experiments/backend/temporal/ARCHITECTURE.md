@@ -70,11 +70,11 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 ### Recalc fingerprint, not config fingerprint
 
-Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`recalc_fingerprint.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The calculation config holds everything the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
+Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`compute_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The calculation config holds everything the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
-Runs of a **running** experiment are told apart by `query_to`, not by the fingerprint. Each run advances `query_to` toward "now", so it accumulates one row per run under the same fingerprint, one per window end. `get_run_results` filters `fingerprint__in=(...) AND query_to=recalc.query_to`, so a read returns exactly the rows for that run's window.
+Runs of a **running** experiment are told apart by `query_to`, not by the fingerprint. Each run advances `query_to` toward "now", so it accumulates one row per run under the same fingerprint, one per window end. `MetricResultStore.for_run`, behind `get_run_results`, filters `fingerprint__in=(...) AND query_to=recalc.query_to`, so a read returns exactly the rows for that run's window.
 
 A run never recomputes a completed result for the same config and window.
 Before it queries, the calc activity looks for a `COMPLETED` row with the same recalc fingerprint and `query_to`.
@@ -98,7 +98,11 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 `ExperimentMetricResult` has no foreign key pointing back to `ExperimentMetricsRecalculation`. The scoping key lives entirely in the fingerprint plus `query_to`. This avoided a migration on a shared table to add a nullable column, and makes the two workflow families uniform in how they write results.
 
-The trade-off: reads have to recompute the fingerprint set to find a run's results (`get_run_results` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If the experiment's `start_date` / `exposure_criteria` / stats config changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard.
+The trade-off: reads have to recompute the fingerprint set to find a run's results (`MetricResultStore.for_run` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If the experiment's `start_date` / `exposure_criteria` / stats config changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard.
+
+Every read of `ExperimentMetricResult` goes through the named queries of `MetricResultStore` (`metric_calculation/results.py`), so the salt, the sync's copy window and the relaunch rule on `query_from` stay in one module.
+When several rows share `(experiment, metric_uuid, query_to)`, each query returns the row with the newest `completed_at`, then the highest id.
+The unique constraint on that key allows only one row, so this order decides nothing until the constraint goes.
 
 ### Counters are derived, not stored
 
