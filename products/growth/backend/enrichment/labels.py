@@ -9,10 +9,12 @@ import re
 import json
 import math
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Literal, TypeIs, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
@@ -21,7 +23,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
-from products.growth.backend.enrichment.tools import TOOLS, TRANSIENT_TOOL_ERRORS, ToolOutcome, run_tool
+from products.growth.backend.enrichment.tools import TOOLS, TRANSIENT_TOOL_ERRORS, FirecrawlPacer, ToolOutcome, run_tool
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 UNKNOWN: Literal["unknown"] = "unknown"
@@ -421,7 +423,9 @@ def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
             combined[key] = turn[key]
 
 
-def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | None) -> ToolOutcome:
+def _run_tool_call(
+    call: Any, *, presented_urls: set[str], signup_domain: str | None, pacer: FirecrawlPacer | None
+) -> ToolOutcome:
     try:
         arguments = json.loads(call.function.arguments or "{}")
     except (TypeError, ValueError):
@@ -452,7 +456,7 @@ def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | 
                 error="invalid_url",
             )
         arguments["url"] = fetch_url
-    return run_tool(call.function.name, arguments)
+    return run_tool(call.function.name, arguments, pacer=pacer)
 
 
 @retry(
@@ -474,7 +478,12 @@ def _complete(client: OpenAI, request: dict[str, Any]) -> ChatCompletion:
 
 
 def _call_and_parse(
-    config: EnrichmentPromptConfig, messages: list[dict[str, Any]], client: OpenAI, *, signup_domain: str | None
+    config: EnrichmentPromptConfig,
+    messages: list[dict[str, Any]],
+    client: OpenAI,
+    *,
+    signup_domain: str | None,
+    pacer: FirecrawlPacer | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     meta: dict[str, Any] = {}
     tool_log: list[dict[str, Any]] = []
@@ -538,7 +547,7 @@ def _call_and_parse(
                     )
                     continue
                 tool_calls_used += 1
-                outcome = _run_tool_call(call, presented_urls=tool_urls, signup_domain=signup_domain)
+                outcome = _run_tool_call(call, presented_urls=tool_urls, signup_domain=signup_domain, pacer=pacer)
                 tool_log.append(
                     {
                         "name": outcome.name,
@@ -649,6 +658,8 @@ def classify_payload(
     payload: dict[str, Any] | None,
     signup_domain: str | None,
     client: OpenAI,
+    *,
+    pacer: FirecrawlPacer | None = None,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
@@ -663,7 +674,7 @@ def classify_payload(
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
     messages = build_messages(config, inputs, signup_domain)
-    output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain)
+    output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain, pacer=pacer)
     tool_calls = meta.pop("tool_calls", None)
     _reject_unsupported_evidence_url(output, signup_domain, set(meta.get("tool_urls", ())), meta)
     inputs_record: dict[str, Any] = {"signup_domain": signup_domain, "fields": inputs}
@@ -723,10 +734,15 @@ def latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
     )
 
 
-def recent_latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
+def recent_latest_fetches_qs(lookback_days: int | None = None) -> QuerySet[OrganizationEnrichmentFetch]:
     """latest_fetches_qs, but orderable and sliceable: DISTINCT ON pins the inner
     ORDER BY to organization_id, so callers wanting `-fetched_at` need this subquery wrapper."""
-    return OrganizationEnrichmentFetch.objects.filter(id__in=latest_fetches_qs().values("id")).order_by("-fetched_at")
+    fetches = OrganizationEnrichmentFetch.objects.filter(id__in=latest_fetches_qs().values("id")).order_by(
+        "-fetched_at"
+    )
+    if lookback_days is None:
+        return fetches
+    return fetches.filter(fetched_at__gte=timezone.now() - timedelta(days=lookback_days))
 
 
 def get_active_config(label: str) -> EnrichmentPromptConfig | None:

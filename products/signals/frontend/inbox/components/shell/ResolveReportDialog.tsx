@@ -23,6 +23,9 @@ interface OpenResolveReportDialogParams {
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
      * so the person only has to write the note. */
     initialReason?: ResolveReasonValue
+    /** Replaces the default title, description and submit label. Today uses them to ask for a reason
+     * after the report was already resolved, so the copy must not ask to resolve it again. */
+    copy?: { title: string; description: string; submitLabel: string }
     /** Called with the chosen reason + note once the user confirms. */
     onConfirm: (result: ResolveReportDialogResult) => void | Promise<void>
 }
@@ -45,6 +48,7 @@ export function openResolveReportDialog({
     hasOpenPr = false,
     hotkeys = false,
     initialReason,
+    copy,
     onConfirm,
 }: OpenResolveReportDialogParams): void {
     // The selection bar knows the count and no titles, so its copy counts reports even when one
@@ -61,8 +65,8 @@ export function openResolveReportDialog({
           }`
 
     LemonDialog.openForm({
-        title,
-        description,
+        title: copy?.title ?? title,
+        description: copy?.description ?? description,
         maxWidth: '36rem',
         overlayClassName: '!items-center',
         initialValues: { reason: initialReason ?? null, note: '' },
@@ -100,7 +104,7 @@ export function openResolveReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
-        primaryButtonProps: { children: isPlural ? 'Resolve reports' : 'Resolve report' },
+        primaryButtonProps: { children: copy?.submitLabel ?? (isPlural ? 'Resolve reports' : 'Resolve report') },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note }) => {
             if (!reason) {

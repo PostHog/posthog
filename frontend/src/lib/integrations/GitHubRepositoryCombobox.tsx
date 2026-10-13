@@ -28,6 +28,8 @@ export interface GitHubRepositoryComboboxProps {
     /** When true, prepends a "— No repository —" item so users can explicitly clear the selection. */
     showNoneOption?: boolean
     repositoryFilter?: (repository: GitHubRepoApi) => boolean
+    /** Load every page. The default picker stops after the first page and waits for "Load more". */
+    loadAll?: boolean
     fullWidth?: boolean
 }
 
@@ -48,9 +50,10 @@ export function GitHubRepositoryCombobox({
     placeholder = 'Select repository...',
     showNoneOption = false,
     repositoryFilter,
+    loadAll = false,
     fullWidth = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
-    const logic = githubRepositorySearchLogic({ id: integrationId })
+    const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
     const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
     const repositoryNames = (repositoryFilter ? repositories.filter(repositoryFilter) : repositories).map(
         (repo) => repo.full_name
@@ -134,7 +137,7 @@ export function GitHubRepositoryCombobox({
                     }
                 </ComboboxList>
 
-                {hasMore && (
+                {hasMore && !loadAll && (
                     <ComboboxLoadMoreFooter
                         loadedCount={repositoryNames.length}
                         itemsLabel="repositories"

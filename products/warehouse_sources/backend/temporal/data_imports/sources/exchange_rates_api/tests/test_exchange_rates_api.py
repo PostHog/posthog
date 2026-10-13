@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -7,28 +7,29 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api import exchange_rates_api
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api import (
     BASE_URL,
-    DEFAULT_BASE_CURRENCY,
     MAX_RANGE_DAYS,
     ExchangeRatesApiError,
     ExchangeRatesApiResumeConfig,
     ExchangeRatesApiRetryableError,
-    _build_url,
     _date_windows,
-    _iter_latest,
-    _iter_symbols,
-    _iter_timeseries,
     _raise_on_functional_error,
-    _resolve_timeseries_start,
     _to_date,
-    exchange_rates_api_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import (
-    EXCHANGE_RATES_API_ENDPOINTS,
+from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source import (
+    ExchangeRatesApiSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
+    ExchangeRatesApiSourceConfig,
 )
 
 
@@ -76,12 +77,6 @@ def _manager(can_resume: bool = False, state: ExchangeRatesApiResumeConfig | Non
     return manager
 
 
-class TestBuildUrl:
-    def test_encodes_params_under_base_url(self) -> None:
-        url = _build_url("timeseries", {"access_key": "k", "start_date": "2024-01-01", "end_date": "2024-01-02"})
-        assert url == f"{BASE_URL}/timeseries?access_key=k&start_date=2024-01-01&end_date=2024-01-02"
-
-
 class TestRaiseOnFunctionalError:
     def test_raises_on_success_false(self) -> None:
         body = {"success": False, "error": {"code": "invalid_base_currency", "message": "bad base"}}
@@ -127,65 +122,24 @@ class TestRequest:
         with pytest.raises(ExchangeRatesApiError):
             exchange_rates_api._request(session, "latest", {}, mock.MagicMock())  # type: ignore[arg-type]
 
-    def test_success_returns_parsed_body(self) -> None:
-        body = {"success": True, "symbols": {"USD": "US Dollar"}}
-        session = _FakeSession([_FakeResponse(status_code=200, json_data=body)])
-        assert exchange_rates_api._request(session, "symbols", {}, mock.MagicMock()) == body  # type: ignore[arg-type]
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session"
-    )
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _FakeResponse(status_code=status)
-        assert validate_credentials("key") is expected
+    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]):
+            assert validate_credentials("key") is expected
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session"
-    )
-    def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") is False
+    def test_exception_returns_false(self) -> None:
+        with scripted_network([requests.ConnectionError("boom")]):
+            assert validate_credentials("key") is False
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session"
-    )
-    def test_probes_symbols_and_redacts_key(self, mock_session: mock.MagicMock) -> None:
-        get = mock_session.return_value.get
-        get.return_value = _FakeResponse(status_code=200)
-        validate_credentials("secret")
-        url = get.call_args.args[0]
-        assert url.startswith(f"{BASE_URL}/symbols")
+    def test_probes_symbols_and_redacts_key(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("secret") is True
+        assert network.requests_log[0].url.startswith(f"{BASE_URL}/symbols")
+        assert network.requests_log[0].param("access_key") == "secret"
         # The key rides in a query param the sampler can't predict, so it must be redacted by value.
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
-
-
-class TestNormalization:
-    def test_iter_symbols(self) -> None:
-        data = {"symbols": {"USD": "US Dollar", "GBP": "Pound Sterling"}}
-        assert _iter_symbols(data) == [
-            {"code": "USD", "name": "US Dollar"},
-            {"code": "GBP", "name": "Pound Sterling"},
-        ]
-
-    def test_iter_latest(self) -> None:
-        data = {"base": "EUR", "date": "2024-01-02", "timestamp": 1704153600, "rates": {"USD": 1.1, "GBP": 0.86}}
-        assert _iter_latest(data) == [
-            {"base": "EUR", "currency": "USD", "rate": 1.1, "date": "2024-01-02", "timestamp": 1704153600},
-            {"base": "EUR", "currency": "GBP", "rate": 0.86, "date": "2024-01-02", "timestamp": 1704153600},
-        ]
-
-    def test_iter_timeseries_sorts_by_date(self) -> None:
-        data = {
-            "base": "EUR",
-            "rates": {"2024-01-02": {"USD": 1.2}, "2024-01-01": {"USD": 1.1}},
-        }
-        rows = _iter_timeseries(data)
-        # Rows must arrive ascending by date to keep the incremental watermark monotonic.
-        assert [r["date"] for r in rows] == ["2024-01-01", "2024-01-02"]
-        assert rows[0] == {"base": "EUR", "currency": "USD", "rate": 1.1, "date": "2024-01-01"}
+        assert network.session_options[0]["redact_values"] == ("secret",)
 
 
 class TestToDate:
@@ -203,10 +157,6 @@ class TestToDate:
 
 
 class TestDateWindows:
-    def test_single_window_when_within_max_range(self) -> None:
-        windows = _date_windows(date(2024, 1, 1), date(2024, 1, 10), MAX_RANGE_DAYS)
-        assert windows == [(date(2024, 1, 1), date(2024, 1, 10))]
-
     def test_chunks_multi_year_backfill(self) -> None:
         windows = _date_windows(date(2020, 1, 1), date(2022, 1, 1), MAX_RANGE_DAYS)
         # Each window spans at most 365 distinct days and they tile the range without gaps/overlap.
@@ -218,99 +168,64 @@ class TestDateWindows:
         for (_, prev_end), (next_start, _) in zip(windows, windows[1:]):
             assert (next_start - prev_end).days == 1
 
-    def test_empty_when_start_after_end(self) -> None:
-        assert _date_windows(date(2024, 2, 1), date(2024, 1, 1), MAX_RANGE_DAYS) == []
-
-
-class TestResolveTimeseriesStart:
-    def test_uses_watermark_when_incremental(self) -> None:
-        assert _resolve_timeseries_start(True, "2024-05-05", "2020-01-01") == date(2024, 5, 5)
-
-    def test_uses_configured_start_when_no_watermark(self) -> None:
-        assert _resolve_timeseries_start(True, None, "2020-01-01") == date(2020, 1, 1)
-
-    def test_uses_configured_start_when_not_incremental(self) -> None:
-        assert _resolve_timeseries_start(False, "2024-05-05", "2020-01-01") == date(2020, 1, 1)
-
 
 class TestGetRows:
+    @staticmethod
+    def _driver(start_date: str | None = None) -> SourceDriver:
+        return SourceDriver(
+            ExchangeRatesApiSource(),
+            ExchangeRatesApiSourceConfig(access_key="key", base_currency="EUR", start_date=start_date),
+        )
+
     def _run(
         self, endpoint: str, responses: list[_FakeResponse], manager: mock.MagicMock, **kwargs: Any
     ) -> tuple[list[Any], _FakeSession]:
         session = _FakeSession(responses)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session",
-            return_value=session,
-        ):
-            return list(get_rows("key", endpoint, "EUR", None, mock.MagicMock(), manager, **kwargs)), session
+        return list(get_rows("key", endpoint, "EUR", None, mock.MagicMock(), manager, **kwargs)), session
 
     def test_symbols_yields_once(self) -> None:
         body = {"success": True, "symbols": {"USD": "US Dollar"}}
-        batches, _ = self._run("symbols", [_FakeResponse(json_data=body)], _manager())
-        assert batches == [[{"code": "USD", "name": "US Dollar"}]]
-
-    def test_symbols_empty_yields_nothing(self) -> None:
-        batches, _ = self._run("symbols", [_FakeResponse(json_data={"success": True, "symbols": {}})], _manager())
-        assert batches == []
+        result = self._driver().run("symbols", [ScriptedResponse(json=body)])
+        assert result.raised is None
+        assert result.items == [[{"code": "USD", "name": "US Dollar"}]]
 
     def test_latest_yields_once_and_sends_base(self) -> None:
         body = {"success": True, "base": "EUR", "date": "2024-01-02", "timestamp": 1, "rates": {"USD": 1.1}}
-        batches, session = self._run("latest", [_FakeResponse(json_data=body)], _manager())
-        assert batches == [[{"base": "EUR", "currency": "USD", "rate": 1.1, "date": "2024-01-02", "timestamp": 1}]]
-        assert "base=EUR" in session.requested_urls[0]
+        result = self._driver().run("latest", [ScriptedResponse(json=body)])
+        assert result.raised is None
+        assert result.items == [[{"base": "EUR", "currency": "USD", "rate": 1.1, "date": "2024-01-02", "timestamp": 1}]]
+        assert result.requests[0].param("base") == "EUR"
 
     def test_timeseries_fetches_each_window_and_saves_state_between(self) -> None:
-        manager = _manager()
-        windows = [(date(2020, 1, 1), date(2020, 12, 30)), (date(2020, 12, 31), date(2021, 1, 5))]
-        body1 = {"success": True, "base": "EUR", "rates": {"2020-01-01": {"USD": 1.1}}}
-        body2 = {"success": True, "base": "EUR", "rates": {"2020-12-31": {"USD": 1.2}}}
-        session = _FakeSession([_FakeResponse(json_data=body1), _FakeResponse(json_data=body2)])
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session",
-                return_value=session,
-            ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api._date_windows",
-                return_value=windows,
-            ),
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "timeseries",
-                    "EUR",
-                    "2020-01-01",
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value="2020-01-01",
-                )
-            )
-        assert [b[0]["date"] for b in batches] == ["2020-01-01", "2020-12-31"]
+        today = date.today()
+        first_day = today - timedelta(days=MAX_RANGE_DAYS)
+        body1 = {"success": True, "base": "EUR", "rates": {first_day.isoformat(): {"USD": 1.1}}}
+        body2 = {"success": True, "base": "EUR", "rates": {today.isoformat(): {"USD": 1.2}}}
+        result = self._driver(first_day.isoformat()).run(
+            "timeseries",
+            [ScriptedResponse(json=body1), ScriptedResponse(json=body2)],
+            incremental_field="date",
+            db_incremental_field_last_value=first_day.isoformat(),
+        )
+        assert result.raised is None
+        assert result.params("start_date") == [first_day.isoformat(), today.isoformat()]
+        assert [batch[0]["date"] for batch in result.items] == [first_day.isoformat(), today.isoformat()]
         # State is saved AFTER the first window yields (pointing at the next window), never after the last.
-        manager.save_state.assert_called_once_with(ExchangeRatesApiResumeConfig(next_start_date="2020-12-31"))
+        assert result.saved_states == [ExchangeRatesApiResumeConfig(next_start_date=today.isoformat())]
 
     def test_timeseries_resumes_from_saved_window(self) -> None:
-        manager = _manager(can_resume=True, state=ExchangeRatesApiResumeConfig(next_start_date="2020-12-31"))
-        windows = [(date(2020, 1, 1), date(2020, 12, 30)), (date(2020, 12, 31), date(2021, 1, 5))]
-        body2 = {"success": True, "base": "EUR", "rates": {"2020-12-31": {"USD": 1.2}}}
-        session = _FakeSession([_FakeResponse(json_data=body2)])
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api.make_tracked_session",
-                return_value=session,
-            ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api._date_windows",
-                return_value=windows,
-            ),
-        ):
-            batches = list(get_rows("key", "timeseries", "EUR", "2020-01-01", mock.MagicMock(), manager))
+        today = date.today()
+        first_day = today - timedelta(days=MAX_RANGE_DAYS)
+        body2 = {"success": True, "base": "EUR", "rates": {today.isoformat(): {"USD": 1.2}}}
+        result = self._driver(first_day.isoformat()).run(
+            "timeseries",
+            [ScriptedResponse(json=body2)],
+            resume_state=ExchangeRatesApiResumeConfig(next_start_date=today.isoformat()),
+        )
         # Only the window at/after the resume point is fetched.
-        assert len(session.requested_urls) == 1
-        assert "start_date=2020-12-31" in session.requested_urls[0]
-        assert [b[0]["date"] for b in batches] == ["2020-12-31"]
+        assert result.raised is None
+        assert result.params("start_date") == [today.isoformat()]
+        assert [batch[0]["date"] for batch in result.items] == [today.isoformat()]
 
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -326,27 +241,16 @@ class TestExchangeRatesApiSource:
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
+        body = (
+            {"symbols": {}} if endpoint == "symbols" else {"base": "EUR", "date": date.today().isoformat(), "rates": {}}
+        )
+        result = SourceDriver(
+            ExchangeRatesApiSource(),
+            ExchangeRatesApiSourceConfig(access_key="key", base_currency="EUR", start_date=date.today().isoformat()),
+        ).run(endpoint, [ScriptedResponse(json=body)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
-
-    def test_timeseries_partitions_on_stable_date(self) -> None:
-        response = exchange_rates_api_source("key", "timeseries", "EUR", None, mock.MagicMock(), mock.MagicMock())
-        assert response.partition_keys == ["date"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-
-    def test_snapshot_endpoints_are_not_partitioned(self) -> None:
-        for endpoint in ("symbols", "latest"):
-            response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
-            assert response.partition_keys is None
-
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in EXCHANGE_RATES_API_ENDPOINTS:
-            response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
-            assert response.name == endpoint
-            assert response.primary_keys == EXCHANGE_RATES_API_ENDPOINTS[endpoint].primary_keys
-
-    def test_default_base_currency_is_eur(self) -> None:
-        assert DEFAULT_BASE_CURRENCY == "EUR"

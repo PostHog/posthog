@@ -13,6 +13,7 @@ are only true for a while, mirroring `notes.py`.
 from __future__ import annotations
 
 import re
+import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -23,9 +24,17 @@ from django.db.models import Q, QuerySet, TextField, Value
 from django.db.models.functions import Left
 from django.utils import timezone
 
-from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.models import SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
+
+logger = logging.getLogger(__name__)
+
+# Key prefix a scout writes when its quick close-out finds the product it watches is not in use.
+NOT_IN_USE_KEY_PREFIX = "not-in-use:"
+# `SignalScoutRun.metadata` key counting the run's `not-in-use:` writes. It is the source of the
+# `derived.has_not_in_use_closeout` flag.
+NOT_IN_USE_WRITES_KEY = "not_in_use_writes"
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
@@ -197,6 +206,30 @@ def remember(
             team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
         )
     return _to_entry(row)
+
+
+def record_not_in_use_write(*, run_id: str, team_id: int) -> None:
+    """Count a `not-in-use:` scratchpad write against the run that made it.
+
+    The caller resolves `run_id` from the sandbox token, never from the request body. The keys
+    are not skill-namespaced and sibling scouts on one team run at the same time, so a read of
+    the run window at finalize could credit one scout's close-out to another scout's run.
+
+    Best-effort: the memory write has already committed, so a failure here is logged and the
+    write stays.
+    """
+    try:
+        with transaction.atomic():
+            run = SignalScoutRun.objects.for_team(team_id).select_for_update().filter(pk=run_id).first()
+            if run is None:
+                return
+            metadata = dict(run.metadata or {})
+            existing = metadata.get(NOT_IN_USE_WRITES_KEY)
+            metadata[NOT_IN_USE_WRITES_KEY] = (existing if isinstance(existing, int) else 0) + 1
+            run.metadata = metadata
+            run.save(update_fields=["metadata"])
+    except Exception:
+        logger.exception("signals_scout.scratchpad: failed to record not-in-use write for run %s", run_id)
 
 
 def _upsert_entry(

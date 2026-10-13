@@ -24,8 +24,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
@@ -48,6 +46,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import RedshiftBatchExportWorkflow
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3BatchExportWorkflow
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import SnowflakeBatchExportWorkflow
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 
 pytestmark = [
     pytest.mark.asyncio,

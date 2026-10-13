@@ -143,7 +143,8 @@ class _BoundedPlunkSession(requests.Session):
         # Never follow redirects: a validated host could 3xx to an internal address (SSRF). Pin the
         # timeout only when the caller didn't set one, and stream so the body is read incrementally.
         kwargs["allow_redirects"] = False
-        kwargs.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = DEFAULT_TIMEOUT_SECONDS
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         if response.is_redirect or response.is_permanent_redirect:

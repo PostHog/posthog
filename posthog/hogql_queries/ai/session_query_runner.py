@@ -114,7 +114,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 tags_context(product=Product.LLM_ANALYTICS),
             ):
                 tag_queries(ai_query_source="shared_table_fallback")
-                events_schema = use_new_events_schema(self.team.pk)
+                events_schema = use_new_events_schema(self.team.pk, self.modifiers)
                 query_result = self.paginator.execute_hogql_query(
                     query=rewrite_query_for_events_table(query),
                     placeholders={

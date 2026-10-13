@@ -1,0 +1,6 @@
+{"$set":{"score":7,"gone":null},"$sdk_debug_probe":true,"$feature/demo":"control","$feature/off":"false","$feature_flag_payload":{"x":1},"$ai_input":"secret","custom":"kept","plan":null,"nested":{"deep":null,"keep":1},"service.name":"api","user":{"plan":null},"a.b":null,"items":[{"a":null},2],"$exception_types":"TypeError"}	{"name":"x","email":null,"address":{"city":null}}
+{"a":null,"a":1,"Account.client_id":"abc","Account":{"client_id":null},"x":null,"x":null}	{}
+	
+{"broken"	[1
+[]	"text"
+{"huge":18446744073709551616,"$set.profile.missing":null}	{"$initial_referrer":null,"n":1}

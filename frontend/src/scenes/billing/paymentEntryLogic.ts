@@ -77,6 +77,7 @@ export type paymentEntryLogicType = MakeLogicType<paymentEntryLogicValues, payme
 export const paymentEntryLogic = kea<paymentEntryLogicType>([
     path(['scenes', 'billing', 'PaymentEntryLogic']),
     connect({
+        logic: [billingLogic],
         actions: [userLogic, ['loadUser'], organizationLogic, ['loadCurrentOrganization']],
     }),
     actions({
@@ -145,7 +146,12 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
     }),
     listeners(({ actions, values }) => ({
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
-            const { billing } = billingLogic.values
+            const { billing, billingManagedByPartnerNotice } = billingLogic.values
+
+            if (billingManagedByPartnerNotice) {
+                lemonToast.info(billingManagedByPartnerNotice)
+                return
+            }
 
             if (billing?.customer_id) {
                 // Returning customer — call POST API to activate subscription

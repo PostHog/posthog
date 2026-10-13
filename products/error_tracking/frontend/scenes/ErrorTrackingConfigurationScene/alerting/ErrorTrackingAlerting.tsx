@@ -54,7 +54,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                 }}
                 onSwitchToTraditional={() => {
                     posthog.capture('error_tracking_alert_creation_switched_to_traditional', {
-                        source: 'wizard',
+                        ui_source: 'wizard',
                     })
                     setAlertCreationView(AlertCreationView.Traditional)
                     resetWizard()
@@ -102,7 +102,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                     size="small"
                     onClick={() => {
                         posthog.capture('error_tracking_alert_creation_started', {
-                            source: 'wizard_button',
+                            ui_source: 'wizard_button',
                         })
                         setAlertCreationView(AlertCreationView.Wizard)
                     }}

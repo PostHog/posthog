@@ -21,6 +21,7 @@ from posthog.tasks.alerts.detector import (
     _date_range_override_for_detector,
     _extract_sub_detector_scores,
     _prepare_series,
+    min_points_to_evaluate,
 )
 from posthog.tasks.alerts.detectors import DetectionResult, get_detector
 from posthog.tasks.alerts.metric_definition import MetricDateRange, describe_metric_definition
@@ -41,6 +42,11 @@ from products.alerts.backend.evaluation.contract import (
     SeriesPoint,
     SimulationContext,
     execution_mode_for_alert,
+)
+from products.alerts.backend.evaluation.delay import (
+    DelayedEvaluationUnavailable,
+    apply_evaluation_delay,
+    validate_evaluation_delay,
 )
 from products.alerts.backend.judge import (
     JudgeAttribution,
@@ -65,6 +71,7 @@ def extract_detector_series(
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
+    evaluation_delay_intervals: int = 0,
 ) -> ExtractionResult:
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
@@ -74,7 +81,7 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    min_samples = _compute_min_samples_for_detector(detector_config) + 1 + evaluation_delay_intervals
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -98,6 +105,10 @@ def extract_detector_series(
     if calculation_result.result is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not calculation_result.result:
+        if evaluation_delay_intervals:
+            raise DelayedEvaluationUnavailable(
+                "No series is available to score. Wait for more data or check the insight."
+            )
         return ExtractionResult(
             series=[], is_breakdown=has_breakdown, interval_type=query.interval, empty_query_result=True
         )
@@ -112,16 +123,37 @@ def extract_detector_series(
     for result in results:
         prepared = _prepare_series(result, is_non_time_series, drop_current=not already_complete)
         if prepared is None:
+            if evaluation_delay_intervals:
+                raise DelayedEvaluationUnavailable(
+                    "A series has too few completed intervals. Wait for more data or reduce the delay."
+                )
             continue
+        if evaluation_delay_intervals:
+            dates = result.get("dates") or result.get("days") or []
+            prepared.dates = dates[: len(prepared.data)]
         points = [
-            SeriesPoint(date=(prepared.dates[i] if i < len(prepared.dates) else None), value=float(value))
+            SeriesPoint(
+                date=(prepared.dates[i] if i < len(prepared.dates) else None),
+                value=None if value is None and evaluation_delay_intervals else float(value),
+            )
             for i, value in enumerate(prepared.data)
         ]
         # current_index is set for contract conformance but unread on this path: the detector scores
         # the whole series rather than comparing against a single anchor interval.
         series.append(ComparableSeries(label=prepared.label, points=points, current_index=len(points) - 1))
 
-    return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
+    delayed = apply_evaluation_delay(
+        ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval),
+        delay=evaluation_delay_intervals,
+        minimum_points=min_points_to_evaluate(detector_config),
+        timezone=team.timezone,
+    )
+    # The detector scores every retained point, not only the trailing window the delay checks.
+    if any(point.value is None for item in delayed.series for point in item.points):
+        raise DelayedEvaluationUnavailable(
+            "The eligible intervals contain missing values. Wait for more data or check the insight."
+        )
+    return delayed
 
 
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
@@ -411,6 +443,7 @@ class TrendsDetectorExtractor:
             execution_mode,
             series_index=series_index,
             user=alert.created_by,
+            evaluation_delay_intervals=alert.evaluation_delay_intervals,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
@@ -426,6 +459,7 @@ class TrendsDetectorExtractor:
             series_index=ctx.series_index,
             date_from=ctx.date_from,
             user=ctx.user,
+            evaluation_delay_intervals=ctx.evaluation_delay_intervals,
         )
         interval_value = trends_query.interval.value if trends_query.interval else None
         return result, interval_value
@@ -442,6 +476,7 @@ def simulate_detector_on_insight(
     *,
     score: bool = True,
     is_agent_billable: bool = True,
+    evaluation_delay_intervals: int = 0,
 ) -> dict[str, Any]:
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
 
@@ -475,6 +510,7 @@ def simulate_detector_on_insight(
     if extractor is None:
         raise ValueError(f"Anomaly detection simulation isn't supported for {kind} insights")
 
+    validate_evaluation_delay(query, config, evaluation_delay_intervals)
     ctx = SimulationContext(
         team=team,
         detector_config=detector_config,
@@ -482,8 +518,19 @@ def simulate_detector_on_insight(
         series_index=series_index,
         date_from=date_from,
         config=config,
+        evaluation_delay_intervals=evaluation_delay_intervals,
     )
     result, interval_value = extractor.simulate(insight, query, ctx)
+    interval_metadata = (
+        {
+            "evaluation_delay_intervals": result.evaluated_interval.delay,
+            "evaluated_interval_start": result.evaluated_interval.start,
+            "evaluated_interval_end": result.evaluated_interval.end,
+            "evaluated_interval_timezone": result.evaluated_interval.timezone,
+        }
+        if result.evaluated_interval is not None
+        else {}
+    )
 
     if not result.series:
         # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that
@@ -526,11 +573,12 @@ def simulate_detector_on_insight(
             "total_points": sum(sim["total_points"] for sim in breakdown_sims),
             "anomaly_count": sum(sim["anomaly_count"] for sim in breakdown_sims),
             "breakdown_results": breakdown_sims,
+            **interval_metadata,
         }
 
     sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
     sim.pop("label", None)
-    return {**sim, "interval": interval_value}
+    return {**sim, "interval": interval_value, **interval_metadata}
 
 
 @frozen

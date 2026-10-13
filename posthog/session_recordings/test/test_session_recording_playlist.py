@@ -35,6 +35,7 @@ from posthog.session_recordings.session_recording_playlist_api import (
     PLAYLIST_LIST_MAX_LIMIT,
     _attach_empty_recordings_counts,
     _empty_saved_filters_counts,
+    count_collection_recordings,
     parse_non_negative_int,
     parse_positive_int,
     precompute_recordings_counts,
@@ -336,13 +337,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        # one query to get started and then 13 per creation (was 14, -1 after dropping duplicate session lookup)
-        with self.assertNumQueries(13 * 50 + 1):
+        with self.assertNumQueries(12 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        # 13 per creation (was 14, -1 after dropping duplicate session lookup)
-        with self.assertNumQueries(13 * 100):
+        with self.assertNumQueries(12 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
@@ -479,6 +478,56 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}},
             }
         )
+
+    @parameterized.expand(
+        [
+            ["from_the_app", {"creation_method": "pin"}, {}, "pin", "web"],
+            ["without_creation_method", {}, {}, None, "web"],
+            ["from_mcp", {}, {"HTTP_X_POSTHOG_CLIENT": "mcp"}, None, "mcp"],
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_create_reports_a_stamped_event(
+        self,
+        _name: str,
+        extra_data: dict,
+        headers: dict,
+        expected_creation_method: str | None,
+        expected_source: str,
+        mock_capture: MagicMock,
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            {"name": "stamped", "type": "collection", **extra_data},
+            **headers,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording playlist created"]
+        assert len(created) == 1
+        properties = created[0].kwargs["properties"]
+        assert properties["playlist_id"] == response.json()["short_id"]
+        assert properties["playlist_type"] == "collection"
+        assert properties["creation_method"] == expected_creation_method
+        assert properties["source"] == expected_source
+        assert "creation_method" not in response.json()
+
+    @patch("posthoganalytics.capture")
+    def test_update_reports_a_stamped_event(self, mock_capture: MagicMock) -> None:
+        short_id = self._create_playlist({"type": "collection"}, status.HTTP_201_CREATED).json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {"name": "changed name", "pinned": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        updated = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording playlist updated"]
+        assert len(updated) == 1
+        properties = updated[0].kwargs["properties"]
+        assert properties["playlist_id"] == short_id
+        assert properties["updated_fields"] == ["name", "pinned"]
+        assert properties["source"] == "web"
 
     def test_updates_playlist(self):
         create_response = self._create_playlist(
@@ -1650,17 +1699,29 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         assert playlist._prefetched_collection_count == {"count": 3, "watched_count": 2}  # type: ignore[attr-defined]
         assert not hasattr(playlist, "_prefetched_saved_filters_count")
 
-    def test_collection_with_soft_deleted_items_excluded_from_count(self) -> None:
-        playlist = self._make_playlist("all deleted")
-        rec = SessionRecording.objects.create(team=self.team, session_id="deleted-1")
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, deleted=True)
-        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="deleted-1")
+    @parameterized.expand(
+        [
+            ("soft_deleted", {"deleted": True}, {}),
+            ("expired", {}, {"start_time": datetime.now(UTC) - timedelta(days=31)}),
+        ]
+    )
+    def test_gone_items_excluded_from_count_and_watched(
+        self, _name: str, item_kwargs: dict, recording_kwargs: dict
+    ) -> None:
+        playlist = self._make_playlist("gone")
+        rec = SessionRecording.objects.create(team=self.team, session_id="gone-1", **recording_kwargs)
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, **item_kwargs)
+        kept = SessionRecording.objects.create(
+            team=self.team, session_id="kept-1", start_time=datetime.now(UTC) - timedelta(days=29)
+        )
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=kept)
+        for session_id in ["gone-1", "kept-1"]:
+            SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=session_id)
 
         precompute_recordings_counts([playlist], self.user, self.team)
 
-        # count excludes the soft-deleted item (None), but watched_count includes it
-        # to match the historical behavior of count_collection_recordings.
-        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 1}  # type: ignore[attr-defined]
+        assert playlist._prefetched_collection_count == {"count": 1, "watched_count": 1}  # type: ignore[attr-defined]
+        assert count_collection_recordings(playlist, self.user, self.team) == {"count": 1, "watched_count": 1}
 
     def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
         playlist = self._make_playlist("empty")

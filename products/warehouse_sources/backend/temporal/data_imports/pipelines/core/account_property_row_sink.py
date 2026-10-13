@@ -7,6 +7,7 @@ from django.conf import settings
 import pyarrow as pa
 import deltalake
 import pyarrow.fs as pa_fs
+import deltalake.exceptions
 from pyarrow.parquet import ParquetFile, write_table
 from structlog.types import FilteringBoundLogger
 
@@ -32,14 +33,38 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 ABANDONED_STAGED_PREFIX_TTL = timedelta(days=7)
 _PARQUET_BATCH_SIZE = 50_000
 
-# Same fixed AWS message pyarrow's S3FileSystem surfaces as a bare OSError for a GetObject against a
-# key that no longer exists — matched the same way as the equivalent NoSuchKey race in
+# Two distinct message shapes pyarrow's S3FileSystem can raise as a bare OSError for the same
+# missing-key condition, depending on which call hit it: a direct GetObject (the raw AWS text) vs.
+# `open_input_file`'s own preflight `GetFileInfo` check, which formats a fixed, backend-agnostic
+# "not found" message instead of surfacing the AWS error. `_stage_committed_files` only ever calls
+# `open_input_file` (random-access reads), so only the second shape is reachable from here in
+# practice — matched the same way as the equivalent NoSuchKey race in
 # workflow_activities/repartition_table.py.
-_MISSING_OBJECT_ERROR_NEEDLE = "the specified key does not exist"
+_MISSING_OBJECT_ERROR_NEEDLES = (
+    "the specified key does not exist",
+    "path does not exist",
+)
+
+# delta-rs raises this DeltaError, instead of the OSError above, when the pinned version wasn't
+# vacuumed but the whole table was reset and recommitted from scratch by a later materialize run
+# (data-modeling's reset_table/full_refresh purges the table's _delta_log along with its data) — the
+# log the reader replays now ends at the fresh table's latest commit, which is lower than the version
+# pinned before the reset. Same queued-for-hours race as the vacuum case above, different delta-rs
+# entry point.
+_LOG_SEGMENT_VERSION_MISMATCH_NEEDLE = "not the same as the specified end version"
 
 
 def _is_missing_object_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and _MISSING_OBJECT_ERROR_NEEDLE in str(error).lower()
+    if not isinstance(error, OSError):
+        return False
+    message = str(error).lower()
+    return any(needle in message for needle in _MISSING_OBJECT_ERROR_NEEDLES)
+
+
+def _is_stale_pinned_version_error(error: BaseException) -> bool:
+    if _is_missing_object_error(error):
+        return True
+    return isinstance(error, deltalake.exceptions.DeltaError) and _LOG_SEGMENT_VERSION_MISMATCH_NEEDLE in str(error)
 
 
 class AccountPropertyRowSink:
@@ -146,18 +171,20 @@ class AccountPropertyRowSink:
         await self.clear()
         try:
             await self._stage_committed_files(table_uri, delta_version)
-        except OSError as error:
-            if not _is_missing_object_error(error):
+        except (OSError, deltalake.exceptions.DeltaError) as error:
+            if not _is_stale_pinned_version_error(error):
                 raise
             # `delta_version` was pinned right after the materialize run that produced it, but the
             # staging child workflow that calls this can sit queued for hours before it actually
             # runs. If the same view gets materialized again in the meantime, that run's vacuum
             # (DELTA_TABLE_RETENTION_HOURS) can reclaim the pinned version's files before we read
-            # them. Re-stage from whatever is committed now instead: vacuum never removes a file the
-            # current version still references, so this snapshot can't be pulled out from under us
-            # the same way.
+            # them, or a full refresh can reset the table and recommit it from scratch, leaving the
+            # pinned version behind entirely. Re-stage from whatever is committed now instead: vacuum
+            # never removes a file the current version still references, and a freshly reset table's
+            # latest version is by definition still there, so this snapshot can't be pulled out from
+            # under us the same way.
             await self.logger.awarning(
-                f"Delta version {delta_version} was vacuumed before staging read it; "
+                f"Delta version {delta_version} was vacuumed or superseded before staging read it; "
                 "re-staging the current committed snapshot instead"
             )
             await self.clear()

@@ -19,7 +19,7 @@ Connection handling comes from batch exports' Azure Blob destination:
   aim the client at an internal address.
 - The client tuning is theirs too. `read_timeout` is the one that matters: the SDK default is
   60 seconds, which a single large block can exceed on a slow link.
-- `_is_authorization_failure_response_error` is what separates "the credentials cannot write
+- `is_authorization_failure_response_error` is what separates "the credentials cannot write
   here" from a transient response error, so the first is reported as a permissions problem.
 
 `AzureBlobConsumer` itself is not used, even though it touches no Temporal metric meter and so
@@ -49,17 +49,22 @@ from azure.storage.blob.aio import BlobServiceClient, ContainerClient, Exponenti
 
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 
-from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+from products.batch_exports.backend.facade.destinations.azure_blob import (
+    AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    AzureBlobIntegrationNotFoundError,
     MalformedConnectionStringError,
-    _get_azure_blob_integration,
-    _is_authorization_failure_response_error,
+    get_azure_blob_integration,
+    is_authorization_failure_response_error,
 )
-from products.batch_exports.backend.temporal.destinations.constants import AZURE_BLOB_SUPPORTED_COMPRESSIONS
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
+from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 
 ParquetCompression = Literal["gzip", "brotli", "lz4", "zstd", "snappy", "none"]
@@ -78,35 +83,21 @@ MAX_BLOCK_SIZE = 4 * 1024 * 1024
 READ_TIMEOUT_SECONDS = 600
 
 
-class AzureBlobDestinationConfigurationError(ValueError):
-    """The destination's config cannot produce a valid blob write."""
+def container_not_found_detail(container: str) -> str:
+    # Containers are not created here, so this is the customer's to fix.
+    return (
+        f"The container '{container}' does not exist in this storage account. "
+        "Create it, or point the destination at an existing container, then run the sync again."
+    )
 
 
-class ContainerNotFoundError(Exception):
-    """Raised when the configured container does not exist.
-
-    Containers are not created here, so this is the customer's to fix.
-    """
-
-    def __init__(self, container: str) -> None:
-        super().__init__(
-            f"The container '{container}' does not exist in this storage account. "
-            "Create it, or point the destination at an existing container, then run the sync again."
-        )
-
-
-class MissingContainerPermissionsError(Exception):
-    """Raised when the connection string cannot write to the container.
-
-    Batch exports' own `MissingRequiredPermissionsError` says "batch export", which reads
-    wrong on a sync. Only the classifier behind it is shared.
-    """
-
-    def __init__(self, container: str) -> None:
-        super().__init__(
-            f"These credentials cannot write to the container '{container}'. "
-            "Give the connection string write access to it, then run the sync again."
-        )
+def missing_container_permissions_detail(container: str) -> str:
+    # Batch exports' own `MissingRequiredPermissionsError` says "batch export", which reads
+    # wrong on a sync. Only the classifier behind it is shared.
+    return (
+        f"These credentials cannot write to the container '{container}'. "
+        "Give the connection string write access to it, then run the sync again."
+    )
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -176,14 +167,15 @@ class AzureBlobDestinationWriter:
         name = self._ctx.destination_name
 
         if not self._container:
-            raise AzureBlobDestinationConfigurationError(
-                f"Destination {name} has no container. Add a container to the destination, then run the sync again."
+            raise DestinationConfigurationError(
+                name, "The destination has no container. Add a container to the destination, then run the sync again."
             )
         if self._compression not in SUPPORTED_COMPRESSIONS:
             supported = ", ".join(sorted(SUPPORTED_COMPRESSIONS))
-            raise AzureBlobDestinationConfigurationError(
-                f"Destination {name} uses the compression '{self._compression}', which parquet files cannot use. "
-                f"Pick one of: {supported}."
+            raise DestinationConfigurationError(
+                name,
+                f"The destination uses the compression '{self._compression}', which parquet files cannot use. "
+                f"Pick one of: {supported}.",
             )
 
     # --- names ------------------------------------------------------------------------
@@ -206,10 +198,14 @@ class AzureBlobDestinationWriter:
 
         A writer is built per batch, so a client left open here leaks a session per batch.
         """
+        name = self._ctx.destination_name
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await _get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
+        except AzureBlobIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(name, MISSING_INTEGRATION_DETAIL) from err
 
         try:
             await asyncio.to_thread(validate_azure_blob_connection_string, integration.connection_string)
@@ -221,10 +217,10 @@ class AzureBlobDestinationWriter:
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
                 permit_redirects=False,
             )
-        except EndpointNotAllowedError:
-            raise
-        except ValueError:
-            raise MalformedConnectionStringError()
+        except EndpointNotAllowedError as err:
+            raise DestinationConfigurationError(name, str(err)) from err
+        except ValueError as err:
+            raise DestinationConfigurationError(name, str(MalformedConnectionStringError())) from err
 
         async with service:
             yield service.get_container_client(self._container)
@@ -234,11 +230,15 @@ class AzureBlobDestinationWriter:
         blob = container.get_blob_client(name)
         try:
             await blob.upload_blob(data, overwrite=True, max_concurrency=self._max_concurrency)
-        except ResourceNotFoundError:
-            raise ContainerNotFoundError(self._container)
+        except ResourceNotFoundError as err:
+            raise DestinationConfigurationError(
+                self._ctx.destination_name, container_not_found_detail(self._container)
+            ) from err
         except HttpResponseError as err:
-            if _is_authorization_failure_response_error(err):
-                raise MissingContainerPermissionsError(self._container)
+            if is_authorization_failure_response_error(err):
+                raise DestinationConfigurationError(
+                    self._ctx.destination_name, missing_container_permissions_detail(self._container)
+                ) from err
             raise
 
     # --- writer protocol ----------------------------------------------------------------

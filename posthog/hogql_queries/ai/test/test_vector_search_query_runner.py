@@ -1,3 +1,4 @@
+import time
 import uuid
 
 import pytest
@@ -142,6 +143,10 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = VectorSearchQueryRunner(query, self.team).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, id)
+
+        # pg_embeddings.timestamp defaults to NOW() with second precision, and the runner picks the latest
+        # version by argMax(vector, timestamp); a version written in the same second can tie with version 1.
+        time.sleep(1.1)
 
         # Version 2
         vectors = [

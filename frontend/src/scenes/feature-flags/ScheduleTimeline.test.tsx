@@ -15,9 +15,24 @@ function occurrence(overrides: Partial<ScheduleOccurrence> = {}): ScheduleOccurr
         schedule: makeScheduledChange({ scheduled_at: '2099-08-26T10:22:00Z' }),
         projected: { active: true, rolloutPercentage: 50, variantCount: null },
         addedRolloutPercentage: null,
+        rolloutUnchanged: false,
         needsApproval: false,
         ...overrides,
     }
+}
+
+function coveredStep(
+    active: boolean,
+    addedRolloutPercentage: number,
+    overrides: Partial<ScheduleOccurrence> = {}
+): ScheduleOccurrence {
+    return occurrence({
+        operation: ScheduledChangeOperationType.AddReleaseCondition,
+        addedRolloutPercentage,
+        rolloutUnchanged: true,
+        projected: { active, rolloutPercentage: 100, variantCount: null },
+        ...overrides,
+    })
 }
 
 describe('ScheduleTimeline', () => {
@@ -78,6 +93,133 @@ describe('ScheduleTimeline', () => {
         expect(screen.getByText('Next: add a condition at 10% rollout on Aug 26, 10:22 AM')).toBeInTheDocument()
     })
 
+    it.each([
+        {
+            name: 'a flag that serves the level',
+            active: true,
+            expected:
+                'Next: add a condition at 25% rollout, no change from the 100% the flag already serves on Aug 26, 10:22 AM',
+        },
+        {
+            name: 'a flag that is off',
+            active: false,
+            expected:
+                'Next: add a condition at 25% rollout, no change from the 100% set on this disabled flag on Aug 26, 10:22 AM',
+        },
+    ])('summarizes a covered condition add as no change on $name', ({ active, expected }) => {
+        render(
+            <ScheduleTimeline occurrences={[coveredStep(active, 25)]} currentRolloutPercentage={100} timezone="UTC" />
+        )
+
+        expect(screen.getByText(expected)).toBeInTheDocument()
+    })
+
+    it.each([
+        {
+            name: 'a flag that serves the level',
+            active: true,
+            expectedTitle: 'This condition sits at 25%, at or below the 100% the flag already serves',
+        },
+        {
+            name: 'a flag that is off',
+            active: false,
+            expectedTitle: 'This condition sits at 25%, at or below the 100% set on this disabled flag',
+        },
+    ])(
+        'labels a step that holds its level, so a flat line does not read as broken: $name',
+        ({ active, expectedTitle }) => {
+            const { container } = render(
+                <ScheduleTimeline
+                    occurrences={[
+                        coveredStep(active, 25),
+                        coveredStep(active, 50, { timestamp: '2099-08-28T10:22:00Z' }),
+                    ]}
+                    currentRolloutPercentage={100}
+                    timezone="UTC"
+                />
+            )
+
+            expect(screen.getAllByText('still 100%')).toHaveLength(2)
+            expect(container.querySelector('g > title')?.textContent).toEqual(expectedTitle)
+        }
+    )
+
+    it('drops a step label that would overlap an earlier one on the same level', () => {
+        render(
+            <ScheduleTimeline
+                occurrences={[
+                    coveredStep(true, 25),
+                    coveredStep(true, 50, { timestamp: '2099-08-27T10:22:00Z' }),
+                    coveredStep(true, 75, { timestamp: '2099-09-24T10:22:00Z' }),
+                ]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        )
+
+        expect(screen.getAllByText('still 100%')).toHaveLength(2)
+    })
+
+    it('keeps a dropped step label reachable as the mark title', () => {
+        // The drop rule reaches any two levels within about 10 points, not only equal ones: one font
+        // size is 9 units and the plot spends 0.9 units per point. These two land 4.5 units apart
+        // vertically and overlap horizontally, so the 100% label is dropped. Neither step needs
+        // approval or holds its level, so without the title its mark carries no text at all.
+        const step = (timestamp: string, rollout: number): ScheduleOccurrence =>
+            occurrence({
+                timestamp,
+                operation: ScheduledChangeOperationType.AddReleaseCondition,
+                addedRolloutPercentage: rollout,
+                projected: { active: true, rolloutPercentage: rollout, variantCount: null },
+            })
+        const { container } = render(
+            <ScheduleTimeline
+                occurrences={[
+                    step('2099-08-25T11:22:00Z', 95),
+                    step('2099-08-25T12:22:00Z', 100),
+                    step('2099-09-24T10:22:00Z', 100),
+                ]}
+                currentRolloutPercentage={90}
+                timezone="UTC"
+            />
+        )
+
+        expect(screen.getByText('95%')).toBeInTheDocument()
+        expect(Array.from(container.querySelectorAll('g > title')).map((node) => node.textContent)).toEqual([
+            '100% rollout',
+        ])
+    })
+
+    it('anchors a step label at its mark near either edge, so the text stays in the plot', () => {
+        const step = (timestamp: string, rollout: number): ScheduleOccurrence =>
+            occurrence({
+                timestamp,
+                operation: ScheduledChangeOperationType.AddReleaseCondition,
+                addedRolloutPercentage: rollout,
+                projected: { active: true, rolloutPercentage: rollout, variantCount: null },
+                needsApproval: true,
+            })
+        const { container } = render(
+            <ScheduleTimeline
+                occurrences={[
+                    step('2099-08-25T11:22:00Z', 25),
+                    step('2099-08-27T12:22:00Z', 50),
+                    // 90 of the plan's 100 hours, so x is 530.8. That sits inside the end band at the
+                    // current pad and outside it at the old 30, which is what pins the constant.
+                    step('2099-08-29T04:22:00Z', 75),
+                    step('2099-08-29T14:22:00Z', 100),
+                ]}
+                currentRolloutPercentage={10}
+                timezone="UTC"
+            />
+        )
+
+        const anchors = Array.from(container.querySelectorAll('text'))
+            .filter((node) => node.textContent?.includes('needs approval'))
+            .map((node) => node.getAttribute('text-anchor'))
+        expect(anchors).toEqual(['start', 'middle', 'end', 'end'])
+    })
+
     it('renders the step chart for two or more occurrences', () => {
         const { container } = render(
             <ScheduleTimeline
@@ -96,6 +238,7 @@ describe('ScheduleTimeline', () => {
 
         expect(container.querySelector('svg')).toBeInTheDocument()
         expect(screen.queryByText(/^Next:/)).not.toBeInTheDocument()
+        expect(screen.getByText(/^The line shows/)).toBeInTheDocument()
     })
 
     it('dashes the jump of an approval-blocked step, and not the level before it', () => {
@@ -136,7 +279,7 @@ describe('ScheduleTimeline', () => {
         render(
             <ScheduleTimeline
                 occurrences={[
-                    occurrence(),
+                    occurrence({ projected: { active: true, rolloutPercentage: null, variantCount: null } }),
                     occurrence({
                         timestamp: '2099-08-28T10:22:00Z',
                         operation: ScheduledChangeOperationType.AddReleaseCondition,
@@ -150,6 +293,34 @@ describe('ScheduleTimeline', () => {
 
         expect(screen.getByText('Condition')).toBeInTheDocument()
         expect(screen.queryByText('0 variants')).not.toBeInTheDocument()
+        expect(screen.getByText(/^No rollout line is shown/)).toBeInTheDocument()
+        // The last occurrence always maps to the plot edge, where a centered label leaves the
+        // viewBox. Anchoring is what keeps it readable, so pin it here.
+        expect(screen.getByText('Condition')).toHaveAttribute('text-anchor', 'end')
+    })
+
+    it('says the line counts reach when the only plottable step is the last occurrence', () => {
+        // The step has no level before it to run from, and the trailing run stops at the plot edge
+        // this mark already sits on, so the chart draws a labelled mark and no segment.
+        render(
+            <ScheduleTimeline
+                occurrences={[
+                    occurrence({ projected: { active: true, rolloutPercentage: null, variantCount: null } }),
+                    occurrence({
+                        timestamp: '2099-08-28T10:22:00Z',
+                        operation: ScheduledChangeOperationType.AddReleaseCondition,
+                        addedRolloutPercentage: 25,
+                        projected: { active: true, rolloutPercentage: 25, variantCount: null },
+                    }),
+                ]}
+                currentRolloutPercentage={null}
+                timezone="UTC"
+            />
+        )
+
+        expect(screen.getByText('25%')).toBeInTheDocument()
+        expect(screen.getByText(/^The line shows/)).toBeInTheDocument()
+        expect(screen.queryByText(/^No rollout line is shown/)).not.toBeInTheDocument()
     })
 
     it('exposes the plan and a focus stop for a user without a mouse', () => {

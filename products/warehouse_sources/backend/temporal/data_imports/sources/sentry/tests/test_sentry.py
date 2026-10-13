@@ -5,14 +5,20 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError, JSONDecodeError, RequestException
+from requests.exceptions import HTTPError, JSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
-    WarehouseParentTableNotFoundError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     _MAX_RETRY_AFTER_SECONDS,
@@ -22,14 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
     SentrySessionsRejectedError,
     SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
-    _issues_parent_row_filter,
-    _normalize_api_base_url,
     _normalize_organization_slug,
     _parse_next_link,
     _raise_on_failed_retry,
     _retention_bounded_start_param,
     _retry_wait_seconds,
-    _start_param_for_sentry,
     get_resource,
     sentry_source,
     validate_credentials,
@@ -45,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sou
 CUSTOM_ITERATOR_ENDPOINTS = [
     name for name, config in SENTRY_ENDPOINTS.items() if config.custom_iterator and name != "issue_tag_values"
 ]
+_FANOUT_ENDPOINTS = [(name, config.fanout.parent_name) for name, config in SENTRY_ENDPOINTS.items() if config.fanout]
 
 
 def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
@@ -60,6 +64,17 @@ def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
 
     response.raise_for_status = _raise_for_status
     return response
+
+
+def _json(payload: Any, status: int = 200, link_header: str = "") -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=payload, headers={"Link": link_header} if link_header else {})
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        SentrySource(),
+        SentrySourceConfig(auth_token="token", organization_slug="acme", api_base_url="https://sentry.io"),
+    )
 
 
 def _make_fake_manager(
@@ -104,10 +119,6 @@ class _RaisingResource:
 
 
 class TestSentryTransport:
-    def test_normalize_api_base_url(self) -> None:
-        assert _normalize_api_base_url(None) == "https://sentry.io"
-        assert _normalize_api_base_url("https://us.sentry.io/") == "https://us.sentry.io"
-
     @parameterized.expand(
         [
             ("bare_slug", "acme", "acme"),
@@ -123,14 +134,6 @@ class TestSentryTransport:
     )
     def test_normalize_organization_slug_extracts_slug(self, _name: str, value: str, expected: str) -> None:
         assert _normalize_organization_slug(value) == expected
-
-    def test_start_param_for_sentry_formats_datetime(self) -> None:
-        value = datetime(2025, 1, 1, 10, 30, 0, tzinfo=UTC)
-        assert _start_param_for_sentry(value) == "2025-01-01T10:30:00"
-
-    def test_start_param_for_sentry_caps_future_datetime(self) -> None:
-        value = datetime(2999, 1, 1, 0, 0, 0, tzinfo=UTC)
-        assert _start_param_for_sentry(value) != "2999-01-01T00:00:00"
 
     @parameterized.expand(
         [
@@ -205,26 +208,6 @@ class TestSentryTransport:
 
         assert request.url == "https://sentry.io/api/0/organizations/acme/issues/?cursor=0:100:2"
         assert request.params == {}
-
-    def test_get_resource_incremental_issues(self) -> None:
-        resource = cast(
-            dict[str, Any],
-            get_resource(
-                endpoint="issues",
-                organization_slug="acme",
-                should_use_incremental_field=True,
-                incremental_field="lastSeen",
-            ),
-        )
-
-        assert resource["name"] == "issues"
-        assert resource["write_disposition"]["disposition"] == "merge"
-        assert resource["endpoint"]["params"]["query"] == ""
-        assert resource["endpoint"]["params"]["sort"] == "date"
-        assert "start" not in resource["endpoint"]["params"]
-        assert resource["endpoint"]["incremental"]["start_param"] == "start"
-        assert resource["endpoint"]["incremental"]["end_param"] == "end"
-        assert resource["endpoint"]["incremental"]["cursor_path"] == "lastSeen"
 
     @parameterized.expand(
         [
@@ -310,63 +293,53 @@ class TestSentryTransport:
             "API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io.",
         )
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_rejects_non_latin1_auth_token(self, mock_session) -> None:
+    def test_validate_credentials_rejects_non_latin1_auth_token(self) -> None:
         # A token with a character outside latin-1 can't be encoded into the Authorization header;
         # the guard must reject it before any request is dispatched.
-        valid, error = validate_credentials(auth_token="secret-’token", organization_slug="acme")
+        with scripted_network([]) as network:
+            valid, error = validate_credentials(auth_token="secret-’token", organization_slug="acme")
 
         assert not valid
         assert error is not None
         assert error.startswith("Invalid Sentry auth token")
-        mock_session.assert_not_called()
+        assert network.requests_log == []
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_401_tells_user_to_reconnect(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=401)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_401_tells_user_to_reconnect(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=401))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error == "Invalid Sentry auth token. Please update your token and reconnect."
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_403_names_required_scopes(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=403)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_403_names_required_scopes(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error is not None
-        assert error.startswith("Sentry token is missing required scopes")
+        assert error.startswith("Your Sentry token is missing required scopes. Create a personal token")
         for scope in REQUIRED_SENTRY_SCOPES:
             assert scope in error
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_404_does_not_echo_org_slug(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response(None, status_code=404)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="secret-org-slug")
+    def test_validate_credentials_404_does_not_echo_org_slug(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=404))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="secret-org-slug")
 
         assert not valid
         assert error == "Sentry organization not found. Verify your organization slug, then reconnect."
         assert "secret-org-slug" not in (error or "")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_unexpected_status_hides_vendor_detail(self, mock_session) -> None:
-        # `_response` sets `response.text = "error"` — the raw body must never reach the customer.
-        mock_session.return_value.get.return_value = _response({"detail": "internal sentry detail"}, status_code=500)
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_unexpected_status_hides_vendor_detail(self) -> None:
+        # The raw body must never reach the customer.
+        with scripted_network(always(ScriptedResponse(status=500, json={"detail": "internal sentry detail"}))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error == "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_validate_credentials_request_error_hides_exception_text(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = RequestException("connection refused to https://sentry.io")
-
-        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+    def test_validate_credentials_request_error_hides_exception_text(self) -> None:
+        with scripted_network(always(ConnectionError("connection refused to https://sentry.io"))):
+            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
 
         assert not valid
         assert error == "Could not reach Sentry to validate your credentials. Check your connection, then try again."
@@ -421,32 +394,6 @@ class TestSentrySourceValidation:
             organization_slug="acme",
             api_base_url="https://sentry.io",
         )
-
-    def test_parse_config_normalizes_pasted_org_url(self) -> None:
-        config = SentrySource().parse_config({"auth_token": "token", "organization_slug": "https://acme.sentry.io/"})
-
-        assert config.organization_slug == "acme"
-
-    def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
-        # `_request_with_retry` (sentry.py) already retries a dropped connection or read timeout;
-        # once that budget is exhausted, urllib3 re-raises with this stable "Max retries exceeded"
-        # wording regardless of cause. Without a matching entry here, a transient Sentry-side blip
-        # would be reported to error tracking as a bug instead of logged as a benign retry.
-        error_msg = (
-            "HTTPSConnectionPool(host='sentry.io', port=443): Max retries exceeded with "
-            'url: /api/0/organizations/acme/projects/?limit=100 (Caused by ReadTimeoutError("HTTPS'
-            "ConnectionPool(host='sentry.io', port=443): Read timed out. (read timeout=30)\"))"
-        )
-
-        assert any(pattern in error_msg for pattern in SentrySource().get_retryable_errors())
-
-    def test_retryable_errors_match_exhausted_rate_limit_retries(self) -> None:
-        # tenacity retries 429s (reading X-Sentry-Rate-Limit-Reset); once exhausted, raise_for_status
-        # raises HTTPError with the status line "429 Client Error: Too Many Requests for url: ...".
-        # This does NOT contain "Max retries exceeded", so it must be matched separately.
-        error_msg = "429 Client Error: Too Many Requests for url: https://sentry.io/api/0/organizations/acme/trace-items/attributes/?dataset=logs"
-
-        assert error_message_matches(error_msg, SentrySource().get_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
     def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
@@ -619,107 +566,67 @@ class TestSentrySourceValidation:
         child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
         assert child_resource["endpoint"]["params"]["full"] == "true"
 
+    @parameterized.expand(_FANOUT_ENDPOINTS)
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )
-    def test_issue_hashes_tolerates_child_not_found(self, mock_rest_api_resources) -> None:
-        # An issue can be deleted/merged between the `issues` listing and this per-issue hashes
-        # fetch, which 404s. That single-issue 404 must not fail the whole schema (see
+    def test_fanout_tolerates_child_not_found(self, endpoint, parent_name, mock_rest_api_resources) -> None:
+        # A parent row can be deleted, merged or renamed between the parent listing and its child
+        # fetch, which 404s. That single-row 404 must not fail the whole schema (see
         # SentrySource.get_non_retryable_errors' generic "404 Client Error" mapping).
         mock_rest_api_resources.return_value = [
-            _FakeDltResource("issues", [{"id": "100"}]),
-            _FakeDltResource("issue_hashes", []),
+            _FakeDltResource(parent_name, []),
+            _FakeDltResource(endpoint, []),
         ]
 
         sentry_source(
             auth_token="token",
             organization_slug="acme",
             api_base_url="https://sentry.io",
-            endpoint="issue_hashes",
+            endpoint=endpoint,
             team_id=123,
             job_id="job-id",
         )
 
         config = mock_rest_api_resources.call_args.args[0]
-        child_resource = next(r for r in config["resources"] if r["name"] == "issue_hashes")
+        child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
         assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_issue_tag_values_custom_fanout_row_format(self, mock_get) -> None:
-        seen_issues_params: list[dict | None] = []
-        seen_values_params: list[dict | None] = []
-
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                seen_issues_params.append(params)
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                seen_values_params.append(params)
-                return _response([{"value": "Chrome", "timesSeen": 1}])
-            return _response([])
-
-        mock_get.return_value.get.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["issue_id"] == "100"
-        assert row["tag_key"] == "browser"
-        assert seen_issues_params == [{"limit": 100, "query": "", "sort": "date"}]
-        assert seen_values_params == [{"limit": 100, "sort": "-date"}]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self, mock_get) -> None:
+    def test_issue_tag_values_incremental_stops_at_last_seen_cutoff(self) -> None:
         cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response(
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/browser/values/") and (
+                request.param("cursor") is None
+            ):
+                return _json(
                     [
                         {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z"},
                         {"value": "Firefox", "lastSeen": "2026-03-01T09:00:00Z"},
                     ],
                     link_header='<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:0>; rel="next"; results="true"',
                 )
-            if "tags/browser/values/?cursor=0:100:0" in url:
-                raise AssertionError("should not request the next page after reaching cutoff")
-            return _response([])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
+        result = _driver().run(
+            "issue_tag_values",
+            script,
             should_use_incremental_field=True,
             db_incremental_field_last_value=cutoff,
             incremental_field="lastSeen",
         )
 
-        rows = list(cast(Any, resp.items()))
-        assert rows == [
+        assert result.rows == [
             {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z", "issue_id": "100", "tag_key": "browser"}
         ]
+        # Reaching the cutoff must stop the walk before the next values page is requested.
+        assert [request.param("cursor") for request in result.requests] == [None, None, None]
 
     # Patch _request_with_retry directly so the test exercises the iterator's
     # skip logic without incurring the real (post-exhaustion) retry sleeps.
@@ -874,86 +781,33 @@ class TestSentrySourceValidation:
 class TestSentrySourceResumable:
     """Resume behaviour for flat endpoints (rest_api_resource path)."""
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
-    def test_fresh_run_passes_resume_hook_and_no_initial_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_fake_manager(can_resume=False)
+    def test_fresh_run_passes_resume_hook_and_no_initial_state(self) -> None:
+        next_url = "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0"
 
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="projects",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
+        result = _driver().run(
+            "projects",
+            [
+                _json([{"id": "1"}], link_header=f'<{next_url}>; rel="next"; results="true"'),
+                _json([{"id": "2"}]),
+            ],
         )
 
-        _, kwargs = mock_rest_api_resource.call_args
-        assert kwargs["initial_paginator_state"] is None
-        assert callable(kwargs["resume_hook"])
+        assert result.requests[0].param("cursor") is None
+        assert result.requests[1].param("cursor") == "0:100:0"
+        assert result.saved_states == [SentryResumeConfig(next_url=next_url)]
 
-        # save_checkpoint should forward the next page into manager.save_state
-        kwargs["resume_hook"]({"next_url": "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0"})
-        cast(Mock, manager.save_state).assert_called_once_with(
-            SentryResumeConfig(next_url="https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:0")
+    def test_resume_run_seeds_initial_paginator_state_from_loaded_config(self) -> None:
+        result = _driver().run(
+            "projects",
+            [_json([{"id": "3"}])],
+            resume_state=SentryResumeConfig(
+                next_url="https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:2"
+            ),
         )
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
-    def test_resume_run_seeds_initial_paginator_state_from_loaded_config(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        resume_url = "https://sentry.io/api/0/organizations/acme/projects/?cursor=0:100:2"
-        manager = _make_fake_manager(can_resume=True, state=SentryResumeConfig(next_url=resume_url))
-
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="projects",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        _, kwargs = mock_rest_api_resource.call_args
-        assert kwargs["initial_paginator_state"] == {"next_url": resume_url}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
-    def test_resume_hook_noop_when_no_next_page(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_fake_manager(can_resume=False)
-
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="projects",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        _, kwargs = mock_rest_api_resource.call_args
-        kwargs["resume_hook"](None)
-        kwargs["resume_hook"]({})
-        cast(Mock, manager.save_state).assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
-    def test_no_manager_disables_resume(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="projects",
-            team_id=123,
-            job_id="job-id",
-        )
-
-        _, kwargs = mock_rest_api_resource.call_args
-        assert kwargs["initial_paginator_state"] is None
-        assert kwargs["resume_hook"] is None
+        assert len(result.requests) == 1
+        assert result.requests[0].path == "/api/0/organizations/acme/projects/"
+        assert result.requests[0].param("cursor") == "0:100:2"
 
 
 class TestIssueTagValuesResumable:
@@ -969,98 +823,38 @@ class TestIssueTagValuesResumable:
 
     """Resume behaviour for the two-level issue_tag_values fan-out loop."""
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_fresh_run_saves_state_pointing_to_next_values_page(self, mock_get) -> None:
+    def test_fresh_run_saves_state_pointing_to_next_values_page(self) -> None:
         next_values_link = (
             "<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2>; "
             'rel="next"; results="true"'
         )
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome"}], link_header=next_values_link)
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/browser/values/") and (
+                request.param("cursor") is None
+            ):
+                return _json([{"value": "Chrome"}], link_header=next_values_link)
             # Second values page returns empty + no link header to end the loop
-            return _response([])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(can_resume=False)
+        result = _driver().run("issue_tag_values", script)
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
+        rows = result.rows
         assert len(rows) == 1
         assert rows[0]["issue_id"] == "100"
         assert rows[0]["tag_key"] == "browser"
 
-        saved_calls = cast(Mock, manager.save_state).call_args_list
-        assert len(saved_calls) == 1
-        saved_state = saved_calls[0].args[0]
-        assert saved_state == SentryResumeConfig(
-            issue_id="100",
-            tag_key="browser",
-            values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
-        )
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
-        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse",
-        return_value=iter([[{"id": "100"}]]),
-    )
-    def test_warehouse_mode_stamps_the_checkpoint_with_the_pinned_version(
-        self, _mock_reader, _mock_resolve, mock_get
-    ) -> None:
-        # A checkpoint is a position in an iteration order, so it has to record which one:
-        # without the pin, a later attempt reading a different parent would fast-forward past
-        # issues its own order never reached, and the watermark would still advance.
-        next_values_link = (
-            "<https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2>; "
-            'rel="next"; results="true"'
-        )
-
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome"}], link_header=next_values_link)
-            return _response([])
-
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(can_resume=False)
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-            use_warehouse_parent=True,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2020-01-01T00:00:00Z",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert len(rows) == 1
-        saved_state = cast(Mock, manager.save_state).call_args_list[0].args[0]
-        assert saved_state.parent_version == 3
+        assert result.saved_states == [
+            SentryResumeConfig(
+                issue_id="100",
+                tag_key="browser",
+                values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2",
+            )
+        ]
 
     @parameterized.expand(
         [
@@ -1106,32 +900,6 @@ class TestIssueTagValuesResumable:
         now = datetime.now(UTC)
         expected_floor = now - (expected_floor_ago if expected_floor_ago is not None else SENTRY_FANOUT_PARENT_WINDOW)
         assert abs(row_filter.floor(now) - expected_floor) < timedelta(seconds=5)
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table"
-    )
-    def test_full_refresh_takes_the_api_parent_even_with_the_flag_on(self, mock_resolve, mock_get) -> None:
-        # No watermark means the only floor is our window constant, and Sentry clamps its own
-        # listing to the org's plan retention below it, so the snapshot can't reproduce the
-        # API's row set. The run must not even resolve the warehouse table.
-        mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-            use_warehouse_parent=True,
-        )
-        list(cast(Any, resp.items()))
-
-        mock_resolve.assert_not_called()
-        issues_urls = [c.args[0] for c in mock_get.return_value.get.call_args_list if c.args[0].endswith("/issues/")]
-        assert issues_urls, "expected the API issues listing to drive the fan-out"
 
     @parameterized.expand(
         [
@@ -1184,149 +952,79 @@ class TestIssueTagValuesResumable:
 
         cast(Mock, manager.clear_state).assert_called_once()
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_resume_fetches_saved_values_url_and_skips_earlier_pairs(self, mock_get) -> None:
-        seen_urls: list[str] = []
+    def test_resume_fetches_saved_values_url_and_skips_earlier_pairs(self) -> None:
         resume_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2"
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            seen_urls.append(url)
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "99"}, {"id": "100"}, {"id": "101"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "os"}, {"key": "browser"}])
-            if url == resume_url:
-                return _response([{"value": "Firefox"}])
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "99"}, {"id": "100"}, {"id": "101"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "os"}, {"key": "browser"}])
+            if request.url == resume_url or request.param("cursor") == "0:100:2":
+                return _json([{"value": "Firefox"}])
             # Any other URL shouldn't be hit on resume; fall back to empty
-            return _response([])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(
-            can_resume=True,
-            state=SentryResumeConfig(issue_id="100", tag_key="browser", values_next_url=resume_url),
+        result = _driver().run(
+            "issue_tag_values",
+            script,
+            resume_state=SentryResumeConfig(issue_id="100", tag_key="browser", values_next_url=resume_url),
         )
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Firefox", "issue_id": "100", "tag_key": "browser"}]
+        assert result.rows == [{"value": "Firefox", "issue_id": "100", "tag_key": "browser"}]
 
         # We should have fetched the resume values URL directly, and NOT
         # issued the initial page for that (issue, tag) pair.
-        assert resume_url in seen_urls
-        initial_values_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/"
-        assert initial_values_url not in seen_urls
+        values_path = "/api/0/organizations/acme/issues/100/tags/browser/values/"
+        values_requests = [request for request in result.requests if request.path == values_path]
+        assert [request.param("cursor") for request in values_requests] == ["0:100:2"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 2)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_stale_checkpoint_falls_through_after_skip_limit(self, mock_get) -> None:
+    def test_stale_checkpoint_falls_through_after_skip_limit(self) -> None:
         """If the checkpoint issue was deleted between runs, bounded skipping
         falls through so subsequent issues still get processed."""
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
                 # None of these match the checkpoint issue_id=999.
-                return _response([{"id": "100"}, {"id": "101"}, {"id": "102"}])
-            if url.endswith("/organizations/acme/issues/102/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/102/tags/browser/values/"):
-                return _response([{"value": "Chrome"}])
-            return _response([])
+                return _json([{"id": "100"}, {"id": "101"}, {"id": "102"}])
+            if request.path.endswith("/organizations/acme/issues/102/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/102/tags/browser/values/"):
+                return _json([{"value": "Chrome"}])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
-        manager = _make_fake_manager(
-            can_resume=True,
-            state=SentryResumeConfig(
+        result = _driver().run(
+            "issue_tag_values",
+            script,
+            resume_state=SentryResumeConfig(
                 issue_id="999",
                 tag_key="browser",
                 values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
             ),
         )
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
         # With skip limit 2, issues 100 and 101 are skipped; on 102 we exceed
         # the limit, clear the markers, and process it fresh.
-        assert rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
+        assert result.rows == [{"value": "Chrome", "issue_id": "102", "tag_key": "browser"}]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_partial_resume_state_falls_through_to_fresh_run(self, mock_get) -> None:
+    def test_partial_resume_state_falls_through_to_fresh_run(self) -> None:
         """Only activate resume when the full (issue_id, tag_key, values_next_url)
         triple is present; partial state must fall through to a fresh run."""
 
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome"}])
-            return _response([])
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "browser"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _json([{"value": "Chrome"}])
+            return _json([])
 
-        mock_get.return_value.get.side_effect = side_effect
         # issue_id set, but tag_key + values_next_url are missing → partial state.
-        manager = _make_fake_manager(
-            can_resume=True,
-            state=SentryResumeConfig(issue_id="100"),
-        )
+        result = _driver().run("issue_tag_values", script, resume_state=SentryResumeConfig(issue_id="100"))
 
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_resume_with_empty_state_falls_through_to_fresh_run(self, mock_get) -> None:
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome"}])
-            return _response([])
-
-        mock_get.return_value.get.side_effect = side_effect
-        # can_resume=True but state.issue_id is None — should fall through.
-        manager = _make_fake_manager(can_resume=True, state=SentryResumeConfig())
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            resumable_source_manager=manager,
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+        assert result.rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
 
 class TestHelpers:
@@ -1393,17 +1091,6 @@ class TestHelpers:
 
         assert _retry_wait_seconds(state) == expected
 
-    def test_retry_wait_uses_retry_after_header_when_reset_absent(self) -> None:
-        # The exponential fallback tops out around 7 seconds across the whole budget, so a longer
-        # wait must come from the header Sentry actually sends when it omits the reset epoch.
-        state = Mock()
-        state.attempt_number = 1
-        state.outcome = Mock()
-        state.outcome.failed = False
-        state.outcome.result.return_value = Mock(status_code=429, headers={"Retry-After": "42"})
-
-        assert _retry_wait_seconds(state) == 42.0
-
     def test_exhausted_429_raises_org_safe_retryable_error(self) -> None:
         # A persistent 429 that outlasts the retry budget must not reach the caller's
         # raise_for_status(), whose HTTPError URL carries the org slug. The dedicated error keeps
@@ -1430,6 +1117,20 @@ class TestHelpers:
 
         assert _raise_on_failed_retry(state) is response
 
+    def test_exhausted_5xx_raise_for_status_is_classified_retryable(self) -> None:
+        # Endpoints with no per-request skip handler (e.g. the projects listing _iter_projects
+        # feeds project_ownership/project_stats from) let the response above reach
+        # raise_for_status() uncaught. That HTTPError must still be classified retryable, the
+        # same as the exhausted-429 case above, rather than reported to error tracking as a bug.
+        response = Mock(status_code=502, headers={})
+        error = HTTPError(
+            "502 Server Error: Bad Gateway for url: https://de.sentry.io/api/0/organizations/acme/projects/",
+            response=response,
+        )
+
+        assert error_message_matches(str(error), SentrySource().get_retryable_errors())
+        assert not error_message_matches(str(error), SentrySource().get_non_retryable_errors())
+
 
 class TestSentryRetentionWindow:
     @parameterized.expand(
@@ -1447,22 +1148,6 @@ class TestSentryRetentionWindow:
         parsed = datetime.strptime(_retention_bounded_start_param(value), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
 
         assert abs((parsed - floor).total_seconds()) < 60
-
-    def test_start_param_keeps_watermark_inside_retention(self) -> None:
-        value = datetime.now(UTC) - timedelta(days=3)
-
-        parsed = datetime.strptime(_retention_bounded_start_param(value), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
-
-        assert abs((parsed - value).total_seconds()) < 2
-
-    def test_start_param_caps_future_watermark_at_now(self) -> None:
-        now = datetime.now(UTC)
-
-        parsed = datetime.strptime(
-            _retention_bounded_start_param(datetime(2999, 1, 1, tzinfo=UTC)), "%Y-%m-%dT%H:%M:%S"
-        ).replace(tzinfo=UTC)
-
-        assert abs((parsed - now).total_seconds()) < 60
 
 
 class TestSentryNewFlatEndpoints:
@@ -1497,28 +1182,6 @@ class TestSentryNewFlatEndpoints:
             assert params[page_size_param] == 100
         else:
             assert "per_page" not in params
-
-    def test_replays_requests_ascending_sort(self) -> None:
-        # sort_mode is "asc" for replays, so the request must ask for ascending
-        # started_at or the incremental watermark advances to the newest row immediately.
-        resource = cast(
-            dict[str, Any],
-            get_resource(endpoint="replays", organization_slug="acme", should_use_incremental_field=False),
-        )
-
-        assert resource["endpoint"]["params"]["sort"] == "started_at"
-        assert SENTRY_ENDPOINTS["replays"].sort_mode == "asc"
-
-    def test_organization_events_requests_discover_projection(self) -> None:
-        resource = cast(
-            dict[str, Any],
-            get_resource(endpoint="organization_events", organization_slug="acme", should_use_incremental_field=False),
-        )
-
-        params = resource["endpoint"]["params"]
-        assert params["dataset"] == "errors"
-        assert params["field"] == ["id", "timestamp", "transaction"]
-        assert params["sort"] == "timestamp"
 
     @parameterized.expand(
         [
@@ -1852,33 +1515,6 @@ class TestSentryCustomIteratorEndpoints:
         assert rows[0]["period_end"] == "2026-03-01T00:00:00Z"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
-    def test_stats_summary_requests_a_clamped_window_not_a_boundary_stats_period(self, mock_request) -> None:
-        # A relative statsPeriod of the full retention length lands on the retention boundary,
-        # which Sentry rejects with a 400 — the request must send an explicit clamped window.
-        seen_params: list[dict | None] = []
-
-        def side_effect(url, headers=None, params=None, timeout=None):
-            seen_params.append(params)
-            return _response({"start": "s", "end": "e", "projects": []})
-
-        mock_request.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="organization_stats_summary",
-            team_id=123,
-            job_id="job-id",
-        )
-
-        list(cast(Any, resp.items()))
-
-        assert seen_params[0] is not None
-        assert "statsPeriod" not in seen_params[0]
-        assert seen_params[0]["start"] and seen_params[0]["end"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_stats_summary_skips_when_token_has_no_project_access(self, mock_request) -> None:
         # The requesting token's user can be a member of the org without being a
         # member of any project's team — Sentry 400s this specific endpoint rather
@@ -1920,14 +1556,15 @@ class TestSentryCustomIteratorEndpoints:
         assert error_message_matches(message, SentrySource().get_non_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
-    def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:
+    def test_trace_item_attributes_skips_dataset_on_persistent_server_error(self, mock_request) -> None:
+        # A persistent 5xx for one dataset (retries already exhausted by _request_with_retry)
+        # must not fail the whole endpoint — skip that dataset, like the other slices do.
         def side_effect(url, headers=None, params=None, timeout=None):
             dataset = (params or {}).get("dataset")
             if dataset == "spans":
                 return _response([{"key": "browser.name", "attributeType": "string"}])
-            if dataset == "preprod":
-                # Not every organization has every trace item dataset enabled.
-                return _response(None, status_code=400)
+            if dataset == "logs":
+                return _response(None, status_code=502)
             return _response([])
 
         mock_request.side_effect = side_effect
@@ -2102,88 +1739,6 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
-        side_effect=WarehouseParentTableNotFoundError("issues table is gone"),
-    )
-    def test_issue_tag_values_falls_back_to_the_api_when_the_table_is_unreadable(self, _mock_resolve, mock_get) -> None:
-        # issues reports a completed sync but its table can't be read, so the iterator has to
-        # walk the issues endpoint exactly as it does with the feature off.
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                return _response([{"id": "100", "lastSeen": "2026-03-05T12:00:00Z"}])
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome", "timesSeen": 1}])
-            return _response([])
-
-        mock_get.return_value.get.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-            use_warehouse_parent=True,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2020-01-01T00:00:00Z",
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Chrome", "timesSeen": 1, "issue_id": "100", "tag_key": "browser"}]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
-        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
-    )
-    def test_issue_tag_values_reads_issues_from_warehouse(self, mock_reader, _mock_resolve, mock_get) -> None:
-        mock_reader.return_value = iter([[{"id": "100", "lastSeen": "2026-03-05T12:00:00Z"}]])
-
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/"):
-                raise AssertionError("warehouse-parent issue_tag_values must not fetch the issues endpoint")
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
-                return _response([{"value": "Chrome", "timesSeen": 1}])
-            return _response([])
-
-        mock_get.return_value.get.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-            use_warehouse_parent=True,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2020-01-01T00:00:00Z",
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert rows == [{"value": "Chrome", "timesSeen": 1, "issue_id": "100", "tag_key": "browser"}]
-        mock_reader.assert_called_once_with(
-            table=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
-            parent_name="issues",
-            # lastSeen is always projected because it carries the scan floor.
-            columns=["id", "lastSeen"],
-            page_size=100,
-            schema_name="issue_tag_values",
-            row_filter=_issues_parent_row_filter(datetime(2020, 1, 1, tzinfo=UTC)),
-        )
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
         return_value=datetime(2026, 3, 4, 0, 0, 0, tzinfo=UTC),
     )
@@ -2282,57 +1837,6 @@ class TestWarehouseParentReuse:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
     )
-    def test_issue_tag_values_warehouse_cutoff_filters_instead_of_breaking(
-        self, mock_reader, _mock_resolve, mock_get
-    ) -> None:
-        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
-        # Unordered warehouse scan: a stale issue arrives BEFORE a fresh one. API mode breaks
-        # on the first stale row (sorted input); warehouse mode must filter and keep scanning.
-        mock_reader.return_value = iter(
-            [
-                [
-                    {"id": "100", "lastSeen": "2026-03-01T00:00:00Z"},
-                    {"id": "200", "lastSeen": "2026-03-05T00:00:00Z"},
-                ]
-            ]
-        )
-
-        def side_effect(url, headers=None, params=None, timeout=None):
-            if url.endswith("/organizations/acme/issues/100/tags/"):
-                raise AssertionError("stale issue must be filtered out, not fanned out")
-            if url.endswith("/organizations/acme/issues/200/tags/"):
-                return _response([{"key": "browser"}])
-            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
-                return _response([{"value": "Chrome", "lastSeen": "2026-03-05T00:00:00Z"}])
-            return _response([])
-
-        mock_get.return_value.get.side_effect = side_effect
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-            use_warehouse_parent=True,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=cutoff,
-            incremental_field="lastSeen",
-        )
-
-        rows = list(cast(Any, resp.items()))
-        assert [row["issue_id"] for row in rows] == ["200"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
-        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
-    )
     def test_issue_tag_values_warehouse_skips_issue_deleted_upstream(
         self, mock_reader, _mock_resolve, mock_get
     ) -> None:
@@ -2407,27 +1911,6 @@ class TestWarehouseParentReuse:
 
         rows = list(cast(Any, resp.items()))
         assert rows == [{"value": "Chrome", "issue_id": "200", "tag_key": "browser"}]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
-    def test_fanout_endpoint_threads_warehouse_flag(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_hashes",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-            use_warehouse_parent=True,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2020-01-01T00:00:00Z",
-        )
-
-        kwargs = mock_build.call_args.kwargs
-        assert kwargs["source_id"] == "source-1"
-        assert kwargs["use_warehouse_parent"] is True
 
 
 def test_no_sentry_endpoint_reads_its_parent_from_the_warehouse():

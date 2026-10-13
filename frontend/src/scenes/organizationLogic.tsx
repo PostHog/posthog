@@ -63,6 +63,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_use_personal_api_keys'
         | 'members_can_see_org_members'
         | 'read_only_mcp_access'
+        | 'member_notice'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
         | 'allow_publicly_shared_resources'
@@ -78,6 +79,7 @@ export interface organizationLogicValues {
     currentOrganizationBlockPage: string | null
     currentOrganizationId: string
     currentOrganizationLoading: boolean
+    currentOrganizationProjectCount: number
     isAdminOrOwner: boolean | null
     isCurrentOrganizationNew: boolean
     isCurrentOrganizationUnavailable: boolean
@@ -189,6 +191,7 @@ export interface organizationLogicMeta {
             currentOrganization: OrganizationType | null,
             currentOrganizationLoading: boolean
         ) => boolean
+        currentOrganizationProjectCount: (currentOrganization: OrganizationType | null) => number
         projectCreationForbiddenReason: (
             currentOrganization: OrganizationType | null,
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
@@ -316,6 +319,14 @@ export const organizationLogic = kea<organizationLogicType>([
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization: OrganizationType | null, currentOrganizationLoading: boolean): boolean =>
                 !currentOrganization?.membership_level && !currentOrganizationLoading,
+        ],
+        // Mirrors PremiumMultiProjectPermission, which counts distinct non-demo projects, not environments
+        currentOrganizationProjectCount: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): number =>
+                new Set(
+                    (currentOrganization?.teams ?? []).filter((team) => !team.is_demo).map((team) => team.project_id)
+                ).size,
         ],
         projectCreationForbiddenReason: [
             (s) => [s.currentOrganization, s.hasAvailableFeature],

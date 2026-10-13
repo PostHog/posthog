@@ -7,7 +7,7 @@ surface that offers or validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
-- the desktop app and its agent, through ``@posthog/shared/model-catalog``.
+- the desktop app and its agent, through ``@posthog/agent-contracts/model-catalog``.
 
 Both TypeScript projections are emitted by ``products/tasks/scripts/model_catalog_projection.py`` and are
 checked for drift by `hogli build:projections --check` in CI. After editing this file, run
@@ -68,9 +68,16 @@ _GLM = (HIGH, MAX)
 _NO_EFFORT: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, kw_only=True)
+class LongContextCost:
+    above_input_tokens: int
+    input_per_mtok: float
+    output_per_mtok: float
+
+
 @dataclass(frozen=True)
 class ModelCost:
-    """List price in US dollars per million tokens, not the negotiated rate PostHog pays.
+    """Base list price in US dollars per million tokens, not PostHog's negotiated rate.
 
     A picker states a comparison between models, and a negotiated rate would make it one
     nobody outside PostHog could check.
@@ -78,6 +85,7 @@ class ModelCost:
 
     input_per_mtok: float
     output_per_mtok: float
+    long_context: LongContextCost | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +174,11 @@ _GPT_MID_COST = ModelCost(2.5, 15)
 _GPT_LIGHT_COST = ModelCost(1, 6)
 _GPT_FRONTIER_COST = ModelCost(10, 50)
 _GPT_6_SOL_COST = ModelCost(2, 10)
+_GPT_6_1_SOL_COST = ModelCost(
+    2,
+    10,
+    long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=4, output_per_mtok=15),
+)
 _GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
 MODELS: tuple[CatalogModel, ...] = (
@@ -220,6 +233,7 @@ MODELS: tuple[CatalogModel, ...] = (
     ),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel(
         "claude-sonnet-4-6",
@@ -238,6 +252,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
+    CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
@@ -248,6 +263,7 @@ MODELS: tuple[CatalogModel, ...] = (
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
     (CODEX, "gpt-6-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6.1-sol", _THROUGH_MAX),
     (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
@@ -264,8 +280,8 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 # Applied when a run or a loop leaves the model unset: blank means "let PostHog pick", so the
 # choice can improve without rewriting anything stored.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    CLAUDE: "claude-sonnet-5",
-    CODEX: "gpt-5",
+    CLAUDE: "claude-sonnet-5-5",
+    CODEX: "gpt-6.1-sol",
 }
 
 
@@ -285,8 +301,8 @@ class CapabilityNotch:
 # so a rung naming a retired model drops out instead of becoming a stop that fails on send.
 CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
     CLAUDE: (
-        CapabilityNotch("claude-sonnet-5", MEDIUM),
-        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-sonnet-5-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5-5", HIGH),
         CapabilityNotch("claude-opus-5-5", MEDIUM),
         CapabilityNotch("claude-opus-5-5", XHIGH),
         CapabilityNotch("claude-fable-5-1", MAX),
@@ -482,7 +498,7 @@ def _format_multiplier(multiplier: float) -> str:
 
 
 def cost_multiplier_label(model_id: str) -> str | None:
-    """The multiplier a picker shows beside a model, `2.5×` or `≈0.55×`, or ``None``.
+    """The multiplier a picker shows, such as `2.5×`, `≈0.55×`, or `1× base`.
 
     Resolved here so the web composer, the Slack picker and the desktop app cannot quote one
     model differently.
@@ -491,16 +507,26 @@ def cost_multiplier_label(model_id: str) -> str | None:
     if resolved is None:
         return None
     multiplier, approximate = resolved
-    return f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
+    base_label = f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
+    cost = cost_for_model(model_id)
+    return f"{base_label} base" if cost and cost.long_context else base_label
 
 
 def format_cost_rates(cost: ModelCost) -> str:
-    """The rates behind a multiplier, for a tooltip: `Input $2 · Output $10 per 1M tokens`."""
+    """The rates behind a multiplier, including a long-context tier when one exists."""
 
     def money(amount: float) -> str:
         return f"${amount:.0f}" if float(amount).is_integer() else f"${amount:.2f}"
 
-    return f"Input {money(cost.input_per_mtok)} · Output {money(cost.output_per_mtok)} per 1M tokens"
+    base_rates = f"Input {money(cost.input_per_mtok)} · Output {money(cost.output_per_mtok)} per 1M tokens"
+    if cost.long_context is None:
+        return base_rates
+
+    tier = cost.long_context
+    threshold = f"{tier.above_input_tokens // 1_000}K"
+    base_context_rates = f"{money(cost.input_per_mtok)} input/{money(cost.output_per_mtok)} output"
+    long_context_rates = f"{money(tier.input_per_mtok)} input/{money(tier.output_per_mtok)} output"
+    return f"Per 1M tokens: {base_context_rates} to {threshold}; {long_context_rates} above"
 
 
 def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:

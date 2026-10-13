@@ -97,6 +97,20 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.status == TaskRun.Status.CANCELLED
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("status", [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+    def test_terminal_run_refuses_to_start(self, activity_environment, test_task_run, status):
+        test_task_run.status = status
+        test_task_run.save(update_fields=["status"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        assert exc_info.value.non_retryable is True
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == status
+
+    @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):
         error_msg = "Something went wrong"
         input_data = UpdateTaskRunStatusInput(
@@ -330,13 +344,14 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        "status,timed_out_inactivity,timeout_marker,error_message,expected_event,expected_reason",
         [
-            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (TaskRun.Status.COMPLETED, True, None, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
             (
                 TaskRun.Status.FAILED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_failed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
             ),
@@ -344,8 +359,17 @@ class TestUpdateTaskRunStatusActivity:
                 TaskRun.Status.COMPLETED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_completed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                SANDBOX_GONE_STATE_KEY,
+                "Sandbox stopped: killed with exit code 137, usually because it ran out of memory. Resume to continue.",
+                "task_run_completed",
+                SANDBOX_GONE_STATE_KEY,
             ),
         ],
     )
@@ -358,12 +382,14 @@ class TestUpdateTaskRunStatusActivity:
         status,
         timed_out_inactivity,
         timeout_marker,
+        error_message,
         expected_event,
         expected_reason,
     ):
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=status,
+            error_message=error_message,
             timed_out_inactivity=timed_out_inactivity,
             timeout_marker=timeout_marker,
             agent_active_at_termination=False,
@@ -376,6 +402,7 @@ class TestUpdateTaskRunStatusActivity:
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
         properties = captured[0].kwargs["properties"]
         assert properties["termination_reason"] == expected_reason
+        assert properties["error_message"] == (error_message or "")
         assert properties["agent_active_at_termination"] is False
         assert properties["end_of_turn_received"] is True
         assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
@@ -383,10 +410,11 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "error_type,expected_error_type",
+        "error_type,failure_state,expected_error_type",
         [
-            ("ActivityError", "ActivityError"),
-            (None, "unspecified"),
+            ("ActivityError", {}, "ActivityError"),
+            (None, {}, "unspecified"),
+            ("agent_reported", {"failure_error_type": "agent_declined"}, "agent_declined"),
         ],
     )
     @pytest.mark.parametrize(
@@ -405,12 +433,13 @@ class TestUpdateTaskRunStatusActivity:
         activity_environment: ActivityEnvironment,
         test_task_run: TaskRun,
         error_type: str | None,
+        failure_state: dict[str, str],
         expected_error_type: str,
         sandbox_backend: str | None,
         persisted_state: dict[str, str],
         expected_backend: str | None,
     ) -> None:
-        test_task_run.state = persisted_state
+        test_task_run.state = {**persisted_state, **failure_state}
         test_task_run.save(update_fields=["state"])
         error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
         input_data = UpdateTaskRunStatusInput(

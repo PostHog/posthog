@@ -43,11 +43,12 @@ export const EditableTagsInNarrowContainer: Story = {
         </div>
     ),
     play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-        const container = canvasElement.querySelector<HTMLElement>('[data-attr="narrow-tags-container"]')
+        const editButton = await within(canvasElement).findByText('Edit tags')
+        const container = editButton.closest<HTMLElement>('[data-attr="narrow-tags-container"]')
         if (!container) {
             throw new Error('Expected a narrow tags container')
         }
-        await userEvent.click(within(container).getByText('Edit tags'))
+        await userEvent.click(editButton)
         await waitFor(() => {
             const editor = container.querySelector<HTMLElement>('[data-attr="new-tag-input"]')
             const editorBounds = editor?.getBoundingClientRect()

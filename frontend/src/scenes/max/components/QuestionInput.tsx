@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -152,9 +152,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted, isPhaiSandboxFlagOn } = useValues(maxGlobalLogic)
     const { question, panelId: maxPanelId, fillInHint, typingSuggestion } = useValues(maxLogic)
-    const { setQuestion, setFillInHint, cancelSuggestionTyping } = useActions(maxLogic)
+    const { setQuestion, setFillInHint, cancelSuggestionTyping, attachFilesToNewChat } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
@@ -204,6 +204,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     // messages = more subscriptions to sweep). kea remains the source of truth for submit, slash
     // commands, and draft persistence — we sync to it on a debounce, immediately for slash
     // commands so the autocomplete stays responsive, and on submit/blur.
+    const attachmentInputRef = useRef<HTMLInputElement>(null)
     const [inputValue, setInputValue] = useState(question)
     const debouncedSetQuestion = useDebouncedCallback((value: string) => setQuestion(value), 150)
 
@@ -496,7 +497,38 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                             )}
                                         >
-                                            <ContextDisplay size={contextDisplaySize} />
+                                            <div className="flex items-start gap-1 flex-1 min-w-0">
+                                                <div className="flex-1 min-w-0">
+                                                    <ContextDisplay size={contextDisplaySize} />
+                                                </div>
+                                                {isPhaiSandboxFlagOn && !conversation && (
+                                                    <div className="shrink-0">
+                                                        <input
+                                                            ref={attachmentInputRef}
+                                                            type="file"
+                                                            multiple
+                                                            className="hidden"
+                                                            data-attr="max-new-chat-attach-input"
+                                                            onChange={(event) => {
+                                                                const files = Array.from(event.target.files ?? [])
+                                                                event.target.value = ''
+                                                                attachFilesToNewChat(files, inputValue)
+                                                            }}
+                                                        />
+                                                        <LemonButton
+                                                            size="xxsmall"
+                                                            type="tertiary"
+                                                            className="border"
+                                                            icon={<IconUpload />}
+                                                            tooltip="Attach files in new PostHog AI. Your draft moves with you."
+                                                            onClick={() => attachmentInputRef.current?.click()}
+                                                            data-attr="max-new-chat-attach-file"
+                                                        >
+                                                            Attach
+                                                        </LemonButton>
+                                                    </div>
+                                                )}
+                                            </div>
 
                                             <div
                                                 className={cn(

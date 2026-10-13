@@ -16,11 +16,18 @@ from products.alerts.backend.evaluation.contract import (
     Extractor,
     execution_mode_for_alert,
 )
+from products.alerts.backend.evaluation.delay import (
+    DelayedEvaluationUnavailable,
+    describe_delayed_evaluation,
+    validate_evaluation_delay,
+)
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
+from products.alerts.backend.judge.contract import LLMDetectorUnavailableError
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -95,10 +102,13 @@ def check_detector_alert(
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
     result = run_extractor(detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
-    return evaluate_with_detector(result, detector_config, insight=insight, alert=alert, evaluation_id=evaluation_id)
+    return describe_delayed_evaluation(
+        evaluate_with_detector(result, detector_config, insight=insight, alert=alert, evaluation_id=evaluation_id),
+        result,
+    )
 
 
-def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
+def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
     """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
 
     If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
@@ -118,6 +128,11 @@ def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | N
             query = get_from_dict_or_attr(query, "source")
             kind = get_from_dict_or_attr(query, "kind")
 
+        try:
+            validate_evaluation_delay(query, alert.config, alert.evaluation_delay_intervals)
+        except ValueError as err:
+            raise AlertExtractionError(str(err)) from err
+
         if alert.detector_config:
             return check_detector_alert(alert, insight, query, evaluation_id=evaluation_id)
 
@@ -132,4 +147,21 @@ def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | N
 
         condition = AlertCondition.model_validate(alert.condition)
         result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
-        return evaluate_threshold(result, condition, threshold)
+        return describe_delayed_evaluation(evaluate_threshold(result, condition, threshold), result)
+
+
+def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
+    try:
+        return _check_alert_for_insight(alert, evaluation_id=evaluation_id)
+    except DelayedEvaluationUnavailable as err:
+        if is_llm_detector_config(alert.detector_config):
+            raise LLMDetectorUnavailableError(str(err)) from err
+        return AlertEvaluationResult(
+            value=None,
+            breaches=[],
+            skipped_reason=str(err),
+            triggered_metadata={
+                "evaluation_delay_intervals": alert.evaluation_delay_intervals,
+                "skipped_reason": str(err),
+            },
+        )

@@ -32,7 +32,7 @@ class HoneybadgerRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HoneybadgerResumeConfig:
     # Next page URL to fetch. None means "start the bookmarked resource at its first page".
     next_url: str | None = None
@@ -40,6 +40,12 @@ class HoneybadgerResumeConfig:
     # and the retry can't resume us into the wrong project/fault.
     project_id: int | None = None
     fault_id: int | None = None
+    site_id: str | None = None
+    alarm_id: str | None = None
+
+
+# Fan-out parent list under a project -> the child row column / resume bookmark holding its id.
+_FAN_OUT_PARENT_KEYS = {"faults": "fault_id", "sites": "site_id", "alarms": "alarm_id"}
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -83,7 +89,7 @@ def _to_unix_timestamp(value: Any) -> int:
     wait=wait_exponential_jitter(initial=2, max=30),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
+def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
     # Honeybadger paginates with a root-relative `links.next` (e.g. /v2/projects/1/faults?page=2),
     # so resolve against the API base before validating the origin. A foreign absolute URL keeps
     # its own netloc through urljoin, so it is still refused below.
@@ -133,16 +139,26 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
-def _collect_ids(session: requests.Session, first_url: str, logger: FilteringBoundLogger) -> list[Any]:
-    """Walk every page of a list endpoint and return the ids, following `links.next`."""
-    ids: list[Any] = []
+def _parse_page(data: Any, data_selector: str = "results") -> tuple[list[Any], str | None]:
+    """Split a response into (results, next_url). Some endpoints return a bare array with no paging."""
+    if isinstance(data, list):
+        return data, None
+    return data.get(data_selector) or [], (data.get("links") or {}).get("next")
+
+
+def _collect_items(session: requests.Session, first_url: str, logger: FilteringBoundLogger) -> list[dict]:
+    """Walk every page of a list endpoint and return the items, following `links.next`."""
+    items: list[dict] = []
     url: str | None = first_url
     while url:
-        data = _fetch_page(session, url, logger)
-        ids.extend(item["id"] for item in data.get("results") or [])
-        next_url = (data.get("links") or {}).get("next")
+        results, next_url = _parse_page(_fetch_page(session, url, logger))
+        items.extend(results)
         url = next_url if next_url != url else None
-    return ids
+    return items
+
+
+def _collect_ids(session: requests.Session, first_url: str, logger: FilteringBoundLogger) -> list[Any]:
+    return [item["id"] for item in _collect_items(session, first_url, logger)]
 
 
 def _build_params(
@@ -152,7 +168,8 @@ def _build_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_LIMIT}
+    params: dict[str, Any] = {"limit": PAGE_LIMIT} if config.paginated else {}
+    params.update(config.query_params)
 
     if not should_use_incremental_field or db_incremental_field_last_value is None:
         return params
@@ -160,6 +177,8 @@ def _build_params(
     field_name = incremental_field or config.default_incremental_field
     query_param = config.incremental_params.get(field_name) if field_name else None
     if query_param is None:
+        if field_name in config.parent_incremental_params:
+            return params
         # No server-side filter for the chosen cursor — walk the full history and let the
         # merge dedupe on the primary key rather than silently filtering on the wrong field.
         logger.warning(
@@ -172,18 +191,42 @@ def _build_params(
     return params
 
 
+def _build_parent_params(
+    config: HoneybadgerEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> dict[str, Any]:
+    """Params for the fan-out parent list, bounded by the child's watermark where the parent allows it."""
+    params: dict[str, Any] = {"limit": PAGE_LIMIT}
+    if not should_use_incremental_field or db_incremental_field_last_value is None:
+        return params
+
+    field_name = incremental_field or config.default_incremental_field
+    query_param = config.parent_incremental_params.get(field_name) if field_name else None
+    if query_param is not None:
+        params[query_param] = _to_unix_timestamp(db_incremental_field_last_value)
+    return params
+
+
+def _time_series_rows(project_id: Any, pairs: list[Any]) -> list[dict]:
+    return [
+        {"project_id": project_id, "bucket_start": datetime.fromtimestamp(timestamp, tz=UTC), "count": count}
+        for timestamp, count in pairs
+    ]
+
+
 def _iter_pages(
     session: requests.Session,
     first_url: str,
     logger: FilteringBoundLogger,
+    data_selector: str = "results",
 ) -> Iterator[tuple[list[dict], str | None]]:
     """Yield (results, next_url) per page. The docs note a `next` link may point at an empty
     page, so empty results don't terminate the walk — only a missing `next` link does."""
     url: str | None = first_url
     while url:
-        data = _fetch_page(session, url, logger)
-        results = data.get("results") or []
-        next_url = (data.get("links") or {}).get("next")
+        results, next_url = _parse_page(_fetch_page(session, url, logger), data_selector)
         if next_url == url:
             next_url = None
         yield results, next_url
@@ -235,12 +278,14 @@ def _get_project_child_rows(
         )
         resume_url = None  # only the resumed-into project uses the saved URL
 
-        for results, next_url in _iter_pages(session, first_url, logger):
+        for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
             if not results:
                 continue
-            # Inject the parent project id: sites don't carry it, and it's part of the
-            # composite primary key. Faults/deploys already include it (theirs wins).
-            yield [{"project_id": project_id, **item} for item in results]
+            if config.time_series:
+                yield _time_series_rows(project_id, results)
+            else:
+                # The traversal determines the parent, so API rows cannot change their project attribution.
+                yield [{**item, "project_id": project_id} for item in results]
             if next_url:
                 resumable_source_manager.save_state(HoneybadgerResumeConfig(next_url=next_url, project_id=project_id))
 
@@ -249,69 +294,76 @@ def _get_project_child_rows(
             resumable_source_manager.save_state(HoneybadgerResumeConfig(project_id=remaining[index + 1]))
 
 
-def _get_notice_rows(
+def _get_nested_rows(
     session: requests.Session,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HoneybadgerResumeConfig],
     resume: HoneybadgerResumeConfig | None,
     config: HoneybadgerEndpointConfig,
+    fan_out_parent: str,
     params: dict[str, Any],
+    parent_params: dict[str, Any],
 ) -> Iterator[list[dict]]:
-    """Two-level fan-out: projects -> faults -> notices.
+    """Two-level fan-out: projects -> faults, sites, or alarms -> {endpoint}.
 
-    On incremental syncs the notice watermark also bounds the fault enumeration
+    On incremental syncs of fault children, the watermark also bounds the fault enumeration
     (`occurred_after`): only faults whose last notice is newer than the watermark can have new
-    notices, which keeps the per-fault request count away from the 360 req/hour quota.
+    rows, which keeps the per-fault request count away from the 360 req/hour quota.
     """
+    parent_key = _FAN_OUT_PARENT_KEYS[fan_out_parent]
     project_ids = _collect_ids(session, _build_url(f"{HONEYBADGER_BASE_URL}/projects", {"limit": PAGE_LIMIT}), logger)
 
-    fault_params: dict[str, Any] = {"limit": PAGE_LIMIT}
-    created_after = params.get("created_after")
-    if created_after is not None:
-        fault_params["occurred_after"] = created_after
-
     remaining_projects = project_ids
-    resume_fault_id: int | None = None
+    resume_parent_id: Any = None
     resume_url: str | None = None
     if resume is not None and resume.project_id is not None and resume.project_id in project_ids:
         remaining_projects = project_ids[project_ids.index(resume.project_id) :]
-        resume_fault_id = resume.fault_id
+        resume_parent_id = getattr(resume, parent_key)
         resume_url = resume.next_url
 
     for project_index, project_id in enumerate(remaining_projects):
-        fault_ids = _collect_ids(
+        parents = _collect_items(
             session,
-            _build_url(f"{HONEYBADGER_BASE_URL}/projects/{project_id}/faults", fault_params),
+            _build_url(f"{HONEYBADGER_BASE_URL}/projects/{project_id}/{fan_out_parent}", parent_params),
             logger,
         )
+        parent_ids = [parent["id"] for parent in parents]
+        parent_columns = {
+            parent["id"]: {column: parent.get(field_name) for field_name, column in config.parent_fields.items()}
+            for parent in parents
+        }
 
-        remaining_faults = fault_ids
-        if resume_fault_id is not None and resume_fault_id in fault_ids:
-            remaining_faults = fault_ids[fault_ids.index(resume_fault_id) :]
+        remaining_parents = parent_ids
+        if resume_parent_id is not None and resume_parent_id in parent_ids:
+            remaining_parents = parent_ids[parent_ids.index(resume_parent_id) :]
         else:
-            # No (or unresolvable) fault bookmark: the saved page URL belongs to a fault we're
-            # not resuming into, so it must not seed another fault's pagination.
+            # No (or unresolvable) parent bookmark: the saved page URL belongs to a parent we're
+            # not resuming into, so it must not seed another parent's pagination.
             resume_url = None
-        resume_fault_id = None  # only the resumed-into project uses the fault bookmark
+        resume_parent_id = None  # only the resumed-into project uses the parent bookmark
 
-        for fault_index, fault_id in enumerate(remaining_faults):
+        for parent_index, parent_id in enumerate(remaining_parents):
             first_url = resume_url or _build_url(
-                f"{HONEYBADGER_BASE_URL}{config.path.format(project_id=project_id, fault_id=fault_id)}", params
+                f"{HONEYBADGER_BASE_URL}{config.path.format(project_id=project_id, **{parent_key: parent_id})}",
+                params,
             )
             resume_url = None
 
-            for results, next_url in _iter_pages(session, first_url, logger):
+            for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
                 if not results:
                     continue
-                yield [{"project_id": project_id, **item} for item in results]
+                yield [
+                    {**item, "project_id": project_id, parent_key: parent_id, **parent_columns[parent_id]}
+                    for item in results
+                ]
                 if next_url:
                     resumable_source_manager.save_state(
-                        HoneybadgerResumeConfig(next_url=next_url, project_id=project_id, fault_id=fault_id)
+                        HoneybadgerResumeConfig(next_url=next_url, project_id=project_id, **{parent_key: parent_id})
                     )
 
-            if fault_index + 1 < len(remaining_faults):
+            if parent_index + 1 < len(remaining_parents):
                 resumable_source_manager.save_state(
-                    HoneybadgerResumeConfig(project_id=project_id, fault_id=remaining_faults[fault_index + 1])
+                    HoneybadgerResumeConfig(project_id=project_id, **{parent_key: remaining_parents[parent_index + 1]})
                 )
 
         if project_index + 1 < len(remaining_projects):
@@ -339,8 +391,13 @@ def get_rows(
     )
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.fan_out_over_faults:
-        yield from _get_notice_rows(session, logger, resumable_source_manager, resume, config, params)
+    if config.fan_out_parent is not None:
+        parent_params = _build_parent_params(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+        yield from _get_nested_rows(
+            session, logger, resumable_source_manager, resume, config, config.fan_out_parent, params, parent_params
+        )
     elif "{project_id}" in config.path:
         yield from _get_project_child_rows(session, logger, resumable_source_manager, resume, config, params)
     else:

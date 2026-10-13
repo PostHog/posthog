@@ -13,6 +13,7 @@ import {
     ActionFilter,
     FilterLogicalOperator,
     PropertyFilterType,
+    PersonPropertyFilter,
     PropertyOperator,
     RecordingUniversalFilters,
 } from '~/types'
@@ -374,6 +375,43 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
 
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
+            })
+
+            it.each([
+                ['console_error_count', 'DESC', [100, 50]],
+                ['console_error_count', 'ASC', [50, 100]],
+                ['surfacing_score', 'DESC', [50, 100]],
+            ] as const)('orders the pinned recordings by %s %s', async (order, order_direction, expected) => {
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'pinned-ordering',
+                    pinnedRecordings: [aRecording, bRecording],
+                    onlyPinned: true,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ order, order_direction })
+                }).toDispatchActions(['loadPinnedRecordingsSuccess'])
+
+                expect(logic.values.visiblePinnedRecordings.map((r) => r.console_error_count)).toEqual(expected)
+            })
+
+            it('keeps the input order of pinned recordings with equal sort values', async () => {
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'pinned-ties',
+                    pinnedRecordings: [
+                        aRecording,
+                        { ...bRecording, console_error_count: aRecording.console_error_count },
+                    ],
+                    onlyPinned: true,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ order: 'console_error_count', order_direction: 'ASC' })
+                }).toDispatchActions(['loadPinnedRecordingsSuccess'])
+
+                expect(logic.values.visiblePinnedRecordings.map((r) => r.id)).toEqual([aRecording.id, bRecording.id])
             })
 
             it('adds an offset', async () => {
@@ -1304,6 +1342,45 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
         })
+
+        it.each(['events', 'actions'] as const)(
+            'uses the effective scope for %s matching when flags change',
+            (type) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: false })
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: `match-scope-${type}`,
+                    filters: {
+                        ...DEFAULT_RECORDING_FILTERS,
+                        event_match_scope: 'recording',
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: type === 'events' ? '$pageview' : 1, name: '$pageview', type }],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.mount()
+
+                const sessionMatch =
+                    type === 'events'
+                        ? { matchType: 'name', eventNames: ['$pageview'] }
+                        : { matchType: 'backend', filters: expect.objectContaining({ event_match_scope: undefined }) }
+                expect(logic.values.matchingEventsMatchType).toEqual(sessionMatch)
+
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: true })
+                expect(logic.values.matchingEventsMatchType).toEqual({
+                    matchType: 'backend',
+                    filters: expect.objectContaining({ event_match_scope: 'recording' }),
+                })
+
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: false })
+                expect(logic.values.matchingEventsMatchType).toEqual(sessionMatch)
+            }
+        )
     })
 
     describe('resetting filters', () => {
@@ -2036,6 +2113,55 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
         })
+
+        it.each([
+            ['$ip', '192.0.2.1', PropertyFilterType.Event],
+            ['$browser', 'Chrome', PropertyFilterType.Event],
+            ['$geoip_country_code', 'AU', PropertyFilterType.Person],
+            ['$entry_current_url', 'https://example.com', PropertyFilterType.Session],
+        ])('toggles a %s overview filter with the matching filter type', async (key, value, type) => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePropertyFilter(key, value)
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.filter_group.values[0]).toMatchObject({
+                values: expect.arrayContaining([{ type, key, value, operator: PropertyOperator.Exact }]),
+            })
+        })
+
+        it.each([
+            ['the same value', '192.0.2.1'],
+            ['a different value', '192.0.2.2'],
+        ])('keeps a person $ip filter with %s when toggling the overview $ip filter', async (_, existingValue) => {
+            const personFilter: PersonPropertyFilter = {
+                type: PropertyFilterType.Person,
+                key: '$ip',
+                value: existingValue,
+                operator: PropertyOperator.Exact,
+            }
+            logic.actions.setFilters({
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [personFilter] }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePropertyFilter('$ip', '192.0.2.1')
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.filter_group.values[0]).toMatchObject({
+                values: [
+                    personFilter,
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$ip',
+                        value: '192.0.2.1',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
+        })
     })
 
     describe('failed list loads', () => {
@@ -2691,6 +2817,34 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
                 })
             ).toEqual({ ...recommendedFilters, recommended_only: false })
+        })
+
+        it.each([
+            [true, 'recording'],
+            [false, undefined],
+        ])('with the event match scope flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
+            const scopedFilters: RecordingUniversalFilters = { ...recommendedFilters, event_match_scope: 'recording' }
+            expect(
+                getEffectiveRecordingFilters(scopedFilters, {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
+                    [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: flagOn,
+                }).event_match_scope
+            ).toBe(expected)
+        })
+
+        it.each([true, false])('reloads a saved recording scope when the flag becomes %s', async (enabled) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: !enabled })
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: `delayed-recording-scope-${enabled}`,
+                filters: { ...DEFAULT_RECORDING_FILTERS, event_match_scope: 'recording' },
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: enabled })
+            }).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
         })
 
         it('clears a persisted recommended filter for the control variant', async () => {

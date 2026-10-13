@@ -103,7 +103,13 @@ class AppsFlyerCredentialsError(Exception):
     pass
 
 
+def _normalize_token(api_token: str) -> str:
+    # A token copied out of a curl command or an Authorization header often keeps its "Bearer " prefix.
+    return re.sub(r"^bearer\s+", "", api_token.strip(), flags=re.IGNORECASE)
+
+
 def _get_session(api_token: str) -> requests.Session:
+    api_token = _normalize_token(api_token)
     # the v5 docs are a bit ambiguous about whether the return format defaults to CSV
     # or JSON, so we explicitly request CSV for safety.
     return make_tracked_session(
@@ -128,7 +134,7 @@ def _rejection_reason(response: requests.Response, api_token: str) -> str | None
     reason = " ".join(response.text.split())
     if not reason or reason.startswith("<") or _HTML_MARKUP.search(reason):
         return None
-    return reason.replace(api_token, "[redacted]")[:MAX_REJECTION_REASON_CHARS]
+    return reason.replace(_normalize_token(api_token), "[redacted]")[:MAX_REJECTION_REASON_CHARS]
 
 
 def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:

@@ -288,8 +288,11 @@ mod tests {
         task.await.ok();
     }
 
+    // A current-thread runtime publishes worker metrics before it resumes this test.
+    // A multi-thread worker publishes them only when it parks or runs maintenance.
+    // Either can happen after the test reads them.
     #[cfg(tokio_unstable)]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
     async fn poll_and_busy_deltas_advance_after_work() {
         let handle = tokio::runtime::Handle::current();
         let metrics = handle.metrics();
@@ -301,7 +304,7 @@ mod tests {
         let polls_before: Vec<u64> = unstable_state.prev_polls.clone();
         let busy_before: Vec<Duration> = stable_state.prev_busy.clone();
 
-        // Spawn real tasks so worker threads register polls
+        // Spawn real tasks so the worker registers polls
         let mut handles = Vec::new();
         for _ in 0..50 {
             handles.push(tokio::spawn(async {

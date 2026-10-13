@@ -1,9 +1,9 @@
 """Operate the personhog shadow validation lane.
 
-The shadow lane is a second consumer group on the team 2 events topic whose
-worker runs with PERSONS_STORE_MODE=shadow: every person write goes through
-both the legacy direct-to-Postgres path and the personhog path, into a
-dedicated persons-shadow database. Validation runs compare the two paths'
+The shadow lane is a second consumer group on a production ingestion topic,
+set in the lane's deployment, whose worker runs with PERSONS_STORE_MODE=shadow:
+every person write goes through both the legacy direct-to-Postgres path and
+the personhog path, into a dedicated persons-shadow database. Validation runs compare the two paths'
 tables afterwards, so each run must start from identical (empty) state on
 both sides.
 
@@ -15,30 +15,46 @@ The Dagster service account needs get/patch on deployments and
 deployments/scale plus list on pods in the lane namespace, and the lane's
 ArgoCD Applications
 must ignore Deployment spec.replicas, or ArgoCD self-heal reverts every scale
-these jobs apply. Both are charts-side prerequisites.
+these jobs apply. Both are charts-side prerequisites. Resetting the lane's
+offsets also needs the Kafka bootstrap servers of the lane's cluster in
+PERSONHOG_SHADOW_KAFKA_BOOTSTRAP_SERVERS on the Dagster deployment.
 """
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from concurrent.futures import Future
 from contextlib import closing
+from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 import dagster
 import psycopg2
 import psycopg2.extras
+from confluent_kafka import KafkaError, KafkaException
+from confluent_kafka.admin import AdminClient
 from kubernetes import (
     client as k8s_client,
     config as k8s_config,
 )
+from prometheus_client import CollectorRegistry, Gauge
 from pydantic import Field
 
 from posthog.dags.common import JobOwners
+from posthog.metrics import pushed_metrics_registry
 
 SHADOW_NAMESPACE = "ingestion-analytics-team2-shadow"
 SHADOW_CONSUMER_DEPLOYMENT = "ingestion-analytics-team2-shadow-consumer"
 SHADOW_PROCESSOR_DEPLOYMENT = "ingestion-analytics-team2-shadow-processor"
 SHADOW_DB_URL_ENV_VAR = "PERSONS_SHADOW_DB_URL"
+SHADOW_CONSUMER_GROUP = "ingestion-analytics-team2-shadow"
+SHADOW_KAFKA_BOOTSTRAP_ENV_VAR = "PERSONHOG_SHADOW_KAFKA_BOOTSTRAP_SERVERS"
+SHADOW_KAFKA_SECURITY_PROTOCOL_ENV_VAR = "PERSONHOG_SHADOW_KAFKA_SECURITY_PROTOCOL"
+# The client library defines these error codes at runtime, but its type stubs omit them.
+GROUP_ID_NOT_FOUND: int = KafkaError.GROUP_ID_NOT_FOUND  # type: ignore[attr-defined]
+NON_EMPTY_GROUP: int = KafkaError.NON_EMPTY_GROUP  # type: ignore[attr-defined]
+
+START_METRICS_JOB = "personhog_shadow_lane_start"
 
 # Every table the lane writes, per path. The reset truncates both lists in one
 # statement so a validation run starts from state where "row missing on one
@@ -55,14 +71,21 @@ LEGACY_STATE_TABLES = [
     "posthog_group",
     "posthog_grouptypemapping",
 ]
-PERSONHOG_STATE_TABLES = [
-    "personhog_person_tmp",
-    "personhog_persondistinctid_tmp",
-    "personhog_featureflaghashkeyoverride_tmp",
+# Saga bookkeeping the identity sweeper rewrites on every pass: it garbage-collects
+# completed ops past retention and re-claims failing ones. Excluded from the drain
+# counter because that activity never stops, and any saga step that changes person
+# state also lands in the person, distinct id or override tables.
+LIFECYCLE_OP_TABLES = [
     "lifecycle_op",
     "lifecycle_op_person",
     "lifecycle_op_tmp",
     "lifecycle_op_person_tmp",
+]
+PERSONHOG_STATE_TABLES = [
+    "personhog_person_tmp",
+    "personhog_persondistinctid_tmp",
+    "personhog_featureflaghashkeyoverride_tmp",
+    *LIFECYCLE_OP_TABLES,
     "person_pg_cleanup_queue",
     "person_tombstone_publish_queue",
 ]
@@ -170,6 +193,30 @@ def deployment_ready_replicas(apps: k8s_client.AppsV1Api, namespace: str, name: 
     return deployment.status.ready_replicas or 0
 
 
+def wait_for_deployments(
+    deployments: Iterable[str],
+    is_settled: Callable[[str], bool],
+    *,
+    timeout_seconds: float,
+    poll_seconds: float = 10,
+    sleep: Callable[[float], None] = time.sleep,
+) -> set[str]:
+    """Poll each deployment until is_settled accepts it or the deadline passes.
+
+    Returns the deployments still pending at the deadline, so the caller
+    decides how to report them.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    pending = set(deployments)
+    while pending and time.monotonic() < deadline:
+        for deployment in sorted(pending):
+            if is_settled(deployment):
+                pending.discard(deployment)
+        if pending:
+            sleep(poll_seconds)
+    return pending
+
+
 def wait_for_quiescence(
     read_write_counter: Callable[[], int],
     *,
@@ -205,38 +252,36 @@ def wait_for_quiescence(
 
 
 def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int:
-    """Sum the whole database's tuple-write counters.
+    """Sum the database's tuple-write counters, minus the sweeper's bookkeeping tables.
 
     The shadow database serves only the lane, so a stable sum means every
     writer has drained; a table allowlist would silently go stale when the
-    lane gains a table. The connection must be in autocommit so each poll is
-    its own transaction and reads a fresh pg_stat snapshot instead of the
-    first transaction's cached one.
+    lane gains a table. LIFECYCLE_OP_TABLES are the one exception, because
+    the identity sweeper keeps them moving while the lane is stopped. The
+    connection must be in autocommit so each poll is its own transaction and
+    reads a fresh pg_stat snapshot instead of the first transaction's cached one.
     """
     with connection.cursor() as cursor:
-        # The identity service's lifecycle GC deletes completed lifecycle_op
-        # rows past retention on a timer, and it keeps running while the lane
-        # is scaled to zero. After a run longer than the retention window those
-        # deletes land every sweep, so counting them would never let the wait
-        # settle. They remove nothing the reset would otherwise keep.
         cursor.execute(
-            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd"
-            " + CASE WHEN relname LIKE 'lifecycle\\_op%' THEN 0 ELSE n_tup_del END), 0) AS writes"
-            " FROM pg_stat_user_tables"
+            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd + n_tup_del), 0) AS writes "
+            "FROM pg_stat_user_tables WHERE relname != ALL(%(excluded)s)",
+            {"excluded": LIFECYCLE_OP_TABLES},
         )
         return int(cursor.fetchone()["writes"])
 
 
 class ShadowLaneStartConfig(dagster.Config):
     reset_state: bool = False
-    # Bounded so a typo in run config cannot request enough pods to eat the
-    # nodepool. The team2 lane peaks at 16 of each.
-    consumer_replicas: int = Field(default=4, gt=0, le=32)
-    processor_replicas: int = Field(default=8, gt=0, le=32)
+    # Deletes the lane's consumer group, so the lane starts at the end of its topic instead of its committed offsets.
+    reset_offsets: bool = False
+    consumer_replicas: int = Field(default=4, gt=0, le=512)
+    processor_replicas: int = Field(default=8, gt=0, le=512)
+    processor_step_replicas: int = Field(default=64, gt=0, le=512)
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
+    # Applies to each processor step and to the consumers separately.
     ready_timeout_seconds: int = 600
     # How long the reset waits for in-flight writes to stop before truncating.
     reset_settle_poll_seconds: int = 10
@@ -244,19 +289,25 @@ class ShadowLaneStartConfig(dagster.Config):
     reset_settle_timeout_seconds: int = 600
 
 
-def _reset_shadow_state(
-    context: dagster.OpExecutionContext, config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api
-) -> None:
+def _require_lane_stopped(config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api, option: str, reason: str) -> None:
     for deployment in (config.consumer_deployment, config.processor_deployment):
         pods = deployment_pod_count(apps, config.namespace, deployment)
         if pods > 0:
             raise dagster.Failure(
                 description=(
                     f"Deployment {deployment} still wants or has {pods} pod(s). "
-                    "A reset while consumers run would leave the two paths inconsistent. "
-                    "Run the stop-and-compare job first, then start with reset_state."
+                    f"{reason} "
+                    f"Run the stop-and-compare job first, then start with {option}."
                 )
             )
+
+
+def _reset_shadow_state(
+    context: dagster.OpExecutionContext, config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api
+) -> None:
+    _require_lane_stopped(
+        config, apps, "reset_state", "A reset while consumers run would leave the two paths inconsistent."
+    )
 
     tables = LEGACY_STATE_TABLES + PERSONHOG_STATE_TABLES
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
@@ -297,6 +348,127 @@ def _reset_shadow_state(
     context.log.info("Shadow persons database reset complete")
 
 
+class ConsumerGroupAdmin(Protocol):
+    def delete_consumer_groups(self, group_ids: list[str], **kwargs: Any) -> dict[str, Future]: ...
+
+
+def shadow_kafka_admin() -> AdminClient:
+    bootstrap_servers = os.environ.get(SHADOW_KAFKA_BOOTSTRAP_ENV_VAR)
+    if not bootstrap_servers:
+        raise dagster.Failure(
+            description=(
+                f"Environment variable {SHADOW_KAFKA_BOOTSTRAP_ENV_VAR} is not set on the Dagster deployment. "
+                "It must hold the bootstrap servers of the Kafka cluster the shadow lane consumes from."
+            )
+        )
+    return AdminClient(
+        {
+            "bootstrap.servers": bootstrap_servers,
+            "security.protocol": os.environ.get(SHADOW_KAFKA_SECURITY_PROTOCOL_ENV_VAR, "SSL"),
+            # The wheel's bundled OpenSSL does not read the system CA store unless told to probe for it.
+            "ssl.ca.location": "probe",
+        }
+    )
+
+
+def _reset_consumer_offsets(
+    context: dagster.OpExecutionContext,
+    config: ShadowLaneStartConfig,
+    apps: k8s_client.AppsV1Api,
+    admin_factory: Callable[[], ConsumerGroupAdmin] = shadow_kafka_admin,
+) -> bool:
+    """Delete the lane's consumer group, so the next start falls back to the consumer's offset reset policy.
+
+    The ingestion consumer resets to the latest offset when its group has no committed offset, so the lane
+    starts at the end of its topic. Returns False when the group did not exist.
+    """
+    _require_lane_stopped(config, apps, "reset_offsets", "Kafka refuses to delete a consumer group with members.")
+    admin = admin_factory()
+    future = admin.delete_consumer_groups([SHADOW_CONSUMER_GROUP], request_timeout=30)[SHADOW_CONSUMER_GROUP]
+    try:
+        future.result()
+    except KafkaException as exception:
+        error = exception.args[0]
+        if error.code() == GROUP_ID_NOT_FOUND:
+            context.log.info(f"Consumer group {SHADOW_CONSUMER_GROUP} does not exist, nothing to reset")
+            return False
+        if error.code() == NON_EMPTY_GROUP:
+            raise dagster.Failure(
+                description=(
+                    f"Consumer group {SHADOW_CONSUMER_GROUP} still has members, so Kafka refused to delete it. "
+                    "Wait for the lane's consumers to leave the group, then retry."
+                )
+            ) from exception
+        raise
+    context.log.info(f"Deleted consumer group {SHADOW_CONSUMER_GROUP}; the lane starts from the latest offsets")
+    return True
+
+
+def processor_ramp(current: int, target: int, step: int) -> list[int]:
+    """Replica counts to scale the processors through, ending at target.
+
+    A partly scaled deployment repeats its current count first, so a retried run waits for
+    pods still pending from the last run before it adds more. A scale down goes straight to
+    target, since removing pods needs no new nodes.
+    """
+    if target <= current:
+        return [target]
+    first = current if current > 0 else step
+    return [*range(first, target, step), target]
+
+
+def _scale_and_wait(
+    context: dagster.OpExecutionContext,
+    config: ShadowLaneStartConfig,
+    apps: k8s_client.AppsV1Api,
+    deployment: str,
+    replicas: int,
+) -> None:
+    context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
+    scale_deployment(apps, config.namespace, deployment, replicas)
+
+    def is_ready(name: str) -> bool:
+        return deployment_ready_replicas(apps, config.namespace, name) >= replicas
+
+    if wait_for_deployments([deployment], is_ready, timeout_seconds=config.ready_timeout_seconds):
+        raise dagster.Failure(
+            description=(
+                f"{deployment} did not reach {replicas} ready replicas within {config.ready_timeout_seconds}s. "
+                "The scale was applied; check the pods in the lane namespace."
+            )
+        )
+    context.log.info(f"{deployment} is ready with {replicas} replica(s)")
+
+
+def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConfig, completed_at: float) -> None:
+    Gauge(
+        "posthog_personhog_shadow_lane_start_last_success_timestamp_seconds",
+        "Unix time when the shadow lane last started with every replica ready",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(completed_at)
+    Gauge(
+        "posthog_personhog_shadow_lane_start_reset_state",
+        "1 when the last start truncated the shadow persons database first, 0 when it resumed from existing state",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(1 if config.reset_state else 0)
+    Gauge(
+        "posthog_personhog_shadow_lane_start_reset_offsets",
+        "1 when the last start deleted the lane's consumer group first, 0 when it resumed from committed offsets",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(1 if config.reset_offsets else 0)
+    replicas = Gauge(
+        "posthog_personhog_shadow_lane_start_replicas",
+        "Replicas the last start requested, by deployment",
+        ["namespace", "deployment"],
+        registry=registry,
+    )
+    replicas.labels(namespace=config.namespace, deployment=config.consumer_deployment).set(config.consumer_replicas)
+    replicas.labels(namespace=config.namespace, deployment=config.processor_deployment).set(config.processor_replicas)
+
+
 @dagster.op
 def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStartConfig) -> None:
     apps = apps_api()
@@ -304,37 +476,27 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
         _reset_shadow_state(context, config, apps)
     else:
         context.log.info("reset_state is false, leaving the shadow persons database untouched")
+    if config.reset_offsets:
+        _reset_consumer_offsets(context, config, apps)
+    else:
+        context.log.info("reset_offsets is false, the lane resumes from its committed offsets")
 
-    targets = [
-        (config.consumer_deployment, config.consumer_replicas),
-        (config.processor_deployment, config.processor_replicas),
-    ]
-    for deployment, replicas in targets:
-        context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
-        scale_deployment(apps, config.namespace, deployment, replicas)
+    # Every processor is ready before any consumer starts. A consumer that starts first pins its keys to the
+    # few processors already up, and those keys stay on them while they have work in flight.
+    current = apps.read_namespaced_deployment(name=config.processor_deployment, namespace=config.namespace)
+    for replicas in processor_ramp(
+        current.spec.replicas or 0, config.processor_replicas, config.processor_step_replicas
+    ):
+        _scale_and_wait(context, config, apps, config.processor_deployment, replicas)
+    _scale_and_wait(context, config, apps, config.consumer_deployment, config.consumer_replicas)
 
-    deadline = time.monotonic() + config.ready_timeout_seconds
-    pending = dict(targets)
-    while pending and time.monotonic() < deadline:
-        for deployment, replicas in list(pending.items()):
-            ready = deployment_ready_replicas(apps, config.namespace, deployment)
-            if ready >= replicas:
-                context.log.info(f"{deployment} is ready with {ready} replica(s)")
-                del pending[deployment]
-        if pending:
-            time.sleep(10)
-
-    if pending:
-        raise dagster.Failure(
-            description=(
-                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(pending)}. "
-                "The scale was applied; check the pods in the lane namespace."
-            )
-        )
+    with pushed_metrics_registry(f"{START_METRICS_JOB}_{config.namespace}") as registry:
+        record_start_gauges(registry, config, time.time())
 
     context.add_output_metadata(
         {
             "reset_state": dagster.MetadataValue.bool(config.reset_state),
+            "reset_offsets": dagster.MetadataValue.bool(config.reset_offsets),
             "consumer_replicas": dagster.MetadataValue.int(config.consumer_replicas),
             "processor_replicas": dagster.MetadataValue.int(config.processor_replicas),
         }
@@ -348,6 +510,9 @@ def personhog_shadow_lane_start_job():
     Run with default config to resume consuming from the committed offsets.
     Set ops.start_shadow_lane.config.reset_state to true to truncate both
     paths' tables before starting, which every fresh validation run needs.
-    The reset refuses to run while the lane has pods.
+    Set reset_offsets to true to start from the end of the topic instead.
+    Both resets refuse to run while the lane has pods. Processors scale up in
+    steps of processor_step_replicas, and the consumers start only once every
+    processor is ready.
     """
     start_shadow_lane()

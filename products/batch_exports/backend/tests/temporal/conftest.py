@@ -30,11 +30,7 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
-    truncate_events,
-    truncate_persons,
-    truncate_sessions,
-)
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_all
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -47,9 +43,7 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 @pytest_asyncio.fixture
 async def truncate_clickhouse_tables(clickhouse_client):
     yield
-    await truncate_events(clickhouse_client)
-    await truncate_persons(clickhouse_client)
-    await truncate_sessions(clickhouse_client)
+    await truncate_all(clickhouse_client)
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -228,19 +222,6 @@ def exclude_events(request) -> list[str] | None:
     By decorating a test function with @pytest.mark.parametrize("exclude_events", ..., indirect=True)
     it's possible to set the exclude_events that will be used to create a BatchExport.
     Any list of event names can be used, or None (the default).
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def batch_export_schema(request) -> dict | None:
-    """A parametrizable fixture to configure a batch export schema.
-
-    By decorating a test function with @pytest.mark.parametrize("batch_export_schema", ..., indirect=True)
-    it's possible to set the batch_export_schema that will be used to create a BatchExport.
     """
     try:
         return request.param

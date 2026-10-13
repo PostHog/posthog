@@ -1,6 +1,6 @@
 from typing import cast
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.models.activity_logging.activity_log import AuditableScope, Change, describe_change, dict_changes_between
 
@@ -8,12 +8,12 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
-class TeatActivityLog(TestCase):
+class TeatActivityLog(SimpleTestCase):
     def test_dict_changes_between(self):
         changes = dict_changes_between(
             model_type="Plugin",
             previous={"change_field": "foo", "delete_field": "foo"},
-            new={"change_field": "bar", "new_field": "bar"},
+            new={"change_field": "bar", "new_field": "bar", "_fp_loaded_team_api_token": "phc_fake_token"},
         )
 
         self.assertEqual(len(changes), 3)

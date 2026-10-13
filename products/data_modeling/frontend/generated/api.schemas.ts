@@ -58,7 +58,9 @@ export interface PatchedDAGApi {
 
 export interface EdgeApi {
     readonly id: string
+    /** ID of the upstream node. */
     readonly source_id: string
+    /** ID of the downstream node. */
     readonly target_id: string
     dag: string
     readonly dag_name: string
@@ -79,7 +81,9 @@ export interface PaginatedEdgeListApi {
 
 export interface PatchedEdgeApi {
     readonly id?: string
+    /** ID of the upstream node. */
     readonly source_id?: string
+    /** ID of the downstream node. */
     readonly target_id?: string
     dag?: string
     readonly dag_name?: string
@@ -334,6 +338,23 @@ export type DataModelingNodesListParams = {
      */
     search?: string
 }
+
+export type DataModelingNodesRetrieveParams = {
+    /**
+     * Resolve the path ID as this backing resource type instead of a node ID.
+     */
+    lookup?: DataModelingNodesRetrieveLookup
+}
+
+export type DataModelingNodesRetrieveLookup =
+    (typeof DataModelingNodesRetrieveLookup)[keyof typeof DataModelingNodesRetrieveLookup]
+
+export const DataModelingNodesRetrieveLookup = {
+    Metric: 'metric',
+    PosthogTable: 'posthog_table',
+    SavedQuery: 'saved_query',
+    WarehouseTable: 'warehouse_table',
+} as const
 
 export type DataModelingNodesLineageRetrieveParams = {
     /**

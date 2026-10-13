@@ -1,4 +1,4 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskSummaryDTO } from "@posthog/api-client/task-normalization";
 import type { Task } from "@posthog/shared/domain-types";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useAuthenticatedQuery } from "../../hooks/useAuthenticatedQuery";
@@ -54,7 +54,7 @@ export function useTaskSummaries(
   ids: string[],
   options?: { enabled?: boolean },
 ) {
-  return useAuthenticatedQuery<Schemas.TaskSummaryDTO[]>(
+  return useAuthenticatedQuery<TaskSummaryDTO[]>(
     taskKeys.summaries(ids),
     (client) => client.getTaskSummaries(ids),
     {

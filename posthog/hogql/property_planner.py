@@ -301,15 +301,8 @@ def _plan_property_source(
             context=context,
         )
 
-    if (
-        context.uses_new_events_schema()
-        and table_name == "events"
-        and field_name
-        in (
-            "properties",
-            "person_properties",
-        )
-    ):
+    # The native events table has no materialized, dmat or property-group columns for any of its blobs.
+    if context.uses_new_events_schema() and table_name == "events":
         return _json_source_plan(
             table_name=table_name, field_name=field_name, property_name=property_name, context=context
         )

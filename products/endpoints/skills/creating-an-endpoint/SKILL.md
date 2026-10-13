@@ -5,9 +5,9 @@ description: >
   conventions, what to expose as variables (HogQL code_name vs insight breakdown),
   data_freshness_seconds, and whether to materialise on day one. Use when the user says "create an endpoint", "expose this
   query as an API", "turn this insight into an endpoint", or asks for help structuring a new
-  endpoint. Steers away from common mistakes: materialising a query with cohort breakdowns or
-  compare mode, inline-only variables on a materialised endpoint, unbounded date ranges, ambiguous
-  names.
+  endpoint. Steers away from common mistakes: materialising a query with cohort breakdowns or an
+  ineligible compare query, inline-only variables on a materialised endpoint, unbounded date
+  ranges, ambiguous names.
 ---
 
 # Creating an endpoint

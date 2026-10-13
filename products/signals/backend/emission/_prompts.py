@@ -47,6 +47,7 @@ When in doubt, classify as ACTIONABLE. It is worse to miss real feedback than to
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
+
 # ── Issue-tracker issues ─────────────────────────────────────────────────────
 
 ISSUE_SUMMARIZATION_PROMPT = """Summarize this issue for semantic search.
@@ -228,3 +229,13 @@ When in doubt, classify as ACTIONABLE.
 </review>
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
+
+
+COMMON_ACTIONABILITY_PROMPT_NAMES = {
+    TICKET_ACTIONABILITY_PROMPT: "signals-actionability-ticket",
+    ISSUE_ACTIONABILITY_PROMPT: "signals-actionability-issue",
+    ERROR_ACTIONABILITY_PROMPT: "signals-actionability-error",
+    SCANNER_ACTIONABILITY_PROMPT: "signals-actionability-scanner",
+    FEEDBACK_ACTIONABILITY_PROMPT: "signals-actionability-feedback",
+    REVIEW_ACTIONABILITY_PROMPT: "signals-actionability-review",
+}

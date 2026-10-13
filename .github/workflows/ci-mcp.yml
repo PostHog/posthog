@@ -761,6 +761,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: services/mcp/junit-integration.xml
+                  test-collection-id: Nt38b1Ej # mcp
                   previous-step-outcome: ${{ steps.run-integration-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 

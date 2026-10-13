@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -15,7 +16,7 @@ import { ScenePanel } from '~/layout/scenes/SceneLayout'
 import { useStorybookMocks } from '~/mocks/browser'
 import { SidePanelTab } from '~/types'
 
-import { expect, spyOn, userEvent, waitFor, within } from 'storybook/test'
+import { expect, spyOn, userEvent } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
 import { terminalDockLogic } from './terminalDockLogic'

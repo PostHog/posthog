@@ -12,7 +12,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 
-import { IconDrag, IconFilter, IconGlobe, IconPencil, IconX } from '@posthog/icons'
+import { IconDrag, IconFilter, IconGlobe, IconPencil, IconRefresh, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Popover, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FilterBar } from 'lib/components/FilterBar'
@@ -100,6 +100,8 @@ const LiveDashboardFilterRow = ({
     const { setDeviceTypeFilter, setWebAnalyticsFilters, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { clearFilters } = useActions(webAnalyticsFilterLogic)
     const { isRefreshing } = useValues(liveWebAnalyticsMetricsLogic)
+    const { loadInitialData } = useActions(liveWebAnalyticsMetricsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
@@ -171,10 +173,22 @@ const LiveDashboardFilterRow = ({
             }
             right={
                 <>
-                    {isRefreshing && (
-                        <Tooltip title="Refreshing live data">
-                            <Spinner className="text-lg text-muted" />
-                        </Tooltip>
+                    {featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL] ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={isRefreshing}
+                            onClick={() => loadInitialData(true)}
+                            tooltip="Refresh live data"
+                            data-attr="web-analytics-live-refresh"
+                        />
+                    ) : (
+                        isRefreshing && (
+                            <Tooltip title="Refreshing live data">
+                                <Spinner className="text-lg text-muted" />
+                            </Tooltip>
+                        )
                     )}
                     {isEditing ? (
                         <>

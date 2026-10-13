@@ -6,7 +6,8 @@ and a mapping/description update from the API stamps it without waiting for the 
 
 from collections.abc import Iterable
 
-from django.db.models import Q
+from django.db.models import BigIntegerField
+from django.db.models.functions import Coalesce
 
 from posthog.models import PropertyDefinition
 
@@ -62,9 +63,12 @@ def stamp_person_property_provenance(
         definition_type = PropertyDefinition.Type.GROUP
         definition_group_type_index = group_type_index
 
-    # Property definitions are unique and read by effective project. Include legacy rows whose
-    # project_id is null so the conflict-safe insert and the final stamp address the same identity.
-    query = PropertyDefinition.objects.filter(Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id))
+    # Property definitions are unique and read by effective project, so the conflict-safe insert and the final
+    # stamp address the same identity. The COALESCE also covers legacy rows whose project_id is null, and it matches
+    # the unique index, which an OR of the two columns does not.
+    query = PropertyDefinition.objects.alias(
+        effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
+    ).filter(effective_project_id=project_id)
     if target == _GROUP_TARGET:
         # Group propdefs are keyed per group type, so the index predicate is mandatory.
         query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index)

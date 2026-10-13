@@ -8,7 +8,7 @@ import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
 import { isAiEventName } from '~/ingestion/common/ai-event-types'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { IngestionWarning, emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
@@ -97,15 +97,11 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     // Some messages end up significantly larger than the original
                     // after plugin processing, person & group enrichment, etc.
                     if (error instanceof MessageSizeTooLarge) {
-                        await emitIngestionWarning(outputs, serialized.team_id, {
-                            type: 'message_size_too_large',
-                            details: {
-                                eventUuid: serialized.uuid,
-                                distinctId: serialized.distinct_id,
-                                personId: serialized.person_id,
-                            },
-                            pipelineStep: 'emit-event',
-                        })
+                        await emitIngestionWarning(
+                            outputs,
+                            serialized.team_id,
+                            eventTooLargeWarning(serialized, 'emit-event')
+                        )
                         // The event was not ingested, so there is no info to resolve with
                         return null
                     } else {
@@ -126,6 +122,17 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                 ingested
             )
         )
+    }
+}
+
+export function eventTooLargeWarning(
+    event: { uuid: string; distinct_id: string; person_id?: string },
+    pipelineStep: string
+): IngestionWarning {
+    return {
+        type: 'message_size_too_large',
+        details: { eventUuid: event.uuid, distinctId: event.distinct_id, personId: event.person_id },
+        pipelineStep,
     }
 }
 

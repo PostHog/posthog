@@ -143,8 +143,9 @@ class OrganizationEnrichmentFetch(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["organization", "fetched_at"], name="growth_enrich_fetch_org_time"),
-            # Matches latest_fetches_qs' DISTINCT ON ordering (enrichment/labels.py) so the batch
-            # runner's driving query is an index scan instead of a sort of the whole archive.
+            # Matches latest_fetches_qs' DISTINCT ON ordering (enrichment/labels.py) so the latest-fetch
+            # subquery in the batch runner's driving query is an index scan instead of a sort of the
+            # whole archive.
             models.Index(fields=["organization", "-fetched_at", "-id"], name="growth_enrich_fetch_org_ts_id"),
         ]
 

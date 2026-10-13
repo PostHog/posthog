@@ -23,10 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
+    BIGQUERY_JOB_TIMEOUT_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
     BIGQUERY_NO_CREDENTIALS_ERROR,
     BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX,
+    BIGQUERY_READ_TIMEOUT_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -80,6 +82,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
+
+    def get_retryable_errors(self) -> set[str]:
+        # The client-side limits on a query job and on the wait for one page of rows. BigQuery was
+        # reachable and then gave no result in time, so a later attempt can succeed.
+        return {BIGQUERY_JOB_TIMEOUT_ERROR, BIGQUERY_READ_TIMEOUT_ERROR}
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -497,7 +504,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             iconPath="/static/services/bigquery.png",
             caption=(
                 "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
-                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export.\n\n"
+                "To use a service account, select **Choose Google Cloud service account connection**, then "
+                "**Configure new Google Cloud service account**. It shows how to let PostHog use your service account.\n\n"
+                "Your service account also needs these BigQuery roles: **BigQuery Job User** and **BigQuery Read "
+                "Session User** on the project, and **BigQuery Data Editor** on the dataset you sync. If you use a "
+                "separate dataset for temporary tables, grant **BigQuery Data Editor** there instead and **BigQuery "
+                "Data Viewer** on the dataset you sync. Without these roles, the connection check can pass but the "
+                "sync fails."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(

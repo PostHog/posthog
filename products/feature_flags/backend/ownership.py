@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from rest_framework import serializers
 
+from products.feature_flags.backend.facade.config import detect_config_format
+
 if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -35,6 +37,24 @@ _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
 )
 
 
+# Relations onto FeatureFlag that deliberately do not confer ownership. Listed rather than
+# inferred, so "standalone" is a classification somebody made instead of whatever was left over.
+# `test_flag_ownership_relations_are_classified` fails when a relation appears in neither list,
+# which is what stops a new owning product being read as standalone because nobody registered it.
+_REFERENCE_ACCESSORS: frozenset[str] = frozenset(
+    {
+        # A survey or tour may point at another product's flag to target its audience.
+        "surveys_linked_flag",
+        "product_tours_linked_flag",
+        # Evaluation and override bookkeeping, not a product that owns the flag.
+        "flag_evaluation_contexts",
+        "featureflagoverride_set",
+        "featureflagdashboards_set",
+        "access",
+    }
+)
+
+
 def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     """Return the product that owns this flag, or None when nothing owns it.
 
@@ -63,7 +83,15 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     This reads before the caller writes, so two products adopting the same free flag at the same
     moment can both pass. No database constraint can span the four owning tables, so the remaining
     window is accepted rather than locked.
+
+    A flag stored in another config format is not available either: every adopting product reads
+    and writes its document as config version 1.
     """
+    if detect_config_format(flag.filters).kind != "v1":
+        raise serializers.ValidationError(
+            f"The feature flag {flag.key} uses a configuration format that {_OWNER_LABELS[product]} "
+            "cannot use yet. Pick a different flag."
+        )
     owner = flag_owner_kind(flag)
     if owner is not None and owner != product:
         raise serializers.ValidationError(

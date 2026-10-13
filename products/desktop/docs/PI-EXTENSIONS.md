@@ -2,6 +2,8 @@
 
 PostHog Desktop supports Pi extensions and packages in local Pi sessions through Pi's RPC mode. Cloud Pi sessions do not load local extensions.
 
+The built-in RTK and orchestration extensions are disabled by default. Set `POSTHOG_RTK=1` or `POSTHOG_ORCHESTRATION=1` in the agent process to enable each extension.
+
 For installation, discovery, authoring, and security guidance, see the [Pi documentation](https://pi.dev/docs/latest/) and [Pi extension documentation](https://pi.dev/docs/latest/extensions).
 
 ## Repository trust

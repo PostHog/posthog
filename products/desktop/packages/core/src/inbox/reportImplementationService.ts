@@ -1,5 +1,5 @@
-import type { Schemas } from "@posthog/api-client";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { TaskSummaryDTO } from "@posthog/api-client/task-normalization";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { injectable } from "inversify";
 import {
@@ -53,7 +53,7 @@ export class ReportImplementationService {
 
   private async completedTask(
     client: PostHogAPIClient,
-    summary: Schemas.TaskSummaryDTO,
+    summary: TaskSummaryDTO,
   ): Promise<Task> {
     let cache = this.completedTasks.get(client);
     if (!cache) {

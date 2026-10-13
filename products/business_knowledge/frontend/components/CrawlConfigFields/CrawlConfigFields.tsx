@@ -3,6 +3,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
+import { MAX_PAGES_PER_SOURCE } from '../../sourceFormUtils'
+
 function derivedScopeLabel(url: string): string {
     try {
         const parsed = new URL(url)
@@ -39,7 +41,7 @@ export function CrawlConfigFields({ crawlMode, url }: { crawlMode: string; url: 
             </LemonField>
             <div className="flex gap-2">
                 <LemonField name="max_pages" label="Max pages" className="flex-1">
-                    <LemonInput type="number" min={1} max={500} />
+                    <LemonInput type="number" min={1} max={MAX_PAGES_PER_SOURCE} />
                 </LemonField>
                 {isSameOrigin && (
                     <LemonField name="max_depth" label="Max depth" className="flex-1">

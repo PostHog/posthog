@@ -82,12 +82,11 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
 
     prefix = str(uuid.uuid4())
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -102,7 +101,6 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id,
         destination_default_fields=s3_default_fields(),
@@ -214,7 +212,6 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
         exclude_events=exclude_events,
         file_format=file_format,
         max_file_size_mb=max_file_size_mb,
-        batch_export_schema=None,
         batch_export_model=model,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=s3_default_fields(),

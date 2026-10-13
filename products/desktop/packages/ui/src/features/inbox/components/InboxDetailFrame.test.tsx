@@ -5,10 +5,27 @@ import {
   useAuthStore,
 } from "@posthog/ui/features/auth/store";
 import { useInboxReportReadStore } from "@posthog/ui/features/inbox/stores/inboxReportReadStore";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
+import type { PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const readClient = vi.hoisted(() => ({
+  getReportReadState: vi.fn(async () => false),
+  getReportReadStates: vi.fn(async (ids: string[], read: boolean) =>
+    Object.fromEntries(ids.map((id) => [id, read])),
+  ),
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@posthog/ui/features/auth/authClient")
+  >()),
+  useOptionalAuthenticatedClient: () => readClient,
+}));
+
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  AUTH_SCOPED_QUERY_META: {},
   useCurrentUser: () => ({ data: { uuid: "reader-1" } }),
 }));
 
@@ -49,7 +66,15 @@ const report: SignalReport = {
 };
 
 describe("InboxDetailFrame", () => {
+  let wrapper: (props: PropsWithChildren) => React.JSX.Element;
+
   beforeEach(() => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    wrapper = ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
     useAuthStore.setState({
       authState: {
         ...ANONYMOUS_AUTH_STATE,
@@ -81,13 +106,13 @@ describe("InboxDetailFrame", () => {
           showMetadata={false}
         />
       );
-      const { rerender, unmount } = render(frame);
+      const { rerender, unmount } = render(frame, { wrapper });
       expect(useInboxReportReadStore.getState().readByKey[key]).toBe(true);
       act(() => useInboxReportReadStore.getState().setRead(key, false));
       rerender(frame);
       expect(useInboxReportReadStore.getState().readByKey[key]).toBe(false);
       unmount();
-      render(frame);
+      render(frame, { wrapper });
       expect(useInboxReportReadStore.getState().readByKey[key]).toBe(true);
     },
   );
@@ -104,6 +129,7 @@ describe("InboxDetailFrame", () => {
       >
         <section>Reviewers</section>
       </InboxDetailFrame>,
+      { wrapper },
     );
 
     expect(screen.getByText("feat(dashboards)")).toBeInTheDocument();

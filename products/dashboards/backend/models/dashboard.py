@@ -79,8 +79,8 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
     restriction_level = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        choices=RestrictionLevel,
+        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        choices=RestrictionLevel.choices,
     )
     insights = models.ManyToManyField(
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True

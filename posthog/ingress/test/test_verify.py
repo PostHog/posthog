@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.test import SimpleTestCase
 
 import jwt
@@ -114,6 +115,32 @@ class TestHmacSha256(SimpleTestCase):
             VerificationOutcome.NOT_CONFIGURED,
         )
 
+    @parameterized.expand(
+        [
+            ("dropped_connection", OperationalError("server closed the connection unexpectedly")),
+            ("closed_connection", InterfaceError("connection already closed")),
+        ]
+    )
+    def test_a_database_failure_reading_the_secret_is_unavailable(self, _name: str, error: Exception) -> None:
+        def secret_getter() -> str:
+            raise error
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+
+        self.assertEqual(
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}).outcome,
+            VerificationOutcome.UNAVAILABLE,
+        )
+
+    def test_any_other_failure_reading_the_secret_still_raises(self) -> None:
+        def secret_getter() -> str:
+            raise ValueError("boom")
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+
+        with self.assertRaises(ValueError):
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()})
+
     def test_v0_timestamp_input_signs_timestamp_with_body(self) -> None:
         timestamp = str(int(time.time()))
         scheme = HmacSha256(
@@ -161,12 +188,12 @@ class TestHmacSha256(SimpleTestCase):
     def test_signature_pattern_rejects_before_the_digest_runs(self) -> None:
         scheme = HmacSha256(
             secret_getter=lambda: SECRET,
-            signature_header="X-Vapi-Signature",
+            signature_header="X-Signature",
             signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
         )
         with patch("hmac.digest") as digest:
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Vapi-Signature": "NOT-A-HEX-DIGEST"}).outcome,
+                scheme.verify(body=BODY, headers={"X-Signature": "NOT-A-HEX-DIGEST"}).outcome,
                 VerificationOutcome.INVALID,
             )
         digest.assert_not_called()

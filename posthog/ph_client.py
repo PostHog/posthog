@@ -12,6 +12,7 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
@@ -22,6 +23,12 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+
+def filter_scout_experiment_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    if get_query_tags().is_scout_experiment is True:
+        return None
+    return message
 
 
 def feature_enabled_or_false(
@@ -114,6 +121,14 @@ class ScopedCapture:
     def __call__(self, *args: Any, **kwargs: Any) -> None:
         if is_cloud() and self._client:
             self._client.capture(*args, **kwargs)
+
+    def alias(self, previous_id: str, distinct_id: str) -> None:
+        """Merge the person behind ``distinct_id`` into the person behind ``previous_id``.
+
+        Ingestion refuses the merge when the ``distinct_id`` person is already identified.
+        """
+        if is_cloud() and self._client:
+            self._client.alias(previous_id=previous_id, distinct_id=distinct_id)
 
     def flush(self) -> None:
         """Wait for every queued event to be attempted. Blocks; keep it off an event loop.
@@ -209,6 +224,15 @@ def get_client(region: str = "US", **kwargs: Any):
     # under TEST, so without this a test that runs in cloud mode captures to the real
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    before_send = kwargs.get("before_send")
+
+    def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
+        if filter_scout_experiment_capture(message) is None:
+            return None
+        return before_send(message) if before_send is not None else message
+
+    if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
+        kwargs["before_send"] = capture_filter
 
     return Posthog(
         api_key,

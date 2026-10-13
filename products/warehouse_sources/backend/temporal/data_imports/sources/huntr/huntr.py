@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Response
 
@@ -8,18 +8,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import HUNTR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import (
+    HUNTR_ENDPOINTS,
+    HuntrEndpointConfig,
+)
 
 HUNTR_BASE_URL = "https://api.huntr.co/org"
-# The list endpoints accept a `limit`; the docs don't state a hard maximum, so 100 keeps each page
-# reasonably sized while minimising round trips.
-PAGE_SIZE = 100
+# Bounds each request so a stalled connection cannot hold the worker, which matters most for the
+# one-request-per-candidate fan-out.
+REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an access token is genuine. The org access token is account-wide, so
 # one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/members"
@@ -49,6 +62,69 @@ def _headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
 
+def _client_config(access_token: str, paginator: JSONResponseCursorPaginator | SinglePagePaginator) -> ClientConfig:
+    return {
+        "base_url": HUNTR_BASE_URL,
+        # Only the non-secret Accept header goes here; auth (Bearer) is supplied via the framework
+        # auth config so its value is redacted from logs and error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": access_token},
+        "paginator": paginator,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
+
+
+def _cursor_paginator() -> HuntrCursorPaginator:
+    return HuntrCursorPaginator(cursor_path="next", cursor_param="next")
+
+
+def _explode_action_metrics(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn ``{"candidate_id": ..., "<ACTION_TYPE>": {...metrics}}`` into one row per action type."""
+    candidate_id = row.get("candidate_id")
+    return [
+        {"candidate_id": candidate_id, "action_type": action_type, **metrics}
+        for action_type, metrics in row.items()
+        if action_type != "candidate_id" and isinstance(metrics, dict)
+    ]
+
+
+def _fanout_source(
+    access_token: str, config: HuntrEndpointConfig, fanout: DependentEndpointConfig, team_id: int, job_id: str
+) -> SourceResponse:
+    # Not resumable: the dependent-resource resume state lists every completed parent, which would
+    # grow with the candidate count and be rewritten after each candidate.
+    resource = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=HUNTR_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=fanout,
+            client_config=_client_config(access_token, SinglePagePaginator()),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # The parent page size goes through `parent_params`; the per-candidate endpoint takes no `limit`.
+            page_size_param=None,
+            parent_endpoint_extra={
+                "paginator": _cursor_paginator(),
+                "data_selector": "data",
+                "data_selector_malformed_retryable": True,
+            },
+            child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": "$"},
+        ),
+    ).add_map(_explode_action_metrics)
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        supports_resume=False,
+    )
+
+
 def huntr_source(
     access_token: str,
     endpoint: str,
@@ -58,30 +134,24 @@ def huntr_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = HUNTR_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _fanout_source(access_token, config, config.fanout, team_id, job_id)
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": {"limit": config.page_size},
+        "data_selector": "data",
+        # An unexpected 200-body shape (non-dict body, or `data` not a list) is treated as
+        # transient and reissued rather than failing the import.
+        "data_selector_malformed_retryable": True,
+    }
+    if not config.paginated:
+        endpoint_config.update({"params": {}, "paginator": SinglePagePaginator(), "data_selector": "$"})
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": HUNTR_BASE_URL,
-            # Only the non-secret Accept header goes here; auth (Bearer) is supplied via the framework
-            # auth config so its value is redacted from logs and error messages.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": access_token},
-            "paginator": HuntrCursorPaginator(cursor_path="next", cursor_param="next"),
-        },
+        "client": _client_config(access_token, _cursor_paginator()),
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
-                    "data_selector": "data",
-                    # An unexpected 200-body shape (non-dict body, or `data` not a list) is treated as
-                    # transient and reissued rather than failing the import.
-                    "data_selector_malformed_retryable": True,
-                },
-            }
-        ],
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

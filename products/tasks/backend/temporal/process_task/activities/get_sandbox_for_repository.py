@@ -255,7 +255,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",

@@ -6,6 +6,8 @@ import * as orvalSchemas from '@/generated/feature_flags/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -207,6 +209,9 @@ const FeatureFlagGetAllSchema = () => {
         search: FeatureFlagsListQueryParams.shape['search'].describe(
             'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
         ),
+        active: FeatureFlagsListQueryParams.shape['active'].describe(
+            'Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"` returns enabled flags that PostHog classifies as stale.'
+        ),
         limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
     })
@@ -243,7 +248,17 @@ const featureFlagGetAll = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+                pickResponseFields(item, [
+                    'id',
+                    'key',
+                    'name',
+                    'updated_at',
+                    'status',
+                    'tags',
+                    'last_called_at',
+                    'active',
+                    'created_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(
@@ -994,49 +1009,52 @@ const updateFeatureFlag = (): ToolBase<
 > => ({
     name: 'update-feature-flag',
     schema: UpdateFeatureFlagSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof UpdateFeatureFlagSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
+    handler: withToolHooks(
+        hooks_updateFeatureFlag,
+        async (context: Context, params: z.infer<ReturnType<typeof UpdateFeatureFlagSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.key !== undefined) {
+                body['key'] = params.key
+            }
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.filters !== undefined) {
+                body['filters'] = params.filters
+            }
+            if (params.active !== undefined) {
+                body['active'] = params.active
+            }
+            if (params.archived !== undefined) {
+                body['archived'] = params.archived
+            }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
+            }
+            if (params.evaluation_contexts !== undefined) {
+                body['evaluation_contexts'] = params.evaluation_contexts
+            }
+            if (params.is_remote_configuration !== undefined) {
+                body['is_remote_configuration'] = params.is_remote_configuration
+            }
+            if (params.ensure_experience_continuity !== undefined) {
+                body['ensure_experience_continuity'] = params.ensure_experience_continuity
+            }
+            if (params.evaluation_runtime !== undefined) {
+                body['evaluation_runtime'] = params.evaluation_runtime
+            }
+            if (params.bucketing_identifier !== undefined) {
+                body['bucketing_identifier'] = params.bucketing_identifier
+            }
+            const result = await context.api.request<Schemas.FeatureFlag>({
+                method: 'PATCH',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
         }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.active !== undefined) {
-            body['active'] = params.active
-        }
-        if (params.archived !== undefined) {
-            body['archived'] = params.archived
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.evaluation_contexts !== undefined) {
-            body['evaluation_contexts'] = params.evaluation_contexts
-        }
-        if (params.is_remote_configuration !== undefined) {
-            body['is_remote_configuration'] = params.is_remote_configuration
-        }
-        if (params.ensure_experience_continuity !== undefined) {
-            body['ensure_experience_continuity'] = params.ensure_experience_continuity
-        }
-        if (params.evaluation_runtime !== undefined) {
-            body['evaluation_runtime'] = params.evaluation_runtime
-        }
-        if (params.bucketing_identifier !== undefined) {
-            body['bucketing_identifier'] = params.bucketing_identifier
-        }
-        const result = await context.api.request<Schemas.FeatureFlag>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
-    },
+    ),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {

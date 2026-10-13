@@ -33,6 +33,14 @@ describe("parsePostHogUrl", () => {
     });
   });
 
+  it("labels a SQL editor link by its query, not its project path", () => {
+    expect(
+      parsePostHogUrl(
+        "https://us.posthog.com/project/7/sql?open_query=SELECT%201",
+      )?.defaultLabel,
+    ).toBe("SQL query");
+  });
+
   it("parses relative insight paths using the signed-in app host", () => {
     expect(
       parsePostHogUrl("/insights/UiFKIsO3", {

@@ -3,10 +3,9 @@
 The request and answer types live in ``posthog.llm.system_one``, because the Go ai-gateway serves
 the same API. This module adds TypeSafe's host, key, and egress budget.
 
-USAGE POLICY. TypeSafe is approved for experiments only. Read "Usage policy" in this package's
-README.md before you add a caller. In short: gate every caller behind a feature flag that reaches
-PostHog staff only, and send no customer data. A launch that sends customer data needs an explicit
-opt-in from each customer and sign-off from leadership first.
+USAGE POLICY. TypeSafe is available for local experiments only. Cloud requests are blocked at the
+transport. Use the ai-gateway System One client for Cloud features. Read "Usage policy" in this
+package's README.md before you add a caller.
 """
 
 from collections.abc import Mapping

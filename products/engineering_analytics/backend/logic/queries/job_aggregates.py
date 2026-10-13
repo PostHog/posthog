@@ -56,7 +56,7 @@ _AGGREGATE_SELECT = f"""
         {_job_name_expr("job_name")} AS job_group,
         count() AS job_count,
         uniq(job_name) AS shard_count,
-        uniq(run_id) AS runs_in,
+        uniq(tuple(ci_engine, run_id)) AS runs_in,
         quantileIf(0.5)(queue_seconds, {_QUEUED_JOB_CONDITION}) AS queue_p50_seconds,
         quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,

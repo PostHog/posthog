@@ -82,7 +82,6 @@ vi.mock('@/tools/exec', async () => {
     } catch {
         return {
             createExecTool: vi.fn(() => ({ name: 'posthog', handler: vi.fn() })),
-            createExecInnerToolCallResolver: vi.fn(() => () => undefined),
         }
     }
 })

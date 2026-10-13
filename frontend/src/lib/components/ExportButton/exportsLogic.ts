@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -18,8 +17,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { delay } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -355,6 +354,16 @@ export const exportsLogic = kea<exportsLogicType>([
                     const finished = latest
                     const kickoff = cache.exportKickoffToasts?.get(fresh.id)
                     cache.exportKickoffToasts?.delete(fresh.id)
+                    if (
+                        finished.export_format === ExporterFormat.MP4 &&
+                        finished.export_context &&
+                        'session_recording_id' in finished.export_context
+                    ) {
+                        posthog.capture('recording exported to file', {
+                            format: 'mp4',
+                            is_clip: String(kickoff?.replayMode) !== 'video',
+                        })
+                    }
                     void showExportCompleteToast(finished, () => actions.downloadExport(finished), kickoff).catch(
                         (error) => posthog.captureException(error)
                     )
@@ -379,16 +388,10 @@ export const exportsLogic = kea<exportsLogicType>([
                     name: name || 'Query cohort',
                     query: query,
                 })
-                cohortsModel.actions.cohortCreated(cohort)
+                cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
-                lemonToast.success('Cohort saved', {
-                    toastId: `${toastId}-success`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(cohort.id)),
-                    },
-                })
+                cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
             } catch {
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
@@ -402,8 +405,10 @@ export const exportsLogic = kea<exportsLogicType>([
             format = ExporterFormat.PNG,
             timestamp,
             duration = 5,
+            mode,
             options,
         }) => {
+            cache.replayExportMode = mode
             const exportData: TriggerExportProps = {
                 export_format: format,
                 export_context: {
@@ -479,6 +484,8 @@ export const exportsLogic = kea<exportsLogicType>([
                     // for a while. lemonToast.promise shows a spinner right away and swaps to the
                     // result, so the menu never looks like it did nothing.
                     const runExport = async (): Promise<string> => {
+                        const replayMode = cache.replayExportMode as SessionRecordingPlayerMode | undefined
+                        cache.replayExportMode = undefined
                         let response: ExportedAssetType
                         try {
                             response = await api.exports.create({
@@ -532,7 +539,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         actions.addFresh(response)
                         actions.openSidePanel(SidePanelTab.Exports)
                         cache.exportKickoffToasts ??= new Map<number, KickoffToast>()
-                        cache.exportKickoffToasts.set(response.id, { toastId: exportToastId, nudge })
+                        cache.exportKickoffToasts.set(response.id, { toastId: exportToastId, nudge, replayMode })
                         return 'Export started'
                     }
 

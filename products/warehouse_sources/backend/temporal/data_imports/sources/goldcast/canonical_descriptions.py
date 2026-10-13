@@ -2,7 +2,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-_DOCS_URL = "https://customapi.goldcast.io/swagger-ui/"
+_DOCS_URL = "https://apidocs.goldcast.io/"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "organizations": {
@@ -125,6 +125,76 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "utm_medium": "UTM medium attributed to the member's registration.",
             "created_at": "Timestamp when the event member was created.",
             "updated_at": "Timestamp when the event member was last updated.",
+        },
+    },
+    "broadcasts": {
+        "description": "Broadcasts are the live sessions within an event — the stages attendees watch, with their schedule, live state, and engagement settings.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the broadcast.",
+            "event": "Id of the event this broadcast belongs to.",
+            "title": "Title of the broadcast.",
+            "description": "Description of the broadcast.",
+            "broadcast_type": "Type of broadcast (live, external live stream, or hybrid).",
+            "start_time": "Scheduled start time of the broadcast.",
+            "end_time": "Scheduled end time of the broadcast.",
+            "live_start_time": "Actual time the broadcast went live.",
+            "live_end_time": "Actual time the broadcast ended.",
+            "is_live": "Whether the broadcast is currently live.",
+            "is_on_demand": "Whether the broadcast is available on demand.",
+            "have_polls": "Whether polls are enabled for the broadcast.",
+            "have_text_qna": "Whether text Q&A is enabled for the broadcast.",
+            "have_video_qna": "Whether video Q&A is enabled for the broadcast.",
+            "tags": "Tags attached to the broadcast.",
+            "speakers": "Speakers assigned to the broadcast.",
+            "created_at": "Timestamp when the broadcast was created.",
+            "updated_at": "Timestamp when the broadcast was last updated.",
+        },
+    },
+    "broadcast_polls": {
+        "description": "Polls run during a broadcast, with their answer options. Fetched per broadcast, so `broadcast` identifies the parent broadcast.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Identifier of the poll.",
+            "broadcast": "Id of the parent broadcast (injected during sync to make the row unique table-wide).",
+            "text": "Question text of the poll.",
+            "type": "Type of poll.",
+            "status": "Current status of the poll.",
+            "answers": "Answer options of the poll.",
+        },
+    },
+    "ticket_types": {
+        "description": "Ticket types defined for events, which control the tracks a registrant can access. Resolves the ticket type on event members.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the ticket type.",
+            "event": "Id of the event this ticket type belongs to.",
+            "code": "Code of the ticket type.",
+            "label": "Display label of the ticket type.",
+            "member_count": "Number of event members holding this ticket type.",
+            "allow_all_tracks": "Whether the ticket type grants access to every track in the event.",
+            "allowed_tracks": "Tracks the ticket type grants access to.",
+            "ticket_type_id": "Linked Vivenu ticket type id, if any.",
+            "category_name": "Linked Vivenu ticket category name, if any.",
+            "category_ref_id": "Linked Vivenu ticket category id, if any.",
+            "created_at": "Timestamp when the ticket type was created.",
+            "updated_at": "Timestamp when the ticket type was last updated.",
+        },
+    },
+    "speakers": {
+        "description": "Speakers listed on each event. Fetched per event, so `event` identifies the parent event.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the speaker.",
+            "event": "Id of the parent event (injected during sync to make the row unique table-wide).",
+            "first_name": "First name of the speaker.",
+            "last_name": "Last name of the speaker.",
+            "title": "Job title of the speaker.",
+            "company": "Company of the speaker.",
+            "description": "Bio of the speaker.",
+            "profile_picture_url": "URL of the speaker's profile picture.",
+            "linkedin_url": "LinkedIn profile URL of the speaker.",
+            "twitter_url": "Twitter profile URL of the speaker.",
         },
     },
 }

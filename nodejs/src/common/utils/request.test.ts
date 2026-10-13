@@ -2,6 +2,7 @@ import dns from 'dns/promises'
 import { range } from 'lodash'
 import http from 'node:http'
 import net, { AddressInfo } from 'node:net'
+import { register } from 'prom-client'
 
 import { getExternalRequestConfig } from '~/common/config'
 
@@ -361,6 +362,28 @@ describe('fetch', () => {
             // This will fail to connect since it's a mock DNS result, but it should NOT throw SecureRequestError
             await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError) // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
         })
+
+        // A gauge that is incremented but not decremented drifts up forever, and nothing else reads this one, so a
+        // leak on either path would go unnoticed until it had already made the metric useless.
+        it.each([
+            [
+                'a lookup that resolves',
+                () => jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any),
+            ],
+            ['a lookup that rejects', () => jest.mocked(dns.lookup).mockRejectedValue(new Error('ENOTFOUND'))],
+        ])('releases the in-flight DNS gauge after %s', async (_name, applyMock) => {
+            const readGauge = async (): Promise<number> =>
+                (await register.getSingleMetric('node_dns_lookups_in_flight')!.get()).values[0].value
+
+            applyMock()
+            const before = await readGauge()
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow()
+
+            expect(dns.lookup).toHaveBeenCalled()
+            expect(await readGauge()).toEqual(before)
+        })
     })
 
     describe('parallel requests execution', () => {
@@ -385,6 +408,130 @@ describe('fetch', () => {
             const speedup = sequentialTime / parallelTime
             expect(speedup).toBeGreaterThan(3)
         })
+    })
+})
+
+type IsolatedRequest = {
+    request: typeof import('./request')
+    lookup: jest.Mock
+    readNegativeCacheCounter: (result: string) => Promise<number>
+}
+
+// request.ts reads the DNS settings once, at module load, so each case loads a fresh copy with its own environment.
+async function withDnsConfig(env: Record<string, string>, run: (isolated: IsolatedRequest) => Promise<void>) {
+    const originalValues = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, env)
+    try {
+        await jest.isolateModulesAsync(async () => {
+            const request: typeof import('./request') = require('./request')
+            const lookup = jest.mocked(require('dns/promises').lookup)
+            const registry: typeof register = require('prom-client').register
+            const readNegativeCacheCounter = async (result: string): Promise<number> =>
+                (await registry.getSingleMetric('node_dns_negative_cache_total')!.get()).values.find(
+                    (value) => value.labels.result === result
+                )?.value ?? 0
+            try {
+                await run({ request, lookup, readNegativeCacheCounter })
+            } finally {
+                await request.closeSharedAgents(100)
+            }
+        })
+    } finally {
+        for (const [name, value] of Object.entries(originalValues)) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
+    }
+}
+
+const dnsError = (code: string): Error => Object.assign(new Error(`getaddrinfo ${code} example.com`), { code })
+
+describe('DNS lookup settings', () => {
+    it('resolves hostnames as absolute names when absolute lookups are enabled', async () => {
+        await withDnsConfig({ EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: 'true' }, async ({ request, lookup }) => {
+            lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+
+            await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://already-absolute.com./path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://1.1.1.1/path')
+
+            expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual([
+                'example.com.',
+                'already-absolute.com.',
+                '1.1.1.1',
+            ])
+        })
+    })
+
+    it('resolves hostnames as given when absolute lookups are disabled', async () => {
+        await withDnsConfig({ EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: 'false' }, async ({ request, lookup }) => {
+            lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+
+            await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
+
+            expect(lookup).toHaveBeenCalledWith('example.com', { all: true })
+        })
+    })
+
+    it('skips the lookup for a hostname that recently returned ENOTFOUND in enforce mode', async () => {
+        await withDnsConfig(
+            { EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'enforce' },
+            async ({ request, lookup, readNegativeCacheCounter }) => {
+                lookup.mockRejectedValue(dnsError('ENOTFOUND'))
+
+                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                    'Invalid hostname'
+                )
+                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                    'Invalid hostname'
+                )
+
+                expect(lookup).toHaveBeenCalledTimes(1)
+                expect(await readNegativeCacheCounter('hit')).toEqual(1)
+            }
+        )
+    })
+
+    // A timeout can come from an overloaded resolver rather than from the hostname. Caching it would fail healthy
+    // destinations for as long as the resolver stays slow.
+    it.each(['EAI_AGAIN', 'ETIMEOUT'])('does not cache a %s failure', async (code) => {
+        await withDnsConfig({ EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'enforce' }, async ({ request, lookup }) => {
+            lookup.mockRejectedValue(dnsError(code))
+
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+
+            expect(lookup).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    it('still looks up a cached hostname in shadow mode and counts what enforce mode would skip', async () => {
+        await withDnsConfig(
+            { EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'shadow' },
+            async ({ request, lookup, readNegativeCacheCounter }) => {
+                lookup.mockRejectedValueOnce(dnsError('ENOTFOUND'))
+                lookup.mockRejectedValueOnce(dnsError('ENOTFOUND'))
+                lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+
+                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+                await request.raiseIfUserProvidedUrlUnsafe('https://example.com')
+                await request.raiseIfUserProvidedUrlUnsafe('https://example.com')
+
+                expect(lookup).toHaveBeenCalledTimes(4)
+                expect(await readNegativeCacheCounter('shadow_hit')).toEqual(3)
+                expect(await readNegativeCacheCounter('shadow_hit_resolved')).toEqual(2)
+            }
+        )
+    })
+
+    it('rejects an unknown negative cache mode at startup', async () => {
+        await expect(
+            withDnsConfig({ EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'on' }, () => Promise.resolve())
+        ).rejects.toThrow('EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE must be one of off, shadow, enforce')
     })
 })
 

@@ -3,24 +3,45 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import BASE_URL, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
+    BASE_URL,
+    CODEMAGIC_V1,
+    CODEMAGIC_V3,
+    ENDPOINTS,
+    V3_BASE_URL,
+    V3_ENDPOINTS,
+    V3_PAGE_SIZE,
+    V3_TEAMS_PATH,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CodemagicResumeConfig:
-    skip: int
+    # v1 Builds: offset of the next page.
+    skip: Optional[int] = None
+    # v3 Builds fan out per team: team build paths already synced, the one in progress, and its
+    # cursor paginator state.
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 class CodemagicBuildsPaginator(BasePaginator):
@@ -84,6 +105,21 @@ def codemagic_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CodemagicResumeConfig],
+    api_version: str,
+) -> SourceResponse:
+    if api_version == CODEMAGIC_V1:
+        return _v1_source(api_token, endpoint, team_id, job_id, resumable_source_manager)
+    if api_version == CODEMAGIC_V3:
+        return _v3_source(api_token, endpoint, team_id, job_id, resumable_source_manager)
+    raise ValueError(f"Unsupported Codemagic API version: {api_version}")
+
+
+def _v1_source(
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[CodemagicResumeConfig],
 ) -> SourceResponse:
     endpoint_config = ENDPOINTS[endpoint]
     is_builds = endpoint == "Builds"
@@ -112,7 +148,7 @@ def codemagic_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if is_builds and resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
+        if resume_config is not None and resume_config.skip is not None:
             initial_paginator_state = {"skip": resume_config.skip}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -146,9 +182,139 @@ def codemagic_source(
     )
 
 
-def validate_credentials(api_token: str) -> tuple[bool, str | None]:
+def _v3_client_config(api_token: str) -> ClientConfig:
+    return {
+        "base_url": V3_BASE_URL,
+        "auth": {
+            "type": "api_key",
+            "api_key": api_token,
+            "name": "x-auth-token",
+            "location": "header",
+        },
+        "allow_redirects": False,
+    }
+
+
+def _v3_page_number_paginator() -> PageNumberPaginator:
+    return PageNumberPaginator(base_page=1, total_path="total_pages")
+
+
+def _v3_source(
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[CodemagicResumeConfig],
+) -> SourceResponse:
+    endpoint_config = V3_ENDPOINTS[endpoint]
+    table_name = endpoint_config.name.lower()
+    is_builds = endpoint == "Builds"
+
+    if not is_builds:
+        resource = rest_api_resource(
+            {
+                "client": _v3_client_config(api_token),
+                "resources": [
+                    {
+                        "name": table_name,
+                        "table_name": table_name,
+                        "write_disposition": "replace",
+                        "endpoint": {
+                            "path": endpoint_config.path,
+                            "params": {"page_size": V3_PAGE_SIZE},
+                            "data_selector": endpoint_config.data_selector,
+                            "paginator": _v3_page_number_paginator(),
+                        },
+                        "table_format": "delta",
+                    }
+                ],
+            },
+            team_id,
+            job_id,
+            db_incremental_field_last_value=None,
+        )
+    else:
+        initial_state: Optional[dict[str, Any]] = None
+        if resumable_source_manager.can_resume():
+            resume_config = resumable_source_manager.load_state()
+            if resume_config is not None and (resume_config.completed or resume_config.current):
+                initial_state = {
+                    "completed": resume_config.completed or [],
+                    "current": resume_config.current,
+                    "child_state": resume_config.child_state,
+                }
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(
+                    CodemagicResumeConfig(
+                        completed=state.get("completed"),
+                        current=state.get("current"),
+                        child_state=state.get("child_state"),
+                    )
+                )
+
+        resources = rest_api_resources(
+            {
+                "client": _v3_client_config(api_token),
+                "resources": [
+                    {
+                        "name": "teams",
+                        "endpoint": {
+                            "path": V3_TEAMS_PATH,
+                            "params": {"page_size": V3_PAGE_SIZE},
+                            "data_selector": "data",
+                            "paginator": _v3_page_number_paginator(),
+                        },
+                    },
+                    {
+                        "name": table_name,
+                        "table_name": table_name,
+                        "write_disposition": "replace",
+                        "endpoint": {
+                            "path": endpoint_config.path,
+                            "params": {
+                                "team_id": {"type": "resolve", "resource": "teams", "field": "id"},
+                                "page_size": V3_PAGE_SIZE,
+                            },
+                            "data_selector": endpoint_config.data_selector,
+                            "paginator": JSONResponseCursorPaginator(
+                                cursor_path="cursor", cursor_param="cursor", raise_on_repeated_cursor=True
+                            ),
+                        },
+                        "table_format": "delta",
+                    },
+                ],
+            },
+            team_id,
+            job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        )
+        resource = next(r for r in resources if getattr(r, "name", None) == table_name)
+
+    return SourceResponse(
+        name=table_name,
+        items=lambda: resource,
+        primary_keys=["id"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="week" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+    )
+
+
+def validate_credentials(api_token: str, api_version: str) -> tuple[bool, str | None]:
+    if api_version == CODEMAGIC_V1:
+        url = f"{BASE_URL}/apps"
+    elif api_version == CODEMAGIC_V3:
+        url = f"{V3_BASE_URL}{V3_ENDPOINTS['Applications'].path}"
+    else:
+        raise ValueError(f"Unsupported Codemagic API version: {api_version}")
     response = make_tracked_session(redact_values=(api_token,), allow_redirects=False).get(
-        f"{BASE_URL}/apps",
+        url,
         headers={"x-auth-token": api_token},
     )
     if response.status_code == 200:

@@ -1,12 +1,11 @@
-import pytest
-from unittest import mock
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.source import CloudinarySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudinary import (
     CloudinarySourceConfig,
 )
-
-_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.source"
 
 
 def _config() -> CloudinarySourceConfig:
@@ -15,18 +14,17 @@ def _config() -> CloudinarySourceConfig:
 
 class TestCloudinarySourceClass:
     def test_an_unknown_schema_fails_before_any_request_goes_out(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_cloudinary_table"
+        result = SourceDriver(CloudinarySource(), _config()).run("not_a_cloudinary_table", [])
 
-        with pytest.raises(ValueError, match="Unknown Cloudinary endpoint"):
-            CloudinarySource().source_for_pipeline(_config(), mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Cloudinary endpoint" in str(result.raised)
+        assert result.requests == []
 
     def test_the_configured_region_reaches_the_transport(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "images"
+        result = SourceDriver(CloudinarySource(), _config()).run(
+            "images", [ScriptedResponse(json={"resources": [{"asset_id": "one"}]})]
+        )
 
-        with mock.patch(f"{_SOURCE}.cloudinary_source") as cloudinary_source:
-            CloudinarySource().source_for_pipeline(_config(), mock.MagicMock(), inputs)
-
-        assert cloudinary_source.call_args.kwargs["region"] == "eu"
-        assert cloudinary_source.call_args.kwargs["cloud_name"] == "my-cloud"
+        assert result.raised is None
+        assert result.requests[0].origin == "https://api-eu.cloudinary.com"
+        assert result.requests[0].path == "/v1_1/my-cloud/resources/image"

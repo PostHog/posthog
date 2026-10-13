@@ -10,6 +10,12 @@ from ..logic import decisions
 from . import contracts
 
 
+def decisions_available_here() -> bool:
+    """Whether this region serves decisions at all. A batch caller checks this once before it
+    enumerates work, so a region without the service spends nothing per team."""
+    return decisions.decisions_available_here()
+
+
 def decisions_enabled(team_id: int) -> bool:
     return decisions.decisions_enabled(team_id)
 

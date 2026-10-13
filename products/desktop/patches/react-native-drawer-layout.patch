@@ -1,0 +1,42 @@
+diff --git a/lib/module/views/Drawer.native.js b/lib/module/views/Drawer.native.js
+--- a/lib/module/views/Drawer.native.js
++++ b/lib/module/views/Drawer.native.js
+@@ -138,7 +138,7 @@
+       velocity,
+       stiffness: 1000,
+       damping: 500,
+-      mass: 3,
++      mass: 1,
+       overshootClamping: true,
+       reduceMotion: ReduceMotion.Never
+     }, finished => runOnJS(onAnimationEnd)(open, finished));
+@@ -328,7 +328,7 @@
+       // But adding `overflowX: 'hidden'` prevents content from collapsing the URL bar.
+       web: null,
+       default: {
+-        overflow: 'hidden'
++        overflow: 'visible'
+       }
+     })
+   }
+diff --git a/src/views/Drawer.native.tsx b/src/views/Drawer.native.tsx
+--- a/src/views/Drawer.native.tsx
++++ b/src/views/Drawer.native.tsx
+@@ -193,7 +193,7 @@
+           velocity,
+           stiffness: 1000,
+           damping: 500,
+-          mass: 3,
++          mass: 1,
+           overshootClamping: true,
+           reduceMotion: ReduceMotion.Never,
+         },
+@@ -524,7 +524,7 @@
+       // FIXME: We need to hide `overflowX` on Web so the translated content doesn't show offscreen.
+       // But adding `overflowX: 'hidden'` prevents content from collapsing the URL bar.
+       web: null,
+-      default: { overflow: 'hidden' },
++      default: { overflow: 'visible' },
+     }),
+   },
+ });

@@ -131,6 +131,12 @@ class _PerFormProbe:
     label: str
 
 
+# Fillout answers the per-form probe with a 400 or 404 when it can't load that one form, which
+# says nothing about the key. Later forms stand in for it, up to a cap that keeps validation
+# quick on accounts with many forms.
+_FORM_SPECIFIC_PROBE_STATUSES = (400, 404)
+_MAX_FORMS_TO_PROBE = 5
+
 _PER_FORM_PROBES: dict[str, _PerFormProbe] = {
     "submissions": _PerFormProbe(path_suffix="/submissions", params={"limit": 1}, label="submissions"),
     "form_metadata": _PerFormProbe(path_suffix="", params={}, label="form metadata"),
@@ -182,11 +188,11 @@ def validate_credentials(
 
         # With no forms there's nothing to probe against; that shouldn't block validation.
         if isinstance(forms_items, list) and forms_items:
-            first_form = forms_items[0]
-            form_id = first_form.get("formId") if isinstance(first_form, dict) else None
-            if not isinstance(form_id, str) or not form_id:
-                errors.append(f"Fillout returned an invalid form id while validating {probe.label} access.")
-            else:
+            for form in forms_items[:_MAX_FORMS_TO_PROBE]:
+                form_id = form.get("formId") if isinstance(form, dict) else None
+                if not isinstance(form_id, str) or not form_id:
+                    errors.append(f"Fillout returned an invalid form id while validating {probe.label} access.")
+                    break
                 try:
                     probe_response = make_tracked_session().get(
                         f"{base_url}/forms/{form_id}{probe.path_suffix}",
@@ -194,16 +200,18 @@ def validate_credentials(
                         params=probe.params,
                         timeout=10,
                     )
-                    if probe_response.status_code == 401:
-                        errors.append("Invalid Fillout API key")
-                    elif probe_response.status_code == 403:
-                        errors.append(f"Fillout API key is missing permission to read {probe.label}")
-                    elif probe_response.status_code != 200:
-                        errors.append(
-                            f"Fillout {probe.label} endpoint failed: {_parse_error_description(probe_response)}"
-                        )
                 except RequestException as exc:
                     errors.append(f"Fillout {probe.label} request failed: {exc}")
+                    break
+                if probe_response.status_code in _FORM_SPECIFIC_PROBE_STATUSES:
+                    continue
+                if probe_response.status_code == 401:
+                    errors.append("Invalid Fillout API key")
+                elif probe_response.status_code == 403:
+                    errors.append(f"Fillout API key is missing permission to read {probe.label}")
+                elif probe_response.status_code != 200:
+                    errors.append(f"Fillout {probe.label} endpoint failed: {_parse_error_description(probe_response)}")
+                break
 
     if errors:
         return False, "; ".join(errors)

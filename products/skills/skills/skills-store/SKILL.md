@@ -281,3 +281,8 @@ The bridge is intentionally minimal — it just routes to the MCP tools. The rea
 - When asked to "save", "store", or "remember" a workflow, runbook, or multi-step procedure, store it as a PostHog skill
 - When asked to use a skill by name, fetch it with `skill-get`
 - When a skill references bundled files in its body, pull them with `skill-file-get` only when needed — don't preload
+
+## Related skills
+
+- `working-with-skills` — before you write to a skill, and for patterns on what to use skills for (project hubs, catalogs, runbooks, handovers)
+- `authoring-scouts` — to turn a skill into a scout that runs on a schedule

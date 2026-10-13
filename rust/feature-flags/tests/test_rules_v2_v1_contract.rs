@@ -431,6 +431,7 @@ fn response_from_outcome(outcome: &Value) -> FlagsResponse {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         };
         flags.insert(key, detail);
     }

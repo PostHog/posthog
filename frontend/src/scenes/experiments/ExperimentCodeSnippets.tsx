@@ -252,9 +252,12 @@ export interface PromptSnippetProps {
     flagKey: string
 }
 
+// Prompt experiment snippets run 40+ lines, so they collapse to a preview until the user expands.
+const PROMPT_SNIPPET_PREVIEW_LINES = 12
+
 export function PromptExperimentPythonSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
     return (
-        <CodeSnippet language={Language.Python} wrap compact>
+        <CodeSnippet language={Language.Python} wrap compact maxLinesWithoutExpansion={PROMPT_SNIPPET_PREVIEW_LINES}>
             {`import json
 import os
 
@@ -309,7 +312,12 @@ print(response.choices[0].message.content)
 
 export function PromptExperimentJSSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
     return (
-        <CodeSnippet language={Language.TypeScript} wrap compact>
+        <CodeSnippet
+            language={Language.TypeScript}
+            wrap
+            compact
+            maxLinesWithoutExpansion={PROMPT_SNIPPET_PREVIEW_LINES}
+        >
             {`import { PostHog } from 'posthog-node'
 import { OpenAI } from '@posthog/ai/openai'
 import { Prompts } from '@posthog/ai/prompts'
@@ -363,7 +371,7 @@ console.log(response.choices[0].message.content)
 
 export function PromptExperimentAgentPromptSnippet({ flagKey }: PromptSnippetProps): JSX.Element {
     return (
-        <CodeSnippet language={Language.Text} wrap compact>
+        <CodeSnippet language={Language.Text} wrap compact maxLinesWithoutExpansion={PROMPT_SNIPPET_PREVIEW_LINES}>
             {`Wire up a PostHog prompt experiment in this project.
 
 Context

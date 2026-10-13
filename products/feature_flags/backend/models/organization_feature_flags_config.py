@@ -1,6 +1,17 @@
-from django.db import models
+import logging
+from typing import TYPE_CHECKING, Any
 
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
+from django.conf import settings
+from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+
+logger = logging.getLogger(__name__)
 
 
 class OrganizationFeatureFlagsConfig(models.Model):
@@ -21,9 +32,9 @@ class OrganizationFeatureFlagsConfig(models.Model):
     # The database default keeps raw SQL INSERTs that omit this column valid. Django's default
     # applies only to rows the ORM creates.
     flag_evaluations_mode = models.SmallIntegerField(
-        choices=FlagEvaluationsMode,
-        default=FlagEvaluationsMode.EVENTS,
-        db_default=FlagEvaluationsMode.EVENTS,
+        choices=FlagEvaluationsMode.choices,
+        default=FlagEvaluationsMode.EVENTS.value,
+        db_default=FlagEvaluationsMode.EVENTS.value,
     )
 
     class Meta:
@@ -36,3 +47,31 @@ class OrganizationFeatureFlagsConfig(models.Model):
                 condition=models.Q(flag_evaluations_mode__in=FlagEvaluationsMode.values),
             )
         ]
+
+
+@receiver(post_save, sender="posthog.Organization")
+def create_organization_feature_flags_config(
+    sender: type[models.Model], instance: "Organization", created: bool, **kwargs: Any
+) -> None:
+    """Give a new organization its row at FLAG_EVALUATIONS_NEW_ORG_MODE. A later change to the setting
+    does not move an existing organization.
+
+    A failure logs and does not block the organization's creation. The organization then has no row
+    and reads as EVENTS.
+    """
+    if not created:
+        return
+    mode = settings.FLAG_EVALUATIONS_NEW_ORG_MODE
+    if mode not in FlagEvaluationsMode.values:
+        # The CHECK constraint rejects a mode that FlagEvaluationsMode does not define.
+        logger.warning("Ignoring invalid FLAG_EVALUATIONS_NEW_ORG_MODE %r", mode)
+        mode = FlagEvaluationsMode.EVENTS
+    try:
+        # OrganizationManager.bootstrap creates the organization inside a transaction. get_or_create
+        # opens a savepoint, so a failed INSERT rolls back only the savepoint and leaves that
+        # transaction usable.
+        OrganizationFeatureFlagsConfig.objects.get_or_create(
+            organization=instance, defaults={"flag_evaluations_mode": mode}
+        )
+    except Exception as e:
+        logger.warning(f"Error creating OrganizationFeatureFlagsConfig: {e}")

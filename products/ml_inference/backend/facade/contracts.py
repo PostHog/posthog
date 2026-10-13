@@ -67,8 +67,17 @@ class DecisionRequest:
     ai_product: str = "ml_inference"
     trace_id: str | None = None
     properties: dict[str, str] | None = None
+    # The acting user; unset for background work, which is labelled with the team.
+    distinct_id: str | None = None
+    # The gateway records the request state and answers into the internal AI observability project
+    # unless asked not to. Set this when the state carries customer content.
+    privacy_mode: bool = False
 
     def __post_init__(self) -> None:
+        if self.team_id <= 0:
+            raise ValueError(f"team_id must be positive, got {self.team_id}")
+        if not self.ai_product:
+            raise ValueError("ai_product is required")
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:
             raise ValueError(f"a request takes at most {MAX_QUESTIONS_PER_REQUEST} questions")
 

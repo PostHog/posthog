@@ -78,6 +78,8 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return {
             "401 Client Error: Unauthorized for url: https://api.openai.com": "Your OpenAI Admin API key is invalid or has been revoked. Create a new Admin API key in your OpenAI organization settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.openai.com": "Your OpenAI API key does not have organization admin access. Use an Admin API key (prefixed sk-admin) created by an organization owner, then reconnect.",
+            # Reached only after every later start time in the source's fallback was rejected too.
+            "code=reporting_lookback_exceeded": "OpenAI doesn't report data this far back for this table, and PostHog couldn't find a start date that OpenAI accepts. Contact support so we can fix the sync.",
         }
 
     def get_retryable_errors(self) -> set[str]:

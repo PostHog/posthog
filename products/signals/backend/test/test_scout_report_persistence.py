@@ -1,5 +1,5 @@
 import json
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 
 import pytest
@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.db import DatabaseError
 
 from parameterized import parameterized
 
@@ -206,6 +207,35 @@ class TestScoutReportPersistence(BaseTest):
 
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]
+
+    @parameterized.expand(
+        [
+            ("signal_delivery_fails", RuntimeError("kafka unavailable"), None, True),
+            ("run_tally_write_fails", None, DatabaseError("connection reset"), False),
+        ]
+    )
+    def test_a_committed_report_always_carries_its_authoring_run(
+        self, _name, emit_error, save_error, expect_report
+    ) -> None:
+        run = self._make_run()
+        self.emit_mock.side_effect = emit_error
+        save_patch = patch.object(SignalScoutRun, "save", side_effect=save_error) if save_error else nullcontext()
+        with save_patch, pytest.raises(type(emit_error or save_error)):
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+            )
+
+        report_ids = [
+            str(report_id) for report_id in SignalReport.objects.filter(team=self.team).values_list("id", flat=True)
+        ]
+        assert bool(report_ids) is expect_report
+        run.refresh_from_db()
+        assert run.emitted_report_ids == report_ids
 
     def test_create_with_reviewers_fires_linkability_telemetry(self) -> None:
         # Scout-authored reports persist reviewers here, not through the custom-agent path; without

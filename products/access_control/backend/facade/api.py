@@ -21,26 +21,32 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.event_definitions.backend.models import effective_project_id_expr
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
+from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
 )
 from . import contracts
 from .contracts import PropertyAccessLevel
+from .enums import AI_EVENT_PROPERTY_CHOICES
 from .user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
@@ -97,8 +103,13 @@ def _get_property_definition(property_definition_id: str, team_id: int) -> Prope
         UUID(str(property_definition_id))
     except ValueError as exc:
         raise PropertyDefinitionNotFoundError(property_definition_id) from exc
+    project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
     try:
-        return get_object_or_404(PropertyDefinition, id=property_definition_id, team_id=team_id)
+        return get_object_or_404(
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()),
+            effective_project_id=project_id,
+            id=property_definition_id,
+        )
     except Http404 as exc:
         # Normalize 404 -> domain error so presentation can translate without leaking ORM concerns.
         raise PropertyDefinitionNotFoundError(property_definition_id) from exc
@@ -201,6 +212,62 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     if not entitled:
         return False
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
+
+
+def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
+    """True when the lock is disabled, or when the user is the Terraform account. An enabled lock
+    with no account refuses everyone until the first Terraform write. The check is on the user
+    behind the request and never on a client header, because any client can send any header."""
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True).first()
+    if config is None:
+        return True
+    return config.terraform_managed_by is not None and config.terraform_managed_by.user_id == user_id
+
+
+def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
+    """False when the role has rules in a project that Terraform manages and the user is not the
+    Terraform account. AccessControl.role cascades, so the delete would remove those rules without
+    any rule endpoint running."""
+    return not (
+        TeamAccessControlConfig.objects.filter(
+            is_managed_by_terraform=True,
+            team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
+        )
+        .exclude(terraform_managed_by__user_id=user_id)
+        .exists()
+    )
+
+
+def get_terraform_lock(*, team_id: int) -> contracts.TerraformLock:
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
+    return contracts.TerraformLock(
+        managed=config is not None and config.is_managed_by_terraform,
+        terraform_last_applied_at=config.terraform_last_applied_at if config else None,
+        has_terraform_account=config is not None and config.terraform_managed_by_id is not None,
+    )
+
+
+def set_terraform_lock(*, team_id: int, enabled: bool, terraform_user_id: int | None = None) -> contracts.TerraformLock:
+    """Enable or disable the lock.
+
+    With terraform_user_id, a Terraform write made the call. The owner of that API key becomes the
+    Terraform account of the project, and the write time is recorded. A different account replaces
+    the stored one, so a rotated service account continues to work.
+
+    Without terraform_user_id, an admin made the call. Disable keeps the account. Enable before the
+    first Terraform write locks everyone out until that write."""
+    team = get_object_or_404(Team, id=team_id)
+    config = get_or_create_team_extension(team, TeamAccessControlConfig)
+    if terraform_user_id is not None:
+        membership = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user_id=terraform_user_id
+        ).first()
+        if membership is not None:
+            config.terraform_managed_by = membership
+        config.terraform_last_applied_at = timezone.now()
+    config.is_managed_by_terraform = enabled
+    config.save(update_fields=["terraform_managed_by", "terraform_last_applied_at", "is_managed_by_terraform"])
+    return get_terraform_lock(team_id=team_id)
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:
@@ -316,6 +383,20 @@ def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
 # --- Write API ---
 
 
+def _get_or_create_ai_property_definition(team_id: int, property_name: str) -> PropertyDefinition:
+    project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
+    project_definitions = PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+        effective_project_id=project_id
+    )
+    definition, _ = project_definitions.get_or_create(
+        name=property_name,
+        type=PropertyDefinition.Type.EVENT,
+        group_type_index=None,
+        defaults={"team_id": team_id, "project_id": project_id},
+    )
+    return definition
+
+
 def _validate_target_org(
     *,
     team_id: int,
@@ -359,29 +440,37 @@ def upsert_property_access_control(
     input: contracts.UpsertPropertyAccessControlInput,
 ) -> contracts.PropertyAccessControlRule:
     """Create or update a single access control rule."""
-    prop_def = _get_property_definition(input.property_definition_id, team_id)
+    if input.ai_property is not None and input.ai_property not in AI_EVENT_PROPERTY_CHOICES:
+        raise InvalidPropertyAccessControlTargetError("Unknown AI event property.")
     _validate_target_org(
         team_id=team_id,
         organization_member_id=input.organization_member_id,
         role_id=input.role_id,
     )
 
-    # `created_by_id` must only be set on creation — using `defaults` would
-    # overwrite the original creator on every update. `create_defaults`
-    # (Django 4.2+) is applied only when a new row is inserted.
-    rule, _created = PropertyAccessControl.objects.update_or_create(
-        team_id=team_id,
-        property_definition=prop_def,
-        organization_member_id=input.organization_member_id,
-        role_id=input.role_id,
-        defaults={
-            "access_level": input.access_level.value,
-        },
-        create_defaults={
-            "access_level": input.access_level.value,
-            "created_by_id": created_by_id,
-        },
-    )
+    with transaction.atomic():
+        if input.ai_property is not None:
+            prop_def = _get_or_create_ai_property_definition(team_id, input.ai_property)
+        else:
+            assert input.property_definition_id is not None
+            prop_def = _get_property_definition(input.property_definition_id, team_id)
+
+        # `created_by_id` must only be set on creation — using `defaults` would
+        # overwrite the original creator on every update. `create_defaults`
+        # (Django 4.2+) is applied only when a new row is inserted.
+        rule, _created = PropertyAccessControl.objects.update_or_create(
+            team_id=team_id,
+            property_definition=prop_def,
+            organization_member_id=input.organization_member_id,
+            role_id=input.role_id,
+            defaults={
+                "access_level": input.access_level.value,
+            },
+            create_defaults={
+                "access_level": input.access_level.value,
+                "created_by_id": created_by_id,
+            },
+        )
     return _to_rule(rule)
 
 

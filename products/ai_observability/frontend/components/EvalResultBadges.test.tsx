@@ -8,7 +8,13 @@ import { initKeaTests } from '~/test/init'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
+import {
+    EvalResultBadges,
+    EvalTooltipContent,
+    getEvalBadgeProps,
+    getEvalSummaries,
+    scopeRunsToTarget,
+} from './EvalResultBadges'
 import {
     compareEvaluationResults,
     getEvaluationResultDisplay,
@@ -32,6 +38,12 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('shows a fallback when a run has no reasoning', () => {
+        render(<EvalTooltipContent latestRun={makeRun()} runCount={1} />)
+
+        expect(screen.getByText('No reasoning provided')).toBeInTheDocument()
+    })
+
     it('sorts numeric scores together without colliding with status ranks', () => {
         const rows = [
             makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
@@ -54,13 +66,31 @@ describe('EvalResultBadges', () => {
     })
 
     it.each([
-        [1 / 3, '0.333333'],
+        [0, '0'],
+        [1 / 3, '0.33'],
         [123456789, '123456789'],
         [-123456789, '-123456789'],
-        [0.0000000123456789, '1.23457e-8'],
-        [1234567.1234567, '1234567.123457'],
-    ])('formats score %s without dropping integer digits', (score, label) => {
+        [0.0000000123456789, '1.2e-8'],
+        [1234567.1234567, '1234567.12'],
+    ])('formats score %s compactly without losing its magnitude', (score, label) => {
         expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
+    })
+
+    it.each([
+        [4.899999, 'gte', 4.9, '4.899999', 'danger'],
+        [4.9, 'gte', 4.9, '4.9', 'success'],
+        [4.900001, 'lte', 4.9, '4.900001', 'danger'],
+        [4.9, 'lte', 4.9, '4.9', 'success'],
+        [4.900001, 'gte', 4.900001, '4.900001', 'success'],
+        [4.899999, 'lte', 4.899999, '4.899999', 'success'],
+        [10.001, 'gte', 10, '10', 'success'],
+        [9.999, 'lte', 10, '10', 'success'],
+    ] as const)('keeps the label for score %s consistent with %s %s', (score, operator, threshold, label, type) => {
+        expect(
+            getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score }), {
+                passingRule: { operator, threshold },
+            })
+        ).toMatchObject({ label, type })
     })
 
     it.each([

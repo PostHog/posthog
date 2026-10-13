@@ -175,7 +175,6 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "linger_ms": "linger.ms",
     "max_in_flight_requests_per_connection": "max.in.flight.requests.per.connection",
     "buffer_memory": "queue.buffering.max.kbytes",
-    "max_block_ms": "queue.buffering.max.ms",
     "topic_metadata_refresh_interval_ms": "topic.metadata.refresh.interval.ms",
     "queue_buffering_max_messages": "queue.buffering.max.messages",
     "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",

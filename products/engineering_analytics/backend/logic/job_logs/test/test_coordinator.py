@@ -132,6 +132,8 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
                 job_name="ci-backend.yml:turbo-tests:matrix-38",
                 run_attempt=1,
                 head_sha="abc1234",
+                native_run_id="bbbbbbbbbb" if run_id == 223978965517241 else "427q556wmn",
+                native_workflow_run_id="cccccccccc",
             )
 
         two_workflow_run = fetch_inputs("h8qn5x801q", run_id=223978965517241, job_id=300989664396052)

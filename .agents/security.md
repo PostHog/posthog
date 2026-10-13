@@ -1,5 +1,31 @@
 # Security guidelines for agents
 
+## Routing security fixes
+
+**Security fixes land in `PostHog/posthog` by default.**
+`PostHog/posthog-private` is only for severe vulnerabilities that need an embargo.
+An embargo is expensive: team-security pauses the private sync, disables the merge queue, and ships the fix through the security sync flow.
+Most security fixes do not justify that cost.
+
+Before you create a branch or PR, choose the route:
+
+- **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+
+A public security fix is a normal fix with a neutral description.
+Describe what the change does, not how to exploit the old behavior.
+Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
+
+Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
+When you ask, say why the finding looks severe enough for an embargo.
+If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
+
+Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
+
+This section is about where the fix lands; the rest of this doc is about writing secure code.
+
 ## Principle of Least Privilege
 
 Default to the smallest permission, narrowest field set, and shortest scope that still works. If a change needs more access than what's already in place, stop and reconsider the design before widening it.
@@ -196,6 +222,12 @@ An app or admin page takes the matching list in `CSPMiddleware`.
 On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
 A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
+On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
+It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
+A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
+Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
+A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
+Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
 Say why the source is needed in a comment either way, then run `posthog/test/test_csp_middleware.py`.

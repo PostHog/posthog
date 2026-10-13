@@ -25,6 +25,9 @@ import {
     ItemTitle,
     Spinner,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -75,18 +78,19 @@ function BillingUpgradeButton({
 }: {
     platformAndSupportProduct: BillingProductV2Type
 }): JSX.Element {
-    const { billing } = useValues(billingLogic)
+    const { billing, billingManagedByPartnerDisabledReason } = useValues(billingLogic)
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product: platformAndSupportProduct }))
     const { reportBillingCTAShown } = useActions(eventUsageLogic)
     useOnMountEffect(reportBillingCTAShown)
 
-    return (
+    const button = (
         <Button
             variant="primary"
             size="lg"
             data-attr="startup-program-upgrade-cta"
             loading={!!billingProductLoading}
+            disabled={!!billingManagedByPartnerDisabledReason}
             onClick={() =>
                 startPaymentEntryFlow(platformAndSupportProduct, window.location.pathname + window.location.search)
             }
@@ -94,6 +98,17 @@ function BillingUpgradeButton({
             {billing?.customer_id ? 'Subscribe' : 'Add billing details'}
         </Button>
     )
+
+    if (billingManagedByPartnerDisabledReason) {
+        return (
+            <Tooltip>
+                <TooltipTrigger render={button} />
+                <TooltipContent>{billingManagedByPartnerDisabledReason}</TooltipContent>
+            </Tooltip>
+        )
+    }
+
+    return button
 }
 
 export const scene: SceneExport<StartupProgramLogicProps> = {

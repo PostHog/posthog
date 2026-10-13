@@ -5,6 +5,18 @@ from django.utils import timezone
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.canvas.backend.facade.enums import (
+    CANVAS_BUILD_STATUS_FAILED,
+    CANVAS_BUILD_STATUS_READY,
+    CANVAS_KIND_COMPONENT,
+    CANVAS_KIND_FREEFORM,
+    CANVAS_KIND_GRID,
+    CANVAS_KINDS,
+    CANVAS_STATE_SCOPE_SHARED,
+    CANVAS_STATE_SCOPE_USER,
+    CANVAS_STATE_SCOPES,
+)
+
 
 class Canvas(TeamScopedRootMixin, UUIDModel):
     """A canvas document: an agent-built, sandboxed browser app filed in a channel.
@@ -28,10 +40,10 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
       validates and versions the layout without queuing a build.
     """
 
-    KIND_FREEFORM = "freeform"
-    KIND_GRID = "grid"
-    KIND_COMPONENT = "component"
-    KINDS = [KIND_FREEFORM, KIND_GRID, KIND_COMPONENT]
+    KIND_FREEFORM = CANVAS_KIND_FREEFORM
+    KIND_GRID = CANVAS_KIND_GRID
+    KIND_COMPONENT = CANVAS_KIND_COMPONENT
+    KINDS = CANVAS_KINDS
 
     SOURCE_POLICY_STANDARD = "standard"
     SOURCE_POLICY_NOTEBOOK_WIDGET = "notebook_widget"
@@ -152,8 +164,8 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
 
     STATUS_QUEUED = "queued"
     STATUS_BUILDING = "building"
-    STATUS_READY = "ready"
-    STATUS_FAILED = "failed"
+    STATUS_READY = CANVAS_BUILD_STATUS_READY
+    STATUS_FAILED = CANVAS_BUILD_STATUS_FAILED
     ACTIVE_STATUSES = [STATUS_QUEUED, STATUS_BUILDING]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
@@ -238,9 +250,9 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
     access a point lookup and table growth capped by canvas count.
     """
 
-    SCOPE_USER = "user"
-    SCOPE_SHARED = "shared"
-    SCOPES = [SCOPE_USER, SCOPE_SHARED]
+    SCOPE_USER = CANVAS_STATE_SCOPE_USER
+    SCOPE_SHARED = CANVAS_STATE_SCOPE_SHARED
+    SCOPES = CANVAS_STATE_SCOPES
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="state_entries")

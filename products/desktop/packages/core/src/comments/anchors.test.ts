@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  commentScopeFromWire,
   createTextCommentAnchor,
   isThreadResolved,
   parseCommentContext,
@@ -7,6 +8,16 @@ import {
 } from "./anchors";
 
 describe("artifact text anchors", () => {
+  it.each([
+    ["canvas", "canvas"],
+    ["desktop_canvas", "canvas"],
+    ["task_artifact", "task_artifact"],
+    ["Insight", null],
+    [undefined, null],
+  ])("reads comment scope %s as %s", (scope, expected) => {
+    expect(commentScopeFromWire(scope)).toBe(expected);
+  });
+
   it("creates and resolves a verified positional anchor", () => {
     const text = "Before selected words after";
     const anchor = createTextCommentAnchor(text, 7, 21);

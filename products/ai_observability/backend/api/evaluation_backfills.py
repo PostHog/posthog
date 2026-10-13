@@ -31,12 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import (
-    AccessControlPermission,
-    APIScopePermission,
-    PostHogFeatureFlagPermission,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import (
     AIObservabilityBackfillCreateSustainedThrottle,
     AIObservabilityBackfillCreateThrottle,
@@ -83,6 +78,11 @@ BACKFILL_START_GRACE = timedelta(minutes=2)
 # is held for the same tick, because that probe is the expensive one: it opens a connection with
 # no timeout, and the list still answers 200, so nothing upstream slows the polling down.
 BACKFILL_ALIVE_CACHE_SECONDS = 60
+
+# Candidates come from `events`, but each generation is read back from `ai_events`, which a
+# separate pipeline fills later, and a small share of generations take longer than the shared
+# ingestion margin to land there.
+BACKFILL_AI_EVENTS_LAG = timedelta(seconds=30)
 
 
 @frozen
@@ -267,8 +267,6 @@ class EvaluationBackfillViewSet(
 ):
     """Historical runs of one evaluation over a closed time window (nested under an evaluation)."""
 
-    # The same flag as the tab, so the API and the surface reach a project together.
-    posthog_feature_flag = "llm-analytics-eval-backfills"
     scope_object = "evaluation"
     scope_object_read_actions = ["list", "retrieve", "estimate"]
     scope_object_write_actions = WRITE_ACTIONS
@@ -283,7 +281,6 @@ class EvaluationBackfillViewSet(
             APIScopePermission(),
             EvaluationBackfillAccessControlPermission(),
             TeamMemberAccessPermission(),
-            PostHogFeatureFlagPermission(),
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -332,10 +329,9 @@ class EvaluationBackfillViewSet(
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
-        # Candidates come from `events`, but each generation is read back from `ai_events`, which a
-        # separate pipeline fills later. A generation that has not reached `ai_events` yet fails its
-        # run for good, so the window stops short of the newest events.
-        window_end: datetime = min(data["window_end"], now - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))
+        # A generation that has not reached `ai_events` yet fails its run, so the window stops short
+        # of the newest events.
+        window_end: datetime = min(data["window_end"], now - BACKFILL_AI_EVENTS_LAG)
         settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any

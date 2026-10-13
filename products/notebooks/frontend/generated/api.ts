@@ -13,8 +13,12 @@ import type {
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
     NotebookComputeOptionsResponseApi,
+    NotebookKernelCompleteRequestApi,
+    NotebookKernelCompleteResponseApi,
     NotebookKernelConfigApi,
     NotebookKernelConfigResponseApi,
+    NotebookKernelInspectRequestApi,
+    NotebookKernelInspectResponseApi,
     NotebookKernelStatusResponseApi,
     NotebookMarkdownSaveApi,
     NotebookRunInterruptResponseApi,
@@ -540,6 +544,27 @@ export const notebooksCollabStreamRetrieve = async (
     })
 }
 
+export const getNotebooksKernelCompleteCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/complete/`
+}
+
+/**
+ * Completions for the cursor position in a Python cell, from the notebook's running kernel. Returns no matches when no kernel is running or the kernel is busy, and never starts one.
+ */
+export const notebooksKernelCompleteCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookKernelCompleteRequestApi: NotebookKernelCompleteRequestApi,
+    options?: RequestInit
+): Promise<NotebookKernelCompleteResponseApi> => {
+    return apiMutator<NotebookKernelCompleteResponseApi>(getNotebooksKernelCompleteCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookKernelCompleteRequestApi),
+    })
+}
+
 export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/config/`
 }
@@ -579,6 +604,27 @@ export const notebooksKernelExecuteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
+    })
+}
+
+export const getNotebooksKernelInspectCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/inspect/`
+}
+
+/**
+ * The signature and docstring of the name at the cursor in a Python cell, from the notebook's running kernel. Returns found=false when no kernel is running or the kernel is busy.
+ */
+export const notebooksKernelInspectCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookKernelInspectRequestApi: NotebookKernelInspectRequestApi,
+    options?: RequestInit
+): Promise<NotebookKernelInspectResponseApi> => {
+    return apiMutator<NotebookKernelInspectResponseApi>(getNotebooksKernelInspectCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookKernelInspectRequestApi),
     })
 }
 

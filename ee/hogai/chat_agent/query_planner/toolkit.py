@@ -202,7 +202,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
@@ -427,9 +428,9 @@ class TaxonomyAgentToolkit:
         virtual_definition = get_virtual_property_definition("event_properties", property_name)
         property_definition: PropertyDefinitionOrVirtual
         try:
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
-            )
+            property_definition = PropertyDefinition.objects.alias(
+                effective_project_id=effective_project_id_expr()
+            ).get(effective_project_id=self._team.project_id, name=property_name, type=PropertyDefinition.Type.EVENT)
         except PropertyDefinition.DoesNotExist:
             if virtual_definition is None:
                 return f"The property {property_name} does not exist in the taxonomy."
@@ -513,8 +514,10 @@ class TaxonomyAgentToolkit:
             else:
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team,
+            property_definition = PropertyDefinition.objects.alias(
+                effective_project_id=effective_project_id_expr()
+            ).get(
+                effective_project_id=self._team.project_id,
                 name=property_name,
                 type=prop_type,
                 group_type_index=group_type_index,

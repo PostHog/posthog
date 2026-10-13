@@ -1,14 +1,18 @@
 from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional, cast
 from urllib.parse import quote
+
+from requests import Request, Response
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     BOOKING_ATTENDEES_ENDPOINT,
     BOOKING_ATTENDEES_PARENT,
+    BOOKINGS_WINDOW_DAYS,
+    BOOKINGS_WINDOW_ORIGIN,
     CAL_COM_ENDPOINTS,
     CAL_COM_HOSTS,
     ORG_PATH_PLACEHOLDER,
@@ -59,6 +63,7 @@ class CalComResumeConfig:
     # Opaque `pagination.nextCursor` for cursor-paginated endpoints (bookings). A crashed sync
     # resumes from the page after the last one yielded; merge dedupes the re-pulled page on `id`.
     cursor: str | None = None
+    window_start: str | None = None
     # `skip` offset for offset-paginated endpoints (webhooks).
     skip: int | None = None
     # Fan-out endpoints resume per parent — see
@@ -168,6 +173,108 @@ def _incremental_window(config: CalComEndpointConfig, cursor_path: str) -> Incre
     }
 
 
+class CalComBookingsWindowPaginator(BasePaginator):
+    """Walk `createdAt` windows oldest first, and follow `nextCursor` inside each window.
+
+    The first window starts at the epoch and the last window has no upper bound, so every booking
+    falls in exactly one window.
+    """
+
+    def __init__(self, now: datetime) -> None:
+        super().__init__()
+        self._now = now
+        self._window_start = datetime.fromtimestamp(0, UTC)
+        self._cursor: str | None = None
+
+    def _window_end(self) -> datetime | None:
+        if self._window_start < BOOKINGS_WINDOW_ORIGIN:
+            end = BOOKINGS_WINDOW_ORIGIN
+        else:
+            end = self._window_start + timedelta(days=BOOKINGS_WINDOW_DAYS)
+        return end if end <= self._now else None
+
+    def _apply(self, request: Request) -> None:
+        params = request.params if request.params is not None else {}
+        request.params = params
+        params["afterCreatedAt"] = _format_incremental_value(self._window_start)
+        end = self._window_end()
+        if end is None:
+            params.pop("beforeCreatedAt", None)
+        else:
+            # Cal.com applies both bounds inclusively, so the window stops 1 ms before the next
+            # window starts. Otherwise a booking created on a boundary would come back twice.
+            params["beforeCreatedAt"] = _format_incremental_value(end - timedelta(milliseconds=1))
+        if self._cursor is None:
+            params.pop("cursor", None)
+        else:
+            params["cursor"] = self._cursor
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        body = response.json()
+        pagination = body.get("pagination") if isinstance(body, dict) else None
+        cursor = pagination.get("nextCursor") if isinstance(pagination, dict) else None
+        if cursor:
+            self._cursor = str(cursor)
+            self._has_next_page = True
+            return
+
+        self._cursor = None
+        end = self._window_end()
+        if end is None:
+            self._has_next_page = False
+        else:
+            self._window_start = end
+            self._has_next_page = True
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"window_start": _format_incremental_value(self._window_start), "cursor": self._cursor}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        window_start = state.get("window_start")
+        if window_start is None:
+            return
+        self._window_start = datetime.fromisoformat(window_start)
+        cursor = state.get("cursor")
+        self._cursor = str(cursor) if cursor is not None else None
+        self._has_next_page = True
+
+
+def _walks_windows(config: CalComEndpointConfig, incremental_params: dict[str, Any]) -> bool:
+    return config.windowed_backfill and not incremental_params
+
+
+def _resume_paginator_state(resume: CalComResumeConfig | None, windowed: bool) -> Optional[dict[str, Any]]:
+    if resume is None:
+        return None
+    if windowed:
+        if resume.window_start is None:
+            return None
+        return {"window_start": resume.window_start, "cursor": resume.cursor}
+    # A cursor from a windowed walk carries `createdAt` filters that this walk does not send.
+    if resume.window_start is None and resume.cursor is not None:
+        return {"cursor": resume.cursor}
+    return None
+
+
+def _save_cursor_state(
+    resumable_source_manager: ResumableSourceManager[CalComResumeConfig], state: Optional[dict[str, Any]]
+) -> None:
+    if not state:
+        return
+    if state.get("window_start") is not None:
+        resumable_source_manager.save_state(
+            CalComResumeConfig(cursor=state.get("cursor"), window_start=state["window_start"])
+        )
+    elif state.get("cursor") is not None:
+        resumable_source_manager.save_state(CalComResumeConfig(cursor=state["cursor"]))
+
+
 def _make_paginator(config: CalComEndpointConfig) -> BasePaginator:
     if config.pagination == "cursor":
         # Bookings pages carry {"pagination": {"nextCursor": ..., "hasMore": ...}}; a null/absent
@@ -196,17 +303,23 @@ def _top_level_items(
     db_incremental_field_last_value: Optional[Any],
     incremental_field: str | None,
 ) -> Iterable[Any]:
-    params: dict[str, Any] = _build_incremental_params(
+    incremental_params = _build_incremental_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
-    params.update(_build_sort_params(config, should_use_incremental_field, incremental_field))
+    windowed = _walks_windows(config, incremental_params)
+    params: dict[str, Any] = {
+        **incremental_params,
+        **_build_sort_params(config, should_use_incremental_field, incremental_field),
+    }
     if config.pagination == "cursor":
         # Bookings `limit` maxes at 100; a larger value is rejected with 400 Bad Request. The
         # offset paginator injects its own `take`/`skip` pair.
         params["limit"] = config.page_size
 
     client_config = _client_config(region, api_key, config)
-    client_config["paginator"] = _make_paginator(config)
+    client_config["paginator"] = (
+        CalComBookingsWindowPaginator(now=datetime.now(UTC)) if windowed else _make_paginator(config)
+    )
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
@@ -229,11 +342,10 @@ def _top_level_items(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
-            if config.pagination == "cursor" and resume.cursor is not None:
-                initial_paginator_state = {"cursor": resume.cursor}
-            elif config.pagination == "offset" and resume.skip is not None:
-                initial_paginator_state = {"offset": resume.skip}
+        if config.pagination == "cursor":
+            initial_paginator_state = _resume_paginator_state(resume, windowed)
+        elif config.pagination == "offset" and resume is not None and resume.skip is not None:
+            initial_paginator_state = {"offset": resume.skip}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; the framework checkpoints AFTER a page is yielded
@@ -241,8 +353,8 @@ def _top_level_items(
         # dedupes the re-pulled page on the primary key.
         if not state:
             return
-        if config.pagination == "cursor" and state.get("cursor") is not None:
-            resumable_source_manager.save_state(CalComResumeConfig(cursor=state["cursor"]))
+        if config.pagination == "cursor":
+            _save_cursor_state(resumable_source_manager, state)
         elif config.pagination == "offset" and state.get("offset") is not None:
             resumable_source_manager.save_state(CalComResumeConfig(skip=int(state["offset"])))
 
@@ -351,10 +463,13 @@ def _booking_attendees_items(
     parent_params: dict[str, Any] = _build_incremental_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
+    windowed = _walks_windows(parent_config, parent_params)
     parent_params["limit"] = parent_config.page_size
 
     parent_client_config = _client_config(region, api_key, parent_config)
-    parent_client_config["paginator"] = _make_paginator(parent_config)
+    parent_client_config["paginator"] = (
+        CalComBookingsWindowPaginator(now=datetime.now(UTC)) if windowed else _make_paginator(parent_config)
+    )
 
     parent_rest_config: RESTAPIConfig = {
         "client": parent_client_config,
@@ -373,14 +488,11 @@ def _booking_attendees_items(
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.cursor is not None:
-            initial_paginator_state = {"cursor": resume.cursor}
+        initial_paginator_state = _resume_paginator_state(resumable_source_manager.load_state(), windowed)
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # The hook runs when this generator asks for the next page, so after its rows are out.
-        if state and state.get("cursor") is not None:
-            resumable_source_manager.save_state(CalComResumeConfig(cursor=state["cursor"]))
+        _save_cursor_state(resumable_source_manager, state)
 
     bookings = rest_api_resource(
         parent_rest_config,

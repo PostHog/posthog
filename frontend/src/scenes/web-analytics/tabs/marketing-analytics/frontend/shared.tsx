@@ -190,9 +190,11 @@ const getChangeBackgroundColor = (
 const MarketingAnalyticsCellInternal = ({
     value: item,
     style,
+    onClick,
 }: {
     value: MarketingAnalyticsItem
     style?: React.CSSProperties
+    onClick?: () => void
 }): JSX.Element | null => {
     const { baseCurrency } = useValues(teamLogic)
 
@@ -258,13 +260,31 @@ const MarketingAnalyticsCellInternal = ({
 
     const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad)
 
+    const Cell = onClick ? 'button' : 'div'
+
     return (
-        <Tooltip title={tooltip} delayMs={300} className="cursor-default">
-            <div
-                className="flex flex-wrap items-center min-w-0 cursor-default w-full hover:bg-warning-highlight h-full"
+        <Tooltip
+            title={
+                onClick ? (
+                    <>
+                        {tooltip}
+                        <br />
+                        Click to view people
+                    </>
+                ) : (
+                    tooltip
+                )
+            }
+            delayMs={300}
+            className={onClick ? 'cursor-pointer' : 'cursor-default'}
+        >
+            <Cell
+                type={onClick ? 'button' : undefined}
+                onClick={onClick}
+                data-attr={onClick ? 'marketing-analytics-view-conversions' : undefined}
+                className={`flex flex-wrap items-center min-w-0 w-full text-left font-normal hover:bg-warning-highlight h-full p-2 ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
                 style={{
                     backgroundColor: bgColor,
-                    padding: '0.5rem',
                     ...style,
                 }}
             >
@@ -280,7 +300,7 @@ const MarketingAnalyticsCellInternal = ({
                         {changePercFormatted}
                     </div>
                 )}
-            </div>
+            </Cell>
         </Tooltip>
     )
 }
@@ -289,14 +309,22 @@ const MarketingAnalyticsCellInternal = ({
 export const MarketingAnalyticsCell = ({
     value,
     style,
+    onClick,
 }: {
     value: unknown
     style?: React.CSSProperties
+    onClick?: () => void
 }): JSX.Element | null => {
     // Type guard to ensure we have a MarketingAnalyticsItem
     if (typeof value !== 'object' || value === null || !('key' in value)) {
         return <span>-</span>
     }
 
-    return <MarketingAnalyticsCellInternal value={withEmptyUtmLabel(value as MarketingAnalyticsItem)} style={style} />
+    return (
+        <MarketingAnalyticsCellInternal
+            value={withEmptyUtmLabel(value as MarketingAnalyticsItem)}
+            style={style}
+            onClick={onClick}
+        />
+    )
 }
