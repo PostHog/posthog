@@ -2,7 +2,7 @@ import './SampleDataState.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -181,7 +181,13 @@ function SampleDataTooltipContent(): JSX.Element {
 }
 
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
-export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVariant }): JSX.Element {
+export function SampleDataState({
+    variant = 'line',
+    children,
+}: {
+    variant?: SampleDataVariant
+    children?: ReactNode
+}): JSX.Element {
     const { setupStatus, setupStatusLoading } = useValues(setupWizardStatusLogic)
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const isStatic =
@@ -228,7 +234,7 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         </LemonTag>
                     </Tooltip>
                 )}
-                {variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
+                {!children && variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
                     <Tooltip
                         title={
                             <div className="max-w-72 space-y-1.5 p-0.5">
@@ -262,14 +268,15 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                     </LemonTag>
                 </Tooltip>
             </div>
-            <div className="SampleDataState__viz">
-                {variant === 'number' ? (
-                    <SampleNumber animate={!isStatic} />
-                ) : variant === 'table' ? (
-                    <SampleTable />
-                ) : (
-                    <SampleChart variant={variant} />
-                )}
+            <div className={clsx('SampleDataState__viz', children && 'SampleDataState__viz--custom')}>
+                {children ??
+                    (variant === 'number' ? (
+                        <SampleNumber animate={!isStatic} />
+                    ) : variant === 'table' ? (
+                        <SampleTable />
+                    ) : (
+                        <SampleChart variant={variant} />
+                    ))}
             </div>
         </div>
     )

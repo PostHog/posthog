@@ -148,7 +148,7 @@
         "services/mcp/**/generated.ts",
         "services/mcp/src/**/*.md",
         "services/mcp/worker-configuration.d.ts",
-        "posthog/cdp/filter_globals.json",
+        "products/cdp/backend/filter_globals.json",
         "posthog/emoji_search/catalog.json",
         "products/review_hog/backend/reviewer/prompts/**/schema.json",
         "**/chart/*/templates/**",

@@ -4,10 +4,10 @@ from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
-from posthog.cdp.flag_gated_templates import hidden_gated_template_ids
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.contracts import (
     FunctionTemplateSchema,

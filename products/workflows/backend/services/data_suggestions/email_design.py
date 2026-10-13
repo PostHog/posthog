@@ -1,7 +1,8 @@
 from html import escape
 
-from posthog.cdp.validation import build_html_wrap_design
 from posthog.dataclasses import frozen
+
+from products.cdp.backend.validation import build_html_wrap_design
 
 
 @frozen
