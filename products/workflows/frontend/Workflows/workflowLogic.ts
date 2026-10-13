@@ -36,10 +36,12 @@ import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
     AiEmailDraftResult,
+    aiEmailDraftFailureMessage,
     captureAiEmailDraft,
     parseEmailDraftSource,
     requestAiEmailDraft,
 } from '../MessageAudience/aiEmailDraft'
+import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
@@ -252,7 +254,9 @@ export interface workflowLogicValues {
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
     aiEmailDraft: AiEmailDraftResult | null
+    aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
+    aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
@@ -2122,6 +2126,9 @@ export interface workflowLogicActions {
               }
         payload?: any
     }
+    markAiEmailDraftApplied: () => {
+        value: true
+    }
     markAutoSave: (isAutoSave: boolean) => {
         isAutoSave: boolean
     }
@@ -2903,6 +2910,11 @@ export interface workflowLogicActions {
 export interface workflowLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        aiEmailDraftStatus: (
+            aiEmailDraftLoading: boolean,
+            aiEmailDraftApplied: boolean,
+            aiEmailDraft: AiEmailDraftResult | null
+        ) => AiEmailDraftStatusProps | null
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
@@ -3190,6 +3202,7 @@ export const workflowLogic = kea<workflowLogicType>([
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
         setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
+        markAiEmailDraftApplied: true,
     }),
     loaders(({ props, values, actions, cache }) => ({
         aiEmailDraft: [
@@ -3443,6 +3456,12 @@ export const workflowLogic = kea<workflowLogicType>([
         },
     })),
     reducers({
+        aiEmailDraftApplied: [
+            false,
+            {
+                markAiEmailDraftApplied: () => true,
+            },
+        ],
         schedules: [
             [] as HogFlowSchedule[],
             {
@@ -3601,6 +3620,19 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
     }),
     selectors({
+        aiEmailDraftStatus: [
+            (s) => [s.aiEmailDraftLoading, s.aiEmailDraftApplied, s.aiEmailDraft],
+            (loading: boolean, applied: boolean, result: AiEmailDraftResult | null): AiEmailDraftStatusProps | null => {
+                if (loading) {
+                    return { status: 'loading' }
+                }
+                if (applied) {
+                    return { status: 'applied' }
+                }
+                const message = aiEmailDraftFailureMessage(result)
+                return message ? { status: 'failed', message } : null
+            },
+        ],
         logicProps: [
             () => [(_, props: WorkflowLogicProps) => props],
             (props: WorkflowLogicProps): WorkflowLogicProps => props,
@@ -4418,9 +4450,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     actions.setWorkflowValues({
                         actions: withPrefilledEmail(values.workflow, aiEmailDraft.draft).actions,
                     })
+                    actions.markAiEmailDraftApplied()
                 } else {
                     // Untouched, so the draft becomes the baseline and "Clear changes" doesn't offer the template back.
                     actions.loadWorkflowSuccess(withPrefilledEmail(loaded, aiEmailDraft.draft))
+                    actions.markAiEmailDraftApplied()
                 }
             }
             captureAiEmailDraft('workflow', request, aiEmailDraft, skipped)

@@ -24,7 +24,6 @@ import { ActivityScope } from '~/types'
 
 import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
-import { AiEmailDraftStatus } from '../MessageAudience/AiEmailDraftStatus'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
@@ -41,6 +40,7 @@ import {
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
+import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
@@ -98,8 +98,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const logic = workflowLogic(workflowProps)
     // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
     // workflow itself (for the agent context) and the load state.
-    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById, aiEmailDraftLoading } =
-        useValues(logic)
+    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -238,7 +237,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
-                {aiEmailDraftLoading ? <AiEmailDraftStatus /> : null}
+                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
                 {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

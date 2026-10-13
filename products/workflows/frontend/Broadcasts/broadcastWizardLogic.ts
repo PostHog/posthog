@@ -55,10 +55,12 @@ import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
     AiEmailDraftResult,
     DRAFT_SOURCE_PARAM,
+    aiEmailDraftFailureMessage,
     captureAiEmailDraft,
     parseEmailDraftSource,
     requestAiEmailDraft,
 } from '../MessageAudience/aiEmailDraft'
+import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import {
     EMAIL_PREFILL_PARAM,
     MessageDraft,
@@ -109,6 +111,7 @@ import {
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
+const DEFAULT_BROADCAST_NAME = 'New broadcast'
 const EMAIL_AUTOSAVE_RETRIES = 3
 const EMAIL_AUTOSAVE_RETRY_MS = 2000
 
@@ -240,7 +243,9 @@ export interface broadcastWizardLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     aiEmailDraft: AiEmailDraftResult | null
+    aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
+    aiEmailDraftStatus: AiEmailDraftStatusProps | null
     audienceCohortLaunchErrors: string[]
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
@@ -544,6 +549,11 @@ export interface broadcastWizardLogicActions {
 export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        aiEmailDraftStatus: (
+            aiEmailDraftLoading: boolean,
+            aiEmailDraftApplied: boolean,
+            aiEmailDraft: AiEmailDraftResult | null
+        ) => AiEmailDraftStatusProps | null
         broadcastAsWorkflow: (
             broadcast: HogFlowApi | null,
             name: string,
@@ -811,13 +821,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         name: [
-            'New broadcast',
+            DEFAULT_BROADCAST_NAME as string,
             {
                 setName: (_, { name }) => name,
                 prefillFromLink: (state, { prefill }) => prefill.name || state,
                 hydrateFromBroadcast: (state, { broadcast }) => broadcast.name || state,
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, (b) => b.name) ? broadcast.name || state : state,
+            },
+        ],
+        aiEmailDraftApplied: [
+            false,
+            {
+                applyAiEmailDraft: () => true,
             },
         ],
         // Kept for the launch event, so a launch counts toward the product it started from.
@@ -1028,6 +1044,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     selectors({
+        aiEmailDraftStatus: [
+            (s) => [s.aiEmailDraftLoading, s.aiEmailDraftApplied, s.aiEmailDraft],
+            (loading: boolean, applied: boolean, result: AiEmailDraftResult | null): AiEmailDraftStatusProps | null => {
+                if (loading) {
+                    return { status: 'loading' }
+                }
+                if (applied) {
+                    return { status: 'applied' }
+                }
+                const message = aiEmailDraftFailureMessage(result)
+                return message ? { status: 'failed', message } : null
+            },
+        ],
         // The saved broadcast overlaid with the editor's unsaved state, in the shape the AI assistant reads.
         broadcastAsWorkflow: [
             (s) => [
@@ -1354,6 +1383,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 } else if (!prefilledEmailUnchanged(cache.prefilledEmail ?? DEFAULT_BROADCAST_EMAIL, values.email)) {
                     skipped = 'edited'
                 } else {
+                    if (values.name === (cache.prefilledName ?? DEFAULT_BROADCAST_NAME)) {
+                        // The name was written for the template, so it follows the new subject until someone renames it.
+                        actions.setName(aiEmailDraft.draft.subject)
+                    }
                     actions.applyAiEmailDraft(aiEmailDraft.draft)
                     cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(aiEmailDraft.draft) }
                     cache.prefilledEmailGeneratedBy = 'ai'
@@ -2038,6 +2071,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
             actions.prefillFromLink(prefill)
+            cache.prefilledName = values.name
             if (email) {
                 cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(email) }
             }

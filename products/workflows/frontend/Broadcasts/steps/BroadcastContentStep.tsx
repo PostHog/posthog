@@ -22,7 +22,7 @@ import {
 } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftLoading } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftStatus } =
         useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -120,7 +120,7 @@ export function BroadcastContentStep(): JSX.Element {
                     onComplete={closeSenderSetup}
                 />
             ) : null}
-            {aiEmailDraftLoading ? <AiEmailDraftStatus /> : null}
+            {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
             <EmailTemplater
                 type="native_email"
                 templating="liquid"

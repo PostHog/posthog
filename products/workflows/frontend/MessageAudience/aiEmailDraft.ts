@@ -72,6 +72,26 @@ export async function requestAiEmailDraft(
     }
 }
 
+/** What to tell the person when they waited for an AI draft and got none, or null when there is nothing to say. */
+export function aiEmailDraftFailureMessage(result: AiEmailDraftResult | null): string | null {
+    if (!result || result.draft) {
+        return null
+    }
+    switch (result.templateReason) {
+        case 'rate_limited':
+            return "This project used its AI drafts for the hour, so the email wasn't changed."
+        case 'timeout':
+        case 'model_error':
+        case 'invalid_output':
+        case 'gateway_unconfigured':
+        case 'request_failed':
+            return "AI couldn't write a draft this time, so the email wasn't changed."
+        default:
+            // The project or organization turned AI off, which the person already knows about.
+            return null
+    }
+}
+
 export type AiEmailDraftSkipReason = 'edited' | 'saved'
 
 export function captureAiEmailDraft(

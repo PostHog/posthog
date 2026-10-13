@@ -73,7 +73,7 @@ export function BroadcastReviewStep(): JSX.Element {
         stepValidationErrors,
         emailSettings,
         missingRecipientEmail,
-        aiEmailDraftLoading,
+        aiEmailDraftStatus,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
@@ -154,7 +154,7 @@ export function BroadcastReviewStep(): JSX.Element {
                         <div className="text-xs text-secondary">Open and click tracking is off.</div>
                     )}
                     {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
-                    {aiEmailDraftLoading ? <AiEmailDraftStatus /> : null}
+                    {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
                     <BroadcastEmailPreview />
                 </ReviewRow>
 
