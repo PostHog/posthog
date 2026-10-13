@@ -21,7 +21,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
-from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -53,6 +52,7 @@ from products.cdp.backend.models.plugin import (
     transpile,
     update_validated_data_from_url,
 )
+from products.cdp.backend.templates import HOG_FUNCTION_MIGRATORS
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
