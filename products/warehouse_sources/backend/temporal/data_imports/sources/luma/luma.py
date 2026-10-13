@@ -4,10 +4,11 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import (
     EVENTS_PATH,
@@ -26,7 +27,9 @@ DEFAULT_PROBE_PATH = EVENTS_PATH
 
 
 class LumaRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,10 +45,32 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"x-luma-api-key": api_key, "Accept": "application/json"}
 
 
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    try:
+        seconds = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+    if not 0 < seconds < float("inf"):
+        return None
+    return min(seconds, max_retry_after_seconds())
+
+
+_EXPONENTIAL_WAIT = wait_exponential_jitter(initial=1, max=30)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, LumaRetryableError) and exc.retry_after is not None:
+        return exc.retry_after
+    return _EXPONENTIAL_WAIT(retry_state)
+
+
+# Luma holds a rate-limited key for one minute, so the waits must add up to more than that.
+# Eight attempts wait about 1+2+4+8+16+30+30 = 91 seconds in total.
 @retry(
     retry=retry_if_exception_type((LumaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    stop=stop_after_attempt(8),
+    wait=_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -67,7 +92,10 @@ def _fetch_page(
 
     # Luma returns 429 on rate-limit overage with a one-minute back-off window.
     if response.status_code == 429 or response.status_code >= 500:
-        raise LumaRetryableError(f"Luma API error (retryable): status={response.status_code}, path={path}")
+        raise LumaRetryableError(
+            f"Luma API error (retryable): status={response.status_code}, path={path}",
+            retry_after=_retry_after_seconds(response),
+        )
 
     if not response.ok:
         logger.error(f"Luma API error: status={response.status_code}, body={response.text}, path={path}")

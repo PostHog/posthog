@@ -40,6 +40,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import MetricResultStore, compute_recalc_fingerprint
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -47,6 +48,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.temporal.models import (
+    CAPACITY_MAX_METRIC_ATTEMPTS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
     MAX_METRIC_ATTEMPTS,
@@ -55,11 +57,11 @@ from products.experiments.backend.temporal.models import (
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
+    TIMEOUT_MAX_METRIC_ATTEMPTS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -462,7 +464,13 @@ def _safe_retry_message(error: Exception, error_type: str) -> str:
 
 
 def _record_retry(
-    recalculation_id: str, metric_uuid: str, attempt: int, error_type: str, message: str, delay_seconds: float
+    recalculation_id: str,
+    metric_uuid: str,
+    attempt: int,
+    max_attempts: int,
+    error_type: str,
+    message: str,
+    delay_seconds: float,
 ) -> None:
     """Transient attempt state for the UI, keyed by metric_uuid; overwritten per attempt, removed by the
     metric's terminal write. Carries a user-safe description of the error that triggered the retry;
@@ -472,7 +480,7 @@ def _record_retry(
         metric_retries = recalc.metric_retries or {}
         metric_retries[metric_uuid] = {
             "attempt": attempt,
-            "max_attempts": MAX_METRIC_ATTEMPTS,
+            "max_attempts": max_attempts,
             "error_type": error_type,
             "message": message[:_MAX_ERROR_MESSAGE_LENGTH],
             "next_retry_at": (timezone.now() + timedelta(seconds=delay_seconds)).isoformat(),
@@ -735,14 +743,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.
-        already_computed = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-            query_to=query_to_dt,
-            fingerprint=recalc_fp,
-            status=ExperimentMetricResult.Status.COMPLETED,
-        ).exists()
-        if already_computed:
+        if MetricResultStore(experiment_id=experiment_id).has_completed(calculation_config, window=query_to_dt):
             # A crash between the result write and the retry cleanup on a prior attempt lands here on the
             # next one; clear so a completed metric can't keep reporting as retrying.
             _clear_retry(recalculation_id, metric_uuid)
@@ -876,16 +877,18 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             retry_delay_seconds = _concurrency_limit_retry_delay_seconds()
-            if is_final_attempt:
+            capacity_attempts_exhausted = attempt >= CAPACITY_MAX_METRIC_ATTEMPTS
+            is_last_attempt = is_final_attempt or capacity_attempts_exhausted
+            if is_last_attempt:
                 record_terminal_error(message, classify_experiment_query_error(e), retriable=True)
             logger.warning(
                 "Experiment metric recalculation deferred by ClickHouse backpressure",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
-                is_final_attempt=is_final_attempt,
+                is_final_attempt=is_last_attempt,
                 error_class=type(e).__name__,
             )
-            if is_final_attempt:
+            if is_last_attempt:
                 _clear_retry(recalculation_id, metric_uuid)
             else:
                 # Exact, not estimated: this branch sets the delay explicitly via next_retry_delay.
@@ -895,6 +898,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     recalculation_id,
                     metric_uuid,
                     attempt,
+                    CAPACITY_MAX_METRIC_ATTEMPTS,
                     error_type,
                     safe_message,
                     retry_delay_seconds,
@@ -910,7 +914,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "error_type": error_type,
                         "error_message": safe_message,
                         "attempt": attempt,
-                        "max_attempts": MAX_METRIC_ATTEMPTS,
+                        "max_attempts": CAPACITY_MAX_METRIC_ATTEMPTS,
                         "next_retry_delay_seconds": round(retry_delay_seconds, 1),
                     },
                     trigger=state.trigger,
@@ -919,12 +923,15 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 message,
                 type=type(e).__name__,
                 next_retry_delay=timedelta(seconds=retry_delay_seconds),
+                non_retryable=capacity_attempts_exhausted,
             ) from e
 
         except Exception as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
+            max_attempts = TIMEOUT_MAX_METRIC_ATTEMPTS if error_type == "timeout" else MAX_METRIC_ATTEMPTS
+            is_last_attempt = is_final_attempt or attempt >= max_attempts
             # validation_error = the user's metric config is broken (e.g. HogQL referencing a
             # column outside an aggregate) — a stored failure, not a platform error to track.
             if error_type != "validation_error":
@@ -936,16 +943,16 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "recalculation_id": recalculation_id,
                     },
                 )
-            if is_final_attempt or is_permanent:
+            if is_last_attempt or is_permanent:
                 record_terminal_error(message, error_type, retriable=not is_permanent)
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
-                is_final_attempt=is_final_attempt,
+                is_final_attempt=is_last_attempt,
                 error_type=error_type,
             )
-            if is_final_attempt or is_permanent:
+            if is_last_attempt or is_permanent:
                 _clear_retry(recalculation_id, metric_uuid)
             else:
                 retry_delay_seconds = _estimated_retry_delay_seconds(attempt)
@@ -954,6 +961,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     recalculation_id,
                     metric_uuid,
                     attempt,
+                    max_attempts,
                     error_type,
                     safe_message,
                     retry_delay_seconds,
@@ -969,7 +977,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "error_type": error_type,
                         "error_message": safe_message,
                         "attempt": attempt,
-                        "max_attempts": MAX_METRIC_ATTEMPTS,
+                        "max_attempts": max_attempts,
                         "next_retry_delay_seconds": retry_delay_seconds,
                     },
                     trigger=state.trigger,
@@ -980,5 +988,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     # would undo the capture skip above. The non-reportable variant keeps the
                     # stored failure out of error tracking.
                     raise NonReportableApplicationError(message, type=error_type, non_retryable=True) from e
+                raise ApplicationError(message, type=error_type, non_retryable=True) from e
+            if is_last_attempt and not is_final_attempt:
+                # The error class cap is below MAX_METRIC_ATTEMPTS, so stop the RetryPolicy from retrying further.
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise

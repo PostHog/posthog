@@ -35,7 +35,7 @@ export function BIDateControls(): JSX.Element {
                     setDateField(dateFields.find((field) => field.expression === expression) ?? null)
                 }
                 renderButtonContent={(option) => `Date: ${option?.label}`}
-                tooltip="The dashboard date range applies to this column and overrides the worksheet range."
+                tooltip="This column filters source rows by the selected date range. Set grouping granularity on a date pill. Dashboard date ranges override this range."
                 aria-label="Dashboard date column"
                 data-attr="bi-editor-date-field"
             />

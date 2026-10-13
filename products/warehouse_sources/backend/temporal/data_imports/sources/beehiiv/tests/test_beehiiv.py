@@ -1,83 +1,30 @@
-import json
-from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import (
     BeehiivResumeConfig,
-    beehiiv_source,
     get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.settings import ENDPOINTS, MAX_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-REST_CLIENT_SESSION = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source"
-    ".rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source import BeehiivSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
-TRANSPORT_SESSION = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
+    BeehiivSourceConfig,
 )
 
 CURSOR_ENDPOINTS = [name for name, config in ENDPOINTS.items() if config.pagination == "cursor"]
 PAGE_ENDPOINTS = [name for name, config in ENDPOINTS.items() if config.pagination == "page"]
 
 
-def _http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode()
-    response.headers["Content-Type"] = "application/json"
-    return response
-
-
-def _drive(
-    endpoint: str,
-    manager: Any,
-    responses: list[Response],
-    publication_id: str = "pub_123",
-) -> list[dict[str, Any]]:
-    """Run ``beehiiv_source`` against a mocked session.
-
-    Returns the per-request query params, copied at send time because the paginator
-    mutates the Request in place between pages.
-    """
-    sent_params: list[dict[str, Any]] = []
-    response_iter = iter(responses)
-
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent_params.append(dict(request.params or {}))
-        return next(response_iter)
-
-    with patch(REST_CLIENT_SESSION) as mock_make_session:
-        session = mock_make_session.return_value
-        session.headers = {}
-        session.prepare_request.side_effect = lambda request: request
-        session.send.side_effect = fake_send
-
-        source_response = beehiiv_source(
-            api_key="test-key",
-            publication_id=publication_id,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            api_version="v2",
-            resumable_source_manager=manager,
-        )
-        list(cast(Iterable[Any], source_response.items()))
-
-    return sent_params
-
-
-def _fresh_manager() -> Any:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    return manager
+def _driver(publication_id: str = "pub_123") -> SourceDriver:
+    return SourceDriver(BeehiivSource(), BeehiivSourceConfig(api_key="test-key", publication_id=publication_id))
 
 
 class TestBeehiivResourceConfig:
@@ -93,33 +40,32 @@ class TestBeehiivResourceConfig:
 class TestBeehiivCursorPagination:
     @pytest.mark.parametrize("endpoint", CURSOR_ENDPOINTS)
     def test_follows_next_cursor_and_checkpoints_each_non_terminal_page(self, endpoint: str) -> None:
-        manager = _fresh_manager()
-        responses = [
-            _http_response({"data": [{"id": "a"}], "has_more": True, "next_cursor": "cur-1"}),
-            _http_response({"data": [{"id": "b"}], "has_more": True, "next_cursor": "cur-2"}),
-            _http_response({"data": [{"id": "c"}], "has_more": False, "next_cursor": None}),
-        ]
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"data": [{"id": "a"}], "has_more": True, "next_cursor": "cur-1"}),
+                ScriptedResponse(json={"data": [{"id": "b"}], "has_more": True, "next_cursor": "cur-2"}),
+                ScriptedResponse(json={"data": [{"id": "c"}], "has_more": False, "next_cursor": None}),
+            ],
+        )
 
-        sent_params = _drive(endpoint, manager, responses)
-
-        assert [params.get("cursor") for params in sent_params] == [None, "cur-1", "cur-2"]
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+        assert result.raised is None
+        assert result.params("cursor") == [None, "cur-1", "cur-2"]
+        assert result.rows == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+        assert result.saved_states == [
             BeehiivResumeConfig(paginator_state={"cursor": "cur-1"}),
             BeehiivResumeConfig(paginator_state={"cursor": "cur-2"}),
         ]
 
     def test_resume_seeds_the_saved_cursor_on_the_first_request(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BeehiivResumeConfig(paginator_state={"cursor": "cur-saved"})
-
-        sent_params = _drive(
+        result = _driver().run(
             "Subscriptions",
-            manager,
-            [_http_response({"data": [{"id": "a"}], "has_more": False, "next_cursor": None})],
+            [ScriptedResponse(json={"data": [{"id": "a"}], "has_more": False, "next_cursor": None})],
+            resume_state=BeehiivResumeConfig(paginator_state={"cursor": "cur-saved"}),
         )
 
-        assert [params.get("cursor") for params in sent_params] == ["cur-saved"]
+        assert result.raised is None
+        assert result.params("cursor") == ["cur-saved"]
 
 
 class TestBeehiivPageNumberPagination:
@@ -127,44 +73,43 @@ class TestBeehiivPageNumberPagination:
     def test_walks_pages_and_stops_at_total_pages(self, endpoint: str) -> None:
         # beehiiv reports total_pages, so the last page must not be followed by a wasted
         # request for an empty page.
-        manager = _fresh_manager()
-        responses = [
-            _http_response({"data": [{"id": "a"}], "page": 1, "total_pages": 2}),
-            _http_response({"data": [{"id": "b"}], "page": 2, "total_pages": 2}),
-        ]
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"data": [{"id": "a"}], "page": 1, "total_pages": 2}),
+                ScriptedResponse(json={"data": [{"id": "b"}], "page": 2, "total_pages": 2}),
+            ],
+        )
 
-        sent_params = _drive(endpoint, manager, responses)
-
-        assert [params.get("page") for params in sent_params] == [1, 2]
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            BeehiivResumeConfig(paginator_state={"page": 2}),
-        ]
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.rows == [{"id": "a"}, {"id": "b"}]
+        assert result.saved_states == [BeehiivResumeConfig(paginator_state={"page": 2})]
 
     def test_stops_at_the_hundred_page_offset_cap(self) -> None:
         # beehiiv rejects offset pagination past page 100, so a publication reporting more
         # pages must stop rather than error the whole sync out.
-        manager = _fresh_manager()
-        responses = [
-            _http_response({"data": [{"id": str(page)}], "page": page, "total_pages": 500})
-            for page in range(1, MAX_PAGE + 1)
-        ]
-
-        sent_params = _drive("Posts", manager, responses)
-
-        assert [params.get("page") for params in sent_params] == list(range(1, MAX_PAGE + 1))
-
-    def test_resume_seeds_the_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BeehiivResumeConfig(paginator_state={"page": 7})
-
-        sent_params = _drive(
+        result = _driver().run(
             "Posts",
-            manager,
-            [_http_response({"data": [{"id": "a"}], "page": 7, "total_pages": 7})],
+            [
+                ScriptedResponse(json={"data": [{"id": str(page)}], "page": page, "total_pages": 500})
+                for page in range(1, MAX_PAGE + 1)
+            ],
         )
 
-        assert [params.get("page") for params in sent_params] == [7]
+        assert result.raised is None
+        assert result.params("page") == [str(page) for page in range(1, MAX_PAGE + 1)]
+        assert len(result.rows) == MAX_PAGE
+
+    def test_resume_seeds_the_saved_page(self) -> None:
+        result = _driver().run(
+            "Posts",
+            [ScriptedResponse(json={"data": [{"id": "a"}], "page": 7, "total_pages": 7})],
+            resume_state=BeehiivResumeConfig(paginator_state={"page": 7}),
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["7"]
 
 
 class TestBeehiivValidateCredentials:
@@ -186,9 +131,7 @@ class TestBeehiivValidateCredentials:
     def test_status_code_maps_to_credential_result(
         self, status_code: int, allow_missing_scope: bool, expected_ok: bool
     ) -> None:
-        with patch(TRANSPORT_SESSION) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _http_response({}, status_code=status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             is_valid, error = validate_credentials(
                 api_key="key",
                 publication_id="pub_1",
@@ -198,11 +141,10 @@ class TestBeehiivValidateCredentials:
 
         assert is_valid is expected_ok
         assert (error is None) is expected_ok
+        assert {request.path for request in network.requests_log} == {"/v2/publications/pub_1"}
 
     def test_transport_failure_is_reported_not_raised(self) -> None:
-        with patch(TRANSPORT_SESSION) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = OSError("connection reset")
-
+        with scripted_network(always(ConnectionResetError("connection reset"))) as network:
             is_valid, error = validate_credentials(
                 api_key="key",
                 publication_id="pub_1",
@@ -211,14 +153,13 @@ class TestBeehiivValidateCredentials:
             )
 
         assert is_valid is False
-        assert error == "connection reset"
+        assert error is not None and "connection reset" in error
+        assert {request.path for request in network.requests_log} == {"/v2/publications/pub_1"}
 
     def test_api_key_is_registered_for_redaction(self) -> None:
         # The key rides an Authorization header on a tracked session; without redaction it
         # can land in captured request samples.
-        with patch(TRANSPORT_SESSION) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _http_response({}, status_code=200)
-
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials(
                 api_key="super-secret",
                 publication_id="pub_1",
@@ -226,4 +167,4 @@ class TestBeehiivValidateCredentials:
                 allow_missing_scope=True,
             )
 
-        assert mock_make_session.call_args.kwargs["redact_values"] == ("super-secret",)
+        assert network.session_options[0]["redact_values"] == ("super-secret",)

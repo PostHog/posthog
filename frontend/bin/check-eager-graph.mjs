@@ -95,6 +95,8 @@ const ROOTS = [
             // purchase UI. A hit means a module on the App path imports billingLogic. Read billing values
             // from a logic or component that only logged-in pages load.
             'src/scenes/billing/billingLogic.tsx',
+            // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
+            'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
         ],
     },
     {

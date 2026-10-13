@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -27,6 +28,7 @@ interface WatchPickRankedCardProps {
 const SCORE_DOTS = 5
 
 export function WatchPickRankedCard({ item, position, surface, rank }: WatchPickRankedCardProps): JSX.Element {
+    const [hasOpenedPreview, setHasOpenedPreview] = useState(false)
     const { watchPick } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const { title, scannerName, scannerType } = watchPickSummary(observation)
@@ -34,7 +36,12 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
     const notability = typeof reason.notability === 'number' ? reason.notability : null
 
     return (
-        <div className="group relative" data-attr="vision-watch-ranked-card">
+        <div
+            className="group relative"
+            data-attr="vision-watch-ranked-card"
+            onMouseEnter={() => setHasOpenedPreview(true)}
+            onFocusCapture={() => setHasOpenedPreview(true)}
+        >
             <LemonButton
                 noPadding
                 fullWidth
@@ -109,7 +116,7 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                     'group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100'
                 )}
             >
-                <WatchPickPreview item={item} className="w-full" />
+                {hasOpenedPreview && <WatchPickPreview item={item} className="w-full" />}
             </div>
         </div>
     )

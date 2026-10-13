@@ -1,8 +1,12 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paperform import (
     PaperformSourceConfig,
 )
@@ -41,16 +45,15 @@ class TestPaperformSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.validate_credentials"
-    )
-    def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
+    def test_validate_credentials_delegates_with_api_key(self) -> None:
         # The status-to-message mapping lives in paperform.validate_credentials; here we only assert
         # the source probes with the configured key and returns the delegate's verdict unchanged.
-        mock_validate.return_value = (False, "Invalid Paperform API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("pf-key")
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id)
+
         assert result == (False, "Invalid Paperform API key")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].headers["authorization"] == "Bearer pf-key"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.paperform_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -73,20 +76,23 @@ class TestPaperformSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.paperform_source")
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "submissions"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "submissions",
+            [
+                ScriptedResponse(json={"results": {"forms": [{"id": "f1"}]}, "has_more": False}),
+                ScriptedResponse(json={"results": {"submissions": []}, "has_more": False}),
+            ],
+            db_incremental_field_last_value="2024-01-01T00:00:00Z",
+        )
 
         # A full refresh must re-read everything, even when a stale watermark is still stored.
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.paths == ["/v1/forms", "/v1/forms/f1/submissions"]
+        assert result.requests[1].param("after_date") is None
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Paperform schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Paperform schema 'not_a_table'" in str(result.raised)

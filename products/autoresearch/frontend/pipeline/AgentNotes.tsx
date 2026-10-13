@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { SectionCard } from './SectionCard'
 
 /** What the newest completed run learned, and what comes next. Renders nothing before any notes exist. */
 export function AgentNotes(): JSX.Element | null {
@@ -15,8 +16,7 @@ export function AgentNotes(): JSX.Element | null {
     const hasReaderNotes = !!readerSummary || nextSteps.length > 0
     const hasWorkingNotes = !!distillation || !!recommendedNext
     return (
-        <div className="border rounded p-3 space-y-2">
-            <div className="text-sm font-semibold">What the agent learned</div>
+        <SectionCard title="What the agent learned">
             {hasReaderNotes ? (
                 <>
                     {readerSummary && <div className="text-sm">{readerSummary}</div>}
@@ -57,6 +57,6 @@ export function AgentNotes(): JSX.Element | null {
                 </>
             )}
             <div className="text-xs text-muted">From run {runNumber}</div>
-        </div>
+        </SectionCard>
     )
 }

@@ -214,9 +214,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/active_campaign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/adjust.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/adobe_analytics.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/adroll.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/settings.py
@@ -228,7 +226,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/aha.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/aha_ideas.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/airbrake.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aircall/aircall.py
@@ -1417,7 +1414,7 @@
 3 ee/clickhouse/views/test/test_clickhouse_trends.py
 3 posthog/api/app_metrics2.py
 3 posthog/api/test/rust_integration/conftest.py
-3 posthog/cdp/internal_events.py
+3 products/cdp/backend/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
 3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py

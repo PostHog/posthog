@@ -15,6 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -1672,7 +1673,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
                             .map((i) => ({
                                 ...i,
                                 protocol,
@@ -1760,7 +1761,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         .filter((p): p is FileSystemImport => p !== null)
 
                     const imports = selectedProducts
-                        .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                        .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
                         .map((i) => ({
                             ...i,
                             protocol: 'custom-products://',

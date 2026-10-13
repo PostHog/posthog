@@ -279,6 +279,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                 loading={failureLogsLoading}
                                 onRetry={loadFailureLogs}
                                 jobNames={jobNamesById}
+                                logsOnGitHub={githubUrl !== null}
                             />
                         </Section>
                     )}

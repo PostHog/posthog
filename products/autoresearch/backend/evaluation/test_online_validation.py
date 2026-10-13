@@ -31,6 +31,7 @@ from products.autoresearch.backend.evaluation.segment_thresholds import (
     FIXED_LIKELY_THRESHOLD,
     champion_score_calibration,
     segment_thresholds,
+    training_base_rate,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import BATCH_QUERY, HogQLResult
@@ -192,6 +193,40 @@ class TestSegmentThresholds(SimpleTestCase):
 
         assert (thresholds.likely, thresholds.possible, thresholds.base_rate) == expected
         assert thresholds.dates == len(dates)
+
+    @parameterized.expand(
+        [
+            ("no_checked_dates_uses_training", [], 0.004, (0.012, 0.004, 0.004, "training")),
+            (
+                "too_few_realized_positives_uses_training",
+                [[("m", "champion", 1000, 5, None)]],
+                0.004,
+                (0.012, 0.004, 0.004, "training"),
+            ),
+            (
+                "realized_rate_wins_over_training",
+                [[("m", "champion", 2000, 30, None)]],
+                0.004,
+                (0.045, 0.015, 0.015, "realized"),
+            ),
+            ("no_training_rate_is_fixed", [], None, (0.6, 0.2, None, "fixed")),
+        ]
+    )
+    def test_training_rate_applies_until_the_realized_rate_is_stable(self, _name, dates, training_rate, expected):
+        thresholds = segment_thresholds([_checked_date(*entries) for entries in dates], training_rate=training_rate)
+
+        assert (thresholds.likely, thresholds.possible, thresholds.base_rate, thresholds.source) == expected
+
+    @parameterized.expand(
+        [
+            ("recorded_counts", {"training_population": 50_000, "training_positives": 200}, 0.004),
+            ("fit_before_counts_were_recorded", {"holdout_auc": 0.7}, None),
+            ("too_few_positives", {"training_population": 50_000, "training_positives": 9}, None),
+            ("no_metrics", None, None),
+        ]
+    )
+    def test_training_base_rate(self, _name, metrics, expected):
+        assert training_base_rate(metrics) == expected
 
     @parameterized.expand(
         [

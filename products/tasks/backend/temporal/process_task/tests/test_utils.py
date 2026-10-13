@@ -442,7 +442,7 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state(None) == []
 
 
-class TestMcpServerConfigToDict(TestCase):
+class TestMcpServerConfigToDict(SimpleTestCase):
     def test_description_is_serialized_for_the_sandbox(self) -> None:
         # The agent server drops keys the schema doesn't declare, so an unserialized
         # description never reaches the agent's tool search.
@@ -891,7 +891,7 @@ class TestSlackTaskRunActorUser(TestCase):
         assert get_task_run_credential_user(task, state) == creator
 
 
-class TestGetSandboxGitHubToken(TestCase):
+class TestGetSandboxGitHubToken(SimpleTestCase):
     @parameterized.expand(
         [
             ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
@@ -1185,7 +1185,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         assert result == "ghs_team"
 
 
-class TestBuildImportedMcpServerConfigs(TestCase):
+class TestBuildImportedMcpServerConfigs(SimpleTestCase):
     def test_returns_empty_for_none_empty_or_non_list(self):
         assert build_imported_mcp_server_configs(None, set()) == []
         assert build_imported_mcp_server_configs([], {"posthog"}) == []
@@ -1243,7 +1243,7 @@ class TestBuildImportedMcpServerConfigs(TestCase):
         assert [c.name for c in configs] == ["Grafana"]
 
 
-class TestGetImportedMcpServerConfigs(TestCase):
+class TestGetImportedMcpServerConfigs(SimpleTestCase):
     """The claude-only adapter gate — codex-acp hard-fails a session on any unreachable MCP server
     and the sandbox does no reachability pruning, so imported servers must not enter a codex run."""
 
@@ -1263,7 +1263,7 @@ class TestGetImportedMcpServerConfigs(TestCase):
         assert get_imported_mcp_server_configs(self._task_run("codex"), set()) == []
 
 
-class TestGetRelayedMcpServerNames(TestCase):
+class TestGetRelayedMcpServerNames(SimpleTestCase):
     @staticmethod
     def _task_run(relayed_mcp_servers):
         return MagicMock(relayed_mcp_servers=relayed_mcp_servers)
@@ -1346,7 +1346,7 @@ _CTX, _TASK = _gateway_ctx_task()
     "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
     return_value="https://us.posthog.com",
 )
-class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+class TestBuildSandboxEnvironmentVariablesGateway(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))

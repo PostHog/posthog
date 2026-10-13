@@ -11,6 +11,7 @@ from django.db import transaction
 
 import redis
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
@@ -347,10 +348,12 @@ def resolve_coordinated_user_token(integration: UserGitHubIntegration) -> str | 
         if not acquired:
             # Waited out the budget — read the current token without minting; the holder's propagation self-heals.
             integration.integration.refresh_from_db()
-            return UserGitHubIntegration(integration.integration).user_access_token
+            return UserGitHubIntegration(
+                integration.integration, source="tasks_sandbox", priority=Priority.CRITICAL
+            ).user_access_token
 
         integration.integration.refresh_from_db()
-        current = UserGitHubIntegration(integration.integration)
+        current = UserGitHubIntegration(integration.integration, source="tasks_sandbox", priority=Priority.CRITICAL)
         was_expired = current.user_access_token_expired()
         # Mints only if still expired; a prior holder's fresh token is returned without rotating.
         token = current.get_usable_user_access_token()

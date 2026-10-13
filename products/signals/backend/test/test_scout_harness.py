@@ -1007,7 +1007,10 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=started_at,
+            project_timezone="America/Vancouver",
         )
+        assert "- **project_timezone**: `America/Vancouver`" in prompt
+        assert "toDateTime('YYYY-MM-DD HH:MM:SS', 'UTC')" in prompt
         # Identity carries the skill name + version so bootstrap can reference it. The version
         # renders as the bare number `skill-get` takes, since the endpoint validates it as an
         # integer and the bootstrap points here rather than interpolating the value itself.
@@ -3153,6 +3156,8 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
     "status,state,age_s,expect_reaped",
     [
         ("in_progress", {}, STALE_RUN_CUTOFF_S + 60, True),
+        # A paused lane dispatches again long after its orphan started; the reap has no age floor.
+        ("in_progress", {}, 31 * 24 * 60 * 60, True),
         # A worker death after the agent went idle: the Tasks inactivity timeout closes the TaskRun
         # before the next dispatch, so the run no longer blocks the lane but still never reported.
         ("completed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),

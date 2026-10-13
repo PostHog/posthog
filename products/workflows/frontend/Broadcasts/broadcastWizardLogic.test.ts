@@ -9,6 +9,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
@@ -144,7 +145,56 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.audienceProperties).toEqual(properties)
         expect(logic.values.name).toEqual('Fix shipped')
         expect(logic.values.entrySource).toEqual('cohort')
-        expect(router.values.searchParams).toEqual({})
+
+        // A reload remounts the wizard from the same URL, and nothing was saved yet.
+        logic.unmount()
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['prefillFromLink'])
+        expect(logic.values.audienceProperties).toEqual(properties)
+        expect(logic.values.name).toEqual('Fix shipped')
+    })
+
+    it.each([
+        {
+            link: 'a draft email and one verified sender',
+            email: draftMessage({ kind: 'issue_fixed' }),
+            verified: true,
+            step: 'review',
+        },
+        {
+            link: 'a draft email but no verified sender',
+            email: draftMessage({ kind: 'issue_fixed' }),
+            verified: false,
+            step: 'content',
+        },
+        { link: 'no email', email: undefined, verified: true, step: 'content' },
+    ])('opens a link with $link on the $step step without creating a draft', async ({ email, verified, step }) => {
+        const createDraft = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { verified } }],
+                    count: 1,
+                },
+            },
+            post: { '/api/projects/:team_id/hog_flows/': () => createDraft() },
+        })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'error_tracking', email })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        integrationsLogic.mount()
+
+        await expectLogic(logic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['landOnStep'])
+
+        expect(logic.values.currentStep).toEqual(step)
+        expect(logic.values.email.subject).toEqual(email?.subject ?? '')
+        expect(createDraft).not.toHaveBeenCalled()
     })
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {

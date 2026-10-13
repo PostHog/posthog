@@ -286,7 +286,7 @@ flowchart TD
 ### Single-agent Flash (the Flash default)
 
 A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
-The **single-agent design** (`reviewhog-flash-2-2`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
+The **single-agent design** (`reviewhog-flash-2-3`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
 sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all returning `SingleAgentReview`:
 
 - **The main session** (`single_agent_review_activity`) reviews the whole PR. Its system prompt is `core.md` (the
@@ -314,9 +314,9 @@ the prompt tells the session to read those files at the head. There is no team s
 DevEx-owned prompts.
 
 Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
-and 2002) and its part. On a follow-up turn, a P2 or P3 finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+and 2002) and its part. On a follow-up turn, a P3 finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
 lines from any code that changed since `completed_head_sha` drops as `old_code` first (`ChangedSinceReview`). The two
-heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. P0 and P1
+heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. P0 to P2
 findings, files whose patch GitHub left out, a first review, and a re-run at the reviewed head skip the check. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
 `run_oneshot_openai_review`): the main findings against earlier turns, and the lens findings against the same plus
@@ -340,8 +340,11 @@ lens part past the first, up to 10). No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
 finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. One exception: a dedup survivor takes a more severe duplicate's level when both fold into the same stored priority (a P0 merged into a P1); the `dropped_finding` record keeps the duplicate's own level. Findings publish
 inline. An
-optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
-(`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
+optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one sentence that says the review ran in larger parts
+(`ReviewMeta.lens_chunks_capped`, `large_pr_note`). A Standard review adds it to its summary line, and a clean
+Standard turn posts a short review with it next to the 👍. That review has its own hidden `reviewhog:large-pr-note`
+marker, so a pull request gets it once and re-reviews do not repeat it. It does not set the published watermark, so a
+later turn on the head still publishes its findings.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
@@ -458,7 +461,16 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     when publishing is on); the eval CLI defaults it off, the label trigger sets it on. Both publish-idempotency
     marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
     only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
-    suppress the publish or clobber a stranger's comment. On the publish path a live **status comment**
+    suppress the publish or clobber a stranger's comment.
+    **Reactions:** once a publishing turn passes every gate, the workflow puts a 👀 on the PR (`add_review_reaction_activity`) and removes it by the returned reaction id when the turn ends, on success, failure, or cancellation (the `finally` around the review stages).
+    Both calls are fail-open and gated by the `reviewhog-pr-reactions-2026-10` patch.
+    The 👀 is a cue for people only. The per-head review state is review_hog's public read API, `facade/review_status.py::review_status_for_head` (contract `HeadReviewStatus` in `facade/contracts.py`, implemented by `head_review_status.py`). Stamphog cannot import it (ReviewHog depends on stamphog, never the reverse), so `receivers.connect()` registers `review_evidence_for_stamphog`, a thin adapter onto stamphog's `facade/review_evidence.py` registry, with the reviewer named "PostHog Review".
+    It answers per head: pending while a request for the head waits in the queue (the queue workflow's `requested_heads` query) or a turn on the head runs, through its publish; completed with the kind, the valid findings count, the published flag, the merge base the diff was taken against and the skipped files (filtered files, files GitHub sent without a patch, and the files of every pipeline chunk that no review unit finished, because a turn completes when only some of its units fail); failed when the turn for the head failed; None for any other head or a repository no project owns.
+    When a publishing turn ends, after publish or after the failure is recorded, `nudge_stamphog_activity` calls stamphog's `request_rereview_after_external_review` (behind the `reviewhog-nudge-stamphog-2026-10` patch, fail-open). Stamphog decides whether a WAIT at that head runs again.
+    **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
+    A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`). The 👍 does not come back: a clean turn adds it only while no turn of the PR published findings (`published_head_sha` unset).
+    Status comments that earlier turns left on the PR stay as they are, and a Standard turn never refreshes them.
+    On the publish path of a **Deep** turn a live **status comment**
     (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design,
     edited as the steps fill in, and rewritten with the
     outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
@@ -476,7 +488,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     A reply or reaction counts as engagement unless ReviewHog's own app left it (`engagement_method`), so the resolution stage's 👀 queue marker never marks a finding `reacted`.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
-    When every publishable finding posts inline, the review body is only the hidden publish marker, because the tally repeats the comments.
+    When every publishable finding posts inline, a Deep review body is only the hidden publish marker, because the tally repeats the comments.
+    A Standard review body then carries one summary line instead (`render_review_summary`, "PostHog Review · Standard · reviewed `abc1234`: 1 Must fix."), because Standard has no status comment.
     The body-only fallback always posts the full body.
     The workflow captures one **`reviewhog_review_started`** product-analytics event per turn that passed every
     gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
@@ -501,7 +514,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Turn event IDs distinguish Full and Flash, and the single-agent design from the pipeline, while preserving the legacy Full and pipeline Flash IDs across deployments.
     Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
     After the skill sync, `record_turn_marker_activity` records the turn's version marker: a version id per review mode
-    and design (`reviewhog-flash-2-2`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
+    and design (`reviewhog-flash-2-3`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
     `REVIEWHOG_VERSIONS`, `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
     Full, Flash pipeline, and Flash single agent evolve separately, so each bumps its own version.
     The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
@@ -510,6 +523,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     and the Flash limits (finding cap, posted priorities, lens part size and count, prompt diff budget) instead.
     A change to any hashed input (a prompt, a skill, a model pin, or a Flash limit) changes it without a version bump.
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
+    and records the turn's design. The review list, the review drawer, and the status comment read a turn's design
+    from its marker, because a later turn on the same head writes a newer snapshot with its own design.
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final
     status comment as a hidden `<!-- reviewhog-version: <version id> <fingerprint> -->` line (no visible text).
     Best-effort like the events.
@@ -926,8 +941,11 @@ An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first ru
 Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).
 Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
-Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability and model.
+Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, the System One probability and model, and `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), so skip rules that weigh push size can be calibrated offline.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
+Reviews start only from a trigger (a push, the label, the UI, the inbox, or a manual run) and run right away.
+ReviewHog never schedules a review for later, for example on a timer after a skipped push: nobody waits for a review that arrives at an unknown time, and a late review can land while the PR sits in a merge queue or under a stack.
+A change that the gate skips gets reviewed at the next trigger, or not at all.
 
 **Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the
 viewer is the **acting user OR the PR's author** — `author_login` compared case-insensitively against the
