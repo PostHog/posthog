@@ -252,7 +252,9 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 //   dist/toolbar-extension/<browser>/popup.html, popup.js, popup.css, assets/, icons/
 //
 // Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
-export const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
+const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
+
+const TOOLBAR_EXTENSION_VERSION = '0.1.0'
 
 const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
 
@@ -289,12 +291,12 @@ export function getToolbarExtensionBuildConfig(dirname) {
  * the saved PostHog host (`storage`), and the PostHog session on Cloud. A self-hosted origin is asked
  * for at runtime through `optional_host_permissions`.
  */
-export function buildToolbarExtensionManifest(browser, version) {
+function buildToolbarExtensionManifest(browser) {
     const manifest = {
         manifest_version: 3,
         name: 'PostHog toolbar',
         description: 'Open PostHog toolbar tools for the page you are on.',
-        version,
+        version: TOOLBAR_EXTENSION_VERSION,
         icons: TOOLBAR_EXTENSION_ICONS,
         action: {
             default_title: 'PostHog toolbar',
@@ -318,7 +320,6 @@ export function buildToolbarExtensionManifest(browser, version) {
 /** Copies the shared popup build into each browser folder and writes that browser's manifest. */
 export function finalizeToolbarExtensionBuild(dirname) {
     const buildDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR)
-    const { version } = JSON.parse(fs.readFileSync(path.resolve(dirname, 'src/toolbar/extension/version.json'), 'utf8'))
     for (const browser of TOOLBAR_EXTENSION_BROWSERS) {
         const outDir = path.resolve(dirname, 'dist', 'toolbar-extension', browser)
         fs.rmSync(outDir, { recursive: true, force: true })
@@ -330,7 +331,7 @@ export function finalizeToolbarExtensionBuild(dirname) {
         }
         fs.writeFileSync(
             path.resolve(outDir, 'manifest.json'),
-            JSON.stringify(buildToolbarExtensionManifest(browser, version), null, 4) + '\n'
+            JSON.stringify(buildToolbarExtensionManifest(browser), null, 4) + '\n'
         )
     }
 }
