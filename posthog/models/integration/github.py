@@ -483,13 +483,18 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
 
-    def get_collaborator_permission(self, repository: str, username: str) -> str:
+    def get_collaborator_permission(
+        self, repository: str, username: str, *, expected_user_id: int | None = None
+    ) -> str:
         """The user's effective permission on the repo: ``admin``, ``write``, ``read`` or ``none``.
 
         GitHub's legacy ``permission`` field folds ``maintain`` into ``write`` and ``triage`` into
         ``read``, which is the granularity a "can this person change the repo" gate needs. A 404
         means no access at all. Every other non-200 raises, so a caller can fail closed rather than
         read a blank response as a denial.
+
+        A login can change hands after a rename, so a caller that knows the numeric account id
+        passes ``expected_user_id``. A response for another account then counts as ``none``.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         if not _is_safe_github_repo_path(repo_path) or not _GITHUB_LOGIN_RE.fullmatch(username):
@@ -507,7 +512,12 @@ class GitHubIntegration(GitHubIntegrationBase):
                 f"GitHubIntegration: failed to read {username} permission on {repo_path}: {response.text[:300]}",
                 status_code=response.status_code,
             )
-        return response.json().get("permission") or "none"
+        body = response.json()
+        if expected_user_id is not None:
+            user = body.get("user")
+            if not isinstance(user, dict) or user.get("id") != expected_user_id:
+                return "none"
+        return body.get("permission") or "none"
 
     def _get_issue_by_number(self, repo_path: str, repository_name: str, issue_number: int) -> dict[str, Any] | None:
         response = self.api_request(

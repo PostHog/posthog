@@ -27,7 +27,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries, tags_context
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
@@ -889,22 +889,27 @@ def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
         # the candidates it needs: existing members stay until they fall below
         # the exit floor instead of flapping around the entry threshold.
         exit_floor = max(1, floor // 2)
-        tag_queries(feature=Feature.CACHE_WARMUP, trigger="webAnalyticsQueryWarming", product=Product.WEB_ANALYTICS)
-        rows = sync_execute(
-            """
-            SELECT team_id, count() AS ev7d
-            FROM events
-            WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
-            GROUP BY team_id
-            HAVING ev7d >= %(exit_floor)s
-            """,
-            {"exit_floor": exit_floor},
-            workload=Workload.OFFLINE,
-            # Bound the fleet scan like the shape-selection query: a marks-only
-            # count still reads the timestamp column across every team, so cap it
-            # rather than let a plan regression drain offline capacity to timeout.
-            settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 300},
-        )
+        with tags_context(
+            feature=Feature.CACHE_WARMUP,
+            trigger="webAnalyticsQueryWarming",
+            product=Product.WEB_ANALYTICS,
+            query_type="web_cache_warming_volume_floor",
+        ):
+            rows = sync_execute(
+                """
+                SELECT team_id, count() AS ev7d
+                FROM events
+                WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
+                GROUP BY team_id
+                HAVING ev7d >= %(exit_floor)s
+                """,
+                {"exit_floor": exit_floor},
+                workload=Workload.OFFLINE,
+                # Bound the fleet scan like the shape-selection query: a marks-only
+                # count still reads the timestamp column across every team, so cap it
+                # rather than let a plan regression drain offline capacity to timeout.
+                settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 300},
+            )
         above_floor = [int(r[0]) for r in rows if int(r[1]) >= floor]
         above_exit_floor = [int(r[0]) for r in rows]
         if not above_floor:

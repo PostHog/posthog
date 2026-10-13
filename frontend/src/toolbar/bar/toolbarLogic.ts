@@ -15,7 +15,6 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
-import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarFeatureGated, toolbarEntitlementsLogic } from '~/toolbar/toolbarEntitlementsLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -45,7 +44,6 @@ export type MenuState =
     | 'experiments'
     | 'web-vitals'
     | 'product-tours'
-    | 'surveys'
     | 'field-notes'
 
 export type ToolbarPositionType =
@@ -69,7 +67,6 @@ export interface toolbarLogicValues {
     isRefreshing: boolean // heatmapToolbarMenuLogic
     rawHeatmapLoading: boolean // heatmapToolbarMenuLogic
     hedgehogMode: HedgehogModeInterface | null // hedgehogModeLogic
-    allSurveysLoading: boolean // surveysToolbarLogic
     posthog: PostHog | null // toolbarConfigLogic
     remoteWebVitalsLoading: boolean // webVitalsToolbarLogic
     cspBlocksNewFunction: boolean
@@ -187,12 +184,6 @@ export interface toolbarLogicActions {
     showButtonProductTours: () => {
         value: true
     } // productToursLogic
-    hideButtonSurveys: () => {
-        value: true
-    } // surveysToolbarLogic
-    showButtonSurveys: () => {
-        value: true
-    } // surveysToolbarLogic
     logout: () => {
         value: true
     } // toolbarConfigLogic
@@ -341,8 +332,7 @@ export interface toolbarLogicMeta {
             allActionsLoading: boolean,
             userFlagsLoading: boolean,
             allExperimentsLoading: boolean,
-            remoteWebVitalsLoading: boolean,
-            allSurveysLoading: boolean
+            remoteWebVitalsLoading: boolean
         ) => boolean
         hedgehogModeAvailable: (cspBlocksNewFunction: boolean) => boolean
     }
@@ -372,8 +362,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['allExperimentsLoading'],
             webVitalsToolbarLogic,
             ['remoteWebVitalsLoading'],
-            surveysToolbarLogic,
-            ['allSurveysLoading'],
             hedgehogModeLogic,
             ['hedgehogMode'],
         ],
@@ -396,8 +384,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonProductTours', 'hideButtonProductTours'],
             fieldNotesLogic,
             ['showButtonFieldNotes', 'hideButtonFieldNotes'],
-            surveysToolbarLogic,
-            ['showButtonSurveys', 'hideButtonSurveys'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -754,7 +740,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 s.userFlagsLoading,
                 s.allExperimentsLoading,
                 s.remoteWebVitalsLoading,
-                s.allSurveysLoading,
             ],
             (
                 elementStatsLoading: boolean,
@@ -763,8 +748,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading: boolean,
                 userFlagsLoading: boolean,
                 allExperimentsLoading: boolean,
-                remoteWebVitalsLoading: boolean,
-                allSurveysLoading: boolean
+                remoteWebVitalsLoading: boolean
             ) =>
                 elementStatsLoading ||
                 rawHeatmapLoading ||
@@ -772,8 +756,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading ||
                 userFlagsLoading ||
                 allExperimentsLoading ||
-                remoteWebVitalsLoading ||
-                allSurveysLoading,
+                remoteWebVitalsLoading,
         ],
         hedgehogModeAvailable: [
             (s) => [s.cspBlocksNewFunction],
@@ -821,7 +804,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.hideButtonActions()
             actions.hideButtonProductTours()
             actions.hideButtonFieldNotes()
-            actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
                 if (!isToolbarFeatureGated(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')) {
@@ -839,8 +821,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.showButtonProductTours()
             } else if (visibleMenu === 'field-notes') {
                 actions.showButtonFieldNotes()
-            } else if (visibleMenu === 'surveys') {
-                actions.showButtonSurveys()
             }
         },
 

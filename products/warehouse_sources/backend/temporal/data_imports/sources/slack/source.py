@@ -2,8 +2,9 @@ from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
     from posthog.models.integration import Integration
+
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.dataclasses import frozen
 
@@ -277,7 +278,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             "invalid_auth": "Your Slack token is invalid. Please reconnect the source.",
             "account_inactive": "Your Slack account is inactive. Please reconnect the source.",
             "token_revoked": "Your Slack token has been revoked. Please reconnect the source.",
-            "missing_scope": "Your Slack integration is missing required scopes. Please reconnect the source.",
+            "missing_scope": "Your Slack app is missing scopes PostHog needs. Add the bot scopes from the setup manifest, reinstall the app to your workspace, then try again.",
             "not_in_channel": "The Slack bot is not a member of this channel. Please invite the bot to the channel and try again.",
             "channel_not_found": "This Slack channel was not found. It may have been deleted or the bot lacks permission to access it.",
             "Integration not found": "Your Slack integration was not found. Please reconnect the source.",

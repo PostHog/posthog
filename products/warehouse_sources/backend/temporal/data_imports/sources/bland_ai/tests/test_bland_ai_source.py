@@ -1,5 +1,3 @@
-from unittest import mock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.settings import (
@@ -7,6 +5,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source import BlandAISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blandai import (
     BlandAISourceConfig,
 )
@@ -73,14 +76,13 @@ class TestBlandAISource:
             ("invalid", False, False, "Invalid Bland AI API key"),
         ]
     )
-    def test_validate_credentials(self, _name, mock_return, expected_valid, expected_message):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source.validate_bland_ai_credentials"
-        ) as mock_validate:
-            mock_validate.return_value = mock_return
-
+    def test_validate_credentials(
+        self, _name: str, mock_return: bool, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        status = 200 if mock_return else 401
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
-            assert is_valid is expected_valid
-            assert error_message == expected_message
-            mock_validate.assert_called_once_with(self.config.api_key)
+        assert is_valid is expected_valid
+        assert error_message == expected_message
+        assert network.requests_log[0].headers["authorization"] == self.config.api_key

@@ -1,71 +1,36 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xendit import XenditSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.settings import (
     XENDIT_BASE_URL,
     XENDIT_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source import XenditSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.xendit import (
     XenditResumeConfig,
     _build_params,
     _format_datetime,
     validate_credentials,
-    xendit_source,
 )
 
-# Both the REST client's session and the credential probe are built by this module's
-# make_tracked_session, so one patch target covers the whole transport.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.xendit.xendit.make_tracked_session"
+
+def _response(items: list[dict[str, Any]] | None, has_more: bool, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"data": items or [], "has_more": has_more, "links": []})
 
 
-def _response(items: list[dict[str, Any]] | None, has_more: bool, status: int = 200) -> Response:
-    body: dict[str, Any] = {"data": items or [], "has_more": has_more, "links": []}
-    response = Response()
-    response.status_code = status
-    response._content = json.dumps(body).encode()
-    return response
-
-
-def _make_manager(resume_state: XenditResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's params at send time.
-
-    ``request.params`` is one dict mutated in place across pages, so copy it as each request is
-    prepared rather than inspecting the shared final state.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> SourceResponse:
-    return xendit_source("xnd_key", endpoint, team_id=1, job_id="job-1", resumable_source_manager=manager, **kwargs)
-
-
-def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(XenditSource(), XenditSourceConfig(api_key="xnd_key"))
 
 
 class TestFormatDatetime:
@@ -104,63 +69,52 @@ class TestBuildParams:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code, expected_valid", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(SESSION_PATCH)
-    def test_status_is_reported_back(self, mock_session_factory, status_code: int, expected_valid: bool) -> None:
-        mock_session_factory.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        reachable, status = validate_credentials("xnd_key", "/transactions")
+    def test_status_is_reported_back(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            reachable, status = validate_credentials("xnd_key", "/transactions")
 
         assert (reachable, status) == (expected_valid, status_code)
-        call = mock_session_factory.return_value.get.call_args
-        assert call.args[0] == f"{XENDIT_BASE_URL}/transactions?limit=1"
-        assert call.kwargs["headers"] is None
+        request = network.requests_log[0]
+        assert request.url == f"{XENDIT_BASE_URL}/transactions?limit=1"
+        assert "for-user-id" not in request.headers
 
 
 class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_stops_when_the_cursor_does_not_advance(self, mock_session_factory) -> None:
+    def test_stops_when_the_cursor_does_not_advance(self) -> None:
         # An API that keeps claiming has_more while returning the same last row would otherwise
         # be refetched until the activity times out.
-        mock_session_factory.return_value.headers = {}
-        mock_session_factory.return_value.prepare_request.return_value = mock.MagicMock()
-        mock_session_factory.return_value.send.side_effect = [
-            _response([{"id": "txn_1"}], has_more=True),
-            _response([{"id": "txn_1"}], has_more=True),
-        ]
-
-        rows = _rows(_source("transactions", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["txn_1", "txn_1"]
-        assert mock_session_factory.return_value.send.call_count == 2
-
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, mock_session_factory) -> None:
-        params = _wire(mock_session_factory.return_value, [_response([{"id": "txn_9"}], has_more=False)])
-
-        rows = _rows(_source("transactions", _make_manager(XenditResumeConfig(after_id="txn_8"))))
-
-        assert [row["id"] for row in rows] == ["txn_9"]
-        assert params[0]["after_id"] == "txn_8"
-
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_filter_rides_the_first_request(self, mock_session_factory) -> None:
-        params = _wire(mock_session_factory.return_value, [_response([{"id": "txn_1"}], has_more=False)])
-
-        _rows(
-            _source(
-                "transactions",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-                incremental_field="updated",
-            )
+        result = _driver().run(
+            "transactions",
+            [
+                _response([{"id": "txn_1"}], has_more=True),
+                _response([{"id": "txn_1"}], has_more=True),
+            ],
         )
 
-        assert params[0]["updated[gte]"] == "2026-03-04T02:58:14.000Z"
+        assert [row["id"] for row in result.rows] == ["txn_1", "txn_1"]
+        assert len(result.requests) == 2
 
-    @mock.patch(SESSION_PATCH)
-    def test_forbidden_response_raises(self, mock_session_factory) -> None:
-        _wire(mock_session_factory.return_value, [_response(None, has_more=False, status=403)])
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "transactions",
+            [_response([{"id": "txn_9"}], has_more=False)],
+            resume_state=XenditResumeConfig(after_id="txn_8"),
+        )
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("transactions", _make_manager()))
+        assert [row["id"] for row in result.rows] == ["txn_9"]
+        assert result.requests[0].param("after_id") == "txn_8"
+
+    def test_incremental_filter_rides_the_first_request(self) -> None:
+        result = _driver().run(
+            "transactions",
+            [_response([{"id": "txn_1"}], has_more=False)],
+            incremental_field="updated",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+
+        assert result.requests[0].param("updated[gte]") == "2026-03-04T02:58:14.000Z"
+
+    def test_forbidden_response_raises(self) -> None:
+        result = _driver().run("transactions", [_response(None, has_more=False, status=403)])
+
+        assert isinstance(result.raised, requests.HTTPError)

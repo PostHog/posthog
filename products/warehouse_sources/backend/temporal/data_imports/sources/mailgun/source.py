@@ -48,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.se
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 API_SECURITY_URL = "https://app.mailgun.com/settings/api_security"
 

@@ -1,3 +1,4 @@
+import time
 import logging
 from typing import Any
 
@@ -10,6 +11,10 @@ from posthog.models.integration import Integration
 from products.workflows.backend.providers import SESProvider
 
 logger = logging.getLogger(__name__)
+
+# SES rate-limits identity updates per account, and other app traffic shares that limit.
+PACE_SECONDS = 0.5
+THROTTLE_BACKOFF_SECONDS = [2, 4, 8, 16, 32, 64]
 
 
 def ses_email_domains(domains: list[str]) -> list[str]:
@@ -50,8 +55,9 @@ class Command(BaseCommand):
         provider = SESProvider()
         failures: list[str] = []
         for domain in domains:
+            time.sleep(PACE_SECONDS)
             try:
-                provider.disable_feedback_forwarding(domain)
+                self._disable_with_backoff(provider, domain)
             except ClientError as e:
                 # The integration can outlive its SES identity. Nothing forwards for a missing identity.
                 if e.response["Error"]["Code"] == "NotFoundException":
@@ -65,4 +71,14 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Summary: {len(domains) - len(failures)} domain(s) processed, {len(failures)} failure(s)")
         if failures:
-            raise CommandError(f"Failed for {', '.join(failures)}. Rerun with --domains after you fix the cause.")
+            raise CommandError(f"Failed for {len(failures)} domain(s). Rerun with --domains={','.join(failures)}")
+
+    def _disable_with_backoff(self, provider: SESProvider, domain: str) -> None:
+        for wait in [*THROTTLE_BACKOFF_SECONDS, None]:
+            try:
+                provider.disable_feedback_forwarding(domain)
+                return
+            except ClientError as e:
+                if wait is None or e.response["Error"]["Code"] != "TooManyRequestsException":
+                    raise
+                time.sleep(wait)
