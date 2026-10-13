@@ -1,9 +1,12 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from posthog.temporal.weekly_digest.activities import DIGEST_ITEM_COUNT_THRESHOLD
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
+    DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS,
     DashboardList,
     Digest,
     DigestDashboard,
@@ -138,6 +141,26 @@ def test_team_digest_count_items():
     )
 
     assert digest.count_items() == 3  # dashboards, event_definitions, feature_flags
+
+
+@pytest.mark.parametrize(
+    "description,expected",
+    [
+        (None, None),
+        ("", None),
+        ("  \n ", None),
+        (
+            "Cannot read properties of undefined\n    at checkout.js:12",
+            "Cannot read properties of undefined at checkout.js:12",
+        ),
+        ("x" * 1000, "x" * (DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS - 1) + "…"),
+    ],
+)
+def test_error_issue_description_is_trimmed(description, expected):
+    issue = DigestErrorIssue(name="Error", description=description, id=uuid4())
+
+    assert issue.description == expected
+    assert issue.model_dump()["description"] == expected
 
 
 def test_error_issues_count_toward_digest_threshold_but_usage_trends_do_not():
