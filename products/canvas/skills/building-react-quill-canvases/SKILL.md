@@ -22,7 +22,7 @@ Keep its pattern of one component per card with `editable()` params, and follow 
 
 ## Imports
 
-Use React, Quill, Recharts, Lucide, and Day.js for the standard application shell. The platform
+Use React, Quill, quill-charts (`@posthog/quill-charts`), Lucide, and Day.js for the standard application shell. The platform
 also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
@@ -49,7 +49,7 @@ control or a styled `<div>` standing in for one:
   Without `flush` the card's padding insets the table, so its header and rows stop meeting the card's edges.
   `flush` drops the card's section gap, bottom padding, and the `CardContent` inline padding, while the header keeps its own padding and divider.
   Matching `size="sm"` on both lines the table's edge columns up with the card's title.
-- The only non-Quill tags allowed are plain layout `<div>`s and `recharts` elements.
+- The only non-Quill tags allowed are plain layout `<div>`s and `@posthog/quill-charts` charts.
 - Quill is built on Base UI: compose compound parts (`Select` + `SelectTrigger`/`SelectContent`/`SelectItem`),
   use controlled `value` + `onValueChange`, and swap a part's element with the `render` prop
   (e.g. `<PopoverTrigger render={<Button …/>} />`) instead of wrapping it.
@@ -83,14 +83,11 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   Quill sets those on every element, so your value never applies and text can turn unreadable.
   Prefix your own variables (`--doc-muted`); validation rejects the collision with
   `platform_token_redeclared`.
-- recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
-  `var(--border)`/`var(--muted-foreground)`).
-- Some recharts defaults are hardcoded for a light theme and go wrong on a dark canvas. The
-  platform stylesheet corrects them, so do not work around one in canvas code. Pie slice outlines
-  are one: recharts strokes every sector white, and the stylesheet removes the outline. The
-  antialiasing seam between stacked bar segments is another, and so is the default tooltip, which
-  the stylesheet inverts against the page so its text always meets contrast. A bare `<Tooltip />`
-  is the right thing to write.
+- Draw every chart with `@posthog/quill-charts`. Do not use `recharts` in new code: it stays importable only so older canvases keep working.
+- Pass `theme={useChartTheme()}` to every chart. The hook reads the Quill tokens and follows the light/dark switch.
+- Omit `color` on a series to get the palette color for its index. An explicit `color` must be a hex or rgb value: line, area, and bar series do not resolve `var(--…)`.
+- A chart fills its parent. Wrap it in a flex column with a fixed height, `<div className="flex h-[280px] flex-col">`. A parent without `flex flex-col` gives the chart zero height.
+- Charts take `labels` (one per x position) and `series` (`{ key, label, data }`, with `data.length === labels.length`), not row objects. See [references/platform-libraries.md](references/platform-libraries.md) for which chart to use.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 
