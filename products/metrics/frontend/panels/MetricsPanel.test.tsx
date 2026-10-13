@@ -80,6 +80,14 @@ describe('MetricsPanel', () => {
             expect(tooltip.value('http.requests')).toBe('0')
         })
 
+        it('formats the y axis and tooltip with the resolved unit', async () => {
+            renderPanel([seriesWith({}, [250, 1500, 3000], 'http.duration', 'ms')])
+            const chart = getHogChart()
+            expect(chart.yTicks().some((tick) => tick.endsWith(' s'))).toBe(true)
+            const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 0, BUCKETS.length))
+            expect(tooltip.value('http.duration')).toBe('250 ms')
+        })
+
         it('draws a goal line above the data', () => {
             renderPanel([seriesWith({}, [1, 2, 3])], { goalLines: [{ label: 'SLO', value: 10 }] })
             expect(screen.getByText('SLO')).toBeInTheDocument()

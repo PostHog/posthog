@@ -361,6 +361,11 @@ class _MetricSeriesSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Name of the query clause that produced this series.",
     )
+    unit = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Null when the SDK did not set one, when merged series disagree on the unit, and for formula results.',
+    )
 
 
 class _MetricQueryResponseSerializer(serializers.Serializer):

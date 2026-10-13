@@ -8,6 +8,8 @@ import type {
 
 import type { GoalLine, MetricsDisplaySettings, MetricsYAxisSettings } from '~/queries/schema/schema-general'
 
+import { unitAxisFormatter } from '../panels/metricsUnits'
+
 /** The config keys metrics sets. `TimeSeriesLineChartConfig` and `TimeSeriesBarChartConfig` declare
  * these identically, so one builder serves both charts. */
 export type MetricsChartConfig = Pick<
@@ -59,13 +61,18 @@ export function buildMetricsChartConfig({
     xAxis,
     seriesCount,
     labelFormatter,
+    unit,
 }: {
     display: MetricsDisplaySettings | undefined
     xAxis: XAxisConfig
     seriesCount: number
     labelFormatter: (label: string) => string
+    /** The unit every series shares, as `MetricsPanel` resolves it. Undefined leaves quill's number formatting. */
+    unit?: string
 }): MetricsChartConfig {
-    const yAxis = yAxisToConfig(display?.yAxis)
+    const valueFormatter = unit ? unitAxisFormatter(unit) : undefined
+    const yAxisSettings = yAxisToConfig(display?.yAxis)
+    const yAxis = valueFormatter ? { ...yAxisSettings, tickFormatter: valueFormatter } : yAxisSettings
     const goalLines = goalLinesToConfigs(display?.goalLines)
     return {
         xAxis,
@@ -74,6 +81,6 @@ export function buildMetricsChartConfig({
         ...(yAxis ? { yAxis } : {}),
         ...(goalLines ? { goalLines } : {}),
         legend: { show: seriesCount > 1, interactive: true },
-        tooltip: { placement: 'cursor', pinnable: true, labelFormatter },
+        tooltip: { placement: 'cursor', pinnable: true, labelFormatter, ...(valueFormatter ? { valueFormatter } : {}) },
     }
 }

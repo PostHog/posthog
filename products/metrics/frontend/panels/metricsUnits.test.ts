@@ -23,6 +23,8 @@ describe('formatMetricValue', () => {
         [340, 'ms', '340 ms'],
         [1500, 'ms', '1.5 s'],
         [250000, 'us', '250 ms'],
+        // a zero tick on a duration axis reads in seconds, not the smallest unit
+        [0, 'ms', '0 s'],
         // percent
         [42.5, '%', '42.5%'],
         // ratio (UCUM "1")

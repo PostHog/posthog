@@ -234,6 +234,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     clause?: string | null
+    /**
+     * UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Null when the SDK did not set one, when merged series disagree on the unit, and for formula results.
+     * @nullable
+     */
+    unit?: string | null
 }
 
 export interface _MetricAnomalyReportApi {

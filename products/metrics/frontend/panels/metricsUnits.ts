@@ -19,7 +19,8 @@ const bytes = (value: number, base: 1000 | 1024): string => {
 
 const seconds = (value: number): string => {
     const abs = Math.abs(value)
-    if (abs >= 1) {
+    // Zero has no magnitude to scale, so it would otherwise fall through to the ns branch.
+    if (abs >= 1 || abs === 0) {
         return `${compact(value)} s`
     }
     if (abs >= 1e-3) {

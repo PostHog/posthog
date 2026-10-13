@@ -1,4 +1,4 @@
-import type { XAxisConfig } from '@posthog/quill-charts'
+import type { XAxisConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
@@ -8,9 +8,10 @@ const X_AXIS: XAxisConfig = {}
 
 const build = (
     display: MetricsDisplaySettings | undefined,
-    seriesCount = 1
+    seriesCount = 1,
+    unit?: string
 ): ReturnType<typeof buildMetricsChartConfig> =>
-    buildMetricsChartConfig({ display, xAxis: X_AXIS, seriesCount, labelFormatter: (l) => l })
+    buildMetricsChartConfig({ display, xAxis: X_AXIS, seriesCount, labelFormatter: (l) => l, unit })
 
 describe('metricsChartConfig', () => {
     it('omits the settings keys entirely when a query carries no display', () => {
@@ -43,6 +44,15 @@ describe('metricsChartConfig', () => {
         const config = build({ yAxis: { scale: 'log', startAtZero: false, max: 100 } })
 
         expect(config.yAxis).toEqual({ scale: 'log', startAtZero: false, max: 100 })
+    })
+
+    it('formats axis ticks and tooltip values with the unit and keeps the y-axis settings', () => {
+        const config = build({ yAxis: { scale: 'log' } }, 1, 'ms')
+        const yAxis = config.yAxis as YAxisConfig
+
+        expect(yAxis.scale).toBe('log')
+        expect(yAxis.tickFormatter?.(250)).toBe('250 ms')
+        expect(config.tooltip?.valueFormatter?.(1500, {} as never)).toBe('1.5 s')
     })
 
     it('only shows the legend once there is more than one series', () => {
