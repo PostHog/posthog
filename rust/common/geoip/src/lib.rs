@@ -52,7 +52,7 @@ impl GeoIpClient {
     }
 }
 
-const GEOIP_FIELDS: [(&str, &[&str]); 7] = [
+const GEOIP_FIELDS: [(&str, &[&str]); 11] = [
     ("$geoip_country_name", &["country", "names", "en"]),
     ("$geoip_city_name", &["city", "names", "en"]),
     ("$geoip_country_code", &["country", "iso_code"]),
@@ -60,12 +60,33 @@ const GEOIP_FIELDS: [(&str, &[&str]); 7] = [
     ("$geoip_continent_code", &["continent", "code"]),
     ("$geoip_postal_code", &["postal", "code"]),
     ("$geoip_time_zone", &["location", "time_zone"]),
+    (
+        "$geoip_subdivision_1_code",
+        &["subdivisions", "0", "iso_code"],
+    ),
+    (
+        "$geoip_subdivision_1_name",
+        &["subdivisions", "0", "names", "en"],
+    ),
+    (
+        "$geoip_subdivision_2_code",
+        &["subdivisions", "1", "iso_code"],
+    ),
+    (
+        "$geoip_subdivision_2_name",
+        &["subdivisions", "1", "names", "en"],
+    ),
 ];
 
+/// A numeric path segment indexes into an array, because MaxMind returns `subdivisions` as a list
+/// ordered from the largest region to the smallest.
 fn get_nested_value<'a>(data: &'a Value, path: &[&str]) -> Option<&'a str> {
     let mut current = data;
     for &key in path {
-        current = current.get(key)?;
+        current = match current {
+            Value::Array(items) => items.get(key.parse::<usize>().ok()?)?,
+            _ => current.get(key)?,
+        };
     }
     current.as_str()
 }
@@ -232,7 +253,21 @@ mod tests {
             },
             "location": {
                 "time_zone": "America/New_York"
-            }
+            },
+            "subdivisions": [
+                {
+                    "iso_code": "NY",
+                    "names": {
+                        "en": "New York"
+                    }
+                },
+                {
+                    "iso_code": "KGS",
+                    "names": {
+                        "en": "Kings County"
+                    }
+                }
+            ]
         });
 
         let properties = extract_properties(&city_data);
@@ -265,6 +300,22 @@ mod tests {
             properties.get("$geoip_time_zone"),
             Some(&"America/New_York".to_string())
         );
-        assert_eq!(properties.len(), 7);
+        assert_eq!(
+            properties.get("$geoip_subdivision_1_code"),
+            Some(&"NY".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_1_name"),
+            Some(&"New York".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_2_code"),
+            Some(&"KGS".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_2_name"),
+            Some(&"Kings County".to_string())
+        );
+        assert_eq!(properties.len(), 11);
     }
 }
