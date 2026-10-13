@@ -3,6 +3,7 @@ model
 
 type user
   relations
+    # FGA requires an explicit self-link; matching user IDs do not imply identity.
     define identity: [user]
     define organization: [organization]
     define can_view: identity
@@ -37,10 +38,15 @@ type organization_member
     define user: [user]
     define organization: [organization]
     define project: [project]
+    # The wildcard marks the target membership as an owner, regardless of who checks it.
     define is_owner: [user:*]
-    define can_view: user or admin from organization or ((member from organization) and (members_can_see_members from organization or member from project)) or ((member from organization) but not access_control_enabled from organization)
+    define org_member: member from organization
+    define org_admin: admin from organization
+    # When the full member list is hidden, members can still see people with a project in common.
+    define same_project_member: member from project
+    define can_view: user or org_admin or (org_member and (members_can_see_members from organization or same_project_member)) or (org_member but not access_control_enabled from organization)
     define can_edit: user or can_change_level
-    define can_change_level: ((owner from organization) or ((admin from organization) but not is_owner)) but not user
+    define can_change_level: ((owner from organization) or (org_admin but not is_owner)) but not user
     define can_make_owner: (owner from organization) but not user
     define can_delete: (user but not is_owner) or can_change_level
 
@@ -70,20 +76,16 @@ type project
     define default_member: [user:*]
     define default_admin: [user:*]
     define default_owner: [user:*]
-    define member_admin_or_higher: member_admin or member_owner
-    define member_member_or_higher: member_member or member_admin_or_higher
-    define member_override: member_none or member_member_or_higher
-    define role_admin_or_higher: role_admin or role_owner
-    define role_member_or_higher: role_member or role_admin_or_higher
-    define role_override: role_none or role_member_or_higher
-    define default_admin_or_higher: default_admin or default_owner
-    define default_member_or_higher: default_member or default_admin_or_higher
-    define default_override: default_none or default_member_or_higher
+    # Presence includes none: a lower member level still replaces every role/default grant.
+    define member_override: member_none or member_member or member_admin or member_owner
+    define role_override: role_none or role_member or role_admin or role_owner
+    define default_level: default_none or default_member or default_admin or default_owner
     define member_or_role_override: member_override or role_override
-    define has_rule: member_or_role_override or default_override
-    define rule_member: member_member_or_higher or (role_member_or_higher but not member_override) or (default_member_or_higher but not member_or_role_override)
-    define rule_admin: member_admin_or_higher or (role_admin_or_higher but not member_override) or (default_admin_or_higher but not member_or_role_override)
+    define has_rule: member_or_role_override or default_level
+    # Resolve member > highest matching role > default, then inherit the resolved higher level.
     define rule_owner: member_owner or (role_owner but not member_override) or (default_owner but not member_or_role_override)
+    define rule_admin: rule_owner or member_admin or (role_admin but not member_override) or (default_admin but not member_or_role_override)
+    define rule_member: rule_admin or member_member or (role_member but not member_override) or (default_member but not member_or_role_override)
     define org_member: member from organization
     define org_admin: admin from organization
     define access_control_enabled: access_control_enabled from organization
@@ -111,20 +113,16 @@ type access_policy
     define default_viewer: [user:*]
     define default_editor: [user:*]
     define default_manager: [user:*]
-    define member_editor_or_higher: member_editor or member_manager
-    define member_viewer_or_higher: member_viewer or member_editor_or_higher
-    define member_override: member_none or member_viewer_or_higher
-    define role_editor_or_higher: role_editor or role_manager
-    define role_viewer_or_higher: role_viewer or role_editor_or_higher
-    define role_override: role_none or role_viewer_or_higher
-    define default_editor_or_higher: default_editor or default_manager
-    define default_viewer_or_higher: default_viewer or default_editor_or_higher
-    define default_override: default_none or default_viewer_or_higher
+    # These sets track whether a level is configured, including an explicit none.
+    define member_override: member_none or member_viewer or member_editor or member_manager
+    define role_override: role_none or role_viewer or role_editor or role_manager
+    define default_level: default_none or default_viewer or default_editor or default_manager
     define member_or_role_override: member_override or role_override
-    define has_rule: (member_or_role_override or default_override) and access_control_enabled from organization
-    define viewer: (member_viewer_or_higher or (role_viewer_or_higher but not member_override) or (default_viewer_or_higher but not member_or_role_override)) and has_rule
-    define editor: (member_editor_or_higher or (role_editor_or_higher but not member_override) or (default_editor_or_higher but not member_or_role_override)) and has_rule
+    define has_rule: (member_or_role_override or default_level) and access_control_enabled from organization
+    # Only resolved levels inherit: a member viewer must not inherit a role manager grant.
     define manager: (member_manager or (role_manager but not member_override) or (default_manager but not member_or_role_override)) and has_rule
+    define editor: manager or ((member_editor or (role_editor but not member_override) or (default_editor but not member_or_role_override)) and has_rule)
+    define viewer: editor or ((member_viewer or (role_viewer but not member_override) or (default_viewer but not member_or_role_override)) and has_rule)
 type resource
   relations
     define project: [project]

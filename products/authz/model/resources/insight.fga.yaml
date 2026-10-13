@@ -63,10 +63,11 @@ tests:
             object: insight:insight
             assertions: { can_view: true, can_edit: true, can_manage_access: true }
 
-    - name: Member editor overrides role none
+    - name: Member editor overrides role none and default manager
       tuples:
           - { user: 'organization_member:member#user', relation: member_editor, object: 'access_policy:object' }
           - { user: 'role:blocked#member', relation: role_none, object: 'access_policy:object' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:object' }
       check:
           - user: user:member
             object: insight:insight

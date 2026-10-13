@@ -101,7 +101,7 @@ tests:
             object: organization_member:creator
             assertions: { can_view: false }
 
-    - name: Restricted member visibility includes shared projects
+    - name: Restricted member visibility includes members of the same project
       tuples:
           - { user: 'project:project', relation: project, object: 'organization_member:creator' }
       check:
@@ -217,6 +217,20 @@ tests:
           - user: user:creator
             object: project:private
             assertions: { member: false, admin: false }
+
+    - name: Project member level overrides role owner and default admin
+      tuples:
+          - { user: 'organization:org', relation: organization, object: 'project:overridden' }
+          - { user: 'organization_member:member#user', relation: member_member, object: 'project:overridden' }
+          - { user: 'role:manager#member', relation: role_owner, object: 'project:overridden' }
+          - { user: 'user:*', relation: default_admin, object: 'project:overridden' }
+      check:
+          - user: user:member
+            object: project:overridden
+            assertions: { member: true, admin: false, owner: false, can_manage_access: false }
+          - user: user:creator
+            object: project:overridden
+            assertions: { member: true, admin: true, owner: false, can_manage_access: true }
 
     - name: Stale role assignees outside the organization never authorize
       tuples:
@@ -338,7 +352,7 @@ tests:
       check:
           - user: user:member
             object: project:private
-            assertions: { owner: true, can_edit: true }
+            assertions: { member: true, admin: true, owner: true, can_edit: true }
 
     - name: A default owner rule makes every organization member a project owner
       tuples:
@@ -347,7 +361,7 @@ tests:
       check:
           - user: user:member
             object: project:default_owner
-            assertions: { owner: true, can_delete: true }
+            assertions: { member: true, admin: true, owner: true, can_delete: true }
           - user: user:outsider
             object: project:default_owner
             assertions: { can_view: false }
@@ -368,11 +382,11 @@ tests:
     - name: A role rule on a policy wins over the default rule
       tuples:
           - { user: 'role:writer#member', relation: role_editor, object: 'access_policy:resource' }
-          - { user: 'user:*', relation: default_viewer, object: 'access_policy:resource' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:resource' }
       check:
           - user: user:member
             object: access_policy:resource
-            assertions: { editor: true, manager: false }
+            assertions: { viewer: true, editor: true, manager: false }
           - user: user:creator
             object: access_policy:resource
-            assertions: { viewer: true, editor: false }
+            assertions: { viewer: true, editor: true, manager: true }

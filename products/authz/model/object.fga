@@ -8,10 +8,17 @@ type object
     define resource: [resource]
     define policy: [access_policy]
     define creator: [organization_member#user]
-    define has_rule: has_rule from policy
-    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
-    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
-    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
+    define project_member: member from project
+    define org_admin: org_admin from project
+    # The object policy is resolved before falling back to the resource policy.
+    # A configured none blocks fallback just like any other object level.
+    define object_policy_has_rule: has_rule from policy
+    define object_policy_viewer: viewer from policy
+    define object_policy_editor: editor from policy
+    define object_policy_manager: manager from policy
+    define viewer: project_member and (creator or org_admin or object_policy_viewer or ((viewer from resource) but not object_policy_has_rule))
+    define editor: project_member and (creator or org_admin or object_policy_editor or ((editor from resource) but not object_policy_has_rule))
+    define manager: project_member and (creator or org_admin or object_policy_manager or ((manager from resource) but not object_policy_has_rule))
     define can_view: viewer
     define can_edit: editor
     define can_delete: can_edit
