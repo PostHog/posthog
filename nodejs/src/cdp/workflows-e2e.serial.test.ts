@@ -2371,7 +2371,7 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 
     describe('posthog_ticket_tags input resolves templated values per element', () => {
-        // Regression guard for the templating opt-in in posthog/cdp/validation.py.
+        // Regression guard for the templating opt-in in products/cdp/backend/validation.py.
         // Reproduces the real user-reported case: a ticket tag set to
         // `zendesk/{variables.zendesk_ticketid}` used to ship to the runtime as
         // a literal placeholder string (because the type wasn't on the bytecode

@@ -11,6 +11,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { DashboardImportApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
+import { SuggestedDashboardsMenu } from '../suggestedDashboards/SuggestedDashboardsMenu'
 
 const MAX_LISTED_IMPORTS = 5
 
@@ -69,8 +70,9 @@ export function MetricsDashboardActions(): JSX.Element | null {
     const { recentImports, runningImports } = useValues(metricsDashboardImportLogic)
     const { openImportModal, openImport } = useActions(metricsDashboardImportLogic)
     const importEnabled = useFeatureFlag('METRICS_DASHBOARD_IMPORT')
+    const suggestionsEnabled = useFeatureFlag('METRICS_SUGGESTED_DASHBOARDS')
 
-    if (!importEnabled) {
+    if (!importEnabled && !suggestionsEnabled) {
         return null
     }
     const importDisabledReason =
@@ -79,50 +81,53 @@ export function MetricsDashboardActions(): JSX.Element | null {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <LemonMenu
-                items={[
-                    {
-                        items: [
-                            {
-                                label: 'Import from Grafana',
-                                onClick: () => openImportModal('grafana'),
-                                'data-attr': 'metrics-dashboard-import-grafana',
-                            },
-                            {
-                                label: 'Import from screenshot',
-                                onClick: () => openImportModal('screenshot'),
-                                'data-attr': 'metrics-dashboard-import-screenshot',
-                            },
-                        ],
-                    },
-                    ...(recentImports.length
-                        ? [
-                              {
-                                  title: 'Recent imports',
-                                  items: recentImports
-                                      .slice(0, MAX_LISTED_IMPORTS)
-                                      .map((dashboardImport) => recentImportItem(dashboardImport, openImport)),
-                              },
-                          ]
-                        : []),
-                ]}
-            >
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={runningImports.length ? <Spinner /> : undefined}
-                    sideIcon={<IconChevronDown />}
-                    disabledReason={importDisabledReason}
-                    tooltip={
-                        runningImports.length
-                            ? `${runningImports.length} ${runningImports.length === 1 ? 'import is' : 'imports are'} running`
-                            : undefined
-                    }
-                    data-attr="metrics-dashboard-import-menu"
+            {suggestionsEnabled && <SuggestedDashboardsMenu />}
+            {importEnabled && (
+                <LemonMenu
+                    items={[
+                        {
+                            items: [
+                                {
+                                    label: 'Import from Grafana',
+                                    onClick: () => openImportModal('grafana'),
+                                    'data-attr': 'metrics-dashboard-import-grafana',
+                                },
+                                {
+                                    label: 'Import from screenshot',
+                                    onClick: () => openImportModal('screenshot'),
+                                    'data-attr': 'metrics-dashboard-import-screenshot',
+                                },
+                            ],
+                        },
+                        ...(recentImports.length
+                            ? [
+                                  {
+                                      title: 'Recent imports',
+                                      items: recentImports
+                                          .slice(0, MAX_LISTED_IMPORTS)
+                                          .map((dashboardImport) => recentImportItem(dashboardImport, openImport)),
+                                  },
+                              ]
+                            : []),
+                    ]}
                 >
-                    Import
-                </LemonButton>
-            </LemonMenu>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={runningImports.length ? <Spinner /> : undefined}
+                        sideIcon={<IconChevronDown />}
+                        disabledReason={importDisabledReason}
+                        tooltip={
+                            runningImports.length
+                                ? `${runningImports.length} ${runningImports.length === 1 ? 'import is' : 'imports are'} running`
+                                : undefined
+                        }
+                        data-attr="metrics-dashboard-import-menu"
+                    >
+                        Import
+                    </LemonButton>
+                </LemonMenu>
+            )}
         </div>
     )
 }

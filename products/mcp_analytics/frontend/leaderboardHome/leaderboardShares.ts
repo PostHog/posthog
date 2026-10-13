@@ -25,6 +25,9 @@ export interface ShareSeries {
 export interface LabShare {
     lab: ModelLab
     share: number
+    // The lab's calls or users, out of `total`, the denominator of `share`.
+    count: number
+    total: number
 }
 
 export interface LabUsersRow {
@@ -129,7 +132,7 @@ export function buildLabShares(rows: BucketedFacetRow[]): LabShare[] {
     return [...callsByLab.entries()]
         .filter(([lab]) => lab !== 'Other')
         .sort(([, a], [, b]) => b - a)
-        .map(([lab, calls]) => ({ lab, share: total > 0 ? (calls / total) * 100 : 0 }))
+        .map(([lab, calls]) => ({ lab, share: total > 0 ? (calls / total) * 100 : 0, count: calls, total }))
 }
 
 // A person can use models from several labs, so these shares do not add up to 100.
@@ -137,7 +140,12 @@ export function buildLabUserShares(rows: LabUsersRow[], namedModelUsers: number)
     return rows
         .filter((row): row is { lab: ModelLab; users: number } => row.lab !== UNKNOWN && row.lab !== 'Other')
         .sort((a, b) => b.users - a.users)
-        .map(({ lab, users }) => ({ lab, share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0 }))
+        .map(({ lab, users }) => ({
+            lab,
+            share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0,
+            count: users,
+            total: namedModelUsers,
+        }))
 }
 
 export function leadingLabs(shares: LabShare[]): ModelLab[] {

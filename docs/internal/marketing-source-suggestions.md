@@ -14,9 +14,18 @@ These counts guide connection suggestions; they do not change report attribution
 ## MCP setup recommendations
 
 The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
+The same flag also enables the read-only setup plan API independently of the Setup tab, dashboard, and source onboarding rollouts.
+Applying setup operations still requires the Setup or dashboard flag and the existing write permissions.
 The tool returns ranked source connection recommendations with evidence and confidence, alongside other setup improvements.
 It supports `refresh=true` for an explicit rescan and does not connect accounts or apply changes.
 Incomplete or truncated scan results must be presented as such.
+
+## Updating conversion goals through MCP
+
+The update tool requires `conversion_goal_id` outside the `goal` patch.
+Omit `kind` for partial updates. Changing `kind` replaces the stored goal, so send the complete new definition, including its name, schema map, and target fields.
+An invalid replacement returns `conversion_goal_kind_change_invalid` with the required fields in the response detail.
+MCP analytics records the controlled error code and field without storing the response detail.
 
 ## Search performance
 
