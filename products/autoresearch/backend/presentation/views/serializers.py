@@ -1544,13 +1544,13 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     likely_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability are in the Likely segment: likely_lift times the "
-            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null."
+            "base rate, capped halfway between the base rate and 1. A fixed cut point when source is fixed."
         )
     )
     possible_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability and below likely_threshold are in the Possible "
-            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null."
+            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when source is fixed."
         )
     )
     likely_lift = serializers.FloatField(
@@ -1559,11 +1559,20 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     base_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Fraction of the champion's scored users who did the target event, pooled over the newest checked "
-            "dates. Null, and the fixed cut points apply, until those dates hold enough positives."
+            "The base rate the cut points use. When source is realized, the fraction of the champion's scored "
+            "users who did the target event, pooled over the newest checked dates. When source is training, the "
+            "fraction of the champion's training population that did it. Null when source is fixed."
         ),
     )
     base_rate_dates = serializers.IntegerField(help_text="Number of checked prediction dates the base rate pools.")
+    source = serializers.ChoiceField(
+        choices=["realized", "training", "fixed"],
+        help_text=(
+            "Where the cut points come from. realized: the checked dates hold enough positives. training: no "
+            "realized base rate yet, so the champion's training population sets it. fixed: neither is available, "
+            "so fixed cut points apply."
+        ),
+    )
     champion_mean_p_y = serializers.FloatField(
         allow_null=True,
         help_text=(

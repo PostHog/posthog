@@ -20,7 +20,7 @@ from dataclasses import (
     field,
 )
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -466,6 +466,7 @@ class PredictionSegmentThresholds:
     likely_lift: float
     base_rate: float | None
     base_rate_dates: int
+    source: Literal["realized", "training", "fixed"]
     champion_mean_p_y: float | None
     champion_base_rate: float | None
     scores_miscalibrated: bool

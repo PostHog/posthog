@@ -1710,7 +1710,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     segment,
                     cohort_id: cohort.id,
                     people: values.predictionSegments?.[segment].people,
-                    cut_points: segmentThresholds.base_rate != null ? 'base_rate' : 'fixed',
+                    cut_points: segmentThresholds.source === 'realized' ? 'base_rate' : segmentThresholds.source,
                 })
                 lemonToast.success('Cohort saved', {
                     button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },

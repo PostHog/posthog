@@ -2,6 +2,7 @@ import io
 import json
 import base64
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import ROLLING_SCORE_LIMIT
+from products.autoresearch.backend.evaluation.segment_thresholds import training_base_rate
 from products.autoresearch.backend.inference import sandbox as sandbox_inference
 from products.autoresearch.backend.inference.sandbox import (
     _FEATURE_COLUMNS_JSON,
@@ -65,11 +67,12 @@ _SCORE_ROWS = [
 _METRICS_JSON = '{"holdout_auc": 0.73, "n_train": 2, "n_features": 2}'
 
 
-def _training_materialized() -> sandbox_inference.MaterializedData:
+def _training_materialized(**sample: Any) -> sandbox_inference.MaterializedData:
     return sandbox_inference.MaterializedData(
         feature_cols=["events_total", "pageviews"],
         train_rows=[r for r in _TRAINING_ROWS if r["__fold"] != 0],
         holdout_rows=[r for r in _TRAINING_ROWS if r["__fold"] == 0],
+        **sample,
     )
 
 
@@ -653,7 +656,11 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         stored: dict = {}
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
-            patch.object(sandbox_inference, "materialize_training_data", return_value=_training_materialized()),
+            patch.object(
+                sandbox_inference,
+                "materialize_training_data",
+                return_value=_training_materialized(negative_sample_rate=0.1, population=50_000, positives=200),
+            ),
             patch.object(
                 sandbox_inference, "write_model", side_effect=lambda prefix, content: stored.update(model=content)
             ),
@@ -664,9 +671,15 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
-            metrics = fit_champion_model(team=self.team, pipeline=pipeline, prefix=model.artifact_prefix)
+            metrics = fit_champion_model(
+                team=self.team, pipeline=pipeline, prefix=model.artifact_prefix, model_id=str(model.pk)
+            )
 
         assert metrics["holdout_auc"] == 0.73
+        model.refresh_from_db()
+        assert model.negative_sample_rate == 0.1
+        # The unsampled counts, so the rate is not inflated by 1 / negative_sample_rate.
+        assert training_base_rate(model.metrics) == 0.004
         assert stored["model"] == b"FITTED"  # the fitted model.pkl read back + persisted
         assert json.loads(stored[_FEATURE_COLUMNS_JSON]) == ["events_total", "pageviews"]
         assert any(p.endswith("data/train_features.parquet") for p in fake.written)  # train run materializes training

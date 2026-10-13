@@ -47,6 +47,7 @@ from ..evaluation.segment_thresholds import (
     LIKELY_LIFT,
     champion_score_calibration,
     segment_thresholds,
+    training_base_rate,
 )
 from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from ..models import (
@@ -1187,20 +1188,21 @@ def online_performance(
 def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> PredictionSegmentThresholds:
     """The current cut points, from a fixed window of checked dates so the request's ``limit`` cannot move them."""
     runs = latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES)
-    thresholds = segment_thresholds(runs)
-    champion_id = (
+    champion = (
         AutoresearchModel.objects.for_team(team_id)
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
-        .values_list("id", flat=True)
+        .values("id", "metrics")
         .first()
     )
-    calibration = champion_score_calibration(runs, str(champion_id)) if champion_id is not None else None
+    thresholds = segment_thresholds(runs, training_rate=training_base_rate(champion["metrics"]) if champion else None)
+    calibration = champion_score_calibration(runs, str(champion["id"])) if champion is not None else None
     return PredictionSegmentThresholds(
         likely_threshold=thresholds.likely,
         possible_threshold=thresholds.possible,
         likely_lift=LIKELY_LIFT,
         base_rate=thresholds.base_rate,
         base_rate_dates=thresholds.dates,
+        source=thresholds.source,
         champion_mean_p_y=calibration.mean_p_y if calibration else None,
         champion_base_rate=calibration.base_rate if calibration else None,
         scores_miscalibrated=calibration.miscalibrated if calibration else False,

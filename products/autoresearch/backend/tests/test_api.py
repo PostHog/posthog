@@ -1228,6 +1228,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "likely_lift": 3.0,
             "base_rate": None,
             "base_rate_dates": 2,
+            "source": "fixed",
             "champion_mean_p_y": None,
             "champion_base_rate": None,
             "scores_miscalibrated": False,
