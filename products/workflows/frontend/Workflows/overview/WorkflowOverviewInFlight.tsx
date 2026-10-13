@@ -5,6 +5,7 @@ import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { workflowLogic } from '../workflowLogic'
 import { workflowOverviewLogic } from './workflowOverviewLogic'
 
 const MAX_STEPS = 5
@@ -13,6 +14,8 @@ export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKe
     const logic = workflowOverviewLogic({ id, logicKey })
     const { inFlight, inFlightLoading, inFlightSteps } = useValues(logic)
     const { loadInFlight } = useActions(logic)
+    // The editor shows the staged draft, so a live step the draft removes has nothing to open there.
+    const { workflow } = useValues(workflowLogic)
     const count = inFlight?.count ?? null
     const positionUnknown = inFlight?.position_unknown ?? 0
 
@@ -49,13 +52,17 @@ export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKe
                         <div className="flex flex-col gap-1 text-sm">
                             {inFlightSteps.slice(0, MAX_STEPS).map(({ action, count: stepCount }) => (
                                 <div key={action.id} className="flex items-center justify-between gap-2">
-                                    <Link
-                                        to={`${urls.workflow(id, 'workflow')}?node=${encodeURIComponent(action.id)}`}
-                                        className="truncate"
-                                        data-attr="workflow-overview-in-flight-step"
-                                    >
-                                        {action.name}
-                                    </Link>
+                                    {workflow?.actions.some((a) => a.id === action.id) ? (
+                                        <Link
+                                            to={`${urls.workflow(id, 'workflow')}?node=${encodeURIComponent(action.id)}`}
+                                            className="truncate"
+                                            data-attr="workflow-overview-in-flight-step"
+                                        >
+                                            {action.name}
+                                        </Link>
+                                    ) : (
+                                        <span className="truncate">{action.name}</span>
+                                    )}
                                     <span className="whitespace-nowrap text-secondary">
                                         {humanFriendlyNumber(stepCount)}
                                     </span>
@@ -72,7 +79,7 @@ export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKe
                     ) : null}
                     {positionUnknown > 0 ? (
                         <span className="text-xs text-muted">
-                            {humanFriendlyNumber(positionUnknown)} of them are between steps.
+                            {`${humanFriendlyNumber(positionUnknown)} of them are between steps.`}
                         </span>
                     ) : null}
                 </>

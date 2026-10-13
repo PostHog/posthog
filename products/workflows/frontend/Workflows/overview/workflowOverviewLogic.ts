@@ -58,6 +58,7 @@ export type InFlightStep = {
 export interface workflowOverviewLogicValues {
     appMetricsTrends: AppMetricsTimeSeriesResponse | null // appMetricsLogic
     appMetricsTrendsLoading: boolean // appMetricsLogic
+    appMetricsTrendsPreviousPeriodLoading: boolean // appMetricsLogic
     currentTeam: TeamPublicType | TeamType | null // appMetricsLogic
     getDateRangeAbsolute: () => {
         dateFrom: Dayjs
@@ -219,6 +220,7 @@ export interface workflowOverviewLogicMeta {
         ) => StepReach[] | null
         retrying: (
             appMetricsTrendsLoading: boolean,
+            appMetricsTrendsPreviousPeriodLoading: boolean,
             stepTotalsLoading: boolean,
             healthTotalsLoading: boolean
         ) => boolean
@@ -245,7 +247,14 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
             workflowLogic,
             ['originalWorkflow'],
             appMetricsLogic({ logicKey: props.logicKey }),
-            ['params', 'currentTeam', 'getDateRangeAbsolute', 'appMetricsTrends', 'appMetricsTrendsLoading'],
+            [
+                'params',
+                'currentTeam',
+                'getDateRangeAbsolute',
+                'appMetricsTrends',
+                'appMetricsTrendsLoading',
+                'appMetricsTrendsPreviousPeriodLoading',
+            ],
         ],
         actions: [
             appMetricsLogic({ logicKey: props.logicKey }),
@@ -397,9 +406,18 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
         ],
         // Counts every step with metrics in the range, including steps since removed from the workflow.
         retrying: [
-            (s) => [s.appMetricsTrendsLoading, s.stepTotalsLoading, s.healthTotalsLoading],
-            (trendsLoading: boolean, stepTotalsLoading: boolean, healthTotalsLoading: boolean): boolean =>
-                trendsLoading || stepTotalsLoading || healthTotalsLoading,
+            (s) => [
+                s.appMetricsTrendsLoading,
+                s.appMetricsTrendsPreviousPeriodLoading,
+                s.stepTotalsLoading,
+                s.healthTotalsLoading,
+            ],
+            (
+                trendsLoading: boolean,
+                previousPeriodLoading: boolean,
+                stepTotalsLoading: boolean,
+                healthTotalsLoading: boolean
+            ): boolean => trendsLoading || previousPeriodLoading || stepTotalsLoading || healthTotalsLoading,
         ],
         failedRuns: [
             (s) => [s.stepTotals],

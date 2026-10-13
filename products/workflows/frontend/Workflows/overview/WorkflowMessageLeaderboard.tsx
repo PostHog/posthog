@@ -69,7 +69,9 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
         ]
         const known = new Set(all.map((row) => row.id))
         for (const [actionId, totals] of Object.entries(emailTotalsByActionId)) {
-            if (!known.has(actionId) && (totals.email_sent ?? 0) > 0) {
+            const emailActivity =
+                (totals.email_sent ?? 0) + (totals.email_opened ?? 0) + (totals.email_link_clicked ?? 0)
+            if (!known.has(actionId) && emailActivity > 0) {
                 const sent = totals.email_sent ?? 0
                 all.push({
                     id: actionId,
@@ -84,7 +86,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
             }
         }
         for (const [actionId, totals] of Object.entries(pushTotalsByActionId)) {
-            if (!known.has(actionId) && (totals.push_sent ?? 0) > 0) {
+            if (!known.has(actionId) && (totals.push_sent ?? 0) + (totals.push_opened ?? 0) > 0) {
                 all.push({
                     id: actionId,
                     name: 'Removed push notification',
