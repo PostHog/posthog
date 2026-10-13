@@ -571,8 +571,8 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
-        hooks: experiments/getExperimentHooks
         ui_app: experiment
+        hooks: experiments/getExperimentHooks
         response:
             exclude:
                 - saved_metrics.*.effective_query
