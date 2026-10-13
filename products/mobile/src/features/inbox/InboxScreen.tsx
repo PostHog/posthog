@@ -18,7 +18,7 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import { BottomBar } from './BottomBar'
 import { useInboxItems } from './hooks'
-import { InboxHeader } from './InboxHeader'
+import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
 import { InboxRow } from './InboxRow'
 import { NavMenu } from './NavMenu'
 
@@ -72,6 +72,9 @@ export function InboxScreen(): ReactElement {
         exitDemo()
     }
 
+    // The header floats over the list, so the content starts below it and the pull-to-refresh spinner shows under it.
+    const contentTop = topOffset(insets, INBOX_HEADER_BOTTOM)
+
     const renderItem = useCallback(
         ({ item }: { item: InboxItem }) => <InboxRow item={item} now={now} onOpen={openReport} />,
         [now, openReport]
@@ -103,24 +106,21 @@ export function InboxScreen(): ReactElement {
                 data={query.data ?? []}
                 keyExtractor={keyFor}
                 renderItem={renderItem}
-                ListHeaderComponent={
-                    <View style={styles.header}>
-                        <InboxHeader
-                            onRefresh={refresh}
-                            refreshing={query.isRefetching}
-                            onOpenMenu={() => setMenuOpen(true)}
-                        />
-                    </View>
-                }
                 ListEmptyComponent={empty}
                 contentContainerStyle={[
                     styles.content,
-                    { paddingTop: topOffset(insets, 64), paddingBottom: bottomOffset(insets, 120) },
+                    { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
                 ]}
                 refreshControl={
-                    <RefreshControl refreshing={query.isRefetching} onRefresh={refresh} tintColor={colors.tertiary} />
+                    <RefreshControl
+                        refreshing={query.isRefetching}
+                        onRefresh={refresh}
+                        tintColor={colors.tertiary}
+                        progressViewOffset={contentTop}
+                    />
                 }
             />
+            <InboxHeader onRefresh={refresh} refreshing={query.isRefetching} onOpenMenu={() => setMenuOpen(true)} />
             <BottomBar onChat={() => router.push('/chat')} onProducts={openProducts} productsDisabled={demo} />
             <NavMenu
                 visible={menuOpen}
@@ -148,8 +148,5 @@ const styles = StyleSheet.create({
     content: {
         flexGrow: 1,
         paddingHorizontal: layout.inboxGutter,
-    },
-    header: {
-        marginBottom: 12,
     },
 })
