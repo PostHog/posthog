@@ -29,7 +29,7 @@ import { extensionPanelLogic, fetchWithSession } from './extensionPanelLogic'
 import { PageFlagOverrides } from './pageFlagOverrides'
 
 // The floating toolbar's heatmap defaults to the same range.
-export const HEATMAP_DATE_FROM = '-7d'
+const HEATMAP_DATE_FROM = '-7d'
 
 // The content script matches rows in one pass, so the panel loads one page instead of the toolbar's pagination.
 const ELEMENT_STATS_LIMIT = 5000

@@ -12,7 +12,7 @@ import { PageFlagOverrides, applyPageFlagOverrides } from './pageFlagOverrides'
 
 // Firefox and Chrome both expose the promise-based `chrome.*` namespace to Manifest V3 extensions.
 // Only the calls the side panel, the background script and the content script make are typed here.
-export interface ExtensionTab {
+interface ExtensionTab {
     id?: number
     url?: string
 }
