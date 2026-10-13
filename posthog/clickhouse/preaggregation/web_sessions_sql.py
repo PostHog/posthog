@@ -58,7 +58,11 @@ CREATE TABLE IF NOT EXISTS {table_name}
     pageview_count UInt64,
 
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
-    expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+    expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY,
+    entry_url String,
+    has_gclid UInt8,
+    has_msclkid UInt8,
+    session_max_inserted_at DateTime64(6, 'UTC')
 ) ENGINE = {engine}
 """
 

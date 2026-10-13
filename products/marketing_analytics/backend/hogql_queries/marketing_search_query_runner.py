@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from functools import cached_property
 
 from posthog.schema import (
@@ -18,6 +18,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
@@ -26,9 +27,14 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+
 from .attribution_base import ConversionGoal
+from .attribution_sessions_read import ReadWindow
 from .conversion_goal_conditions import conversion_goal_match_expr
 from .marketing_analytics_config import MarketingAnalyticsConfig
+from .marketing_lazy_precompute import enqueue_stale_revalidation
+from .marketing_sessions_precompute import ensure_marketing_sessions_precomputed
 from .search_conversion_query_runner import SearchConversionQueryRunner
 
 MAX_POSTHOG_CONVERSION_GOALS = 5
@@ -133,12 +139,27 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
 
     def get_cache_key_variant(self) -> str:
         variant = super().get_cache_key_variant()
-        if (
-            self.include_posthog_conversions
-            and MarketingAnalyticsConfig.from_team(self.team).live_session_resolution_enabled
-        ):
-            return f"{variant}_live_session_resolution"
+        if self.include_posthog_conversions:
+            config = MarketingAnalyticsConfig.from_team(self.team)
+            if config.conversion_goal_precomputation_enabled:
+                return f"{variant}_search_session_precompute"
+            if config.live_session_resolution_enabled:
+                return f"{variant}_live_session_resolution"
         return variant
+
+    def warm_posthog_conversion_sessions(self) -> None:
+        config = MarketingAnalyticsConfig.from_team(self.team)
+        if not self.include_posthog_conversions or not config.conversion_goal_precomputation_enabled:
+            return
+        result = ensure_marketing_sessions_precomputed(
+            self.team,
+            self.query_date_range.date_from().astimezone(UTC).replace(microsecond=0)
+            - timedelta(days=config.attribution_window_days + SESSION_BUFFER_DAYS),
+            self.query_date_range.date_to().astimezone(UTC).replace(microsecond=999999),
+        )
+
+        if not result.ready:
+            raise RuntimeError("Search session precomputation did not finish")
 
     def _page_expr(self, page: ast.Expr) -> ast.Expr:
         if self.include_posthog_conversions or self.query.normalizePageUrls:
@@ -448,9 +469,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             row.posthogConversions = []
         if not keys:
             return
+        session_results: dict[ReadWindow, LazyComputationResult] = {}
+        revalidation_periods: set[int] = set()
         for goal in valid_goals:
             periods: list[dict[str, float]] = []
-            for date_range in [self.query_date_range, self.comparison_date_range]:
+            for period, date_range in enumerate([self.query_date_range, self.comparison_date_range]):
                 if date_range is None:
                     periods.append({})
                     continue
@@ -473,6 +496,14 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     limit_context=self.limit_context,
                 )
                 runner.search_keys = keys
+                runner.session_precompute_results = session_results
+                precomputed = runner.prepare_session_precompute()
+                if precomputed and (not precomputed.ready or precomputed.stale) and period not in revalidation_periods:
+                    scoped_query = self.query.model_copy(
+                        update={"dateRange": runner.query.dateRange, "compareFilter": None}
+                    )
+                    enqueue_stale_revalidation(team=self.team, query=scoped_query)
+                    revalidation_periods.add(period)
                 # Share one HogQL database across goals and periods, so the request pays Database.create_for once.
                 runner.__dict__["_shared_hogql_database"] = goal_runner._shared_hogql_database
                 periods.append(runner.calculate_conversions())

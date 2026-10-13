@@ -17,6 +17,7 @@ warm reads on a queue that paces ClickHouse work anyway.
 """
 
 import time
+from typing import TYPE_CHECKING, cast
 
 import structlog
 from celery import shared_task
@@ -31,6 +32,11 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
+
+if TYPE_CHECKING:
+    from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
+        MarketingAnalyticsSearchQueryRunner,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -93,7 +99,10 @@ def revalidate_marketing_analytics_precompute(team_id: int, query: dict) -> None
         # response into the per-team result cache, which a user without access to some of those warehouse
         # sources could then read. Leaving the result cache alone, the next user read recomputes the
         # response under its own access — now over hot precomputes — and caches it correctly.
-        runner.to_query()
+        if query_kind == "MarketingAnalyticsSearchQuery":
+            cast("MarketingAnalyticsSearchQueryRunner", runner).warm_posthog_conversion_sessions()
+        else:
+            runner.to_query()
     except Exception:
         logger.exception("marketing_analytics_swr_revalidation_failed", team_id=team_id, query_kind=query_kind)
         REVALIDATION_RUN.labels(outcome="failed", query_kind=query_kind).inc()

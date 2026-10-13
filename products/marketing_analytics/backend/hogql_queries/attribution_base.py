@@ -60,6 +60,10 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
 
+    @property
+    def uses_shared_session_resolution(self) -> bool:
+        return self.config.live_session_resolution_enabled
+
     def additional_session_columns(self) -> set[str]:
         return set()
 
@@ -264,7 +268,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
 
     def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """The credit side, using shared session resolution when eligible."""
-        if self.config.live_session_resolution_enabled:
+        if self.uses_shared_session_resolution:
             from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
 
             with self.timings.measure("attribution_live_session_resolution"):

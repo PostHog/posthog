@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from posthog.schema import SessionTableVersion
 
@@ -133,15 +134,94 @@ def _live_dimensions(
     return _raw_dimensions(modifiers, columns, start, end, candidates)
 
 
+def _cached_dimensions(
+    modifiers: HogQLQueryModifiers, columns: set[str], job_ids: list[UUID], start: datetime, end: datetime
+) -> ast.SelectQuery:
+    dimensions: list[ast.Expr] = [ast.Field(chain=[column]) for column in ("period_bucket", "start_timestamp")]
+    dimensions.extend(
+        ast.Field(chain=[column]) if column in columns else ast.Constant(value="") for column in _DIMENSION_FIELDS
+    )
+    dimensions.extend(ast.Field(chain=[column]) for column in SEARCH_SESSION_COLUMNS if column in columns)
+    table, timestamp = _raw_session_source(modifiers)
+    # Entry properties can change after late events, including events outside the attribution window.
+    updates = parse_select(
+        """
+        SELECT session_id_v7 AS candidate_id, max(max_inserted_at) AS last_inserted_at, min(min_timestamp) AS session_start
+        FROM {table}
+        WHERE {candidates} AND {timestamp} >= {start} AND {timestamp} <= {end}
+        GROUP BY candidate_id
+        """,
+        placeholders={
+            "table": ast.Field(chain=[table]),
+            "candidates": ast.CompareOperation(
+                left=ast.Field(chain=[table, "session_id_v7"]),
+                op=ast.CompareOperationOp.GlobalIn,
+                right=parse_select("SELECT session_id_v7 FROM attribution_session_identities"),
+            ),
+            "timestamp": timestamp,
+            "start": ast.Constant(value=start - timedelta(days=SESSION_BUFFER_DAYS)),
+            "end": ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
+        },
+    )
+    query = parse_select(
+        """
+        SELECT session_id_v7, argMax({dimensions}, cache.computed_at) AS latest, max(cache.computed_at) AS computed_at
+        FROM posthog.web_sessions_dimensional_preaggregated AS cache
+        INNER JOIN {updates} AS updates ON session_id_v7 = candidate_id
+        WHERE job_id IN {jobs} AND expires_at > now()
+        GROUP BY session_id_v7
+        HAVING latest.2 > toDateTime(0) AND latest.2 = min(session_start)
+            AND argMax(session_max_inserted_at, cache.computed_at) >= max(last_inserted_at)
+        """,
+        placeholders={
+            "dimensions": ast.Tuple(exprs=dimensions),
+            "jobs": ast.Tuple(exprs=[ast.Constant(value=str(job_id)) for job_id in job_ids]),
+            "updates": updates,
+        },
+    )
+    assert isinstance(query, ast.SelectQuery) and query.select_from is not None
+    assert query.select_from.next_join is not None
+    query.select_from.next_join.join_type = "GLOBAL INNER JOIN"
+    return query
+
+
 def session_dimensions(
     modifiers: HogQLQueryModifiers,
     columns: set[str],
     start: datetime,
     end: datetime,
+    *,
+    job_ids: list[UUID] | None = None,
 ) -> ast.SelectQuery:
-    query = parse_select(
-        "SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}",
-        placeholders={"live": _live_dimensions(modifiers, columns, start, end)},
-    )
+    if not job_ids:
+        query = parse_select(
+            "SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}",
+            placeholders={"live": _live_dimensions(modifiers, columns, start, end)},
+        )
+    else:
+        # New and exceptionally long sessions may be absent from a completed daily job.
+        candidates = parse_select("SELECT DISTINCT session_id_v7 FROM attribution_session_identities")
+        assert isinstance(candidates, ast.SelectQuery)
+        candidates.where = ast.CompareOperation(
+            left=ast.Field(chain=["session_id_v7"]),
+            op=ast.CompareOperationOp.GlobalNotIn,
+            right=parse_select("SELECT session_id_v7 FROM precomputed_search_sessions"),
+        )
+        query = parse_select(
+            """
+            WITH precomputed_search_sessions AS ({cached})
+            SELECT * FROM (
+                SELECT session_id_v7, latest, computed_at FROM precomputed_search_sessions
+                UNION ALL
+                SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}
+            )
+            """,
+            placeholders={
+                "cached": _cached_dimensions(modifiers, columns, job_ids, start, end),
+                "live": _raw_dimensions(modifiers, columns, start, end, candidates),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery) and query.ctes is not None
+        query.ctes["precomputed_search_sessions"].materialized = True
     assert isinstance(query, ast.SelectQuery)
     return query
