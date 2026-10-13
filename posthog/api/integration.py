@@ -308,6 +308,11 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+    reply_to = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        help_text="Reply-to address for emails from this sender when the email step sets none. Blank clears it.",
+    )
 
     def validate_email(self, value: str) -> str:
         return value.lower()

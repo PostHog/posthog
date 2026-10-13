@@ -5,10 +5,11 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { DebugCHQueries } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId, InsightLogicProps, ItemMode } from '~/types'
+
+import { ReloadInsight } from 'products/product_analytics/frontend/insights/shared/ReloadInsight'
 
 import { insightDataLogic } from './insightDataLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
