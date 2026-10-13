@@ -2,11 +2,10 @@ import dataclasses
 
 from posthog.test.base import BaseTest
 
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS
+from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cdp.backend.validation import InputsSchemaItemSerializer, compile_hog
 
 
