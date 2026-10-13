@@ -15,6 +15,7 @@ inbox_ranking/
 │   ├── heads.py      # the v0 outcome heads
 │   ├── train.py      # per-head XGBoost fit + holdout/null metrics
 │   └── promotion.py  # the champion promotion rule
+├── multihead/        # dev-only: offline multi-head network prototype, no dag
 └── tests/
 ```
 
@@ -93,6 +94,7 @@ Point-in-time contract:
 - **It has its own schema version**, `USER_INTERACTIONS_SCHEMA_VERSION`, stamped on the object. A change here does not set off `inbox_ranking_labels_refresh_sensor`. There is no refresh sensor for this table: after a schema change, backfill the training lookback by hand.
 - **The person key is `User.distinct_id`.** The app's events and the status stream's `actor_distinct_id` already carry it. `user_uuid` is null when the distinct id is not a user in this region.
 - **Only consented, local reports get rows.** A row is written only when its report exists in this region's Postgres before the cutoff and its team is in `training_consent_team_ids()`. This is stricter than the labels asset, which keeps label-only rows, because these rows describe a person.
+- **Only members of the report's organization get rows.** The person lookups read every `User` in the region, so after the merge the asset drops each pair whose `user_distinct_id` is not a member of the report team's organization. The `non_member_pairs` metadata value counts these pairs.
 
 | Columns                                                        | Source                                       | Person key                                                 |
 | -------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------- |
@@ -111,9 +113,9 @@ Point-in-time caveats, per source:
 
 - **The status and PR columns start when the actor keys shipped (2026-10-09).** Earlier events carry no actor, so they reach no row. A backfill before that date fills only the app-event and Postgres columns. Most transitions are `system` and name no person, so most rows come from impressions and opens.
 - **The PR closer and merger are set only when their GitHub login maps to an org member.**
-- **The status columns follow the `STATUS_SQL` tenant rule.** Each aggregate reads only the tenant of the report's latest transition, taken over every transition of the report, not only this person's.
+- **The status columns follow the `STATUS_SQL` tenant rule.** Each aggregate reads only the tenant of the report's latest transition, taken over every transition of the report, not only this person's. When that tenant is missing or is not the report's team, the pair keeps its other streams and gets default status columns, as `label_provenance_ok` does for the report grain. The `status_tenant_mismatch_pairs` metadata value counts these pairs.
 - **The Postgres columns read current rows**, with the report-grain caveats: a merge moves notes and linked PRs to the survivor, and a note can be deleted. Action rows give only `first_at`; their `count` and `last_at` keep moving after the cutoff. Bulk actions carry no `report_id` and stay out, and the desktop app sends no impressions.
-- **The client streams are claimed, not proven.** A `report_id` and a `distinct_id` on an app event are client-supplied. The report must exist in this region, but nothing checks that the person is a member of the report's organization.
+- **The client streams are claimed, not proven.** A `report_id` and a `distinct_id` on an app event are client-supplied. The report must exist in this region, and the person must be a member of the report's organization, but nothing proves that the person saw the report.
 - **Staff impersonation.** posthog-js opts out of capture in an impersonated session, so the client streams hold no impersonated events. The refund event carries `was_impersonated`, and those refunds are excluded. The status event and the Postgres rows carry no impersonation flag, so a transition, artefact or action row a staff member made while impersonating counts for the impersonated person.
 
 ### Signal-grain partitions
@@ -313,6 +315,22 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
    ```
 
 Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
+
+### The multi-head prototype
+
+`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up:
+
+```bash
+DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead --output multihead.json
+```
+
+The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints AUC, average precision and ECE per head for three models on each head's own holdout rows:
+
+- `champion_recipe` is the `XGB_PARAMS` booster, refit on the head's train rows.
+- `nn_report` is the network over the report vector only.
+- `nn_report_project` is the network over the report vector plus the `typical`, `open`, `action` and `dismiss` vectors from `project_vectors()`. A report born on day D reads them as of D 00:00 UTC.
+
+The network leaves out every report that is in any head's holdout, so the comparison is conservative for it. A run holds one embeddings snapshot: the title embeddings are never read, and the project vectors are computed from the same table as the report vectors. Results vary with `--seed`, so compare a few seeds before you read a small AUC gap as a result.
 
 ## Configuration
 
