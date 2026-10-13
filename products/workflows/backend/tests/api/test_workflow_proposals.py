@@ -17,6 +17,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -937,6 +938,58 @@ class TestWorkflowProposals(APIBaseTest):
         assert again.status_code == 200, again.json()
         assert again.json()["id"] == first["id"]
         assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+        assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
+            self.user.id
+        ]
+
+    def _member_who_opts_in(self, flow_id: str) -> User:
+        member = User.objects.create_and_join(self.organization, "opted-in@example.com", None)
+        self.client.force_login(member)
+        self._optimize(flow_id)
+        self.client.force_login(self.user)
+        return member
+
+    @parameterized.expand(
+        [
+            ("the person who turned suggestions on", None, "opted-in@example.com"),
+            ("the creator once that person is deactivated", "deactivate", None),
+            ("the creator once that person leaves the organization", "remove", None),
+        ]
+    )
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_a_new_suggestion_notifies(
+        self, _name: str, change: str | None, expected_email: str | None, mock_email, _mock_available, _mock_flag
+    ):
+        flow_id = self._create_active_flow(optimize=False)
+        member = self._member_who_opts_in(flow_id)
+        if change == "deactivate":
+            member.is_active = False
+            member.save()
+        elif change == "remove":
+            OrganizationMembership.objects.filter(user=member).delete()
+        recipient = User.objects.get(email=expected_email) if expected_email else self.user
+
+        self._propose(flow_id)
+
+        notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
+        assert notification.resolved_user_ids == [recipient.id]
+        assert notification.source_url == f"/project/{self.team.id}/workflows/{flow_id}/self-driving"
+        mock_email.return_value.add_user_recipient.assert_called_once_with(recipient)
+
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_turning_the_email_off_keeps_the_in_app_notification(self, mock_email, _mock_available, _mock_flag):
+        self.user.partial_notification_settings = {"workflow_suggestions": False}
+        self.user.save()
+        flow_id = self._create_active_flow()
+
+        self._propose(flow_id)
+
+        assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
+            self.user.id
+        ]
+        mock_email.assert_not_called()
 
     @parameterized.expand(
         [

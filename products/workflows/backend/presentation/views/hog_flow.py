@@ -213,6 +213,7 @@ from products.workflows.backend.facade.proposals import (
     list_proposals,
     lock_proposal,
     merge_proposal_content,
+    notify_proposal_filed,
     proposal_conflicts,
     proposal_outcome,
     resolve_proposal,
@@ -5352,6 +5353,11 @@ class HogFlowViewSet(
             instance,
             {"proposal_id": str(proposal.id)},
         )
+        # A failed notification must not fail the filing: the suggestion is already stored and listed.
+        try:
+            notify_proposal_filed(team_id=self.team_id, proposal_id=proposal.id, filed_by_user_id=self._actor_id())
+        except Exception as error:
+            capture_exception(error)
         return Response(
             WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_201_CREATED
         )
