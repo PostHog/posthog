@@ -7292,15 +7292,55 @@ function MarkdownNotebookEditor({
                             )
                         })}
                         {jupyterCommands && mode === 'edit' ? (
-                            <button
-                                type="button"
+                            <div
                                 className="MarkdownNotebook__jupyter-add-cell"
                                 contentEditable={false}
                                 data-attr="notebook-jupyter-add-cell"
-                                onClick={() => jupyterCommands.insertCell(null, 'below', { edit: true })}
                             >
-                                Click to add a cell.
-                            </button>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    aria-label="Add a cell"
+                                    tooltip="Add a cell"
+                                    data-attr="notebook-jupyter-add-cell-menu"
+                                    onClick={() => openInsertMenuAtBoundary(getJupyterAppendIndex())}
+                                >
+                                    /
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    data-attr="notebook-jupyter-add-text"
+                                    onClick={() =>
+                                        insertJupyterNodesAt(
+                                            getJupyterAppendIndex(),
+                                            [makeEmptyParagraph('text')],
+                                            'edit'
+                                        )
+                                    }
+                                >
+                                    Add text
+                                </LemonButton>
+                                {jupyterMode?.cellTagNames.map((tagName) => {
+                                    const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, tagName)
+                                    return definition?.insertCommand ? (
+                                        <LemonButton
+                                            key={tagName}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="notebook-jupyter-add-code"
+                                            onClick={() => {
+                                                const node = createJupyterCellNode(tagName)
+                                                if (node) {
+                                                    insertJupyterNodesAt(getJupyterAppendIndex(), [node], 'edit')
+                                                }
+                                            }}
+                                        >
+                                            {`Add ${definition.label}`}
+                                        </LemonButton>
+                                    ) : null
+                                })}
+                            </div>
                         ) : null}
                     </div>
                     {adjustedRemoteCarets?.length ? (
