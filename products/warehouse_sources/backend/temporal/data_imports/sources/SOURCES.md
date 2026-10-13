@@ -512,6 +512,7 @@ the row lists both.
 | logicmonitor                     | HTTP                        | requests                                                        | ✅                          |
 | logrocket                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
+| lokalise                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | looker                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1260,7 +1261,6 @@ doesn't conflict with concurrent PRs.
 - linnworks
 - liveblocks
 - llama_cloud
-- lokalise
 - loom
 - m3ter
 - mailtrap
