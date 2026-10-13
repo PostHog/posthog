@@ -403,9 +403,10 @@ export function createConfiguredColumn(params: {
                     <AttributeCell
                         attributeKey={semanticKey}
                         value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
+                        // Raw map: the stringified copy drops a `__proto__` key that the server still reads
                         filterType={
                             config.type === 'custom'
-                                ? customColumnFilterType(config, log.attributes, log.resource_attributes)
+                                ? customColumnFilterType(config, log.originalLog.attributes, log.resource_attributes)
                                 : undefined
                         }
                         width={totalWidth}
