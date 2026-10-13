@@ -267,7 +267,7 @@ class TestSummary(SimpleTestCase):
             "graded 3 trials with expected_tools, judge, jev\n"
             "  a: expected_tools 1/2, judge 2/2, jev 1/2\n"
             "  b: expected_tools 0/0, judge 0/0, jev 0/0\n"
-            "judge and jev disagree on 1 of 3 trials"
+            "judge and jev disagree on 1 of 2 trials both graded"
         )
 
 
@@ -279,29 +279,31 @@ def _report_json(scenario_id: str) -> str:
         {"scenario_id": scenario_id, "trial": 2, "outcome": "turn_limit", "final_text": "",
          "tool_calls": [], "turns": 2, "usage": {}, "duration_ms": 3},
     ]  # fmt: skip
+    scenario = {
+        "id": "flags-list-active",
+        "intent": "List all our active feature flags.",
+        "success_criteria": "Returns the active flags by key.",
+        "expected_tools": ["feature-flag-get-all"],
+    }
     return json.dumps(
-        {"server_url": "http://x/mcp", "model": "m", "effort": "low", "started_at": "t0", "trials": trials}
+        {
+            "server_url": "http://x/mcp",
+            "model": "m",
+            "effort": "low",
+            "started_at": "t0",
+            "scenarios": [scenario],
+            "trials": trials,
+        }
     )
-
-
-SCENARIO_YAML = """
-version: 1
-scenarios:
-  - id: flags-list-active
-    intent: List all our active feature flags.
-    success_criteria: Returns the active flags by key.
-    expected_tools: [feature-flag-get-all]
-"""
 
 
 class TestGradeCommand(SimpleTestCase):
     def _run(self, scenario_id: str, graders: str) -> tuple[str, str, dict[str, Any]]:
         directory = Path(tempfile.mkdtemp())
-        (directory / "scenarios.yaml").write_text(SCENARIO_YAML)
         (directory / "run.json").write_text(_report_json(scenario_id))
         out, err = StringIO(), StringIO()
         call_command(
-            "grade_mcp_evals", report=directory / "run.json", scenarios=directory / "scenarios.yaml",
+            "grade_mcp_evals", report=directory / "run.json",
             out=directory / "graded.json", graders=graders, stdout=out, stderr=err,
         )  # fmt: skip
         return out.getvalue(), err.getvalue(), json.loads((directory / "graded.json").read_text())
@@ -320,7 +322,7 @@ class TestGradeCommand(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("unknown_scenario", "gone", "expected_tools", "missing from the scenarios file: gone"),
+            ("unknown_scenario", "gone", "expected_tools", "trials for scenarios it does not record: gone"),
             ("unknown_grader", "flags-list-active", "expected_tools,bogus", "unknown graders: bogus"),
         ]
     )

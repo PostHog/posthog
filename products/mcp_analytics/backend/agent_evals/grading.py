@@ -106,6 +106,10 @@ def parse_trials(raw_trials: object) -> tuple[AgentTrial, ...]:
     return TypeAdapter(tuple[AgentTrial, ...]).validate_python(raw_trials)
 
 
+def parse_scenarios(raw_scenarios: object) -> tuple[Scenario, ...]:
+    return TypeAdapter(tuple[Scenario, ...]).validate_python(raw_scenarios)
+
+
 def format_grade_summary(report: GradedReport) -> str:
     by_scenario: dict[str, list[TrialGrade]] = {}
     for grade in report.grades:
@@ -118,11 +122,13 @@ def format_grade_summary(report: GradedReport) -> str:
             rates.append(f"{name} {sum(passes)}/{len(passes)}")
         lines.append(f"  {scenario_id}: {', '.join(rates)}")
     if {"judge", "jev"} <= set(report.graders):
-        disagreements = sum(1 for grade in report.grades if _disagree(grade, "judge", "jev"))
-        lines.append(f"judge and jev disagree on {disagreements} of {len(report.grades)} trials")
+        pairs = [_pair(grade, "judge", "jev") for grade in report.grades]
+        compared = [pair for pair in pairs if None not in pair]
+        disagreements = sum(1 for first, second in compared if first != second)
+        lines.append(f"judge and jev disagree on {disagreements} of {len(compared)} trials both graded")
     return "\n".join(lines)
 
 
-def _disagree(grade: TrialGrade, first: str, second: str) -> bool:
+def _pair(grade: TrialGrade, first: str, second: str) -> tuple[bool | None, bool | None]:
     passed = {v.grader: v.passed for v in grade.verdicts}
-    return passed.get(first) is not None and passed.get(second) is not None and passed[first] != passed[second]
+    return passed.get(first), passed.get(second)

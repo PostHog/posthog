@@ -1,4 +1,4 @@
-"""Grade a saved ``run_mcp_evals`` report against its scenarios, without running the agents again.
+"""Grade a saved ``run_mcp_evals`` report against the scenarios it ran, without running the agents again.
 
 The same trials can be graded again by other graders to compare them. ``jev`` sends the request,
 the success criteria and the agent's answer to a System One model. On TypeSafe, which is approved
@@ -21,6 +21,7 @@ from products.mcp_analytics.backend.agent_evals.grading import (
     TrialGrade,
     format_grade_summary,
     grade_trial,
+    parse_scenarios,
     parse_trials,
 )
 from products.mcp_analytics.backend.agent_evals.model_graders import (
@@ -29,7 +30,7 @@ from products.mcp_analytics.backend.agent_evals.model_graders import (
     GraderSettings,
     GraderUnavailable,
 )
-from products.mcp_analytics.backend.agent_evals.scenarios import Scenario, load_scenarios
+from products.mcp_analytics.backend.agent_evals.scenarios import Scenario
 
 
 class Command(BaseCommand):
@@ -37,7 +38,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--report", type=Path, required=True, help="JSON report written by run_mcp_evals.")
-        parser.add_argument("--scenarios", type=Path, required=True, help="YAML file of the scenarios that were run.")
         parser.add_argument("--out", type=Path, required=True, help="Where to write the graded JSON report.")
         parser.add_argument(
             "--graders", default=",".join(GRADERS), help=f"Comma-separated, from: {', '.join(GRADERS)}."
@@ -56,10 +56,10 @@ class Command(BaseCommand):
 
         raw = json.loads(cast(Path, options["report"]).read_text())
         trials = parse_trials(raw["trials"])
-        scenarios = {scenario.id: scenario for scenario in load_scenarios(cast(Path, options["scenarios"])).scenarios}
+        scenarios = {scenario.id: scenario for scenario in parse_scenarios(raw["scenarios"])}
         missing = sorted({trial.scenario_id for trial in trials} - set(scenarios))
         if missing:
-            raise CommandError(f"report has scenario ids missing from the scenarios file: {', '.join(missing)}")
+            raise CommandError(f"report has trials for scenarios it does not record: {', '.join(missing)}")
 
         grader_settings = GraderSettings(
             anthropic_api_key=settings.ANTHROPIC_API_KEY or "", judge_model=cast(str, options["judge_model"])
