@@ -643,17 +643,12 @@ class SurveyPosition(models.TextChoices):
     NEXT_TO_TRIGGER = "next_to_trigger", "next_to_trigger"
 
 
-SURVEY_POSITION_CHOICES = list(SurveyPosition.values)
-
-
 class SurveyTabPosition(models.TextChoices):
     TOP = "top", "top"
     LEFT = "left", "left"
     RIGHT = "right", "right"
     BOTTOM = "bottom", "bottom"
 
-
-SURVEY_TAB_POSITION_CHOICES = list(SurveyTabPosition.values)
 
 # `bottom-right` is an old name for `right` that the create-survey tool wrote on every survey it
 # made, because it was the default appearance position. Both the web and the React Native SDK
@@ -726,7 +721,7 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     borderColor = serializers.CharField(required=False)
     placeholder = serializers.CharField(required=False)
     position = serializers.ChoiceField(
-        choices=SURVEY_POSITION_CHOICES,
+        choices=SurveyPosition.choices,
         required=False,
         help_text="Where a popover survey appears on the page. Defaults to 'right'.",
     )
@@ -749,7 +744,7 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     widgetLabel = serializers.CharField(required=False)
     widgetColor = serializers.CharField(required=False)
     tabPosition = serializers.ChoiceField(
-        choices=SURVEY_TAB_POSITION_CHOICES,
+        choices=SurveyTabPosition.choices,
         required=False,
         help_text="Which edge of the page holds the tab of a widget survey with widgetType 'tab'.",
     )
