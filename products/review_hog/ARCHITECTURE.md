@@ -938,6 +938,9 @@ Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, and
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
 Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability and model.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
+Reviews start only from a trigger (a push, the label, the UI, the inbox, or a manual run) and run right away.
+ReviewHog never schedules a review for later, for example on a timer after a skipped push: nobody waits for a review that arrives at an unknown time, and a late review can land while the PR sits in a merge queue or under a stack.
+A change that the gate skips gets reviewed at the next trigger, or not at all.
 
 **Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the
 viewer is the **acting user OR the PR's author** — `author_login` compared case-insensitively against the
