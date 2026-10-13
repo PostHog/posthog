@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
-from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
+from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload, MaterializePayload
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionAssetOutcome
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
@@ -217,6 +217,7 @@ class TestMaterializeRefreshMode(BaseTest):
         with patch(INCREMENTAL_FLAG, return_value=flag_on), failing_build:
             [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
 
+        assert isinstance(draft.payload, MaterializePayload)
         assert (draft.payload.incremental_key, draft.payload.unique_key) == (incremental_key, unique_key)
 
 

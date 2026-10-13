@@ -35,21 +35,22 @@ DAY_SECONDS = 24 * 60 * 60
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
+MATERIALIZE_PAYLOAD = MaterializePayload(
+    subject_name="orders",
+    refresh_interval_seconds=DAY_SECONDS,
+    saves_seconds_per_month=900,
+    saves_bytes_per_month=0,
+    freshness_today_seconds=None,
+    freshness_after_seconds=DAY_SECONDS,
+    live_sources=(),
+    unknown_sources=(),
+)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
         subject_name="orders", refresh_seconds_per_month=0, refresh_bytes_per_month=0
     ),
-    WarehouseSuggestionKind.MATERIALIZE: MaterializePayload(
-        subject_name="orders",
-        refresh_interval_seconds=DAY_SECONDS,
-        saves_seconds_per_month=900,
-        saves_bytes_per_month=0,
-        freshness_today_seconds=None,
-        freshness_after_seconds=DAY_SECONDS,
-        live_sources=(),
-        unknown_sources=(),
-    ),
+    WarehouseSuggestionKind.MATERIALIZE: MATERIALIZE_PAYLOAD,
 }
 
 
@@ -204,7 +205,7 @@ class TestAcceptSuggestion(APIBaseTest):
             query={"kind": "HogQLQuery", "query": hogql}, incremental_config=STORED_DAY_KEY
         )
         payload = replace(
-            PAYLOADS[WarehouseSuggestionKind.MATERIALIZE],
+            MATERIALIZE_PAYLOAD,
             incremental_key=incremental_key,
             unique_key=("day",) if incremental_key else (),
         )
