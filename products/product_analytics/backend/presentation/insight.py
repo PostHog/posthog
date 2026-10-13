@@ -2025,23 +2025,23 @@ class InsightViewSet(
 
         cutoff_date = now() - timedelta(days=days)
 
+        # Filter on the view window before the annotation so Postgres inner-joins only recent view rows.
+        # A filtered Count over a left join reads every view row of every insight in the project.
         queryset = (
-            Insight.objects.filter(team__project_id=self.team.project_id)
+            Insight.objects.filter(
+                team__project_id=self.team.project_id,
+                insightviewed__last_viewed_at__gte=cutoff_date,
+            )
             .select_related("created_by", "last_modified_by", "team")
             .annotate(
-                view_count=Count(
-                    "insightviewed",
-                    filter=Q(insightviewed__last_viewed_at__gte=cutoff_date),
-                )
+                view_count=Count("insightviewed"),
+                last_viewed_at=Max("insightviewed__last_viewed_at"),
             )
-            .filter(view_count__gt=0)
             .order_by("-view_count", "-last_modified_at")
         )
 
         queryset = self._filter_queryset_by_access_level(queryset)
-        queryset = queryset[:limit]
-        queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
-        insights = list(queryset)
+        insights = list(queryset[:limit])
 
         # Batch fetch viewers once to avoid N+1 queries
         viewers_by_insight = recent_viewers_by_insight(
