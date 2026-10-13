@@ -995,6 +995,7 @@ class TestWorkflowProposals(APIBaseTest):
             )
         recipient = User.objects.get(email=expected_email) if expected_email else self.user
         HogFlow.objects.filter(id=flow_id).update(name="Verify at attacker.example.com")
+        Team.objects.filter(id=self.team.id).update(name="Team at attacker.example.com")
 
         self._propose(flow_id, rationale="The open rate on https://evil.example.com/landing dropped.")
 
@@ -1005,6 +1006,7 @@ class TestWorkflowProposals(APIBaseTest):
         context = mock_email.call_args.kwargs["template_context"]
         assert "https://evil.example.com" not in context["suggestion_rationale"]
         assert "attacker.example.com" not in context["workflow_name"]
+        assert "attacker.example.com" not in context["team_name"]
 
     @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
     @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")

@@ -85,6 +85,9 @@ def _send_email(user: User, team: Team, hog_flow: HogFlow, proposal: WorkflowPro
             context={"helper": "workflow_suggestion_email", "field": "workflow_name"},
         )
     )
+    team_context = get_email_team_and_org_context(team=team)
+    if "team_name" in team_context:
+        team_context["team_name"] = _defanged(team_context["team_name"])
     message = EmailMessage(
         campaign_key=campaign_key,
         template_name="workflow_suggestion_filed",
@@ -94,7 +97,7 @@ def _send_email(user: User, team: Team, hog_flow: HogFlow, proposal: WorkflowPro
             "suggestion_title": _defanged(proposal.title),
             "suggestion_rationale": _defanged(proposal.rationale),
             "suggestion_path": path,
-            **get_email_team_and_org_context(team=team),
+            **team_context,
         },
     )
     message.add_user_recipient(user)
