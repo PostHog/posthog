@@ -261,37 +261,76 @@ async fn resume_picks_up_an_op_from_its_saved_step() {
     ctx.cleanup().await.expect("cleanup");
 }
 
+async fn remaining_ops(ctx: &TestContext, op_ids: &[Uuid]) -> Vec<Uuid> {
+    sqlx::query_scalar("SELECT op_id FROM lifecycle_op WHERE op_id = ANY($1) ORDER BY op_id")
+        .bind(op_ids)
+        .fetch_all(&ctx.pool)
+        .await
+        .expect("query runs")
+}
+
 #[tokio::test]
-async fn gc_reaps_completed_ops_past_retention() {
+async fn gc_reaps_completed_ops_past_retention_unless_a_publish_pointer_remains() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();
     let driver = DummyDriver::new();
-    let op_id = Uuid::now_v7();
+    // Three completed ops: no outbox row, a pending pointer, a given-up pointer.
+    let plain = Uuid::now_v7();
+    let pending = Uuid::now_v7();
+    let given_up = Uuid::now_v7();
+    let all = [plain, pending, given_up];
 
-    engine
-        .execute(&driver, op_id, ctx.team_id, &json!({}))
-        .await
-        .expect("op completes");
-
-    // Backdate the completion past retention; GC reaps it (and cascades the
-    // per-person rows) without touching other tests' fresh rows.
+    for op_id in all {
+        engine
+            .execute(&driver, op_id, ctx.team_id, &json!({}))
+            .await
+            .expect("op completes");
+    }
     sqlx::query(
-        "UPDATE lifecycle_op SET completed_at = now() - interval '2 hours' WHERE op_id = $1",
+        r#"
+        INSERT INTO person_publish_outbox (team_id, kind, op_id, given_up_at, last_error)
+        VALUES ($1, 'merge_op', $2, NULL, NULL), ($1, 'merge_op', $3, now(), 'poison')
+        "#,
     )
-    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(pending)
+    .bind(given_up)
     .execute(&ctx.pool)
     .await
-    .expect("backdate completion");
+    .expect("queue pointers");
+
+    // Backdate the completions past retention; GC reaps only the op nobody
+    // still has to publish, and cascades its per-person rows, without
+    // touching other tests' fresh rows.
+    sqlx::query(
+        "UPDATE lifecycle_op SET completed_at = now() - interval '2 hours' WHERE op_id = ANY($1)",
+    )
+    .bind(&all[..])
+    .execute(&ctx.pool)
+    .await
+    .expect("backdate completions");
     engine
         .gc(std::time::Duration::from_secs(3600))
         .await
         .expect("gc runs");
-    let gone: Option<(String,)> = sqlx::query_as("SELECT step FROM lifecycle_op WHERE op_id = $1")
-        .bind(op_id)
-        .fetch_optional(&ctx.pool)
+    assert_eq!(
+        remaining_ops(&ctx, &all).await,
+        vec![pending, given_up],
+        "ops with a pointer survive, the plain op is deleted"
+    );
+
+    // Once the pointers are gone (published, or cleared by an operator), the
+    // next pass reaps the ops.
+    sqlx::query("DELETE FROM person_publish_outbox WHERE op_id = ANY($1)")
+        .bind(&all[..])
+        .execute(&ctx.pool)
         .await
-        .expect("query runs");
-    assert!(gone.is_none(), "completed op past retention is deleted");
+        .expect("clear pointers");
+    engine
+        .gc(std::time::Duration::from_secs(3600))
+        .await
+        .expect("gc runs");
+    assert!(remaining_ops(&ctx, &all).await.is_empty());
 
     ctx.cleanup().await.expect("cleanup");
 }

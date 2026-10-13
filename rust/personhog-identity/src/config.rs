@@ -1,6 +1,7 @@
 use common_database::PoolConfig;
 use envconfig::Envconfig;
 use personhog_common::h2_window::{Http2Windows, WindowSize};
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -223,13 +224,75 @@ pub struct Config {
     /// locks for long; the next pass continues.
     #[envconfig(default = "10000")]
     pub lifecycle_gc_batch_limit: i64,
+
+    /// Outbox the publisher drains, paired with LIFECYCLE_OP_TABLE: a merge
+    /// or delete op's pointer row resolves against that op's rows. Set to
+    /// "person_publish_outbox" at cutover.
+    #[envconfig(default = "person_publish_outbox_tmp")]
+    pub person_publish_outbox_table: String,
+
+    /// Write outbox rows and run the drain that publishes them to Kafka. Off,
+    /// identity produces nothing and needs no Kafka. Any table set may
+    /// publish, so an identity on the validation set must point its topics
+    /// at capture topics, never the production names: its versions come from
+    /// a different sequence than the real tables and would win in ClickHouse.
+    #[envconfig(default = "false")]
+    pub lifecycle_publisher_enabled: bool,
+
+    #[envconfig(default = "clickhouse_person_distinct_id")]
+    pub person_distinct_id_topic: String,
+
+    /// Same name as the Node setting.
+    #[envconfig(default = "false")]
+    pub person_merge_events_enabled: bool,
+
+    #[envconfig(default = "person_merge_events")]
+    pub person_merge_events_topic: String,
+
+    /// Teams whose merges emit person_merge_events: comma separated team
+    /// ids, "*" for every team, empty for none. Same syntax and default as
+    /// the Node setting. The cohort seeder's own allowlist must cover the
+    /// same teams but reads an empty value as every team, so copy the ids
+    /// across, not the string.
+    #[envconfig(default = "2")]
+    pub person_merge_events_team_allowlist: String,
+}
+
+/// Teams a per-team output is enabled for. Not the cohort crates'
+/// `TeamAllowlist`: that one reads an empty value as every team and accepts
+/// ranges, and the contract here is Node's PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+/// where empty means no team.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TeamAllowlist {
+    All,
+    Teams(HashSet<i64>),
+}
+
+impl TeamAllowlist {
+    /// An entry that is not a team id is an error instead of a silently
+    /// dropped team, so a typo cannot close the gate for one team unnoticed.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        let value = value.trim();
+        if value == "*" {
+            return Ok(Self::All);
+        }
+        let mut teams = HashSet::new();
+        for entry in value.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            let team_id = entry
+                .parse::<i64>()
+                .map_err(|_| format!("invalid team id {entry:?} in team allowlist {value:?}"))?;
+            teams.insert(team_id);
+        }
+        Ok(Self::Teams(teams))
+    }
 }
 
 /// The paired table set identity operates on: the person table plus the
 /// tables it writes rows into (or clears rows from) keyed by that table's
-/// person ids, plus the saga tables whose marks claim those ids. All five
-/// must come from the same namespace — mixing the validation set with the
-/// real set cross-contaminates id spaces.
+/// person ids, plus the saga tables whose marks claim those ids and the
+/// outbox whose pointers name those ops. All six must come from the same
+/// namespace — mixing the validation set with the real set
+/// cross-contaminates id spaces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityTables {
     pub person: String,
@@ -237,6 +300,7 @@ pub struct IdentityTables {
     pub ff_hash_key_override: String,
     pub lifecycle_op: String,
     pub lifecycle_op_person: String,
+    pub person_publish_outbox: String,
 }
 
 impl IdentityTables {
@@ -247,6 +311,7 @@ impl IdentityTables {
             ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
             lifecycle_op: "lifecycle_op".to_string(),
             lifecycle_op_person: "lifecycle_op_person".to_string(),
+            person_publish_outbox: "person_publish_outbox".to_string(),
         }
     }
 
@@ -257,6 +322,7 @@ impl IdentityTables {
             ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
             lifecycle_op: "lifecycle_op_tmp".to_string(),
             lifecycle_op_person: "lifecycle_op_person_tmp".to_string(),
+            person_publish_outbox: "person_publish_outbox_tmp".to_string(),
         }
     }
 
@@ -275,8 +341,9 @@ impl IdentityTables {
         }
         Err(format!(
             "mixed identity table set {self:?}: set PERSON_TABLE, PERSON_DISTINCT_ID_TABLE, \
-             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, and LIFECYCLE_OP_PERSON_TABLE \
-             together, to either the full real set or the full validation set"
+             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, LIFECYCLE_OP_PERSON_TABLE, and \
+             PERSON_PUBLISH_OUTBOX_TABLE together, to either the full real set or the full \
+             validation set"
         ))
     }
 }
@@ -289,7 +356,12 @@ impl Config {
             ff_hash_key_override: self.ff_hash_key_override_table.clone(),
             lifecycle_op: self.lifecycle_op_table.clone(),
             lifecycle_op_person: self.lifecycle_op_person_table.clone(),
+            person_publish_outbox: self.person_publish_outbox_table.clone(),
         }
+    }
+
+    pub fn merge_events_team_allowlist(&self) -> Result<TeamAllowlist, String> {
+        TeamAllowlist::parse(&self.person_merge_events_team_allowlist)
     }
 
     pub fn request_limits(&self) -> crate::service::validation::RequestLimits {
@@ -416,12 +488,11 @@ impl Config {
     }
 }
 
-// A mixed table set pairs person ids from one sequence with rows keyed by
-// another; validation must refuse it rather than let a partial env override
-// through.
 #[cfg(test)]
 mod tests {
-    use super::IdentityTables;
+    use std::collections::HashSet;
+
+    use super::{IdentityTables, TeamAllowlist};
 
     #[test]
     fn complete_table_sets_pass_validation() {
@@ -429,6 +500,9 @@ mod tests {
         assert!(IdentityTables::validation().validate().is_ok());
     }
 
+    // A mixed table set pairs person ids from one sequence with rows keyed by
+    // another; validation must refuse it rather than let a partial env
+    // override through.
     #[test]
     fn a_mixed_table_set_is_refused() {
         let mixed = IdentityTables {
@@ -436,5 +510,26 @@ mod tests {
             ..IdentityTables::validation()
         };
         assert!(mixed.validate().is_err());
+    }
+
+    #[test]
+    fn team_allowlist_follows_the_node_syntax() {
+        let cases = [
+            ("", Some(TeamAllowlist::Teams(HashSet::new()))),
+            ("*", Some(TeamAllowlist::All)),
+            (
+                "2,125931",
+                Some(TeamAllowlist::Teams(HashSet::from([2, 125931]))),
+            ),
+            (" 2 , 3 ", Some(TeamAllowlist::Teams(HashSet::from([2, 3])))),
+            ("1000:2000", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                TeamAllowlist::parse(input).ok(),
+                expected,
+                "input {input:?}"
+            );
+        }
     }
 }

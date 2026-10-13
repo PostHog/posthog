@@ -112,10 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    config
-        .tables()
-        .validate()
-        .expect("Invalid identity table set");
+    let tables = config.tables();
+    tables.validate().expect("Invalid identity table set");
 
     tracing::info!("Starting personhog-identity service");
     tracing::info!("gRPC address: {}", config.grpc_address);
@@ -127,7 +125,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router_channels = config.router_channels,
         "Leader fan-out concurrency"
     );
-    tracing::info!("Tables: {:?}", config.tables());
+    tracing::info!("Tables: {:?}", tables);
+    if config.lifecycle_publisher_enabled {
+        let allowlist = config
+            .merge_events_team_allowlist()
+            .expect("Invalid PERSON_MERGE_EVENTS_TEAM_ALLOWLIST");
+        tracing::info!(
+            distinct_id_topic = %config.person_distinct_id_topic,
+            merge_events_enabled = config.person_merge_events_enabled,
+            merge_events_topic = %config.person_merge_events_topic,
+            merge_events_team_allowlist = ?allowlist,
+            "Lifecycle publisher enabled"
+        );
+        if tables.is_validation() {
+            tracing::warn!(
+                outbox = %tables.person_publish_outbox,
+                distinct_id_topic = %config.person_distinct_id_topic,
+                merge_events_topic = %config.person_merge_events_topic,
+                "Lifecycle publisher is on for the validation table set; its topics must be capture topics, never the production names"
+            );
+        }
+    }
 
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would

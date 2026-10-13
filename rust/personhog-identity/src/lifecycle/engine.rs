@@ -857,6 +857,10 @@ impl Engine {
     /// Delete completed op rows past retention (per-person rows cascade).
     /// The retention window exists only for op_id idempotency — the durable
     /// deletion shield is the person tombstone row, not the op row.
+    ///
+    /// An op with a row in the publish outbox outlives retention: a pending
+    /// pointer still has to be resolved against the op's `moved` rows, and a
+    /// given-up pointer must stay inspectable until an operator clears it.
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
         let result = mirrored_query!(
             self.tables.is_validation(),
@@ -864,9 +868,12 @@ impl Engine {
             r#"
             DELETE FROM {lifecycle_op}
             WHERE op_id IN (
-                SELECT op_id FROM {lifecycle_op}
-                WHERE completed_at IS NOT NULL
-                  AND completed_at < now() - make_interval(secs => $1)
+                SELECT op.op_id FROM {lifecycle_op} op
+                WHERE op.completed_at IS NOT NULL
+                  AND op.completed_at < now() - make_interval(secs => $1)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {person_publish_outbox} o WHERE o.op_id = op.op_id
+                  )
                 LIMIT $2
             )
             "#,
