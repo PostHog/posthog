@@ -18,6 +18,7 @@ class Judgment:
     passed: bool | None  # None: nothing to grade, so it stays out of pass rates
     score: float | None
     rationale: str
+    model: str | None = None  # the version that answered, when an alias was requested
 
 
 type Grader = Callable[[Scenario, AgentTrial], Coroutine[Any, Any, Judgment]]
@@ -30,6 +31,7 @@ class Verdict:
     score: float | None
     rationale: str
     error: str | None = None
+    model: str | None = None
 
 
 def called_tools(trial: AgentTrial) -> frozenset[str]:
@@ -61,9 +63,13 @@ def _exec_call_target(tool_input: object) -> str | None:
 
 
 def _split_verb(text: str) -> tuple[str, str]:
-    # The server's parseCommand splits on the first literal space, so a tab or newline stays in the verb.
-    verb, _, rest = text.strip().partition(" ")
-    return verb, rest.strip()
+    # The server's parseCommand trims like JavaScript and splits on the first literal space.
+    verb, _, rest = text.strip(_JS_WHITESPACE).partition(" ")
+    return verb, rest.strip(_JS_WHITESPACE)
+
+
+# What JavaScript's String.prototype.trim removes. Python's str.strip also removes \x1c-\x1f and \x85.
+_JS_WHITESPACE = "\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 
 
 async def expected_tools_grader(scenario: Scenario, trial: AgentTrial) -> Judgment:
@@ -87,7 +93,7 @@ class TrialGrade:
 class GradedReport:
     server_url: str
     model: str
-    effort: str
+    effort: str | None
     started_at: str
     grader_models: dict[str, str]
     grades: tuple[TrialGrade, ...]
@@ -120,7 +126,9 @@ async def _run_grader(name: str, grader: Grader, scenario: Scenario, trial: Agen
         return Verdict(
             grader=name, passed=None, score=None, rationale="grader failed", error=f"{type(error).__name__}: {error}"
         )
-    return Verdict(grader=name, passed=judgment.passed, score=judgment.score, rationale=judgment.rationale)
+    return Verdict(
+        grader=name, passed=judgment.passed, score=judgment.score, rationale=judgment.rationale, model=judgment.model
+    )
 
 
 def format_grade_summary(report: GradedReport) -> str:

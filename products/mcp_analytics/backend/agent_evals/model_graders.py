@@ -63,7 +63,12 @@ def make_judge(client: anthropic.AsyncAnthropic, model: str) -> Grader:
             raise ValueError(f"judge stopped with {response.stop_reason}")
         text = next(block.text for block in response.content if block.type == "text")
         parsed = json.loads(text)
-        return Judgment(passed=parsed["passed"], score=1.0 if parsed["passed"] else 0.0, rationale=parsed["rationale"])
+        return Judgment(
+            passed=parsed["passed"],
+            score=1.0 if parsed["passed"] else 0.0,
+            rationale=parsed["rationale"],
+            model=response.model,
+        )
 
     return judge
 
@@ -86,11 +91,12 @@ def make_jev(client: SystemOneClient) -> Grader:
         )
         answer = result.answers["passed"]
         if not isinstance(answer, NoulAnswer):
-            return Judgment(passed=None, score=None, rationale=f"{result.model} declined to answer")
+            return Judgment(passed=None, score=None, rationale="declined to answer", model=result.model)
         return Judgment(
             passed=answer.probability >= JEV_PASS_THRESHOLD,
             score=answer.probability,
-            rationale=f"{result.model} put the probability of success at {answer.probability:.2f}",
+            rationale=f"probability of success {answer.probability:.2f}",
+            model=result.model,
         )
 
     return jev

@@ -76,6 +76,7 @@ class TestCalledTools(SimpleTestCase):
             ("call_without_a_tool_names_none", _exec("call --json"), set()),
             ("non_string_command_names_none", _exec(42), set()),
             ("a_tab_is_not_a_separator_on_the_server", _exec("call\tflag-x {}"), set()),
+            ("a_control_character_js_trim_keeps_stays_in_the_verb", _exec("\x1ccall flag-x"), set()),
             ("a_newline_stays_in_the_tool_token", _exec("call flag-x\n{}"), {"flag-x\n{}"}),
             ("a_direct_tool_is_itself", _call("feature-flag-get-all"), {"feature-flag-get-all"}),
         ]
@@ -154,8 +155,8 @@ def _judge(messages: _FakeMessages) -> Grader:
 class TestJudge(SimpleTestCase):
     @parameterized.expand(
         [
-            ("pass", '{"passed": true, "rationale": "Lists the keys."}', Judgment(passed=True, score=1.0, rationale="Lists the keys.")),
-            ("fail", '{"passed": false, "rationale": "No keys."}', Judgment(passed=False, score=0.0, rationale="No keys.")),
+            ("pass", '{"passed": true, "rationale": "Lists the keys."}', Judgment(passed=True, score=1.0, rationale="Lists the keys.", model="claude-sonnet-5-5")),
+            ("fail", '{"passed": false, "rationale": "No keys."}', Judgment(passed=False, score=0.0, rationale="No keys.", model="claude-sonnet-5-5")),
         ]
     )  # fmt: skip
     def test_judgment(self, _name: str, reply: str, expected: Judgment) -> None:
@@ -196,9 +197,9 @@ def _jev_result(answer: NoulAnswer | RefusalAnswer) -> SystemOneResult:
 class TestJev(SimpleTestCase):
     @parameterized.expand(
         [
-            ("threshold_passes", NoulAnswer(probability=0.5), Judgment(passed=True, score=0.5, rationale="jev-1.13.0 put the probability of success at 0.50")),
-            ("low_probability_fails", NoulAnswer(probability=0.2), Judgment(passed=False, score=0.2, rationale="jev-1.13.0 put the probability of success at 0.20")),
-            ("refusal_is_not_gradable", RefusalAnswer(), Judgment(passed=None, score=None, rationale="jev-1.13.0 declined to answer")),
+            ("threshold_passes", NoulAnswer(probability=0.5), Judgment(passed=True, score=0.5, rationale="probability of success 0.50", model="jev-1.13.0")),
+            ("low_probability_fails", NoulAnswer(probability=0.2), Judgment(passed=False, score=0.2, rationale="probability of success 0.20", model="jev-1.13.0")),
+            ("refusal_is_not_gradable", RefusalAnswer(), Judgment(passed=None, score=None, rationale="declined to answer", model="jev-1.13.0")),
         ]
     )  # fmt: skip
     def test_judgment(self, _name: str, answer: NoulAnswer | RefusalAnswer, expected: Judgment) -> None:
