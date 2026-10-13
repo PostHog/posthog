@@ -8,7 +8,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { commentsCreate, commentsList } from 'products/platform_features/frontend/generated/api'
 import type { CommentApi } from 'products/platform_features/frontend/generated/api.schemas'
 
-import { type PendingCommentContext, taskCommentContextsLogic } from '../../logics/taskCommentContextsLogic'
+import { taskCommentContextsLogic } from '../../logics/taskCommentContextsLogic'
 import type { CommentContext } from '../../utils/commentContext'
 import {
     ARTIFACT_COMMENT_SCOPE,
@@ -93,8 +93,12 @@ export interface taskArtifactCommentsLogicActions {
         context: CommentContext | null,
         comment: string
     ) => {
-        context: PendingCommentContext | null
         comment: string
+        context: {
+            body: string
+            id: string
+            label: string
+        } | null
     } // taskCommentContextsLogic
     activateThread: (
         id: string | null,

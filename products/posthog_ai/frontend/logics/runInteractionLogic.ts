@@ -611,6 +611,16 @@ export type runInteractionLogicType = MakeLogicType<
     runInteractionLogicMeta
 >
 
+function takeCommentContexts(taskId: string, content: string): string {
+    const commentLogic = taskId ? taskCommentContextsLogic.findMounted({ taskId }) : null
+    if (!commentLogic) {
+        return content
+    }
+    const message = withCommentContexts(commentLogic.values.commentContexts, content)
+    commentLogic.actions.clearCommentContexts()
+    return message
+}
+
 /**
  * Max-agnostic interaction facade for a single task run. The UI binds to this one logic to drive every
  * user → run interaction — sending follow-ups, staging an editable "Up next" message while the agent is
@@ -903,85 +913,74 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
     }),
 
-    forms(({ actions, values, props }) => {
-        const takeCommentContexts = (content: string): string => {
-            const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
-            if (!commentLogic) {
-                return content
-            }
-            const message = withCommentContexts(commentLogic.values.commentContexts, content)
-            commentLogic.actions.clearCommentContexts()
-            return message
-        }
-        return {
-            // The composer draft lives here so the input region is a real <form>. `submit` is the single entry
-            // point the composer's `onSubmit` calls — it decides send-now vs enqueue vs new-run. It dispatches
-            // synchronously (no await), so `isComposerFormSubmitting` isn't the UI loading state — `isSubmitting`
-            // covers all three in-flight paths. `errors` gates programmatic `submitComposerForm()`; the UI's own
-            // `Composer.Root` disabled-reason is the parallel guard.
-            composerForm: {
-                defaults: { draft: '' as string },
-                errors: ({ draft }) => ({
-                    draft: !draft.trim() ? 'Type a message first' : undefined,
-                }),
-                submit: ({ draft }) => {
-                    const content = draft.trim()
-                    if (!content || values.cancellationState) {
+    forms(({ actions, values, props }) => ({
+        // The composer draft lives here so the input region is a real <form>. `submit` is the single entry
+        // point the composer's `onSubmit` calls — it decides send-now vs enqueue vs new-run. It dispatches
+        // synchronously (no await), so `isComposerFormSubmitting` isn't the UI loading state — `isSubmitting`
+        // covers all three in-flight paths. `errors` gates programmatic `submitComposerForm()`; the UI's own
+        // `Composer.Root` disabled-reason is the parallel guard.
+        composerForm: {
+            defaults: { draft: '' as string },
+            errors: ({ draft }) => ({
+                draft: !draft.trim() ? 'Type a message first' : undefined,
+            }),
+            submit: ({ draft }) => {
+                const content = draft.trim()
+                if (!content || values.cancellationState) {
+                    return
+                }
+                if (!values.dataProcessingAccepted) {
+                    actions.blockOnConsent()
+                    return
+                }
+                // A finished run can't take a follow-up signal — send starts a fresh run instead, seeded with
+                // this message and chained from the run just viewed. Except `/clear`, which the agent
+                // handles rather than the model: a whole run to clear a conversation the next run would
+                // rebuild from the log anyway, so the boundary is recorded against this run instead.
+                //
+                // Only when the chain's agent understands the boundary. An older one ignores the marker
+                // and resumes the conversation it was meant to retire, so falling back to an ordinary
+                // new run is the honest degradation — the clear doesn't happen, and nothing claims it did.
+                if (values.isTerminal) {
+                    if (isClearCommand(content) && values.conversationClearSupported) {
+                        actions.clearConversation()
                         return
                     }
-                    if (!values.dataProcessingAccepted) {
-                        actions.blockOnConsent()
+                    // A row editor keeps its text in the component until the user saves, so sending now
+                    // would carry the row as it stood before the edit. Wait, as the drain does.
+                    if (values.queueEditing) {
+                        lemonToast.info('Save or cancel your edit first')
                         return
                     }
-                    // A finished run can't take a follow-up signal — send starts a fresh run instead, seeded with
-                    // this message and chained from the run just viewed. Except `/clear`, which the agent
-                    // handles rather than the model: a whole run to clear a conversation the next run would
-                    // rebuild from the log anyway, so the boundary is recorded against this run instead.
-                    //
-                    // Only when the chain's agent understands the boundary. An older one ignores the marker
-                    // and resumes the conversation it was meant to retire, so falling back to an ordinary
-                    // new run is the honest degradation — the clear doesn't happen, and nothing claims it did.
-                    if (values.isTerminal) {
-                        if (isClearCommand(content) && values.conversationClearSupported) {
-                            actions.clearConversation()
-                            return
-                        }
-                        // A row editor keeps its text in the component until the user saves, so sending now
-                        // would carry the row as it stood before the edit. Wait, as the drain does.
-                        if (values.queueEditing) {
-                            lemonToast.info('Save or cancel your edit first')
-                            return
-                        }
-                        // A finished run can't drain the queue — `canSend` is false for the rest of its life —
-                        // so the staged rows ride along into the run this send starts. Leaving them behind
-                        // stranded them on screen, promising a delivery nothing would ever make.
-                        const staged = values.queuedMessages.map((message) => message.content)
-                        if (staged.length > 0) {
-                            actions.clearQueue()
-                        }
-                        actions.startNewRun([...staged, takeCommentContexts(content)].join('\n\n'))
-                        return
+                    // A finished run can't drain the queue — `canSend` is false for the rest of its life —
+                    // so the staged rows ride along into the run this send starts. Leaving them behind
+                    // stranded them on screen, promising a delivery nothing would ever make.
+                    const staged = values.queuedMessages.map((message) => message.content)
+                    if (staged.length > 0) {
+                        actions.clearQueue()
                     }
-                    // While the agent is working, a send is in flight, or a message is already staged — concatenate
-                    // this onto the single queued message so follow-ups never jump ahead or fan out; otherwise send
-                    // it straight from the draft. `flushQueue` self-guards, draining only when the run is fully idle.
-                    if (
-                        values.isBusy ||
-                        values.hasUnresolvedApproval ||
-                        values.sending ||
-                        values.queuedMessages.length > 0
-                    ) {
-                        actions.enqueueMessage(takeCommentContexts(content))
-                        actions.claimAttachmentsForQueue()
-                        actions.resetComposerForm()
-                        actions.flushQueue()
-                    } else {
-                        actions.sendNow(takeCommentContexts(content), 'draft')
-                    }
-                },
+                    actions.startNewRun([...staged, takeCommentContexts(props.taskId, content)].join('\n\n'))
+                    return
+                }
+                // While the agent is working, a send is in flight, or a message is already staged — concatenate
+                // this onto the single queued message so follow-ups never jump ahead or fan out; otherwise send
+                // it straight from the draft. `flushQueue` self-guards, draining only when the run is fully idle.
+                if (
+                    values.isBusy ||
+                    values.hasUnresolvedApproval ||
+                    values.sending ||
+                    values.queuedMessages.length > 0
+                ) {
+                    actions.enqueueMessage(takeCommentContexts(props.taskId, content))
+                    actions.claimAttachmentsForQueue()
+                    actions.resetComposerForm()
+                    actions.flushQueue()
+                } else {
+                    actions.sendNow(takeCommentContexts(props.taskId, content), 'draft')
+                }
             },
-        }
-    }),
+        },
+    })),
 
     selectors({
         hasUnresolvedApproval: [

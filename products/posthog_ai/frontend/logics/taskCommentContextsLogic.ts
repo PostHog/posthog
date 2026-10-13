@@ -24,8 +24,12 @@ export interface taskCommentContextsLogicActions {
         context: CommentContext | null,
         comment: string
     ) => {
-        context: PendingCommentContext | null
         comment: string
+        context: {
+            body: string
+            id: string
+            label: string
+        } | null
     }
     clearCommentContexts: () => {
         value: true
