@@ -55,7 +55,17 @@ class PipedriveSource(
     WebhookSource[PipedriveSourceConfig],
 ):
     codebase_detection = detect(
-        env=("^PIPEDRIVE_",), npm=("pipedrive", "@pipedrive/app-extensions-sdk"), composer=("pipedrive/pipedrive",)
+        env=("^PIPEDRIVE_",),
+        script_hosts=(
+            "leadbooster-chat.pipedrive.com",
+            "webforms.pipedrive.com",
+            "cdn.pipedriveassets.com",
+            "pipedrivewebforms.com",
+        ),
+        npm=("pipedrive", "@pipedrive/app-extensions-sdk", "@pipedrive/custom-app-surfaces-sdk"),
+        pypi=("pipedrive-python-lib", "pipedrive"),
+        composer=("pipedrive/pipedrive", "devio/pipedrive"),
+        rubygems=("pipedrive.rb", "pipedrive-ruby"),
     )
 
     supported_versions = ("v1", "v2")

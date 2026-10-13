@@ -36,8 +36,8 @@ class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
         env=("^LAGO_",),
         npm=("lago-javascript-client",),
         pypi=("lago-python-client",),
-        go=("github.com/getlago/lago-go-client",),
-        rubygems=("lago-ruby-client",),
+        go=("github.com/getlago/lago-go-client", "github.com/getlago/lago-cli"),
+        rubygems=("lago-ruby-client", "lago_ruby"),
     )
 
     api_docs_url = "https://docs.getlago.com/api-reference"

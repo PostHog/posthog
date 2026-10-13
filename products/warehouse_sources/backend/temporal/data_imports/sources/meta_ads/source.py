@@ -86,12 +86,32 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 @SourceRegistry.register
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        env=("^META_ADS_", "^FACEBOOK_ADS_"),
-        npm=("facebook-nodejs-business-sdk",),
-        pypi=("facebook-business",),
-        composer=("facebook/php-business-sdk",),
-        maven=("com.facebook.business.sdk:facebook-java-business-sdk",),
-        rubygems=("facebookbusiness",),
+        env=("^META_ADS_", "^FACEBOOK_ADS_", "^FACEBOOK_PIXEL_ID$", "^NEXT_PUBLIC_FACEBOOK_PIXEL_ID$"),
+        script_hosts=("connect.facebook.net",),
+        npm=(
+            "facebook-nodejs-business-sdk",
+            "capi-param-builder-nodejs",
+            "meta-capi-param-builder-clientjs",
+            "react-facebook-pixel",
+            "@types/facebook-pixel",
+            "gatsby-plugin-facebook-pixel",
+            "nuxt-facebook-pixel-module",
+        ),
+        pypi=("facebook-business", "capi-param-builder-python", "facebookads"),
+        cocoapods=("FBAEMKit", "FBSDKMarketingKit"),
+        composer=(
+            "facebook/php-business-sdk",
+            "facebook/capi-param-builder-php",
+            "facebook/php-ads-sdk",
+            "facebook/facebook-for-magento2",
+        ),
+        maven=(
+            "com.facebook.business.sdk:facebook-java-business-sdk",
+            "com.facebook.capi.sdk:capi-param-builder",
+            "com.facebook.android:facebook-marketing",
+        ),
+        pub=("facebook_app_events",),
+        rubygems=("facebookbusiness", "capi_param_builder_ruby"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

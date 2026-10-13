@@ -62,8 +62,23 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
         env=("^DATABRICKS_",),
         npm=("@databricks/sql",),
         pypi=("databricks-sql-connector", "databricks-sdk", "databricks-connect", "databricks-cli"),
-        go=("github.com/databricks/databricks-sdk-go", "github.com/databricks/databricks-sql-go"),
-        maven=("com.databricks:databricks-sdk-java", "com.databricks:databricks-jdbc"),
+        go=(
+            "github.com/databricks/databricks-sdk-go",
+            "github.com/databricks/databricks-sql-go",
+            "github.com/databricks/databricks-grafana-datasource",
+            "github.com/databricks/databricks-sql-kernel-bindings",
+        ),
+        maven=(
+            "com.databricks:databricks-sdk-java",
+            "com.databricks:databricks-jdbc",
+            "com.databricks:databricks-connect",
+            "com.databricks:databricks-connect_2.13",
+            "com.databricks:databricks-dbutils-scala-parent_2.12",
+            "com.databricks:databricks-dbutils-scala-parent_2.13",
+            "com.databricks:databricks-dbutils-scala_2.12",
+            "com.databricks:databricks-dbutils-scala_2.13",
+            "com.databricks:databricks-jdbc-thin",
+        ),
     )
 
     api_docs_url = "https://docs.databricks.com/aws/en/dev-tools/python-sql-connector"

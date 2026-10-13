@@ -43,7 +43,7 @@ class MezmoSource(ResumableSource[MezmoSourceConfig, MezmoResumeConfig]):
         npm=("@logdna/logger", "logdna"),
         pypi=("logdna",),
         go=("github.com/logdna/logdna-go",),
-        rubygems=("logdna",),
+        rubygems=("logdna", "chef-handler-logdna", "fluent-plugin-logdna", "logdna-rails"),
     )
 
     lists_tables_without_credentials = True

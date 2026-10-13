@@ -39,13 +39,22 @@ class TelnyxSource(ResumableSource[TelnyxSourceConfig, TelnyxResumeConfig]):
         env=("^TELNYX_",),
         npm=("telnyx", "@telnyx/webrtc", "@telnyx/react-client"),
         pypi=("telnyx",),
-        cocoapods=("TelnyxRTC",),
+        cocoapods=("TelnyxRTC", "TelnyxVideoSdk", "TelnyxVoiceAIWidget"),
         composer=("telnyx/telnyx-php",),
-        go=("github.com/team-telnyx/telnyx-go",),
-        maven=("com.telnyx.sdk:telnyx",),
-        pub=("telnyx_webrtc",),
+        go=("github.com/team-telnyx/telnyx-go", "github.com/team-telnyx/telnyx-cli"),
+        maven=(
+            "com.telnyx.sdk:telnyx",
+            "com.telnyx.sdk:telnyx-client-okhttp",
+            "com.telnyx.sdk:telnyx-core",
+            "com.telnyx.sdk:telnyx-java",
+            "com.telnyx.sdk:telnyx-java-client-okhttp",
+            "com.telnyx.sdk:telnyx-java-core",
+            "com.telnyx.sdk:telnyx-lib",
+            "com.telnyx.sdk:telnyx-websocket",
+        ),
+        pub=("telnyx_webrtc", "flutter_telnyx_voice_ai_widget", "telnyx_common"),
         rubygems=("telnyx",),
-        swiftpm=("github.com/team-telnyx/telnyx-webrtc-ios",),
+        swiftpm=("github.com/team-telnyx/telnyx-webrtc-ios", "github.com/team-telnyx/ios-telnyx-voice-ai-widget"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

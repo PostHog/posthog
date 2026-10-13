@@ -40,7 +40,7 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
         pypi=("asana",),
         composer=("asana/asana",),
         maven=("com.asana:asana",),
-        rubygems=("asana",),
+        rubygems=("asana", "omniauth-asana"),
     )
 
     supported_versions = ("1.0",)

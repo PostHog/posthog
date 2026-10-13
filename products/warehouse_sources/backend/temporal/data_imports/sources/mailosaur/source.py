@@ -42,6 +42,7 @@ class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConf
         go=("github.com/mailosaur/mailosaur-go",),
         maven=("com.mailosaur:mailosaur-java",),
         rubygems=("mailosaur",),
+        swiftpm=("github.com/mailosaur/mailosaur-swift",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

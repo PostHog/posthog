@@ -37,7 +37,33 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
-    codebase_detection = detect(env=("^NOTION_", "^NOTION_TOKEN$"), npm=("@notionhq/client",), pypi=("notion-client",))
+    codebase_detection = detect(
+        env=("^NOTION_", "^NOTION_TOKEN$"),
+        npm=(
+            "@notionhq/client",
+            "@notionhq/notion-mcp-server",
+            "@notionhq/workers",
+            "@notionhq/apps",
+            "@notionhq/custom-blocks",
+            "@notionhq/custom-blocks-host",
+            "@notionhq/custom-blocks-dev-shell",
+            "@notionhq/lore",
+            "ntn",
+            "notion-to-md",
+            "react-notion-x",
+            "notion-client",
+            "@tryfabric/martian",
+        ),
+        pypi=("notion-client", "notion"),
+        cargo=("notion-client", "notion"),
+        cocoapods=("NotionSwift",),
+        composer=("fiveam-code/laravel-notion-api", "mariosimao/notion-sdk-php"),
+        go=("github.com/jomei/notionapi", "github.com/dstotijn/go-notion"),
+        maven=("com.github.seratch:notion-sdk-jvm-core",),
+        pub=("notion_api",),
+        rubygems=("notion-ruby-client",),
+        swiftpm=("github.com/chojnac/notionswift",),
+    )
 
     supported_versions = (NOTION_VERSION_2025_09_03, NOTION_VERSION_2026_03_11)
     default_version = NOTION_VERSION_2026_03_11

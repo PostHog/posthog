@@ -39,7 +39,22 @@ _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 @SourceRegistry.register
 class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConfig]):
     codebase_detection = detect(
-        env=("^FRESHDESK_",), script_hosts=("widget.freshworks.com",), pypi=("python-freshdesk",)
+        env=("^FRESHDESK_",),
+        script_hosts=(
+            "widget.freshworks.com",
+            "euc-widget.freshworks.com",
+            "aus-widget.freshworks.com",
+            "ind-widget.freshworks.com",
+            "assets.freshdesk.com",
+        ),
+        npm=("@freshworks/freshdesk", "@freshworks/react-native-freshdesk-sdk", "freshdesk-api"),
+        pypi=("python-freshdesk",),
+        cocoapods=("FreshdeskSDK", "MobihelpSDK"),
+        composer=("mpclarkson/freshdesk-php-sdk", "mpclarkson/freshdesk-laravel"),
+        maven=("com.freshworks.sdk:freshdesk",),
+        pub=("freshdesk_flutter_sdk", "freshdesk_sdk"),
+        rubygems=("freshdesk",),
+        swiftpm=("github.com/freshworks/freshdesk-ios-sdk", "github.com/freshworks-oss/freshdesk-ios-sdk"),
     )
 
     supported_versions = ("v2",)

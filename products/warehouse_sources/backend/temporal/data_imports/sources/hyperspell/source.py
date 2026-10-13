@@ -39,7 +39,7 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
         env=("^HYPERSPELL_",),
         npm=("hyperspell", "@hyperspell/hyperspell"),
         pypi=("hyperspell",),
-        go=("github.com/hyperspell/hyperspell-go",),
+        go=("github.com/hyperspell/hyperspell-go", "github.com/hyperspell/hyperspell-cli"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

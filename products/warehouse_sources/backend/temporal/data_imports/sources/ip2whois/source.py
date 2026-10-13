@@ -36,7 +36,7 @@ class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
         npm=("ip2whois-nodejs",),
         pypi=("ip2whois",),
         composer=("ip2whois/ip2whois-php",),
-        go=("github.com/ip2whois/ip2whois-go",),
+        go=("github.com/ip2whois/ip2whois-go", "github.com/ip2whois/ip2whois-cli"),
         rubygems=("ip2whois_ruby",),
     )
 

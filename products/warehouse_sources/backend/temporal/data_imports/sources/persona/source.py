@@ -38,7 +38,16 @@ class PersonaSource(ResumableSource[PersonaSourceConfig, PersonaResumeConfig]):
         env=("^PERSONA_",),
         script_hosts=("cdn.withpersona.com",),
         npm=("persona", "persona-react", "react-native-persona"),
-        cocoapods=("PersonaInquirySDK2",),
+        cocoapods=(
+            "PersonaInquirySDK2",
+            "Persona-OpenSSL-Universal",
+            "PersonaInquiryAnywhereSDK",
+            "PersonaInquirySDK",
+            "PersonaNfc",
+            "PersonaSentinel",
+            "PersonaSna",
+            "PersonaWebRtc",
+        ),
         maven=("com.withpersona.sdk2:inquiry",),
         swiftpm=("github.com/persona-id/inquiry-ios-2",),
     )

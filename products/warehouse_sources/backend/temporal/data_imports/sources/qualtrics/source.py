@@ -58,7 +58,7 @@ class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConf
         env=("^QUALTRICS_",),
         script_hosts=("siteintercept.qualtrics.com",),
         npm=("react-native-qualtrics",),
-        cocoapods=("Qualtrics",),
+        cocoapods=("Qualtrics", "QualtricsDXA", "QualtricsExperience"),
     )
 
     supported_versions = (QUALTRICS_API_VERSION,)

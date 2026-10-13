@@ -41,9 +41,10 @@ class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
         npm=("plivo",),
         pypi=("plivo",),
         composer=("plivo/plivo-php",),
-        go=("github.com/plivo/plivo-go",),
-        maven=("com.plivo:plivo-java",),
+        go=("github.com/plivo/plivo-go", "github.com/plivo/plivo-agentstack-go", "github.com/plivo/plivo-cli"),
+        maven=("com.plivo:plivo-java", "com.plivo:plivo-stream-sdk-java"),
         rubygems=("plivo",),
+        swiftpm=("github.com/plivo/plivo-webrtc-ios", "github.com/plivo/plivovoicekit-ios"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

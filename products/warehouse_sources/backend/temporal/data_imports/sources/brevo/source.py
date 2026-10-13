@@ -45,7 +45,7 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
         pypi=("sib-api-v3-sdk", "brevo-python"),
         composer=("getbrevo/brevo-php", "sendinblue/api-v3-sdk"),
         go=("github.com/getbrevo/brevo-go",),
-        rubygems=("brevo", "sib-api-v3-sdk"),
+        rubygems=("brevo", "sib-api-v3-sdk", "brevo-ruby"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

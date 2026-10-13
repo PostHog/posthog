@@ -41,7 +41,7 @@ class LinkrunnerSource(ResumableSource[LinkrunnerSourceConfig, LinkrunnerResumeC
         cocoapods=("LinkrunnerKit",),
         maven=("io.linkrunner:android-sdk",),
         pub=("linkrunner",),
-        swiftpm=("github.com/linkrunner-labs/linkrunner-ios",),
+        swiftpm=("github.com/linkrunner-labs/linkrunner-ios", "github.com/linkrunner-labs/capacitor-linkrunner"),
     )
 
     api_docs_url = "https://docs.linkrunner.io/api-reference/campaign-apis"

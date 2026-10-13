@@ -59,7 +59,7 @@ class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
             "@codecov/nextjs-webpack-plugin",
         ),
         pypi=("codecov-cli", "codecov"),
-        rubygems=("codecov",),
+        rubygems=("codecov", "codecov_opentelem"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

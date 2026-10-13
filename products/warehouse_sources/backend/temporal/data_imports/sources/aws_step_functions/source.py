@@ -43,7 +43,11 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
         npm=("@aws-sdk/client-sfn",),
         cargo=("aws-sdk-sfn",),
         go=("github.com/aws/aws-sdk-go-v2/service/sfn",),
-        maven=("software.amazon.awssdk:sfn", "com.amazonaws:aws-java-sdk-stepfunctions"),
+        maven=(
+            "software.amazon.awssdk:sfn",
+            "com.amazonaws:aws-java-sdk-stepfunctions",
+            "software.amazon.awssdk:stepfunctions",
+        ),
         rubygems=("aws-sdk-states",),
     )
 

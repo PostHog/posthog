@@ -48,12 +48,33 @@ KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a fe
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
     codebase_detection = detect(
-        env=("^PADDLE_",),
-        script_hosts=("cdn.paddle.com",),
-        npm=("@paddle/paddle-node-sdk", "@paddle/paddle-js"),
+        env=(
+            "^PADDLE_",
+            "^NEXT_PUBLIC_PADDLE_CLIENT_TOKEN$",
+            "^NEXT_PUBLIC_PADDLE_ENV$",
+            "^NEXT_PUBLIC_PADDLE_PRICE_ID$",
+        ),
+        script_hosts=(
+            "cdn.paddle.com",
+            "sandbox-cdn.paddle.com",
+            "buy.paddle.com",
+            "sandbox-buy.paddle.com",
+            "checkout.paddle.com",
+            "sandbox-checkout.paddle.com",
+        ),
+        npm=(
+            "@paddle/paddle-node-sdk",
+            "@paddle/paddle-js",
+            "@paddle/paddle-mcp",
+            "@paddle/partner-embeds",
+            "@paddle/partner-embeds-react",
+        ),
         pypi=("paddle-python-sdk",),
-        composer=("paddlehq/paddle-php-sdk",),
+        cocoapods=("Paddle", "PaddleV4", "Paddle-MAS"),
+        composer=("paddlehq/paddle-php-sdk", "laravel/cashier-paddle"),
         go=("github.com/PaddleHQ/paddle-go-sdk",),
+        rubygems=("paddle",),
+        swiftpm=("github.com/paddlehq/mac-framework-v4",),
     )
 
     api_docs_url = "https://developer.paddle.com"

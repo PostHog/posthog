@@ -40,7 +40,7 @@ class CustomerlySource(ResumableSource[CustomerlySourceConfig, CustomerlyResumeC
         env=("^CUSTOMERLY_",),
         script_hosts=("widget.customerly.io",),
         npm=("react-native-customerly",),
-        cocoapods=("Customerly",),
+        cocoapods=("Customerly", "CustomerlySDK"),
     )
 
     api_docs_url = "https://docs.customerly.io/en/collections/5530-api"

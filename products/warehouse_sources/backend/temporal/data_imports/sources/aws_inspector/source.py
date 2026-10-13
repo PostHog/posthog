@@ -53,6 +53,8 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
             "software.amazon.awssdk:inspector",
             "com.amazonaws:aws-java-sdk-inspector2",
             "com.amazonaws:aws-java-sdk-inspector",
+            "com.amazonaws:aws-java-sdk-inspectorscan",
+            "software.amazon.awssdk:inspectorscan",
         ),
         rubygems=("aws-sdk-inspector2", "aws-sdk-inspector"),
     )

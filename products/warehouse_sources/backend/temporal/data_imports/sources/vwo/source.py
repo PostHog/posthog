@@ -40,10 +40,15 @@ class VWOSource(ResumableSource[VWOSourceConfig, VWOResumeConfig]):
         pypi=("vwo-python-sdk", "vwo-fme-python-sdk"),
         cocoapods=("VWO",),
         composer=("vwo/vwo-php-sdk", "vwo/vwo-fme-php-sdk"),
-        go=("github.com/wingify/vwo-go-sdk", "github.com/wingify/vwo-fme-go-sdk"),
+        go=(
+            "github.com/wingify/vwo-go-sdk",
+            "github.com/wingify/vwo-fme-go-sdk",
+            "github.com/wingify/wingify-fme-go-sdk",
+        ),
         maven=("com.vwo.sdk:vwo-java-sdk", "com.vwo.sdk:vwo-fme-java-sdk"),
         pub=("vwo_fme_flutter_sdk",),
-        rubygems=("vwo-sdk", "vwo-fme-ruby-sdk"),
+        rubygems=("vwo-sdk", "vwo-fme-ruby-sdk", "wingify-fme-ruby-sdk"),
+        swiftpm=("github.com/wingify/wingify-mobile-insights-ios-artifacts",),
     )
 
     supported_versions = ("v2",)

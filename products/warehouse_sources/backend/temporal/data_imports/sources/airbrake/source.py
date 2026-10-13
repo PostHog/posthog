@@ -38,9 +38,9 @@ class AirbrakeSource(ResumableSource[AirbrakeSourceConfig, AirbrakeResumeConfig]
         env=("^AIRBRAKE_",),
         npm=("@airbrake/browser", "@airbrake/node"),
         pypi=("pybrake",),
-        composer=("airbrake/phpbrake",),
+        composer=("airbrake/phpbrake", "airbrake/airbrake-php", "airbrake/php-airbrake"),
         go=("github.com/airbrake/gobrake",),
-        maven=("io.airbrake:javabrake",),
+        maven=("io.airbrake:javabrake", "io.airbrake:airbrake-java"),
         rubygems=("airbrake", "airbrake-ruby"),
     )
 

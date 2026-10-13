@@ -43,8 +43,13 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
         env=("^QDRANT_",),
         npm=("@qdrant/js-client-rest", "@qdrant/qdrant-js"),
         pypi=("qdrant-client",),
-        cargo=("qdrant-client",),
-        go=("github.com/qdrant/go-client",),
+        cargo=("qdrant-client", "qdrant", "qdrant-edge", "qdrant-rust-stemmers"),
+        go=(
+            "github.com/qdrant/go-client",
+            "github.com/qdrant/qdrant-cloud-buf-plugins",
+            "github.com/qdrant/qdrant-cloud-public-api",
+            "github.com/qdrant/qdrant-helm",
+        ),
         maven=("io.qdrant:client",),
     )
 

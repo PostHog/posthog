@@ -32,10 +32,10 @@ class FastlySource(ResumableSource[FastlySourceConfig, FastlyResumeConfig]):
         env=("^FASTLY_",),
         npm=("fastly", "@fastly/js-compute"),
         pypi=("fastly",),
-        cargo=("fastly",),
+        cargo=("fastly", "fastly-kv-preview", "fastly-macros", "fastly-shared", "fastly-sys", "log-fastly"),
         composer=("fastly/fastly",),
-        go=("github.com/fastly/go-fastly",),
-        rubygems=("fastly",),
+        go=("github.com/fastly/go-fastly", "github.com/fastly/fastly-exporter", "github.com/fastly/fastly-go"),
+        rubygems=("fastly", "fastly-rails"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -42,7 +42,7 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
     codebase_detection = detect(
         script_hosts=("connect.withmono.com",),
         npm=("@mono.co/connect.js", "@mono.co/connect-react-native", "mono-node"),
-        pub=("mono_connect",),
+        pub=("mono_connect", "mono_prove"),
     )
 
     lists_tables_without_credentials = True

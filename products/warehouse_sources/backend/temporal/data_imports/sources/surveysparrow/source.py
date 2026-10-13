@@ -50,7 +50,10 @@ class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparr
         env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",),
         npm=("surveysparrow-react-native-sdk", "surveysparrow-ionic-plugin"),
         pub=("surveysparrow_flutter_sdk",),
-        swiftpm=("github.com/surveysparrow/surveysparrow-ios-sdk",),
+        swiftpm=(
+            "github.com/surveysparrow/surveysparrow-ios-sdk",
+            "github.com/surveysparrow/surveysparrow-ionic-plugin",
+        ),
     )
 
     supported_versions = ("v3",)

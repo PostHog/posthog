@@ -48,7 +48,7 @@ class GustoSource(ResumableSource[GustoSourceConfig, GustoResumeConfig]):
         env=("^GUSTO_", "^GUSTOEMBEDDED_"),
         npm=("@gusto/embedded-api", "@gusto/embedded-react-sdk"),
         pypi=("gusto-embedded",),
-        rubygems=("gusto_embedded_client",),
+        rubygems=("gusto_embedded_client", "gusto_packs", "omniauth-gusto", "rubocop-gusto"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

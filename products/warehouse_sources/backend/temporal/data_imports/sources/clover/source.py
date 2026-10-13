@@ -65,7 +65,15 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
     codebase_detection = detect(
         script_hosts=("checkout.clover.com",),
         npm=("remote-pay-cloud", "remote-pay-cloud-api"),
-        maven=("com.clover.sdk:clover-android-sdk", "com.clover.sdk:remote-pay-android-connector"),
+        maven=(
+            "com.clover.sdk:clover-android-sdk",
+            "com.clover.sdk:remote-pay-android-connector",
+            "com.clover.sdk:clover-android-connector-sdk",
+            "com.clover.sdk:clover-android-loyalty-kit",
+            "com.clover.sdk:clover-android-sdk-retrofit",
+            "com.clover.sdk:clover-connector-android",
+            "com.clover.sdk:clover-connector-java",
+        ),
     )
 
     lists_tables_without_credentials = True

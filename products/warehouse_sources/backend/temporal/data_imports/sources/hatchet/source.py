@@ -39,7 +39,12 @@ class HatchetSource(ResumableSource[HatchetSourceConfig, HatchetResumeConfig]):
         env=("^HATCHET_",),
         npm=("@hatchet-dev/typescript-sdk",),
         pypi=("hatchet-sdk",),
-        go=("github.com/hatchet-dev/hatchet",),
+        go=(
+            "github.com/hatchet-dev/hatchet",
+            "github.com/hatchet-dev/hatchet-embedded",
+            "github.com/hatchet-dev/hatchet-go-quickstart",
+            "github.com/hatchet-dev/hatchet-quickstarts",
+        ),
         rubygems=("hatchet-sdk",),
     )
 

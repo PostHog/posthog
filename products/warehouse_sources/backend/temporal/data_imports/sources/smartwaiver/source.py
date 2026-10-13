@@ -41,7 +41,7 @@ class SmartwaiverSource(ResumableSource[SmartwaiverSourceConfig, SmartwaiverResu
         env=("^SMARTWAIVER_",),
         pypi=("smartwaiver-sdk",),
         composer=("smartwaiver/smartwaiver-sdk",),
-        rubygems=("smartwaiver-sdk",),
+        rubygems=("smartwaiver-sdk", "smartwaiver"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

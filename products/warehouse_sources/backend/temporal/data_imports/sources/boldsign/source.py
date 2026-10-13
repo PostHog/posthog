@@ -40,7 +40,7 @@ class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]
         npm=("boldsign",),
         pypi=("boldsign",),
         composer=("boldsign/boldsign-php",),
-        maven=("com.boldsign:boldsign-java",),
+        maven=("com.boldsign:boldsign-java", "com.boldsign:boldsign-java-sdk"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

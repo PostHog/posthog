@@ -42,12 +42,16 @@ class OpnPaymentsSource(ResumableSource[OpnPaymentsSourceConfig, OpnPaymentsResu
         npm=("omise",),
         pypi=("omise",),
         cocoapods=("OmiseSDK",),
-        composer=("omise/omise-php",),
+        composer=("omise/omise-php", "omise/omise-magento"),
         go=("github.com/omise/omise-go",),
-        maven=("co.omise:omise-java", "co.omise:omise-android"),
-        pub=("omise_flutter",),
+        maven=("co.omise:omise-java", "co.omise:omise-android", "co.omise:omise_flutter_module"),
+        pub=("omise_flutter", "omise_dart"),
         rubygems=("omise",),
-        swiftpm=("github.com/omise/omise-ios",),
+        swiftpm=(
+            "github.com/omise/omise-ios",
+            "github.com/omise/omise-flutter-wrapper-ios",
+            "github.com/omise/omise-ios-3ds",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

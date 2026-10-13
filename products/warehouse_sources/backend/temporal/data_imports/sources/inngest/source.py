@@ -40,7 +40,7 @@ class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
         env=("^INNGEST_",),
         npm=("inngest",),
         pypi=("inngest",),
-        go=("github.com/inngest/inngestgo",),
+        go=("github.com/inngest/inngestgo", "github.com/inngest/inngest"),
         maven=("com.inngest:inngest", "com.inngest:inngest-spring-boot-adapter"),
     )
 

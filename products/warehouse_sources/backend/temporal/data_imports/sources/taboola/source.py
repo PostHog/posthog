@@ -39,8 +39,8 @@ class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
     codebase_detection = detect(
         env=("^TABOOLA_",),
         script_hosts=("cdn.taboola.com",),
-        cocoapods=("TaboolaSDK",),
-        maven=("com.taboola:android-sdk",),
+        cocoapods=("TaboolaSDK", "TaboolaSDK2"),
+        maven=("com.taboola:android-sdk", "com.taboola:taboola-cronyx", "com.taboola:taboola-cronyx-api"),
     )
 
     supported_versions = ("1.0",)

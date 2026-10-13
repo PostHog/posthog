@@ -36,7 +36,11 @@ class AivenSource(SimpleSource[AivenSourceConfig]):
     codebase_detection = detect(
         env=("^AIVEN_",),
         pypi=("aiven-client",),
-        go=("github.com/aiven/aiven-go-client", "github.com/aiven/go-client-codegen"),
+        go=(
+            "github.com/aiven/aiven-go-client",
+            "github.com/aiven/go-client-codegen",
+            "github.com/aiven/aiven-operator",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

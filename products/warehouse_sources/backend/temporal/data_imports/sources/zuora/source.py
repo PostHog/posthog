@@ -43,7 +43,12 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
         env=("^ZUORA_",),
         script_hosts=("static.zuora.com",),
         pypi=("zuora-sdk",),
-        maven=("com.zuora.sdk:zuora-sdk-java",),
+        maven=(
+            "com.zuora.sdk:zuora-sdk-java",
+            "com.zuora.sdk:zuora-java",
+            "com.zuora.sdk:zuora-sdk-java-core",
+            "com.zuora.sdk:zuora-sdk-java-root",
+        ),
     )
 
     api_docs_url = "https://developer.zuora.com"

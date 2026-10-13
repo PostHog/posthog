@@ -74,7 +74,7 @@ class WooCommerceSource(
         env=("^WOOCOMMERCE_",),
         npm=("@woocommerce/woocommerce-rest-api",),
         pypi=("woocommerce",),
-        composer=("automattic/woocommerce",),
+        composer=("automattic/woocommerce", "automattic/jetpack-woocommerce-stats", "automattic/woocommerce-analytics"),
         rubygems=("woocommerce_api",),
     )
 

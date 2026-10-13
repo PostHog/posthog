@@ -42,7 +42,7 @@ class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]
         pypi=("invoiced",),
         composer=("invoiced/invoiced",),
         go=("github.com/Invoiced/invoiced-go",),
-        maven=("com.invoiced:invoiced",),
+        maven=("com.invoiced:invoiced", "com.invoiced:invoiced-java"),
         rubygems=("invoiced",),
     )
 

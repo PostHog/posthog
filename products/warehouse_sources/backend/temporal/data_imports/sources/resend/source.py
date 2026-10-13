@@ -41,14 +41,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        env=("^RESEND_API_KEY$",),
-        npm=("resend",),
+        env=(
+            "^RESEND_API_KEY$",
+            "^RESEND_WEBHOOK_SECRET$",
+            "^MAILER_RESEND_SECRET$",
+            "^RESEND_BASE_URL$",
+            "^RESEND_INGRESS_SIGNING_SECRET$",
+        ),
+        npm=(
+            "resend",
+            "resend-cli",
+            "resend-mcp",
+            "@resend/chat-sdk-adapter",
+            "n8n-nodes-resend",
+            "nestjs-resend",
+            "@payloadcms/email-resend",
+        ),
         pypi=("resend",),
         cargo=("resend-rs",),
-        composer=("resend/resend-php", "resend/resend-laravel"),
-        go=("github.com/resend/resend-go",),
+        composer=("resend/resend-php", "resend/resend-laravel", "symfony/resend-mailer"),
+        go=("github.com/resend/resend-go", "github.com/resendlabs/resend-go"),
         hex=("resend",),
-        maven=("com.resend:resend-java",),
+        maven=("com.resend:resend-java", "com.resend.api:sdk"),
+        pub=("dart_resend",),
         rubygems=("resend",),
     )
 

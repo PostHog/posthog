@@ -44,7 +44,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
         env=("^(HELP_SCOUT|HELPSCOUT)_",),
         script_hosts=("beacon-v2.helpscout.net",),
         npm=("@helpscout/javascript-sdk",),
-        composer=("helpscout/api",),
+        composer=("helpscout/api", "helpscout/helpscout-cli-php"),
     )
 
     supported_versions = (HELP_SCOUT_API_VERSION_V2, HELP_SCOUT_API_VERSION_V3)

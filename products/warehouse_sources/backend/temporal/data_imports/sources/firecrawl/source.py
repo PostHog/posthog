@@ -42,7 +42,7 @@ class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConf
         env=("^FIRECRAWL_",),
         npm=("@mendable/firecrawl-js", "firecrawl"),
         pypi=("firecrawl-py", "firecrawl"),
-        cargo=("firecrawl",),
+        cargo=("firecrawl", "firecrawl_rs"),
         go=("github.com/firecrawl/firecrawl-go", "github.com/mendableai/firecrawl-go"),
         maven=("com.firecrawl:firecrawl-java",),
         rubygems=("firecrawl-sdk",),

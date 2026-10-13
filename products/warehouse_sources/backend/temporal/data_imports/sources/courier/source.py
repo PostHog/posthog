@@ -49,12 +49,12 @@ class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
             "@trycourier/courier-react-native",
         ),
         pypi=("trycourier",),
-        cocoapods=("Courier_iOS",),
+        cocoapods=("Courier_iOS", "Courier-iOS"),
         composer=("trycourier/courier",),
-        go=("github.com/trycourier/courier-go",),
-        maven=("com.courier:courier-java",),
+        go=("github.com/trycourier/courier-go", "github.com/trycourier/courier-cli"),
+        maven=("com.courier:courier-java", "com.courier:courier-java-client-okhttp", "com.courier:courier-java-core"),
         pub=("courier_flutter",),
-        rubygems=("trycourier",),
+        rubygems=("trycourier", "courier_rails"),
         swiftpm=("github.com/trycourier/courier-ios",),
     )
 

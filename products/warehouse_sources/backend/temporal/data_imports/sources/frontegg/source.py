@@ -64,7 +64,7 @@ class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]
         cocoapods=("FronteggSwift",),
         maven=("com.frontegg.sdk:android",),
         pub=("frontegg_flutter",),
-        swiftpm=("github.com/frontegg/frontegg-ios-swift",),
+        swiftpm=("github.com/frontegg/frontegg-ios-swift", "github.com/frontegg/frontegg-ionic-capacitor"),
     )
 
     lists_tables_without_credentials = True

@@ -60,9 +60,9 @@ class SparkPostSource(
         env=("^SPARKPOST_",),
         npm=("sparkpost",),
         pypi=("sparkpost",),
-        composer=("sparkpost/sparkpost",),
+        composer=("sparkpost/sparkpost", "sparkpost/php-sparkpost"),
         go=("github.com/SparkPost/gosparkpost",),
-        maven=("com.sparkpost:sparkpost-lib",),
+        maven=("com.sparkpost:sparkpost-lib", "com.sparkpost:sparkpost"),
         rubygems=("sparkpost",),
     )
 

@@ -47,7 +47,14 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
         npm=("appdynamics", "@appdynamics/react-native-agent"),
         pypi=("appdynamics",),
         cocoapods=("AppDynamicsAgent",),
-        maven=("com.appdynamics:appdynamics-runtime",),
+        maven=(
+            "com.appdynamics:appdynamics-runtime",
+            "com.appdynamics:appdynamics-gradle-plugin",
+            "com.appdynamics:appdynamics-injector",
+            "com.appdynamics:appdynamics-kotlin-compiler-plugin",
+            "com.appdynamics:appdynamics-maven-plugin",
+            "com.appdynamics:appdynamics-native-crash-handler",
+        ),
         pub=("appdynamics_agent",),
     )
 

@@ -39,8 +39,26 @@ class Neo4jSource(SimpleSource[Neo4jSourceConfig], ValidateDatabaseHostMixin):
         cargo=("neo4rs",),
         go=("github.com/neo4j/neo4j-go-driver",),
         hex=("bolt_sips",),
-        maven=("org.neo4j.driver:neo4j-java-driver",),
-        rubygems=("neo4j-ruby-driver",),
+        maven=(
+            "org.neo4j.driver:neo4j-java-driver",
+            "org.neo4j.driver:neo4j-java-driver-all",
+            "org.neo4j.driver:neo4j-java-driver-encryption-aws-kms",
+            "org.neo4j.driver:neo4j-java-driver-encryption-azure-keyvault",
+            "org.neo4j.driver:neo4j-java-driver-encryption-google-cloud-kms",
+            "org.neo4j.driver:neo4j-java-driver-observation-metrics",
+            "org.neo4j.driver:neo4j-java-driver-observation-micrometer",
+            "org.neo4j.driver:neo4j-java-driver-slim",
+            "org.neo4j.driver:neo4j-java-driver-spring-boot-autoconfigure",
+            "org.neo4j.driver:neo4j-java-driver-spring-boot-starter",
+        ),
+        rubygems=(
+            "neo4j-ruby-driver",
+            "cancancan-neo4j",
+            "neo4j",
+            "neo4j-core",
+            "neo4j-java-driver",
+            "neo4j-rake_tasks",
+        ),
     )
 
     supported_versions = (API_VERSION,)

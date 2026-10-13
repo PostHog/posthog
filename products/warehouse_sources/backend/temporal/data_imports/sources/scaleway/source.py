@@ -46,7 +46,21 @@ class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]
         ),
         npm=("@scaleway/sdk",),
         pypi=("scaleway",),
-        go=("github.com/scaleway/scaleway-sdk-go",),
+        go=(
+            "github.com/scaleway/scaleway-sdk-go",
+            "github.com/scaleway/cert-manager-webhook-scaleway",
+            "github.com/scaleway/cq-source-scaleway",
+            "github.com/scaleway/crossplane-provider-scaleway",
+            "github.com/scaleway/docker-machine-driver-scaleway",
+            "github.com/scaleway/opentelemetry-collector-scaleway",
+            "github.com/scaleway/packer-plugin-scaleway",
+            "github.com/scaleway/scaleway-cli",
+            "github.com/scaleway/scaleway-cloud-controller-manager",
+            "github.com/scaleway/scaleway-csi",
+            "github.com/scaleway/scaleway-filestorage-csi",
+            "github.com/scaleway/scaleway-secrets-store-csi",
+            "github.com/scaleway/waypoint-plugin-scaleway",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -44,11 +44,15 @@ class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
         npm=("xendit-node",),
         pypi=("xendit-python",),
         cocoapods=("Xendit",),
-        composer=("xendit/xendit-php",),
+        composer=("xendit/xendit-php", "xendit/xendit-php-clients"),
         go=("github.com/xendit/xendit-go",),
-        maven=("com.xendit:xendit-java-lib",),
+        maven=("com.xendit:xendit-java-lib", "com.xendit:xendit-android", "com.xendit:xendit-sdk-android"),
         rubygems=("xendit",),
-        swiftpm=("github.com/xendit/xendit-sdk-ios-src",),
+        swiftpm=(
+            "github.com/xendit/xendit-sdk-ios-src",
+            "github.com/xendit/xendit-components-ios",
+            "github.com/xendit/xendit-terminal-ios",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

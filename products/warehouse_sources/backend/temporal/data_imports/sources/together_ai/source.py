@@ -35,7 +35,7 @@ class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
         env=("^TOGETHER_API_KEY$", "^TOGETHER_BASE_URL$"),
         npm=("together-ai",),
         pypi=("together",),
-        go=("github.com/togethercomputer/together-go",),
+        go=("github.com/togethercomputer/together-go", "github.com/togethercomputer/together-kubelogin"),
     )
 
     api_docs_url = "https://docs.together.ai/reference"

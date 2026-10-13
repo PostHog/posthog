@@ -39,11 +39,20 @@ class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
         env=("^(LOGZ_IO|LOGZIO)_",),
         npm=("logzio-nodejs", "winston-logzio", "@logzio/browser"),
         pypi=("logzio-python-handler",),
-        go=("github.com/logzio/logzio-go",),
+        go=(
+            "github.com/logzio/logzio-go",
+            "github.com/logzio/fluent-bit-logzio-output",
+            "github.com/logzio/logzio-api-status",
+            "github.com/logzio/logzio-helm",
+            "github.com/logzio/logzio-ping-statistics",
+            "github.com/logzio/logzio_terraform_client",
+            "github.com/logzio/logzio_terraform_provider",
+        ),
         maven=(
             "io.logz.logback:logzio-logback-appender",
             "io.logz.log4j2:logzio-log4j2-appender",
             "io.logz.sender:logzio-java-sender",
+            "io.logz.sender:logzio-sender",
         ),
     )
 

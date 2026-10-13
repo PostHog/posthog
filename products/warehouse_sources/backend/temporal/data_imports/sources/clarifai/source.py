@@ -47,7 +47,8 @@ class ClarifaiSource(ResumableSource[ClarifaiSourceConfig, ClarifaiResumeConfig]
         npm=("clarifai-nodejs", "clarifai-nodejs-grpc", "clarifai"),
         pypi=("clarifai", "clarifai-grpc"),
         go=("github.com/Clarifai/clarifai-go-grpc",),
-        maven=("com.clarifai:clarifai-grpc",),
+        maven=("com.clarifai:clarifai-grpc", "com.clarifai:clarifai-api-java"),
+        swiftpm=("github.com/clarifai/clarifai-swift-grpc",),
     )
 
     lists_tables_without_credentials = True

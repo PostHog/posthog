@@ -44,10 +44,27 @@ class DocusignSource(ResumableSource[DocusignSourceConfig, DocusignResumeConfig]
         script_hosts=("js.docusign.com", "js-d.docusign.com"),
         npm=("docusign-esign",),
         pypi=("docusign-esign",),
-        cocoapods=("DocuSign",),
+        cocoapods=("DocuSign", "docusign-native-ios-sdk"),
         composer=("docusign/esign-client",),
-        maven=("com.docusign:docusign-esign-java",),
-        rubygems=("docusign_esign",),
+        maven=(
+            "com.docusign:docusign-esign-java",
+            "com.docusign:docusign-admin-java",
+            "com.docusign:docusign-click-java",
+            "com.docusign:docusign-maestro-java",
+            "com.docusign:docusign-monitor-java",
+            "com.docusign:docusign-rooms-java",
+            "com.docusign:docusign-webforms-java",
+        ),
+        rubygems=(
+            "docusign_esign",
+            "docusign_admin",
+            "docusign_click",
+            "docusign_maestro",
+            "docusign_monitor",
+            "docusign_rooms",
+            "docusign_webforms",
+            "docusignsdk",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

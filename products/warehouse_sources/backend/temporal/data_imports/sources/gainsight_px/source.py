@@ -39,7 +39,7 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
     codebase_detection = detect(
         env=("^(GAINSIGHT_PX|GAINSIGHTPX)_",),
         script_hosts=("web-sdk.aptrinsic.com",),
-        maven=("com.gainsight.px:mobile-sdk",),
+        maven=("com.gainsight.px:mobile-sdk", "com.gainsight.px:gainsight-px"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

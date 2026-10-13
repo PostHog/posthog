@@ -33,7 +33,7 @@ class EppoSource(SimpleSource[EppoSourceConfig]):
         env=("^EPPO_",),
         npm=("@eppo/js-client-sdk", "@eppo/node-server-sdk", "@eppo/react-native-sdk"),
         pypi=("eppo-server-sdk",),
-        cargo=("eppo",),
+        cargo=("eppo", "eppo_core"),
         composer=("eppo/php-sdk",),
         go=("github.com/Eppo-exp/golang-sdk",),
         hex=("eppo_sdk",),

@@ -37,7 +37,11 @@ class NetlifySource(ResumableSource[NetlifySourceConfig, NetlifyResumeConfig]):
     codebase_detection = detect(
         env=("^NETLIFY_",),
         npm=("@netlify/functions", "netlify", "netlify-cli", "@netlify/blobs"),
-        go=("github.com/netlify/open-api",),
+        go=(
+            "github.com/netlify/open-api",
+            "github.com/netlify/netlify-commons",
+            "github.com/netlify/netlify-credential-helper",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

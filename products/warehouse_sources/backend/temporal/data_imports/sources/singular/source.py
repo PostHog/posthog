@@ -70,9 +70,9 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
     codebase_detection = detect(
         script_hosts=("web-sdk-cdn.singular.net",),
         npm=("singular-sdk", "singular-react-native"),
-        cocoapods=("Singular-SDK",),
+        cocoapods=("Singular-SDK", "Singular-Kids-SDK"),
         pub=("singular_flutter_sdk",),
-        swiftpm=("github.com/singular-labs/singular-ios-sdk",),
+        swiftpm=("github.com/singular-labs/singular-ios-sdk", "github.com/singular-labs/singular-kids-sdk"),
     )
 
     supported_versions = ("v2.0",)

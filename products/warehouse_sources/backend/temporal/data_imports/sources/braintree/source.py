@@ -48,12 +48,19 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
         script_hosts=("js.braintreegateway.com",),
         npm=("braintree", "braintree-web", "braintree-web-drop-in"),
         pypi=("braintree",),
-        cocoapods=("Braintree", "BraintreeDropIn"),
-        composer=("braintree/braintree_php",),
+        cocoapods=("Braintree", "BraintreeDropIn", "BraintreeVisaCheckout"),
+        composer=("braintree/braintree_php", "braintree/braintreehttp"),
         go=("github.com/braintree-go/braintree-go",),
-        maven=("com.braintreepayments.gateway:braintree-java", "com.braintreepayments.api:drop-in"),
+        maven=(
+            "com.braintreepayments.gateway:braintree-java",
+            "com.braintreepayments.api:drop-in",
+            "com.braintreepayments.api:braintree",
+            "com.braintreepayments.api:braintree-api",
+            "com.braintreepayments.api:braintree-core",
+            "com.braintreepayments.api:braintree-models",
+        ),
         rubygems=("braintree",),
-        swiftpm=("github.com/braintree/braintree_ios",),
+        swiftpm=("github.com/braintree/braintree_ios", "github.com/braintree/braintree-ios-drop-in"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

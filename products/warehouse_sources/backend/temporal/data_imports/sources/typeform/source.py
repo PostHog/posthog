@@ -41,8 +41,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class TypeformSource(SimpleSource[TypeformSourceConfig]):
     codebase_detection = detect(
         env=("^TYPEFORM_",),
-        script_hosts=("embed.typeform.com",),
-        npm=("@typeform/api-client", "@typeform/embed", "@typeform/embed-react"),
+        script_hosts=("embed.typeform.com", "btn.typeform.com"),
+        npm=(
+            "@typeform/api-client",
+            "@typeform/embed",
+            "@typeform/embed-react",
+            "@typeform/button",
+            "typeform-elements",
+        ),
+        pypi=("typeform",),
         competes_with=(ProductKey.SURVEYS,),
     )
 

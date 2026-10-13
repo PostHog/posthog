@@ -42,9 +42,9 @@ class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
         env=("^AVALARA_",),
         npm=("avatax",),
         pypi=("avalara",),
-        composer=("avalara/avataxclient",),
+        composer=("avalara/avataxclient", "avalara/avalara_sdk", "avalara/avatax", "avalara/avatax-magento"),
         maven=("net.avalara.avatax:avatax-rest-v2-api-java_2.11",),
-        rubygems=("avatax",),
+        rubygems=("avatax", "Avatax_AddressService", "Avatax_TaxService", "avalara_sdk"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

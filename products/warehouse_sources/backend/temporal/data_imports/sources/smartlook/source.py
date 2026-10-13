@@ -42,9 +42,15 @@ class SmartlookSource(ResumableSource[SmartlookSourceConfig, SmartlookResumeConf
         env=("^SMARTLOOK_",),
         script_hosts=("web-sdk.smartlook.com",),
         npm=("smartlook-client",),
-        cocoapods=("Smartlook", "SmartlookAnalytics"),
+        cocoapods=(
+            "Smartlook",
+            "SmartlookAnalytics",
+            "Segment-Smartlook",
+            "SmartlookConsentSDK",
+            "SmartlookCrashReports",
+        ),
         pub=("smartlook",),
-        swiftpm=("github.com/smartlook/analytics-swift-package",),
+        swiftpm=("github.com/smartlook/analytics-swift-package", "github.com/smartlook/smartlookswiftpackage"),
     )
 
     lists_tables_without_credentials = True

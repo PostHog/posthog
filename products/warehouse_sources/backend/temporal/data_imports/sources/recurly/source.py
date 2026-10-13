@@ -41,10 +41,11 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
         script_hosts=("js.recurly.com",),
         npm=("recurly", "@recurly/react-recurly"),
         pypi=("recurly",),
-        composer=("recurly/recurly-client",),
+        composer=("recurly/recurly-client", "recurly/recurly-client-php"),
         go=("github.com/recurly/recurly-client-go",),
         maven=("com.recurly.v3:api-client",),
         rubygems=("recurly",),
+        swiftpm=("github.com/recurly/recurly-client-ios",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

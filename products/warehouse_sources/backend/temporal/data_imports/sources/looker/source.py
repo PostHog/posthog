@@ -47,7 +47,11 @@ class LookerSource(ResumableSource[LookerSourceConfig, LookerResumeConfig]):
         env=("^LOOKER_", "^LOOKERSDK_"),
         npm=("@looker/sdk", "@looker/sdk-node", "@looker/embed-sdk"),
         pypi=("looker-sdk",),
-        go=("github.com/looker-open-source/sdk-codegen/go",),
+        go=(
+            "github.com/looker-open-source/sdk-codegen/go",
+            "github.com/looker-open-source/looker-cli",
+            "github.com/looker-open-source/looker_o2c_migration_evaluation",
+        ),
         rubygems=("looker-sdk",),
     )
 

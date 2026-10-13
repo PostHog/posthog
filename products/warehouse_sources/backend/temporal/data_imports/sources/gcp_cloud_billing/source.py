@@ -46,9 +46,14 @@ class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpClou
         env=("^(GCP_CLOUD_BILLING|GCPCLOUDBILLING)_",),
         npm=("@google-cloud/billing", "@google-cloud/billing-budgets"),
         pypi=("google-cloud-billing", "google-cloud-billing-budgets"),
-        composer=("google/cloud-billing",),
+        composer=("google/cloud-billing", "google/cloud-billing-budgets"),
         go=("cloud.google.com/go/billing",),
-        maven=("com.google.cloud:google-cloud-billing", "com.google.cloud:google-cloud-billingbudgets"),
+        maven=(
+            "com.google.cloud:google-cloud-billing",
+            "com.google.cloud:google-cloud-billingbudgets",
+            "com.google.cloud:google-cloud-billing-spring-starter",
+            "com.google.cloud:google-cloud-billingbudgets-spring-starter",
+        ),
         rubygems=("google-cloud-billing",),
     )
 

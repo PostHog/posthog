@@ -38,12 +38,13 @@ class SquareSource(ResumableSource[SquareSourceConfig, SquareResumeConfig]):
         script_hosts=("web.squarecdn.com", "sandbox.web.squarecdn.com"),
         npm=("square", "@square/web-sdk"),
         pypi=("squareup",),
-        cocoapods=("SquareInAppPaymentsSDK",),
+        cocoapods=("SquareInAppPaymentsSDK", "SquareBuyerVerificationSDK", "SquareMobilePaymentsSDK"),
         composer=("square/square",),
         go=("github.com/square/square-go-sdk",),
-        maven=("com.squareup:square",),
-        pub=("square_in_app_payments",),
-        rubygems=("square.rb",),
+        maven=("com.squareup:square", "com.squareup:android-times-square", "com.squareup:square-legacy"),
+        pub=("square_in_app_payments", "square_mobile_payments_sdk", "square_reader_sdk"),
+        rubygems=("square.rb", "square-rb", "square_connect", "squareup"),
+        swiftpm=("github.com/square/squarepointofsalesdk-ios",),
     )
 
     supported_versions = ("v2",)

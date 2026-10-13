@@ -40,7 +40,7 @@ class DeepgramSource(ResumableSource[DeepgramSourceConfig, DeepgramResumeConfig]
         pypi=("deepgram-sdk",),
         cargo=("deepgram",),
         go=("github.com/deepgram/deepgram-go-sdk",),
-        maven=("com.deepgram:deepgram-java-sdk",),
+        maven=("com.deepgram:deepgram-java-sdk", "com.deepgram:deepgram-sagemaker"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
     codebase_detection = detect(
         env=("^OMNI_API_TOKEN$", "^OMNI_API_KEY$", "^OMNI_BASE_URL$", "^OMNI_URL$"),
-        npm=("@omni-co/embed",),
+        npm=("@omni-co/embed", "@omni-co/mcp"),
         pypi=("omni-python-sdk",),
     )
 

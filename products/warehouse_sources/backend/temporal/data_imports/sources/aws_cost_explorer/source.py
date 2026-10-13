@@ -44,7 +44,11 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         npm=("@aws-sdk/client-cost-explorer",),
         cargo=("aws-sdk-costexplorer",),
         go=("github.com/aws/aws-sdk-go-v2/service/costexplorer",),
-        maven=("software.amazon.awssdk:costexplorer", "com.amazonaws:aws-java-sdk-costexplorer"),
+        maven=(
+            "software.amazon.awssdk:costexplorer",
+            "com.amazonaws:aws-java-sdk-costexplorer",
+            "software.amazon.awssdk:cost-explorer",
+        ),
         rubygems=("aws-sdk-costexplorer",),
     )
 

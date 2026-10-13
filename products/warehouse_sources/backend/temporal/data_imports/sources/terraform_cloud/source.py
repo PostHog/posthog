@@ -40,7 +40,7 @@ class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, Terraform
     codebase_detection = detect(
         env=("^(TERRAFORM_CLOUD|TERRAFORMCLOUD)_", "^TFE_TOKEN$", "^TFE_ADDRESS$", "^TF_TOKEN_app_terraform_io$"),
         pypi=("pytfe",),
-        go=("github.com/hashicorp/go-tfe",),
+        go=("github.com/hashicorp/go-tfe", "github.com/hashicorp/hcp-terraform-operator"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

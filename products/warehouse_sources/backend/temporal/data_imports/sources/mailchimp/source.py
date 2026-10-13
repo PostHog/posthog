@@ -34,12 +34,38 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
     codebase_detection = detect(
-        env=("^MAILCHIMP_",),
-        script_hosts=("chimpstatic.com",),
-        npm=("@mailchimp/mailchimp_marketing",),
-        pypi=("mailchimp-marketing", "mailchimp3"),
-        composer=("mailchimp/marketing", "drewm/mailchimp-api"),
-        rubygems=("MailchimpMarketing", "gibbon"),
+        env=("^MAILCHIMP_", "^MANDRILL_APIKEY$", "^MCAPI_TOKEN$"),
+        script_hosts=("chimpstatic.com", "downloads.mailchimp.com", "list-manage.com"),
+        npm=(
+            "@mailchimp/mailchimp_marketing",
+            "@mailchimp/mailchimp_transactional",
+            "mandrill-api",
+            "mailchimp-api-v3",
+        ),
+        pypi=("mailchimp-marketing", "mailchimp3", "mailchimp-transactional", "mandrill", "mailchimp"),
+        cargo=("mailchimp_marketing",),
+        cocoapods=("MailchimpSDK", "ChimpKit"),
+        composer=(
+            "mailchimp/marketing",
+            "drewm/mailchimp-api",
+            "mailchimp/marketing-sdk",
+            "mailchimp/transactional",
+            "mailchimp/mailchimp",
+            "mandrill/mandrill",
+            "mailchimp/mc-magento2",
+        ),
+        go=("github.com/mailchimp/mailchimp-marketing-go-sdk",),
+        maven=("com.mailchimp:mailchimp-marketing", "com.github.mailchimp:Mailchimp-SDK-Android"),
+        rubygems=(
+            "MailchimpMarketing",
+            "gibbon",
+            "mailchimp-marketing",
+            "MailchimpTransactional",
+            "mailchimp-api",
+            "mandrill-api",
+            "mailchimp",
+        ),
+        swiftpm=("github.com/mailchimp/mailchimp-marketing-swift-sdk", "github.com/mailchimp/mailchimp-sdk-ios"),
     )
 
     supported_versions = ("3.0",)

@@ -66,7 +66,7 @@ class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConf
         pypi=("oneagent-sdk",),
         cocoapods=("Dynatrace",),
         maven=("com.dynatrace.oneagent.sdk.java:oneagent-sdk", "com.dynatrace.tools.android:gradle-plugin"),
-        pub=("dynatrace_flutter_plugin",),
+        pub=("dynatrace_flutter_plugin", "dynatrace_flutter_plugin_dio"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

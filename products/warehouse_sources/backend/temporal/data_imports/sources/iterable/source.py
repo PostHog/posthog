@@ -43,8 +43,21 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
     codebase_detection = detect(
         env=("^ITERABLE_API_KEY$",),
         npm=("@iterable/web-sdk", "@iterable/react-native-sdk"),
-        cocoapods=("Iterable-iOS-SDK",),
-        maven=("com.iterable:iterableapi",),
+        cocoapods=(
+            "Iterable-iOS-SDK",
+            "Iterable-iOS-AppExtensions",
+            "Iterable-iOS-Inboxless-SDK",
+            "IterableAppExtensions",
+            "IterableSDK",
+        ),
+        maven=(
+            "com.iterable:iterableapi",
+            "com.iterable:iterableapi-ui",
+            "com.iterable:iterableplayutils_2.10",
+            "com.iterable:iterableplayutils_2.11",
+            "com.iterable:iterableplayutils_2.12",
+            "com.iterable:iterableplayutils_2.13",
+        ),
         swiftpm=("github.com/iterable/iterable-swift-sdk",),
     )
 

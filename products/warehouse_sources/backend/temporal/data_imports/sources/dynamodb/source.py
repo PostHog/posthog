@@ -38,7 +38,12 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
         pypi=("pynamodb",),
         cargo=("aws-sdk-dynamodb",),
         go=("github.com/aws/aws-sdk-go-v2/service/dynamodb",),
-        maven=("software.amazon.awssdk:dynamodb", "software.amazon.awssdk:dynamodb-enhanced"),
+        maven=(
+            "software.amazon.awssdk:dynamodb",
+            "software.amazon.awssdk:dynamodb-enhanced",
+            "software.amazon.awssdk:dynamodbdocument-v1",
+            "software.amazon.awssdk:dynamodbmapper-v1",
+        ),
         rubygems=("aws-sdk-dynamodb",),
     )
 

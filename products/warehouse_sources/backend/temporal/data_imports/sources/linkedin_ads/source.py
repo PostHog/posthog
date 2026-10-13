@@ -77,7 +77,12 @@ _API_HEADER_BY_VERSION = {
 
 @SourceRegistry.register
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^LINKEDIN_ADS_",), script_hosts=("snap.licdn.com",))
+    codebase_detection = detect(
+        env=("^LINKEDIN_ADS_", "^NEXT_PUBLIC_LINKEDIN_PARTNER_ID$"),
+        script_hosts=("snap.licdn.com", "px.ads.linkedin.com", "dc.ads.linkedin.com"),
+        npm=("nextjs-linkedin-insight-tag", "react-linkedin-insight", "gatsby-plugin-linkedin-insight"),
+        pypi=("tap-linkedin-ads", "airbyte-source-linkedin-ads"),
+    )
 
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 

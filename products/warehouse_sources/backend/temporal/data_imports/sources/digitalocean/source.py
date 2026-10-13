@@ -37,8 +37,13 @@ class DigitalOceanSource(SimpleSource[DigitalOceanSourceConfig]):
         env=("^DIGITALOCEAN_",),
         npm=("@digitalocean/dots",),
         pypi=("pydo",),
-        go=("github.com/digitalocean/godo",),
-        rubygems=("droplet_kit",),
+        go=(
+            "github.com/digitalocean/godo",
+            "github.com/digitalocean/csi-digitalocean",
+            "github.com/digitalocean/digitalocean-cloud-controller-manager",
+            "github.com/digitalocean/packer-plugin-digitalocean",
+        ),
+        rubygems=("droplet_kit", "omniauth-digitalocean"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
