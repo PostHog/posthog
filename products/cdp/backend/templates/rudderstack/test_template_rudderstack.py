@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
@@ -112,7 +112,7 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
             assert self.get_mock_fetch_calls()[0][1]["body"]["batch"][0]["type"] == expected_action
 
 
-class TestTemplateMigration(BaseTest):
+class TestTemplateMigration(SimpleTestCase):
     def get_plugin_config(self, config: dict):
         _config = {
             "dataPlaneUrl": "us.i.example.com",

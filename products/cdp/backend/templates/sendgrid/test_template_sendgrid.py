@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
@@ -91,7 +91,7 @@ class TestTemplateSendgrid(BaseHogFunctionTemplateTest):
         )
 
 
-class TestTemplateMigration(BaseTest):
+class TestTemplateMigration(SimpleTestCase):
     def get_plugin_config(self, config: dict):
         _config = {
             "sendgridApiKey": "SENDGRID_API_KEY",
