@@ -1,16 +1,17 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import requests_mock
 from requests import HTTPError, Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imperva import (
     ImpervaSourceConfig,
 )
@@ -18,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.im
     ImpervaAPIError,
     ImpervaAuth,
     ImpervaResumeConfig,
-    imperva_source,
     make_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.imperva.settings import DAY_MS
@@ -31,49 +31,37 @@ NOW = datetime(2026, 1, 15, 12, tzinfo=UTC)
 TODAY = int(NOW.replace(hour=0).timestamp() * 1000)
 
 
-def manager() -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
 @pytest.mark.parametrize("resume_page", [None, 4])
 @pytest.mark.parametrize("has_total_pages", [False, True])
 def test_sites_pagination_and_resume(resume_page: int | None, has_total_pages: bool) -> None:
-    state = manager()
-    if resume_page is not None:
-        state.can_resume.return_value = True
-        state.load_state.return_value = ImpervaResumeConfig(page=resume_page)
     first_page = resume_page or 0
     metadata = {"meta": {"totalPages": first_page + 2}} if has_total_pages else {}
-    with requests_mock.Mocker() as http:
-        http.get(
-            SITES_URL,
-            [
-                {"json": {"data": [{"id": 10, "name": "example.com"}], **metadata}},
-                {"json": {"data": [{"id": 11, "name": "example.org"}], **metadata}},
-                {"json": {"data": []}},
-            ],
-        )
-        resource = make_resource(CONFIG, "sites", api_version="v3", team_id=1, job_id="test", manager=state)
-        assert list(resource) == [
-            [{"id": 10, "name": "example.com"}],
-            [{"id": 11, "name": "example.org"}],
-        ]
-        page_count = 2 if has_total_pages else 3
-        assert [request.qs["page"] for request in http.request_history] == [
-            [str(first_page + offset)] for offset in range(page_count)
-        ]
-        for request in http.request_history:
-            assert request.method == "GET"
-            assert request.headers["x-API-Id"] == "fake-api-id"
-            assert request.headers["x-API-Key"] == "fake-api-key"
-            assert request.qs["caid"] == ["12345"]
-            assert request.qs["size"] == ["100"]
-            assert "fake-api" not in request.url
-        assert [call.args[0] for call in state.save_state.call_args_list] == [
-            ImpervaResumeConfig(page=first_page + offset) for offset in range(1, page_count)
-        ]
+    result = SourceDriver(ImpervaSource(), CONFIG).run(
+        "sites",
+        [
+            ScriptedResponse(json={"data": [{"id": 10, "name": "example.com"}], **metadata}),
+            ScriptedResponse(json={"data": [{"id": 11, "name": "example.org"}], **metadata}),
+            ScriptedResponse(json={"data": []}),
+        ],
+        resume_state=ImpervaResumeConfig(page=resume_page) if resume_page is not None else None,
+    )
+
+    assert result.raised is None
+    assert result.items == [
+        [{"id": 10, "name": "example.com"}],
+        [{"id": 11, "name": "example.org"}],
+    ]
+    page_count = 2 if has_total_pages else 3
+    assert result.paths == ["/sites-mgmt/v3/sites"] * page_count
+    assert result.params("page") == [str(first_page + offset) for offset in range(page_count)]
+    for request in result.requests:
+        assert request.method == "GET"
+        assert request.headers["x-api-id"] == "fake-api-id"
+        assert request.headers["x-api-key"] == "fake-api-key"
+        assert request.param("caid") == "12345"
+        assert request.param("size") == "100"
+        assert "fake-api" not in request.url
+    assert result.saved_states == [ImpervaResumeConfig(page=first_page + offset) for offset in range(1, page_count)]
 
 
 @pytest.mark.parametrize("name", ["visits_timeseries", "hits_timeseries", "bandwidth_timeseries"])
@@ -90,48 +78,49 @@ def test_sites_pagination_and_resume(resume_page: int | None, has_total_pages: b
 def test_stats_request_window_and_series_rows(
     name: str, incremental: bool, watermark: int | None, expected_start: int
 ) -> None:
-    state = manager()
-    inputs = MagicMock(spec=SourceInputs)
-    inputs.schema_name = name
-    inputs.team_id = 1
-    inputs.job_id = "test"
-    inputs.should_use_incremental_field = incremental
-    inputs.db_incremental_field_last_value = watermark
-    with requests_mock.Mocker() as http:
-        http.post(
-            STATS_URL,
-            json={
-                "res": 0,
-                name: [
-                    {"id": "human", "name": "Human", "data": [[TODAY, 12], [TODAY - DAY_MS, 0]]},
-                    {"id": "bot", "name": "Bot", "data": [[TODAY, 4]]},
-                ],
-            },
-        )
-        response = imperva_source(CONFIG, inputs, state, "v3")
-        pages = list(cast(Iterable[Any], response.items()))
-        assert pages == [
-            [
-                {"account_id": "12345", "id": "human", "name": "Human", "timestamp": TODAY, "value": 12},
-                {"account_id": "12345", "id": "human", "name": "Human", "timestamp": TODAY - DAY_MS, "value": 0},
-                {"account_id": "12345", "id": "bot", "name": "Bot", "timestamp": TODAY, "value": 4},
-            ]
+    result = SourceDriver(ImpervaSource(), CONFIG).run(
+        name,
+        [
+            ScriptedResponse(
+                json={
+                    "res": 0,
+                    name: [
+                        {"id": "human", "name": "Human", "data": [[TODAY, 12], [TODAY - DAY_MS, 0]]},
+                        {"id": "bot", "name": "Bot", "data": [[TODAY, 4]]},
+                    ],
+                }
+            )
+        ],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+
+    assert result.raised is None
+    assert result.items == [
+        [
+            {"account_id": "12345", "id": "human", "name": "Human", "timestamp": TODAY, "value": 12},
+            {"account_id": "12345", "id": "human", "name": "Human", "timestamp": TODAY - DAY_MS, "value": 0},
+            {"account_id": "12345", "id": "bot", "name": "Bot", "timestamp": TODAY, "value": 4},
         ]
-        assert response.sort_mode == "desc"
-        assert response.supports_resume is False
-        assert len({tuple(row[key] for key in response.primary_keys or []) for row in pages[0]}) == 3
-        assert http.call_count == 1
-        assert http.last_request is not None
-        assert http.last_request.qs == {
-            "account_id": ["12345"],
-            "time_range": ["custom"],
-            "start": [str(expected_start)],
-            "end": [str(int(NOW.timestamp() * 1000))],
-            "granularity": [str(DAY_MS)],
-            "stats": [name],
+    ]
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+    assert result.response.supports_resume is False
+    assert len({tuple(row[key] for key in result.response.primary_keys or []) for row in result.rows}) == 3
+    assert len(result.requests) == 1
+    assert result.requests[0].method == "POST"
+    assert result.paths == ["/api/stats/v1"]
+    assert result.queries == [
+        {
+            "account_id": ("12345",),
+            "time_range": ("custom",),
+            "start": (str(expected_start),),
+            "end": (str(int(NOW.timestamp() * 1000)),),
+            "granularity": (str(DAY_MS),),
+            "stats": (name,),
         }
-        state.load_state.assert_not_called()
-        state.save_state.assert_not_called()
+    ]
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("code", [9403, 9411, 9413, 9414, 9415, 2, 13001, 13002, 9999])

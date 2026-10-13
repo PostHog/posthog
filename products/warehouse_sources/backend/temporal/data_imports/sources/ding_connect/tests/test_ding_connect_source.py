@@ -4,22 +4,33 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.source import DingConnectSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dingconnect import (
+    DingConnectSourceConfig,
+)
 
 
 class TestValidateCredentials:
-    def test_valid_credentials(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(source_module, "validate_ding_connect_credentials", lambda api_key: True)
-        ok, error = DingConnectSource().validate_credentials(MagicMock(api_key="key"), team_id=1)
+    def test_valid_credentials(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            ok, error = DingConnectSource().validate_credentials(DingConnectSourceConfig(api_key="key"), team_id=1)
+
         assert ok is True
         assert error is None
+        assert network.requests_log[0].path == "/api/V1/GetBalance"
 
-    def test_invalid_credentials(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(source_module, "validate_ding_connect_credentials", lambda api_key: False)
-        ok, error = DingConnectSource().validate_credentials(MagicMock(api_key="key"), team_id=1)
+    def test_invalid_credentials(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            ok, error = DingConnectSource().validate_credentials(DingConnectSourceConfig(api_key="key"), team_id=1)
+
         assert ok is False
         assert error == "Invalid DingConnect API key"
+        assert network.requests_log[0].path == "/api/V1/GetBalance"
 
 
 class TestSourceForPipeline:

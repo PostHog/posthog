@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
@@ -54,14 +55,12 @@ class TestAsknicelySource:
     def test_validate_credentials_rejects_bad_subdomain_without_a_request(self, subdomain: str) -> None:
         config = AsknicelySourceConfig(subdomain=subdomain, api_key="test-key")
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source.validate_asknicely_credentials"
-        ) as mock_validate:
+        with scripted_network([]) as network:
             is_valid, error_message = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None and "subdomain" in error_message
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid"),
@@ -70,22 +69,24 @@ class TestAsknicelySource:
             ((False, "Invalid AskNicely API key"), False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source.validate_asknicely_credentials"
-    )
     def test_validate_credentials_delegates_to_transport(
         self,
-        mock_validate: mock.MagicMock,
         mock_return: tuple[bool, str | None],
         expected_valid: bool,
     ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        status = 200 if expected_valid else 401
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
-        assert error_message == mock_return[1]
-        mock_validate.assert_called_once_with("acme", "test-key")
+        if mock_return[1] is None:
+            assert error_message is None
+        else:
+            assert error_message is not None and error_message.startswith(mock_return[1])
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.url == build_responses_url("acme", page_number=1, since_time=0, page_size=1)
+        assert request.headers["x-apikey"] == "test-key"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source.asknicely_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

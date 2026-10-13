@@ -1,12 +1,14 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.source import DodoPaymentsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dodopayments import (
     DodoPaymentsSourceConfig,
 )
-
-API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.source.api_client"
 
 
 class TestDodoPaymentsSource:
@@ -16,27 +18,27 @@ class TestDodoPaymentsSource:
         self.config = DodoPaymentsSourceConfig(api_key="test-api-key", mode="live")
 
     @pytest.mark.parametrize(
-        "probe_result, expected_valid, expected_message_fragment",
+        "status, expected_valid, expected_message_fragment",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "rejected the API key"),
-            ((False, 403), False, "permission to read"),
-            ((False, 429), False, "rate limiting"),
-            ((False, 500), False, "server error"),
-            ((False, None), False, "Could not reach"),
+            (200, True, None),
+            (401, False, "rejected the API key"),
+            (403, False, "permission to read"),
+            (429, False, "rate limiting"),
+            (500, False, "server error"),
+            (None, False, "Could not reach"),
         ],
     )
-    @mock.patch(f"{API_CLIENT_PATCH}.validate_credentials")
     def test_validate_credentials_maps_probe_results(
-        self, mock_validate, probe_result, expected_valid, expected_message_fragment
-    ):
-        mock_validate.return_value = probe_result
-
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
+        self, status: int | None, expected_valid: bool, expected_message_fragment: str | None
+    ) -> None:
+        answer = ConnectionError("connection reset") if status is None else ScriptedResponse(status=status)
+        with scripted_network(always(answer)) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         if expected_message_fragment is None:
             assert message is None
         else:
             assert message is not None and expected_message_fragment in message
-        mock_validate.assert_called_once_with("test-api-key", "live")
+        assert network.requests_log[0].url == "https://live.dodopayments.com/customers?page_size=1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer test-api-key"

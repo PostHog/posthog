@@ -1,134 +1,83 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loops import LoopsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.loops.loops import (
     LoopsResumeConfig,
-    loops_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import LOOPS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.loops.source import LoopsSource
 
 
-def _make_http_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
-def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> dict[str, Any]:
-    return {
-        "pagination": {
-            "totalResults": len(rows),
-            "returnedResults": len(rows),
-            "perPage": 50,
-            "totalPages": 1,
-            "nextCursor": next_cursor,
-            "nextPage": None,
-        },
-        "data": rows,
-    }
+def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "pagination": {
+                "totalResults": len(rows),
+                "returnedResults": len(rows),
+                "perPage": 50,
+                "totalPages": 1,
+                "nextCursor": next_cursor,
+                "nextPage": None,
+            },
+            "data": rows,
+        }
+    )
 
 
 class TestLoopsSource:
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Drive ``loops_source`` with a mocked HTTP session.
-
-        Returns ``(rows, sent_params)``: ``rows`` is the flattened row stream (the
-        resource yields one list per page), and ``sent_params`` holds shallow copies
-        of ``request.params`` captured at send-time — the Request object is mutated
-        in-place by the paginator between pages.
-        """
-        rows, sent = self._drive_requests(endpoint, manager, responses)
-        return rows, [params for _, params in sent]
-
-    def _drive_requests(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]]]:
-        sent: list[tuple[str, dict[str, Any]]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent.append((request.url, dict(request.params or {})))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = loops_source(
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            rows = [
-                row
-                for item in cast(Iterable[Any], source_response.items())
-                for row in (item if isinstance(item, list) else [item])
-            ]
-            return rows, sent
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(LoopsSource(), LoopsSourceConfig(api_key="test-key"))
 
     def test_fresh_run_pages_through_cursors_and_saves_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "campaigns",
+            [
+                _page([{"id": "c1"}], next_cursor="cursor-1"),
+                _page([{"id": "c2"}], next_cursor="cursor-2"),
+                _page([{"id": "c3"}], next_cursor=None),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_page([{"id": "c1"}], next_cursor="cursor-1")),
-            _make_http_response(_page([{"id": "c2"}], next_cursor="cursor-2")),
-            _make_http_response(_page([{"id": "c3"}], next_cursor=None)),
-        ]
-        rows, sent_params = self._drive("campaigns", manager, responses)
-
-        assert [row["id"] for row in rows] == ["c1", "c2", "c3"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["c1", "c2", "c3"]
         # First request has no cursor (fresh run); subsequent requests carry the
         # prior page's nextCursor. Every request asks for the max page size.
-        assert [p.get("cursor") for p in sent_params] == [None, "cursor-1", "cursor-2"]
-        assert all(p.get("perPage") == 50 for p in sent_params)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.params("cursor") == [None, "cursor-1", "cursor-2"]
+        assert result.params("perPage") == ["50", "50", "50"]
+        assert result.saved_states == [
             LoopsResumeConfig(cursor="cursor-1"),
             LoopsResumeConfig(cursor="cursor-2"),
         ]
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = LoopsResumeConfig(cursor="cursor-resumed")
+        result = self._driver().run(
+            "campaigns",
+            [_page([{"id": "c4"}], next_cursor=None)],
+            resume_state=LoopsResumeConfig(cursor="cursor-resumed"),
+        )
 
-        responses = [
-            _make_http_response(_page([{"id": "c4"}], next_cursor=None)),
-        ]
-        _, sent_params = self._drive("campaigns", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("cursor") == ["cursor-resumed"]
 
     @pytest.mark.parametrize(
         ("endpoint", "parent_path", "child_path", "id_column", "unavailable_status"),
         [
             # A campaign that has not been sent yet answers 400.
-            ("campaign_metrics", "/v1/campaigns", "/v1/campaigns/{}/metrics", "campaignId", 400),
+            ("campaign_metrics", "/api/v1/campaigns", "/api/v1/campaigns/{}/metrics", "campaignId", 400),
             (
                 "transactional_email_metrics",
-                "/v1/transactional-emails",
-                "/v1/transactional-emails/{}/metrics",
+                "/api/v1/transactional-emails",
+                "/api/v1/transactional-emails/{}/metrics",
                 "transactionalId",
                 404,
             ),
@@ -137,54 +86,58 @@ class TestLoopsSource:
     def test_metrics_fan_out_over_parent_and_skip_unavailable(
         self, endpoint: str, parent_path: str, child_path: str, id_column: str, unavailable_status: int
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            endpoint,
+            [
+                _page([{"id": "a"}, {"id": "b"}], next_cursor="cursor-1"),
+                ScriptedResponse(json={"sends": 10, "hardBounces": 1}),
+                ScriptedResponse(status=unavailable_status, json={"message": "unavailable"}),
+                _page([{"id": "c"}], next_cursor=None),
+                ScriptedResponse(json={"sends": 3, "hardBounces": 0}),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_page([{"id": "a"}, {"id": "b"}], next_cursor="cursor-1")),
-            _make_http_response({"sends": 10, "hardBounces": 1}),
-            _make_http_response({"message": "unavailable"}, status_code=unavailable_status),
-            _make_http_response(_page([{"id": "c"}], next_cursor=None)),
-            _make_http_response({"sends": 3, "hardBounces": 0}),
-        ]
-        rows, sent = self._drive_requests(endpoint, manager, responses)
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"sends": 10, "hardBounces": 1, id_column: "a"},
             {"sends": 3, "hardBounces": 0, id_column: "c"},
         ]
-        base = "https://app.loops.so/api"
-        assert sent == [
-            (f"{base}{parent_path}", {"perPage": 50}),
-            (f"{base}{child_path.format('a')}", {}),
-            (f"{base}{child_path.format('b')}", {}),
-            (f"{base}{parent_path}", {"perPage": 50, "cursor": "cursor-1"}),
-            (f"{base}{child_path.format('c')}", {}),
+        assert result.paths == [
+            parent_path,
+            child_path.format("a"),
+            child_path.format("b"),
+            parent_path,
+            child_path.format("c"),
         ]
-        manager.save_state.assert_not_called()
+        assert result.queries == [
+            {"perPage": ("50",)},
+            {},
+            {},
+            {"perPage": ("50",), "cursor": ("cursor-1",)},
+            {},
+        ]
+        assert all(request.origin == "https://app.loops.so" for request in result.requests)
+        assert result.saved_states == []
 
     @pytest.mark.parametrize("endpoint", list(LOOPS_ENDPOINTS.keys()))
     def test_source_response_primary_and_partition_keys(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        source_response = loops_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-        )
-
         endpoint_config = LOOPS_ENDPOINTS[endpoint]
-        assert source_response.name == endpoint
-        assert source_response.primary_keys == [endpoint_config.primary_key]
-        if endpoint_config.partition_key:
-            assert source_response.partition_keys == [endpoint_config.partition_key]
-            assert source_response.partition_mode == "datetime"
+        if endpoint_config.paginated or endpoint_config.fanout:
+            answer = _page([], next_cursor=None)
         else:
-            assert source_response.partition_keys is None
-            assert source_response.partition_mode is None
+            answer = ScriptedResponse(json=[])
+        result = self._driver().run(endpoint, [answer])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == [endpoint_config.primary_key]
+        if endpoint_config.partition_key:
+            assert result.response.partition_keys == [endpoint_config.partition_key]
+            assert result.response.partition_mode == "datetime"
+        else:
+            assert result.response.partition_keys is None
+            assert result.response.partition_mode is None
 
 
 class TestValidateCredentials:
@@ -199,13 +152,11 @@ class TestValidateCredentials:
     def test_status_code_mapping(
         self, status_code: int, expected_valid: bool, expected_message_fragment: str | None
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loops.loops.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _make_http_response({"success": True}, status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code, json={"success": True}))) as network:
             is_valid, message = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/api-key"}
+        assert network.requests_log[0].headers["authorization"] == "Bearer test-key"
         assert is_valid is expected_valid
         if expected_message_fragment is None:
             assert message is None
@@ -213,12 +164,9 @@ class TestValidateCredentials:
             assert message is not None and expected_message_fragment in message
 
     def test_network_error_returns_invalid(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.loops.loops.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.side_effect = ConnectionError("connection refused")
-
+        with scripted_network(always(ConnectionError("connection refused"))) as network:
             is_valid, message = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/api-key"}
         assert is_valid is False
         assert message is not None and "connection refused" in message

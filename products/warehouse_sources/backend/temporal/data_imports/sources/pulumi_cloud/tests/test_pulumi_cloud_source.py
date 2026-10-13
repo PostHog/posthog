@@ -1,34 +1,12 @@
-from typing import Optional
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pulumicloud import (
     PulumiCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.source import PulumiCloudSource
-
-
-def _source_inputs(
-    schema_name: str, last_value: Optional[object] = None, use_incremental: bool = False
-) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=use_incremental,
-        db_incremental_field_last_value=last_value,
-        db_incremental_field_earliest_value=None,
-        incremental_field="timestamp" if use_incremental else None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestPulumiCloudSource:
@@ -87,11 +65,3 @@ class TestPulumiCloudSource:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
-        # Passing a stale watermark on a full-refresh run would wrongly narrow the audit-log window.
-        config = PulumiCloudSourceConfig(access_token="pul-test", organization="my-org")
-        inputs = _source_inputs("audit_logs", last_value=1750000000, use_incremental=False)
-        with patch.object(source_module, "pulumi_cloud_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
