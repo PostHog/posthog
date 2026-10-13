@@ -377,7 +377,7 @@ export class HogFunctionHandler implements ActionHandler {
                     ? [
                           {
                               team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.functionId,
+                              app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                               instance_id: action.id,
                               metric_kind: 'email' as const,
                               metric_name: 'email_suppressed' as const,
@@ -414,7 +414,7 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [
                     {
                         team_id: hogFunctionInvocation.teamId,
-                        app_source_id: hogFunctionInvocation.functionId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                         instance_id: action.id,
                         metric_kind: 'email',
                         metric_name: 'email_bounce_prevented',
