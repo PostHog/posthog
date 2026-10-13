@@ -3176,6 +3176,20 @@ describe('maxThreadLogic', () => {
             })
             expect(visibleProposal()).toBe('new')
         })
+
+        it('follows the server for approvals it returns and selects none at turn end without a selection', () => {
+            logic.actions.addPendingApprovalData(approval('other', 'pending'))
+            logic.actions.completeThreadGeneration()
+            expect(visibleProposal()).toBeUndefined()
+
+            logic.actions.setConversation({
+                ...MOCK_CONVERSATION,
+                pending_approvals: [approval('other', 'auto_rejected')],
+            })
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, pending_approvals: [approval('other', 'pending')] })
+            expect(logic.values.pendingApprovalsData['other'].decision_status).toBe('pending')
+            expect(visibleProposal()).toBe('other')
+        })
     })
 
     describe('retryCount', () => {

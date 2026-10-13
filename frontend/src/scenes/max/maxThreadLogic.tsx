@@ -1201,20 +1201,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (conversation?.pending_approvals ?? []).map((a) => [a.proposal_id, a])
                     ) as Record<string, PendingApproval>
 
-                    // Merge: existing data takes precedence (streaming approvals are more up-to-date)
-                    // This prevents losing approval cards when setConversation is called during askMax
-                    const hasExistingData = Object.keys(state).length > 0
-                    if (hasExistingData) {
-                        const merged = { ...incomingApprovals, ...state }
-                        for (const [proposalId, incoming] of Object.entries(incomingApprovals)) {
-                            if (incoming.decision_status !== 'pending') {
-                                merged[proposalId] = incoming
-                            }
-                        }
-                        return merged
-                    }
-
-                    return incomingApprovals
+                    return { ...state, ...incomingApprovals }
                 },
             },
         ],
@@ -2277,10 +2264,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             const newConversation = {
                 ...values.conversation,
-                pending_approvals: Object.values(values.pendingApprovalsData).map((approval) => {
-                    const resolved = values.resolvedApprovalStatuses[approval.proposal_id]
-                    return resolved ? { ...approval, decision_status: resolved.status } : approval
-                }),
+                pending_approvals: Object.values(values.pendingApprovalsData)
+                    .filter((approval) => approval.proposal_id === values.pendingApprovalProposalId)
+                    .map((approval) => {
+                        const resolved = values.resolvedApprovalStatuses[approval.proposal_id]
+                        return resolved ? { ...approval, decision_status: resolved.status } : approval
+                    }),
                 status: ConversationStatus.Idle,
             }
 
