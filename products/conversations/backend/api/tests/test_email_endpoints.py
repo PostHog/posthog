@@ -2029,7 +2029,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         text_part = parsed.get_body(preferencelist=("plain",))
         html_part = parsed.get_body(preferencelist=("html",))
         assert text_part is not None and html_part is not None
-        text_body = text_part.get_content()
+        text_body = text_part.get_content().replace("\r\n", "\n")
         html_body = html_part.get_content()
         assert text_body.startswith("Reply from agent")
         assert ("-- \nAnn & Co Agent\nTest" in text_body) is enabled
