@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -6,6 +7,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+
+const FLASH_MS = 2000
 
 export function ScannerDraftStatus({
     scannerId,
@@ -15,6 +18,17 @@ export function ScannerDraftStatus({
     fromOverview: boolean
 }): JSX.Element | null {
     const { isNew, hasUnsavedChanges, scannerDraftSavedAt } = useValues(replayScannerLogic({ id: scannerId }))
+    const [justSaved, setJustSaved] = useState(false)
+    const mountedWith = useRef(scannerDraftSavedAt)
+
+    useEffect(() => {
+        if (scannerDraftSavedAt === null || scannerDraftSavedAt === mountedWith.current) {
+            return
+        }
+        setJustSaved(true)
+        const timer = window.setTimeout(() => setJustSaved(false), FLASH_MS)
+        return () => window.clearTimeout(timer)
+    }, [scannerDraftSavedAt])
 
     if (!isNew || !hasUnsavedChanges) {
         return null
@@ -50,7 +64,7 @@ export function ScannerDraftStatus({
                 data-attr="vision-editor-draft-status"
             >
                 <IconCheckCircle className="text-base text-success shrink-0" />
-                Draft saved
+                {justSaved ? 'Saved just now' : 'Draft saved'}
             </span>
         </Tooltip>
     )
