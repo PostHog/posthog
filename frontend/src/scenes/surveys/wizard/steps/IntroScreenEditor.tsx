@@ -4,7 +4,8 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 
 import { SurveyAppearance } from '~/types'
 
-import { isIntroScreenShown } from '../../surveyIntroScreen'
+import { HTMLEditor } from '../../SurveyAppearanceUtils'
+import { getIntroScreenDescriptionContentType, isIntroScreenShown } from '../../surveyIntroScreen'
 import { ScreenEditorCard } from './ScreenEditorCard'
 
 interface IntroScreenEditorProps {
@@ -32,17 +33,12 @@ export function IntroScreenEditor({ appearance, onUpdate, onToggle }: IntroScree
                 compactIcon
                 showEditIconOnHover
             />
-            <EditableField
-                name="intro-description"
-                multiline
+            <HTMLEditor
                 value={appearance.introScreenDescription || ''}
-                onSave={(text) => onUpdate({ introScreenDescription: text })}
-                placeholder="Add a description (optional)"
-                className="text-secondary text-xs"
-                saveOnBlur
-                clickToEdit
-                compactIcon
-                showEditIconOnHover
+                onChange={(text) => onUpdate({ introScreenDescription: text })}
+                activeTab={getIntroScreenDescriptionContentType(appearance)}
+                onTabChange={(contentType) => onUpdate({ introScreenDescriptionContentType: contentType })}
+                textPlaceholder="Add a description (optional)"
             />
             <EditableField
                 name="intro-button-text"
