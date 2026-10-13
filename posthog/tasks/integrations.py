@@ -57,7 +57,9 @@ def refresh_integrations() -> int:
     github_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="github").all())
 
     for integration in github_integrations:
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(
+            integration, source="integration_token_refresh", priority=Priority.CRITICAL
+        )
 
         if not refresh_backoff_active(integration) and github_integration.access_token_expired():
             refresh_integration.delay(integration.id)
@@ -103,7 +105,9 @@ def refresh_integration(id: int) -> int:
         if gcloud_integration.access_token_expired():
             gcloud_integration.refresh_access_token()
     elif integration.kind == "github":
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(
+            integration, source="integration_token_refresh", priority=Priority.CRITICAL
+        )
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
     elif integration.kind == "firebase":

@@ -67,6 +67,6 @@ class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
         if self.is_data_warehouse:
             return ast.Constant(value=True)
 
-        from posthog.cdp.filters import hog_function_filters_to_expr
+        from products.cdp.backend.filters import hog_function_filters_to_expr
 
         return hog_function_filters_to_expr(self.filters, self.team, {})

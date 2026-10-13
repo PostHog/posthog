@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
     OnfleetSourceConfig,
 )
@@ -35,15 +39,16 @@ class TestOnfleetSource:
             ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert ok is expected_ok
 
-    def test_source_for_pipeline_plumbs_arguments(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "tasks"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = 1700000000000
-        inputs.incremental_field = "timeCreated"
-        manager = mock.MagicMock()
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "tasks",
+            [ScriptedResponse(json={"tasks": [{"id": "1"}]})],
+            incremental_field="timeCreated",
+            db_incremental_field_last_value=1700000000000,
+        )
 
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.name == "tasks"
-        assert response.primary_keys == ["id"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "tasks"
+        assert result.response.primary_keys == ["id"]
+        assert result.requests[0].param("from") == "1700000000000"

@@ -228,6 +228,41 @@ class TestTrendsResultsFormatter(BaseTest):
             "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "iso_strings_crossing_local_midnight",
+                {"date_from": "2026-10-12T23:41:45-07:00", "date_to": "2026-10-13T00:41:49-07:00"},
+                "2026-10-12 23:41:45-07:00 to 2026-10-13 00:41:49-07:00",
+            ),
+            (
+                "datetimes_with_microseconds",
+                {
+                    "date_from": datetime(2026, 10, 12, 23, 41, 45, 123456, tzinfo=ZoneInfo("America/Los_Angeles")),
+                    "date_to": datetime(2026, 10, 13, 0, 41, 49, 999999, tzinfo=ZoneInfo("America/Los_Angeles")),
+                },
+                "2026-10-12 23:41:45-07:00 to 2026-10-13 00:41:49-07:00",
+            ),
+        ]
+    )
+    def test_trends_aggregated_value_uses_resolved_date_range(self, _name, resolved_date_range, expected_range):
+        results = [
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 82,
+                "label": "$pageview",
+                "action": {"days": ["2026-10-12 00:00:00-07:00", "2026-10-13 00:00:00-07:00"]},
+            }
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(series=[]), results, resolved_date_range=resolved_date_range
+            ).format(),
+            f"Date range|Aggregated value for $pageview\n{expected_range}|82",
+        )
+
     def test_trends_aggregated_values(self):
         results = [
             {

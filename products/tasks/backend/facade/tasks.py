@@ -8,6 +8,7 @@ import logging
 
 from celery import shared_task
 
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.loop_reconciliation import reconcile_loop_trigger_schedules_task
 from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
 from products.tasks.backend.task_auto_archive import sweep_inactive_tasks_task
@@ -42,7 +43,7 @@ def bake_dev_stack_image_task() -> None:
         is_dev_stack_image_bake_enabled,  # noqa: PLC0415 — keeps posthoganalytics off the import path
     )
 
-    if not is_dev_stack_image_bake_enabled():
+    if DevStackImageState.target() is None and not is_dev_stack_image_bake_enabled():
         return
 
     from products.tasks.backend.metrics import (
