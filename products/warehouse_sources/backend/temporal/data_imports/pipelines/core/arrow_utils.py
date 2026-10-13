@@ -1450,8 +1450,9 @@ def _process_batch(
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
-            # Gather all unique keys from all items, not just the first
-            all_keys = set().union(*(d.keys() for d in table_data))
+            # Gather all unique keys from all items, not just the first. Use a dict, not a set, so
+            # that the columns keep the order the source gave them.
+            all_keys = dict.fromkeys(key for d in table_data for key in d)
             first_item = table_data[0]
             first_item = {key: first_item.get(key, None) for key in all_keys}
             table_data[0] = first_item
@@ -1463,7 +1464,7 @@ def _process_batch(
 
     drop_column_names: set[str] = set()
 
-    column_names = set(table_data[0].keys())
+    column_names = list(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
     for col in column_names:

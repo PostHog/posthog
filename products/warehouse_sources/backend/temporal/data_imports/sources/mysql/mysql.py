@@ -20,7 +20,7 @@ import time
 import socket
 import datetime
 import collections
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
@@ -86,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     IncrementalFieldFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetPage,
     KeysetResumeState,
     iter_keyset_pages,
     keyset_last_key,
@@ -118,6 +119,37 @@ _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
+# Client-side PyMySQL read_timeout for a connection that reads metadata: schema discovery and the
+# setup work before the first row. Without it a server that stops answering holds the caller for
+# as long as the socket stays open. Schema discovery must also end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_READ_TIMEOUT_SECONDS = 300
+
+# PyMySQL applies `read_timeout` to each socket read, not to a statement. It is thus a limit on one
+# silent wait: a read that keeps receiving rows never reaches it, and a server that goes silent
+# ends with error 2013 after this long. The limits above are sized for a slow query. The ones
+# below cover the two waits that those limits made too long.
+#
+# The TCP connect and the DNS lookup.
+CONNECT_TIMEOUT_SECONDS = 10
+# The server greeting and the login. Without it they wait for the read timeout of the caller, so a
+# server that accepts the socket and then says nothing costs up to 10 minutes for each of the
+# connect attempts.
+HANDSHAKE_READ_TIMEOUT_SECONDS = 30
+# One send of a statement. PyMySQL has no default, and a statement is small.
+WRITE_TIMEOUT_SECONDS = 60
+
+# TCP options that end a connection whose peer went away: a dead peer on an idle socket in about
+# 80 seconds, and data that the peer never acknowledges in 60. Both stay quiet while the peer
+# answers at the TCP level, so neither ends a statement that the server still works on. Each is
+# set only where the platform has it.
+_TCP_LIVENESS_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("TCP_KEEPIDLE", 30),
+    ("TCP_KEEPINTVL", 10),
+    ("TCP_KEEPCNT", 5),
+    ("TCP_USER_TIMEOUT", 60_000),
+)
+
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
 # the filesort preparation exceeds a middlebox / server-side query timeout
@@ -140,6 +172,13 @@ _OUT_OF_SORT_MEMORY_CODE = 1038
 # incremental-field index lets MySQL read rows in index order and skip the
 # filesort entirely, so the same FORCE INDEX fallback resolves it.
 _QUERY_EXECUTION_TIME_EXCEEDED_CODE = 3024
+
+# pymysql error code for MariaDB's "Query execution was interrupted (max_statement_time
+# exceeded)" — MariaDB's own `max_statement_time` session/global cap, the same bad plan
+# (full scan + filesort over the incremental field) seen from a fourth side. It's MariaDB's
+# equivalent of MySQL's `max_execution_time` (3024) above, so the same FORCE INDEX fallback
+# resolves it.
+_MAX_STATEMENT_TIME_EXCEEDED_CODE = 1969
 
 # Raised in place of the raw pymysql 2013 when a lost-connection bad plan can't be dodged by the
 # FORCE INDEX fallback because the incremental field has no usable index. The un-indexed full-table
@@ -334,7 +373,7 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     """Return True if the error is a symptom of MySQL filesorting the incremental
     `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Matches three codes, all signalling the optimizer picked a full scan + filesort
+    Matches four codes, all signalling the optimizer picked a full scan + filesort
     over the incremental field:
 
     - `2013` (lost connection during query): the filesort preparation outran a
@@ -343,13 +382,21 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
       `sort_buffer_size`.
     - `3024` (query execution was interrupted): the server's own `max_execution_time`
       cap killed the query before the filesort could finish.
+    - `1969` (query execution was interrupted): MariaDB's own `max_statement_time`
+      cap killed the query before the filesort could finish — MariaDB's equivalent
+      of 3024.
 
     Forcing the incremental-field index makes MySQL read rows in index order and
-    skip the filesort, resolving all three. Other `OperationalError`s (access denied,
+    skip the filesort, resolving all four. Other `OperationalError`s (access denied,
     table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE, _QUERY_EXECUTION_TIME_EXCEEDED_CODE)
+    return code in (
+        _LOST_CONNECTION_DURING_QUERY_CODE,
+        _OUT_OF_SORT_MEMORY_CODE,
+        _QUERY_EXECUTION_TIME_EXCEEDED_CODE,
+        _MAX_STATEMENT_TIME_EXCEEDED_CODE,
+    )
 
 
 # Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
@@ -751,8 +798,43 @@ class _FieldCharsetResult(MySQLResult):
                 self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
 
 
+def _set_tcp_liveness(sock: socket.socket) -> None:
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for name, value in _TCP_LIVENESS_OPTIONS:
+            option = getattr(socket, name, None)
+            if option is not None:
+                sock.setsockopt(socket.IPPROTO_TCP, option, value)
+    except OSError as e:
+        # Best-effort: the read timeout still limits each wait on a socket that refuses an option.
+        structlog.get_logger().debug("Could not set TCP liveness options on a MySQL socket", error=str(e))
+
+
 class _SourceConnection(pymysql.Connection):
     """A pymysql connection that reads every result through `_FieldCharsetResult`."""
+
+    def connect(self, sock: socket.socket | None = None) -> None:
+        # pymysql keeps the read timeout in a private attribute and has no setter for it.
+        read_timeout: float | None = getattr(self, "_read_timeout", None)
+        handshake_read_timeout = (
+            HANDSHAKE_READ_TIMEOUT_SECONDS
+            if read_timeout is None
+            else min(read_timeout, HANDSHAKE_READ_TIMEOUT_SECONDS)
+        )
+        self._configured_read_timeout = read_timeout
+        setattr(self, "_read_timeout", handshake_read_timeout)  # noqa: B010
+        try:
+            super().connect(sock)
+        finally:
+            setattr(self, "_read_timeout", read_timeout)  # noqa: B010
+        _set_tcp_liveness(self._sock)  # type: ignore[attr-defined]
+
+    def _request_authentication(self) -> None:
+        super()._request_authentication()  # type: ignore[misc]
+        # pymysql runs SET NAMES, `init_command` and the autocommit setup right after the login,
+        # inside `connect`, so they get the configured limit and not the handshake limit.
+        if hasattr(self, "_configured_read_timeout"):
+            setattr(self, "_read_timeout", self._configured_read_timeout)  # noqa: B010
 
     def _read_query_result(self, unbuffered: bool = False) -> int:
         # Mirrors `pymysql.Connection._read_query_result` (1.1.1) with the result class swapped.
@@ -792,7 +874,20 @@ class _TLSRequiredConnection(_SourceConnection):
                 "The MySQL server did not offer a TLS connection. Turn off certificate "
                 "verification for this source, or enable TLS on the server.",
             )
-        super()._request_authentication()  # type: ignore[misc]
+        super()._request_authentication()
+
+
+def connection_timeouts(read_timeout: int) -> dict[str, int]:
+    """The pymysql timeout arguments of every source connection.
+
+    `read_timeout` has no default and no None on purpose: a connection without it waits on a silent
+    server for as long as the socket stays open.
+    """
+    return {
+        "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+        "read_timeout": read_timeout,
+        "write_timeout": WRITE_TIMEOUT_SECONDS,
+    }
 
 
 def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
@@ -1171,7 +1266,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = None,
+        read_timeout: int = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1181,6 +1276,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
         resolves to a `*.psdb.cloud` address. Callers vary two things —
+        metadata work keeps the default `METADATA_READ_TIMEOUT_SECONDS`,
         the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready, and the keyset path sets `autocommit` so each
@@ -1207,7 +1303,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,
-                "connect_timeout": 10,
+                **connection_timeouts(read_timeout),
                 "ssl_ca": ssl_ca,
                 # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so only an
                 # explicit True verifies. None leaves that prior behavior untouched.
@@ -1217,8 +1313,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "autocommit": autocommit,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
-            if read_timeout is not None:
-                kwargs["read_timeout"] = read_timeout
             with _connect_with_transient_retry(kwargs, team_id) as conn:
                 yield conn
 
@@ -1907,7 +2001,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     arrow_schema = projection.table.to_arrow_schema()
                     plan_checked = False
 
-                    def _run_page(page_sql: SafeSQL) -> pa.Table | None:
+                    def _run_page(page_sql: SafeSQL) -> KeysetPage | None:
                         nonlocal plan_checked
                         with connection.cursor() as cursor:
                             # Check the first page that actually seeks — page 1 has no `pk >`
@@ -1921,8 +2015,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             rows = cursor.fetchall()
                             if not rows:
                                 return None
-                            column_names = [column[0] for column in cursor.description or []]
-                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            return KeysetPage(columns=[column[0] for column in cursor.description or []], rows=rows)
+
+                    def _to_table(column_names: list[str], rows: list[Sequence[Any]]) -> pa.Table:
+                        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                     def _checkpoint(last_key: Any) -> None:
                         manager.save_state(keyset_state((last_key,)))
@@ -1934,6 +2030,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         keyset_column=keyset_column,
                         chunk_size=chunk_size,
                         run_page=_run_page,
+                        to_table=_to_table,
                         initial_last_value=initial_last_value,
                         checkpoint=_checkpoint,
                         enabled_columns=projection.enabled_columns,
@@ -2095,9 +2192,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     )
                     # A lost connection here recurs every run: with no usable index the incremental
                     # sort is unavoidable and re-times-out. Re-raise it as a deterministic error so
-                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038)
-                    # and query-execution-time-exceeded (3024) already carry their own stable, locale-
-                    # independent codes, so leave those raw.
+                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038),
+                    # query-execution-time-exceeded (3024), and MariaDB's max_statement_time-exceeded
+                    # (1969) already carry their own stable, locale-independent codes, so leave those raw.
                     if e.args and e.args[0] == _LOST_CONNECTION_DURING_QUERY_CODE:
                         raise MySQLUnavoidableFilesortError() from e
                     raise

@@ -30,9 +30,7 @@ use rdkafka::ClientConfig;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_common::partitioning::partition_for_person;
-use personhog_leader::cache::{
-    approx_person_bytes, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
-};
+use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{LifecycleTables, PgFallback};
@@ -691,7 +689,6 @@ pub fn test_cached_person() -> CachedPerson {
         is_identified: false,
         is_deleted: false,
         last_seen_at: None,
-        approx_bytes: approx_person_bytes(64),
     }
 }
 

@@ -100,7 +100,7 @@ class PostHogConfig(AppConfig):
             posthoganalytics.personal_api_key = None
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
-        elif settings.DEBUG:
+        elif settings.DEBUG or settings.SELF_CAPTURE:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
             # Due to ASGI's workings, we can't query for the right project token in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file

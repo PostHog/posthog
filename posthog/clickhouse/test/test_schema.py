@@ -9,7 +9,7 @@ import pytest
 from django.conf import settings as django_settings
 from django.test import override_settings
 
-from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.models import DatabaseField, ExpressionField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
 
 from posthog.clickhouse.client import sync_execute
@@ -31,9 +31,11 @@ from posthog.models.event.sql import (
 from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
+    FLAG_EVALUATIONS_MV_SELECT_SQL,
     FLAG_EVALUATIONS_MV_SQL,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
+    KAFKA_FLAG_EVALUATIONS_TABLE,
 )
 from posthog.models.ingestion_warnings.sql_v2 import INGESTION_WARNINGS_V2_DATA_TABLE_SQL
 from posthog.settings.data_stores import SUFFIX
@@ -197,6 +199,38 @@ def test_flag_evaluations_mv_projection_matches_column_template():
     assert _mv_projected_names(FLAG_EVALUATIONS_MV_SQL()) == template_columns + kafka_meta_columns
 
 
+@pytest.mark.usefixtures("clickhouse_database")
+def test_flag_evaluations_mv_overrides_producer_values() -> None:
+    select = FLAG_EVALUATIONS_MV_SELECT_SQL().replace(
+        f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}", "FROM mv_input"
+    )
+    rows = sync_execute(
+        """
+        WITH mv_input AS (
+            SELECT
+                generateUUIDv4() AS uuid,
+                '$feature_flag_called' AS event,
+                '{}' AS properties,
+                toDateTime64('2020-01-01 00:00:00', 6, 'UTC') AS timestamp,
+                1 AS team_id,
+                'user' AS distinct_id,
+                timestamp AS created_at,
+                generateUUIDv4() AS person_id,
+                arrayJoin(['', '{"email": "a@example.com"}']) AS person_properties,
+                timestamp AS person_created_at,
+                timestamp AS inserted_at,
+                'full' AS person_mode,
+                toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
+                0 AS _offset,
+                0 AS _partition
+        )
+        SELECT inserted_at > timestamp, person_properties FROM ("""
+        + select
+        + ") ORDER BY person_properties"
+    )
+    assert rows == [(1, '{"email": "a@example.com"}'), (1, "{}")]
+
+
 def test_flag_evaluations_read_table_declares_every_stored_column():
     # The typed property columns carry their DEFAULT expression on
     # sharded_flag_evaluations, which computes them, and are repeated as plain
@@ -215,13 +249,23 @@ def _hogql_column_names(table: Table) -> set[str]:
     for field in table.fields.values():
         if isinstance(field, Table):
             names |= _hogql_column_names(field)
-        elif isinstance(field, DatabaseField):
+        elif isinstance(field, DatabaseField) and not isinstance(field, ExpressionField):
             names.add(field.name)
     return names
 
 
-# Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+# _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
+# The person columns stay hidden until every stored row carries the values the producer writes.
+# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
+# test-account filters and keep lifecycle from counting anyone as new.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
+    "_timestamp",
+    "_offset",
+    "_partition",
+    "person_properties",
+    "person_created_at",
+    "person_mode",
+}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():

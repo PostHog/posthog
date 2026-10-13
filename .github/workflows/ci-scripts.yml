@@ -16,6 +16,9 @@ on:
             # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
             # table does not declare, so adding one has to run these tests.
             - proto/**
+            # The lane tests guard that both root oxc configs keep ignoring nodejs/.
+            - .oxlintrc.json
+            - .oxfmtrc*
             # turbo-discover.test.js pins the Django segment table to these, and checks
             # that every path in the events_json list exists.
             - .github/workflows/ci-backend.yml
@@ -70,6 +73,8 @@ jobs:
                       /products/README.md
                       /services/README.md
                       /.nvmrc
+                      /.oxlintrc.json
+                      /.oxfmtrc.json
                       /owners.yaml
                       /pnpm-workspace.yaml
                       /uv.lock

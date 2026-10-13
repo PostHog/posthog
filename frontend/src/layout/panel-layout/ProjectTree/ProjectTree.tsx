@@ -5,7 +5,7 @@ import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
-    IconChevronRight,
+    IconChevronDown,
     IconEllipsis,
     IconFolderPlus,
     IconHome,
@@ -40,6 +40,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { getSidebarProduct } from './defaultTree'
 import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
@@ -47,6 +48,13 @@ import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortMenuItems } from './TreeSortMenuItems'
 import { calculateMovePath, isProjectTreeItemActive, resolveProjectTreeDrop } from './utils'
+
+// Product menus that open on a create action or a picker show a matching hint instead of the ellipsis
+const PRODUCT_MENU_BUTTON_ICONS: Record<string, JSX.Element> = {
+    'Product analytics': <IconPlusSmall className="text-tertiary" />,
+    Dashboards: <IconPlusSmall className="text-tertiary" />,
+    'Session replay': <IconChevronDown className="text-tertiary" />,
+}
 
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
@@ -447,22 +455,20 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 const showDropdownMenu =
                     root === 'products://' ||
                     root === 'custom-products://' ||
-                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+                    (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
-                if (showDropdownMenu) {
-                    if (item.name === 'Product analytics') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconPlusSmall className="text-tertiary" />
-                            </ButtonPrimitive>
-                        )
-                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
-                            </ButtonPrimitive>
-                        )
-                    }
+                const menuButtonIcon = showDropdownMenu ? PRODUCT_MENU_BUTTON_ICONS[item.name] : undefined
+                if (menuButtonIcon) {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="z-2 -outline-offset-2"
+                            data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}-menu-button`}
+                        >
+                            {menuButtonIcon}
+                        </ButtonPrimitive>
+                    )
                 }
             }}
             emptySpaceContextMenu={() => {

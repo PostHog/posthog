@@ -172,6 +172,7 @@ def build_endpoint_schemas(
     descriptions: Mapping[str, str] | None = None,
     should_sync_default: Mapping[str, bool] | None = None,
     supports_webhooks: Collection[str] = (),
+    default_incremental_lookback_seconds: Mapping[str, int] | None = None,
 ) -> list[SourceSchema]:
     """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
 
@@ -182,11 +183,14 @@ def build_endpoint_schemas(
     - ``append_only``: endpoints that support append but not incremental merge.
     - ``merge_only``: endpoints that support incremental merge but not append.
     - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+    - ``default_incremental_lookback_seconds``: per-endpoint default overlap re-read window, for
+      endpoints whose recent rows get restated upstream (see ``SourceSchema``'s field doc).
 
     ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
     """
     descriptions = descriptions or {}
     should_sync_default = should_sync_default or {}
+    default_incremental_lookback_seconds = default_incremental_lookback_seconds or {}
     schemas = []
     for name in endpoints:
         fields = incremental_fields.get(name) or []
@@ -202,6 +206,7 @@ def build_endpoint_schemas(
                 description=descriptions.get(name),
                 should_sync_default=should_sync_default.get(name, True),
                 supports_webhooks=name in supports_webhooks,
+                default_incremental_lookback_seconds=default_incremental_lookback_seconds.get(name),
             )
         )
 

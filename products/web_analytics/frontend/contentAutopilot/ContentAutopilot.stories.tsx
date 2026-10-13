@@ -80,6 +80,8 @@ const meta: Meta<typeof ContentAutopilot> = {
     parameters: {
         layout: 'fullscreen',
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+        // The fixtures carry fixed dates and the UI shows them relative to now, so the clock is pinned near them.
+        mockDate: '2026-09-30',
     },
 }
 

@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCalendar, IconNotebook, IconPencil, IconPlus, IconSearch, IconTrends, IconWarning } from '@posthog/icons'
+import {
+    IconCalendar,
+    IconFlask,
+    IconNotebook,
+    IconPencil,
+    IconPlus,
+    IconSearch,
+    IconTrends,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
@@ -9,7 +18,12 @@ import { cn } from 'lib/utils/css-classes'
 
 import { getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { scannerScoutTemplates, type ScannerScoutTemplate, type ScannerScoutTemplateKey } from '../scannerScout'
+import {
+    scannerScoutTemplates,
+    variantAnalysisScout,
+    type ScannerScoutTemplate,
+    type ScannerScoutTemplateKey,
+} from '../scannerScout'
 import { scannerScoutLogic } from '../scannerScoutLogic'
 import { parseScoutCadence, SCOUT_FREQUENCY_OPTIONS } from '../scoutCadence'
 import { ScannerScoutFormModal } from './ScannerScoutFormModal'
@@ -17,6 +31,7 @@ import { ScannerScoutReportModal } from './ScannerScoutReportModal'
 import { ScannerScoutRow } from './ScannerScoutRow'
 
 const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
+    'variant-analysis': <IconFlask />,
     'daily-digest': <IconCalendar />,
     'root-cause': <IconSearch />,
     'weekly-themes': <IconNotebook />,
@@ -35,10 +50,13 @@ function templateScheduleLabel(template: ScannerScoutTemplate): string {
 function ScoutTemplateCard({
     template,
     disabledReason,
+    alreadySetUp,
     onUse,
 }: {
     template: ScannerScoutTemplate
     disabledReason?: string
+    /** The scanner already has the one scout this template allows, so the card opens it instead. */
+    alreadySetUp?: boolean
     onUse: () => void
 }): JSX.Element {
     return (
@@ -62,20 +80,26 @@ function ScoutTemplateCard({
                     className={template.key === 'scratch' ? 'invisible' : undefined}
                     aria-hidden={template.key === 'scratch'}
                 >
-                    {templateScheduleLabel(template)} <ProjectTimezoneHint />
+                    {alreadySetUp ? (
+                        'Already set up'
+                    ) : (
+                        <>
+                            {templateScheduleLabel(template)} <ProjectTimezoneHint />
+                        </>
+                    )}
                 </LemonTag>
                 <LemonButton
-                    type="primary"
+                    type={alreadySetUp ? 'secondary' : 'primary'}
                     size="xsmall"
-                    icon={<IconPlus />}
+                    icon={alreadySetUp ? undefined : <IconPlus />}
                     onClick={onUse}
-                    disabledReason={disabledReason}
+                    disabledReason={alreadySetUp ? undefined : disabledReason}
                     className="self-end"
                     data-attr={`vision-scout-template-${template.key}`}
                 >
                     {/* The scratch card seeds a skeleton rather than a ready-made scout, so
                         "use template" would overpromise what the button hands you. */}
-                    {template.key === 'scratch' ? 'Create' : 'Use template'}
+                    {alreadySetUp ? 'Open scout' : template.key === 'scratch' ? 'Create' : 'Use template'}
                 </LemonButton>
             </div>
         </LemonCard>
@@ -97,7 +121,7 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
         enrolled,
         scoutConfigsFailed,
     } = useValues(logic)
-    const { openCreateModal, loadScoutConfigs } = useActions(logic)
+    const { openCreateModal, openScoutSettings, loadScoutConfigs } = useActions(logic)
     const templates = useMemo(
         () => scannerScoutTemplates(scannerId, scanner?.scanner_type, scannerName),
         [scannerId, scanner?.scanner_type, scannerName]
@@ -120,6 +144,7 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
     }
 
     const createDisabledReason = getScoutCreateDisabledReason(scanner?.user_access_level) ?? undefined
+    const existingVariantAnalysis = variantAnalysisScout(scoutConfigsForScanner)
 
     return (
         <div className="flex flex-col gap-6">
@@ -147,14 +172,22 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                             templates.length > 4 ? '@2xl:grid-cols-5' : '@2xl:grid-cols-4'
                         )}
                     >
-                        {templates.map((template) => (
-                            <ScoutTemplateCard
-                                key={template.key}
-                                template={template}
-                                disabledReason={createDisabledReason}
-                                onUse={() => openCreateModal(template.key)}
-                            />
-                        ))}
+                        {templates.map((template) => {
+                            const existing = template.key === 'variant-analysis' ? existingVariantAnalysis : undefined
+                            return (
+                                <ScoutTemplateCard
+                                    key={template.key}
+                                    template={template}
+                                    disabledReason={createDisabledReason}
+                                    alreadySetUp={!!existing}
+                                    onUse={() =>
+                                        existing
+                                            ? openScoutSettings(existing.skill_name)
+                                            : openCreateModal(template.key)
+                                    }
+                                />
+                            )
+                        })}
                     </div>
                 </div>
             </section>

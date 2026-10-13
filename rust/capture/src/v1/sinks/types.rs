@@ -24,7 +24,7 @@ pub enum Destination {
     ClientIngestionWarning,
     AiEvents,
     /// Overflow lane for `AiEvents`. Only produced when the AI overflow
-    /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed; overflow on the AI lane
+    /// valve (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`) is armed; overflow on the AI lane
     /// lands here, never on the analytics `Overflow` destination.
     AiEventsOverflow,
 }

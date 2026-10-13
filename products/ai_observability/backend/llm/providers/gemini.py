@@ -22,6 +22,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -34,7 +35,10 @@ from products.ai_observability.backend.llm.types import (
     StreamChunk,
     Usage,
 )
-from products.ai_observability.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+from products.ai_observability.backend.providers.formatters.gemini_formatter import (
+    MessageConversionError,
+    convert_anthropic_messages_to_gemini,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +155,9 @@ class GeminiAdapter:
         `complete` and `stream` both route through this, so the same provider failure reads the
         same way whether the caller streamed it or not.
         """
+        if isinstance(error, MessageConversionError):
+            # The user authored the message that failed to convert, so show the reason.
+            return ProviderRequestRejectedError(str(error))
         if isinstance(error, APIError):
             error_message = str(error).lower()
             status_code = getattr(error, "code", None) or getattr(error, "status_code", None)

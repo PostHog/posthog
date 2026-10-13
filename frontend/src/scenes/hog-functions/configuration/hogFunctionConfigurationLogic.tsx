@@ -1144,7 +1144,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
                     if (sampleGlobalsLoader) {
                         try {
-                            const globals = await sampleGlobalsLoader(values.exampleInvocationGlobals)
+                            const globals = await sampleGlobalsLoader(
+                                values.exampleInvocationGlobals,
+                                values.configuration?.filters
+                            )
                             breakpoint()
                             return globals
                         } catch (e: any) {

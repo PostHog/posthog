@@ -52,7 +52,7 @@ class LessAnnoyingCRMSource(ResumableSource[LessAnnoyingCRMSourceConfig, LessAnn
             label="Less Annoying CRM",
             caption="""Enter your Less Annoying CRM API key to pull your CRM data into the PostHog Data warehouse.
 
-Create an API key on the [Programmer API settings page](https://account.lessannoyingcrm.com/app/Settings/Api). Grant the key **read** access — the tables sync via the `GetUsers`, `GetTeams`, `GetContacts`, `GetTasks`, `GetNotes` and `GetEvents` functions.
+Create an API key on the [Programmer API settings page](https://account.lessannoyingcrm.com/app/Settings/Api). Grant the key **read** access — the tables sync via the `GetUsers`, `GetTeams`, `GetContacts`, `GetTasks`, `GetNotes`, `GetEvents`, `GetPipelines`, `GetPipelineStatuses`, `GetPipelineItems`, `GetGroups` and `GetContactsInGroup` functions.
 
 API keys can't be retrieved after creation, so store the key somewhere safe when you create it.""",
             iconPath="/static/services/less_annoying_crm.png",

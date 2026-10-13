@@ -15,7 +15,7 @@ Visual Review is PostHog's screenshot-regression product: CI captures storybook 
 diffs them against committed baseline hashes, and gates the PR until every changed snapshot is resolved.
 A PR with visual changes carries a `visual-review` GitHub status check and a required "Visual regression tests pass" job check.
 Both stay red until each diffed snapshot is approved and finalized, tolerated, or quarantined, and the job re-runs:
-finalize does that for approvals, `recompute-create` for tolerations and quarantines. The [VR UI](https://us.posthog.com/project/2/visual_review) offers the same actions.
+finalize does that for approvals, `recompute-create` for tolerations and quarantines. The [VR UI](https://us.posthog.com/project/2/visual-review) offers the same actions.
 A PR from a fork is the exception: it gets no Visual Review run at all.
 See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
@@ -62,7 +62,8 @@ The list is paginated and does not put quarantined rows first, so follow `next` 
 - A quarantined story that your change renders differently needs its new picture approved by identifier, then finalized.
   "Approve all" and `approve_all` skip quarantined snapshots.
   Without the approval, the default branch keeps the old entry, and every run fails on the day the quarantine is lifted or expires.
-- A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it.
+- A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it, and do not approve it.
+  Approving re-baselines the story to whatever this run rendered, which can be the flaky picture or one from before a fix, and a pending lift request for that story then fails on the baseline check.
 - A fix for the flake changes nothing VR can see in one run, so the story renders `unchanged` and the list above leaves it out.
   Record the fix with `posthog:visual-review-runs-lift-on-merge-create { id: <run_id>, identifier: <identifier> }` for each identifier the fix should release, and name the identifiers in the PR description.
   The quarantine lifts only after the PR merges and a default-branch run that contains the merge renders the same picture against a matching entry.
@@ -85,7 +86,7 @@ Trigger this skill on any of:
 - A failing `visual-review` GitHub check or a PR comment from the `posthog-bot` mentioning visual review.
 - A failing `Visual regression tests pass` check on a PR from a fork, which is the offline fallback and not a VR run.
 
-When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual_review)
+When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual-review)
 is faster — direct them there. This skill is for everything around the diff: status, scope, history, triage.
 
 **First, check whether the PR comes from a fork.**
@@ -300,7 +301,7 @@ Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, a
 `posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, and find the entry whose `identifier` and
 `run_type` match your snapshot. That entry carries the flake signal:
 
-- `flakiness_state`: `broken`, `unstable`, `at_risk`, `noisy`, or `clean`.
+- `flakiness_state`: `broken`, `unstable`, `at_risk`, or `clean`.
 - `hard_rate` and `hard_count`: the share and number of recent default-branch runs that failed the gate.
   `last_flaked_at`: the latest of them.
 - `soft_rate`: the share that a toleration absorbed.
@@ -325,7 +326,7 @@ Verdicts:
 - `flakiness_state` is `unstable` with `hard_count` ≥ 5 and a recent `last_flaked_at` → flaky story; quarantine it.
   One failure is enough for `unstable`, and a single failure is often a real change that merged, so trust the count.
 - `flakiness_state` is `broken` → the baseline is wrong, not the story. Do not quarantine; recommend a re-baseline.
-- `at_risk` and `noisy` never fail a run, so they need no action on a PR.
+- `at_risk` never fails a run, so it needs no action on a PR.
 - Recent `removed`, a large-jump dimension change, or a baseline that last moved long ago → baseline likely stale;
   recommend re-baselining on master.
 

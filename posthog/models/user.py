@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
     GMAIL_CANONICAL_LOCAL_EXPRESSION,
@@ -530,7 +531,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             user_integrations = self.integrations.filter(kind="github")[:1]
 
         for user_integration in user_integrations:
-            login = UserGitHubIntegration(user_integration).github_login
+            login = UserGitHubIntegration(
+                user_integration, source="user_github_login", priority=Priority.NORMAL
+            ).github_login
             if login:
                 return login
 
@@ -743,8 +746,7 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
 def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
     """Pause every loop owned by a user when they are deactivated (is_active True->False).
 
-    Loops execute as their owner for GitHub authorship and MCP identity (see
-    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    Loops execute as their owner for GitHub authorship and MCP identity; deactivation is often the
     security response and must not leave a loop still scheduled, or a sandbox still running,
     under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
     Temporal schedule is an irreversible external side effect.

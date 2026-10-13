@@ -87,6 +87,32 @@ describe('insightSceneLogic', () => {
             })
     })
 
+    it.each([false, true])(
+        'releases scene-owned insight logics on navigation (shared owner: %s)',
+        async (sharedOwner) => {
+            router.actions.push(urls.insightNew())
+            logic = insightSceneLogic()
+            const unmountScene = logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const insight = logic.values.insightLogicRef!.logic
+            const data = logic.values.insightDataLogicRef!.logic
+            const releaseSharedInsight = sharedOwner ? insight.mount() : undefined
+            const releaseSharedData = sharedOwner ? data.mount() : undefined
+
+            unmountScene()
+
+            expect(logic.isMounted()).toBe(false)
+            expect(insight.isMounted()).toBe(sharedOwner)
+            expect(data.isMounted()).toBe(sharedOwner)
+
+            releaseSharedInsight?.()
+            releaseSharedData?.()
+            expect(insight.isMounted()).toBe(false)
+            expect(data.isMounted()).toBe(false)
+        }
+    )
+
     it('updates the generated breadcrumb when cohort names arrive after the query', async () => {
         router.actions.push(urls.insightNew())
         logic = insightSceneLogic()

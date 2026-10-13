@@ -15,6 +15,7 @@ from github import (
     _reaction_emoji,
     _trusted_reactor_predicate,
     ensure_commits,
+    git_touched_paths,
     is_bot_author,
     parse_provenance_trailers,
     write_pr_diff,
@@ -139,6 +140,25 @@ def test_ensure_commits_fetches_missing_head_and_base(
 def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True)
     return result.stdout.strip()
+
+
+def test_touched_paths_carry_both_rename_names_unquoted(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _git(tmp_path, "init", "--quiet", "-b", "main", str(repo))
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "user.email", "t@example.com")
+    (repo / "models").mkdir()
+    (repo / "models" / "flow.py").write_text("\n".join(f"line {i}" for i in range(20)) + "\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "root")
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "mv", "models/flow.py", "flow.py")
+    (repo / "odd\nname.py").write_text("x\n")
+    _git(repo, "add", "--all")
+    _git(repo, "commit", "--quiet", "-m", "move")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    assert sorted(git_touched_paths(base, head, repo)) == ["flow.py", "models/flow.py", "odd\nname.py"]
 
 
 def test_shallow_checkout_diffs_from_the_given_merge_base(tmp_path: Path) -> None:

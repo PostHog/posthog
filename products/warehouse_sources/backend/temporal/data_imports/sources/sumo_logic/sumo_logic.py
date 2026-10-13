@@ -413,6 +413,8 @@ def _get_log_rows(
             # Save AFTER the window's rows are yielded so a crash re-runs this window instead of
             # skipping it; merge dedupes the re-yielded rows on the primary key.
             resumable_source_manager.save_state(SumoLogicResumeConfig(log_window_start_ms=window_end))
+            # The window is yielded in full. The safe point keeps this cursor if the next job fails.
+            resumable_source_manager.safe_point()
 
 
 def get_rows(

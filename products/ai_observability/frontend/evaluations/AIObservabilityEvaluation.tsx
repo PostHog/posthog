@@ -103,6 +103,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnableReason,
         modelSelectionRequired,
         numericBoundsRequired,
+        usesDecisionModel,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -141,9 +142,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-        evaluation.id &&
-        evaluation.model_configuration?.provider !== 'system_one'
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesDecisionModel
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -413,7 +412,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 ? '–'
                                                                 : `${runsSummary.successRate}%`}
                                                         </div>
-                                                        <div className="text-muted">Success rate</div>
+                                                        <div className="text-muted">Pass rate</div>
                                                     </div>
                                                 )}
                                                 {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
@@ -424,12 +423,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Applicable</div>
                                                     </div>
                                                 )}
-                                                <div className="text-center">
-                                                    <div className="font-semibold text-lg text-danger">
-                                                        {runsSummary.errors}
-                                                    </div>
-                                                    <div className="text-muted">Errors</div>
-                                                </div>
                                             </div>
                                             <div className="text-muted text-xs">
                                                 {runsBackfillId
@@ -950,7 +943,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 function EvaluationModelPicker(): JSX.Element {
     const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation } =
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation, usesDecisionModel } =
         useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
@@ -988,13 +981,13 @@ function EvaluationModelPicker(): JSX.Element {
                             data-attr="evaluation-model-selector"
                         />
                         <ByokModelPickerNotice forEvaluation />
-                        {evaluation?.model_configuration?.provider === 'system_one' && (
+                        {evaluation && usesDecisionModel && (
                             <p className="text-sm text-muted mt-2">
                                 {evaluation.output_type === 'categorical'
-                                    ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+                                    ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
                                     : evaluation.output_type === 'numeric'
-                                      ? 'This judge estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
-                                      : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                      ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+                                      : 'This decision model returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (

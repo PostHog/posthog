@@ -29,8 +29,9 @@ from posthog.clickhouse.cluster import (
     T,
     get_cluster,
     redact_sql_secrets,
+    wait_for_mutations_on_shards,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 
 pytestmark = pytest.mark.django_db
 
@@ -925,6 +926,32 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
             host_info.shard_num, Query(f"SELECT count(1) FROM {table}")
         ).result()
         assert all(result[0][0] < count for result in query_results.values())
+
+
+def test_patch_part_delete_writes_no_mutation(cluster: ClickhouseCluster) -> None:
+    # A patch-part delete that fell back to ALTER UPDATE would still remove the rows, so the
+    # mutation log is the only place the regression shows.
+    table = EVENTS_JSON_DATA_TABLE
+    kept, deleted = uuid.uuid4(), uuid.uuid4()
+    cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
+    cluster.any_host(
+        Query(
+            f"INSERT INTO {table} (uuid, team_id, event, distinct_id, timestamp) VALUES",
+            [(u, 1, "$pageview", "d", datetime(2026, 1, 1, tzinfo=UTC)) for u in (kept, deleted)],
+        )
+    ).result()
+    mutations_sql = f"SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = '{table}'"
+    [[[mutations_before]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
+
+    runner = LightweightDeleteMutationRunner(
+        table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted}, patch_parts=True
+    )
+    wait_for_mutations_on_shards(cluster, runner.enqueue_on_shards(cluster))
+
+    for rows in cluster.map_all_hosts(Query(f"SELECT uuid FROM {table}")).result().values():
+        assert [row[0] for row in rows] == [kept]
+    [[[mutations_after]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
+    assert mutations_after == mutations_before
 
 
 def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:

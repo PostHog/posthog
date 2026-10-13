@@ -9,6 +9,7 @@ nothing is ever eval()'d.
 from __future__ import annotations
 
 import re
+import math
 from collections.abc import Mapping
 
 _TOKEN_RE = re.compile(r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|(?P<number>\d+(?:\.\d+)?)|(?P<op>[()+\-*/]))")
@@ -97,7 +98,10 @@ class _Parser:
                     raise ValueError("Unbalanced parentheses in formula")
                 return node
             if token[0] == "number":
-                return ("number", float(token[1]))
+                value = float(token[1])
+                if not math.isfinite(value):
+                    raise ValueError("The number in the formula is too large. Use a smaller number.")
+                return ("number", value)
             if token[0] == "ident":
                 if token[1] not in self.known_names:
                     raise ValueError(

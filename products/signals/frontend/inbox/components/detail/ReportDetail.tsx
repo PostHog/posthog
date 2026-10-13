@@ -56,6 +56,7 @@ import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -80,7 +81,7 @@ export function ReportDetailBadges({
         <>
             <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
             {!isStatusRedundantWithActionability(report.status, report.actionability) && (
-                <SignalReportStatusBadge status={report.status} />
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
             )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
@@ -235,8 +236,12 @@ export function InboxDetailFrame({
         reportTaskToOpen,
         reportChecks,
         reportChecksError,
+        prioritySaving,
+        report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+        inboxReportDetailLogic(logicProps)
+    )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -426,7 +431,12 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={currentReport ?? report}
+                            rightSlot={hideRailButton}
+                            onPriorityChange={updatePriority}
+                            prioritySaving={prioritySaving}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -462,6 +472,12 @@ export function InboxDetailFrame({
                                             >
                                                 {evidenceExpanded ? 'Show less' : 'Show more'}
                                             </LemonButton>
+                                        )}
+                                        {report.source_suggestion && (
+                                            <ReportSourceSuggestion
+                                                report={report}
+                                                suggestion={report.source_suggestion}
+                                            />
                                         )}
                                     </div>
                                 )}

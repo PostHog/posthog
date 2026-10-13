@@ -1,12 +1,14 @@
 import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
-import type { ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
+import type { ExperimentWarning, ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
+import { isLegacyExperiment } from 'scenes/experiments/utils'
 
 import type { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
+import type { ExperimentHealthApi } from '../generated/api.schemas'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
 
 // pinned: `finding_code` property values. Insights group and filter on them, so a rename breaks those insights.
@@ -19,6 +21,7 @@ export type ExperimentHealthFindingCode =
     | 'srm'
     | 'zero_exposures'
     | 'no_metric'
+    | 'forced_variant_release_condition'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -27,7 +30,7 @@ export interface ExperimentHealthFinding {
 }
 
 // pinned: `open_kind` property values, for the same reason as the codes above.
-export type ExperimentHealthFindingOpenKind = 'evidence' | 'docs'
+export type ExperimentHealthFindingOpenKind = 'evidence' | 'docs' | 'why'
 
 // pinned: `action_kind` property values, for the same reason as the codes above.
 export type ExperimentHealthFindingActionKind =
@@ -35,6 +38,7 @@ export type ExperimentHealthFindingActionKind =
     | 'use_first_seen_variant'
     | 'open_feature_flag'
     | 'edit_exposure_criteria'
+    | 'edit_release_conditions'
     | 'add_primary_metric'
     | 'add_secondary_metric'
 
@@ -46,8 +50,40 @@ const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentH
     not_started_but_multiple_variants_rolled_out: 'flag_live_before_launch',
 }
 
+export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> = new Set(
+    Object.values(EXPERIMENT_WARNING_FINDING_CODES)
+)
+
+// pinned: `health_ui` property values. Insights compare the health panel with the separate warnings on them.
+export type ExperimentHealthUi = 'panel' | 'warnings'
+
+export function experimentHealthUi(experiment: Experiment, showsServerHealth: boolean): ExperimentHealthUi {
+    // A legacy experiment opens the legacy view, which shows the separate warnings also when the page shows
+    // the server's findings.
+    return showsServerHealth && !isLegacyExperiment(experiment) ? 'panel' : 'warnings'
+}
+
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
     return { code: EXPERIMENT_WARNING_FINDING_CODES[warningKey], variant: warningKey }
+}
+
+function isExperimentWarningKey(subcode: string | null): subcode is ExperimentWarningKey {
+    return subcode !== null && Object.hasOwn(EXPERIMENT_WARNING_FINDING_CODES, subcode)
+}
+
+/** The flag-state warning among the server's findings. The server sends the warning key as the subcode. */
+export function experimentWarningFromHealth(health: ExperimentHealthApi): ExperimentWarning | null {
+    for (const finding of health.findings) {
+        const { subcode } = finding
+        if (isExperimentWarningKey(subcode) && EXPERIMENT_WARNING_FINDING_CODES[subcode] === finding.code) {
+            if (subcode !== 'running_but_single_variant_shipped') {
+                return { key: subcode }
+            }
+            const variantKey = finding.evidence.variant_key
+            return { key: subcode, variantKey: typeof variantKey === 'string' ? variantKey : null }
+        }
+    }
+    return null
 }
 
 // These events are read in aggregate, so they carry ids, codes and counts only. The experiment
@@ -55,7 +91,8 @@ export function healthFindingForExperimentWarning(warningKey: ExperimentWarningK
 // `getEventPropertiesForExperiment` in.
 function healthFindingEventProperties(
     experiment: Experiment,
-    finding: ExperimentHealthFinding
+    finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi
 ): Record<string, string | number | null> {
     return {
         experiment_id: experiment.id,
@@ -63,25 +100,31 @@ function healthFindingEventProperties(
         experiment_days_since_start: experiment.start_date ? dayjs().diff(experiment.start_date, 'day') : null,
         finding_code: finding.code,
         finding_variant: finding.variant ?? null,
+        health_ui: healthUi,
         surface: 'experiment_page',
         // The value the backend reports for a request from the web app, so one breakdown covers both.
         source: 'web',
     }
 }
 
-export function captureExperimentHealthFindingShown(experiment: Experiment, finding: ExperimentHealthFinding): void {
+export function captureExperimentHealthFindingShown(
+    experiment: Experiment,
+    finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi
+): void {
     // pinned: analytics event name, so renaming it breaks insights
-    posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding))
+    posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding, healthUi))
 }
 
 export function captureExperimentHealthFindingOpened(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi,
     openKind: ExperimentHealthFindingOpenKind
 ): void {
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health finding opened', {
-        ...healthFindingEventProperties(experiment, finding),
+        ...healthFindingEventProperties(experiment, finding, healthUi),
         open_kind: openKind,
     })
 }
@@ -89,11 +132,12 @@ export function captureExperimentHealthFindingOpened(
 export function captureExperimentHealthFindingActedOn(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi,
     actionKind: ExperimentHealthFindingActionKind
 ): void {
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health finding acted on', {
-        ...healthFindingEventProperties(experiment, finding),
+        ...healthFindingEventProperties(experiment, finding, healthUi),
         action_kind: actionKind,
         // A click starts the action. The save that completes it happens in a modal or on another page.
         action_step: 'started',
@@ -101,8 +145,43 @@ export function captureExperimentHealthFindingActedOn(
 }
 
 /**
+ * Compares the page's own rules with the server's checks for one experiment load. A `_browser` value is the
+ * result of the page's rule, and a `_server` value is the result of the server's check.
+ */
+export function captureExperimentHealthChecked(
+    experiment: Experiment,
+    health: ExperimentHealthApi,
+    healthUi: ExperimentHealthUi,
+    browserWarning: ExperimentWarning | null,
+    browserNoMetricsWarning: boolean
+): void {
+    const flagStateFinding = health.findings.find((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health checked', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        health_finding_codes: health.findings.map((finding) => finding.code),
+        // pinned: `code:subcode`, as on the server's `experiment launched`. The code prefix keeps a subcode
+        // unambiguous when two codes use the same subcode.
+        health_finding_subcodes: health.findings.flatMap(({ code, subcode }) =>
+            subcode ? [`${code}:${subcode}`] : []
+        ),
+        health_finding_count: health.findings.length,
+        flag_state_browser: browserWarning?.key ?? null,
+        // The server sends the warning key as the subcode. A finding without one still differs from no finding.
+        flag_state_server: flagStateFinding ? (flagStateFinding.subcode ?? flagStateFinding.code) : null,
+        no_metric_browser: browserNoMetricsWarning,
+        no_metric_server: health.findings.some((finding) => finding.code === 'no_metric'),
+    })
+}
+
+/**
  * The exposure warnings render on one tab only, so a "shown" event cannot give the exposure state of
  * every load. `experiment results refresh completed` follows the exposure load on every tab.
+ * `has_srm`, `has_bias_risk` and a zero `exposures_total` are the page's own rules. The `_server` values are
+ * the server's checks on the same answer, null when the answer holds no server findings (a cached answer
+ * from before the server ran them).
  */
 export function exposureHealthEventProperties(
     exposures: ExperimentExposureQueryResponse | null | undefined,
@@ -112,10 +191,22 @@ export function exposureHealthEventProperties(
     exposures_multiple: number | null
     has_srm: boolean | null
     has_bias_risk: boolean | null
+    srm_server: boolean | null
+    zero_exposures_server: boolean | null
+    bias_risk_server: boolean | null
 } {
     if (!exposures) {
-        return { exposures_total: null, exposures_multiple: null, has_srm: null, has_bias_risk: null }
+        return {
+            exposures_total: null,
+            exposures_multiple: null,
+            has_srm: null,
+            has_bias_risk: null,
+            srm_server: null,
+            zero_exposures_server: null,
+            bias_risk_server: null,
+        }
     }
+    const serverCodes = exposures.health_findings ? new Set(exposures.health_findings.map(({ code }) => code)) : null
     return {
         exposures_total: getTotalExposures(exposures),
         // With "first seen" handling the exposure query gives each person their first variant and
@@ -126,5 +217,8 @@ export function exposureHealthEventProperties(
                 : Number(exposures.total_exposures?.[EXPERIMENT_VARIANT_MULTIPLE] || 0),
         has_srm: hasSampleRatioMismatch(exposures),
         has_bias_risk: exposures.bias_risk != null,
+        srm_server: serverCodes ? serverCodes.has('srm') : null,
+        zero_exposures_server: serverCodes ? serverCodes.has('zero_exposures') : null,
+        bias_risk_server: serverCodes ? serverCodes.has('bias_risk_multiple_excluded') : null,
     }
 }

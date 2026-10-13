@@ -8,6 +8,9 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -250,6 +253,7 @@ def _get_attributed_user_rows(
             f"Linkrunner: resuming attributed_users from campaign={resume.campaign_display_id}, page={resume_page}"
         )
 
+    campaign_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for index, display_id in enumerate(remaining):
         page = resume_page
         resume_page = 1  # only the resumed-into campaign uses the saved page; the rest start at 1
@@ -282,8 +286,9 @@ def _get_attributed_user_rows(
             page += 1
 
         # Advance the bookmark to the next campaign so a crash between campaigns resumes correctly.
+        # The batcher can hold rows of this campaign, and a bookmark at the next campaign skips them.
         if index + 1 < len(remaining):
-            resumable_source_manager.save_state(
+            yield from campaign_checkpoint.save(
                 LinkrunnerResumeConfig(page=1, campaign_display_id=remaining[index + 1])
             )
 

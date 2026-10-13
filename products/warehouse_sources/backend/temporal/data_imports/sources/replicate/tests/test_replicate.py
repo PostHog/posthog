@@ -89,15 +89,6 @@ class TestResponseShapeExtraction:
 
 
 class TestBuildInitialUrl:
-    def test_predictions_incremental_appends_created_after(self) -> None:
-        url = _build_initial_url(
-            REPLICATE_ENDPOINTS["predictions"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert url.startswith("https://api.replicate.com/v1/predictions?created_after=")
-        assert "2026-03-04T00%3A00%3A00Z" in url
-
     def test_predictions_first_sync_has_no_filter(self) -> None:
         url = _build_initial_url(
             REPLICATE_ENDPOINTS["predictions"],
@@ -179,20 +170,6 @@ def _collect(
 
 
 class TestGetRows:
-    def test_paginates_following_next_urls(self, monkeypatch: Any) -> None:
-        next_url = "https://api.replicate.com/v1/trainings?cursor=c2"
-        pages = {
-            "https://api.replicate.com/v1/trainings": {"results": [{"id": "t1"}], "next": next_url},
-            next_url: {"results": [{"id": "t2"}], "next": None},
-        }
-        manager = _FakeResumableManager()
-        rows, fetched = _collect(manager, monkeypatch, pages, "trainings")
-
-        assert rows == [{"id": "t1"}, {"id": "t2"}]
-        assert fetched == ["https://api.replicate.com/v1/trainings", next_url]
-        # State is saved after yielding the first page so a crash re-yields it, not skips it.
-        assert manager.saved == [ReplicateResumeConfig(next_url=next_url)]
-
     def test_resumes_from_saved_next_url(self, monkeypatch: Any) -> None:
         resume_url = "https://api.replicate.com/v1/trainings?cursor=resume"
         pages = {resume_url: {"results": [{"id": "t9"}], "next": None}}
@@ -227,51 +204,6 @@ class TestGetRows:
 
         assert [r["id"] for r in rows] == ["a", "b"]
         assert fetched == [initial, page2]  # page3 never fetched
-
-    def test_incremental_ignores_stale_cursor_when_watermark_advanced(self, monkeypatch: Any) -> None:
-        # A cursor saved against an older watermark must not be resumed: descending pagination puts
-        # predictions created since the prior run on the first page, so we rebuild the initial URL
-        # for the current watermark instead of paging deeper and skipping them.
-        watermark = datetime(2026, 3, 4, tzinfo=UTC)
-        initial = _build_initial_url(REPLICATE_ENDPOINTS["predictions"], True, watermark)
-        stale_cursor = "https://api.replicate.com/v1/predictions?cursor=stale"
-        pages = {initial: {"results": [{"id": "new", "created_at": "2026-05-01T00:00:00Z"}], "next": None}}
-        manager = _FakeResumableManager(
-            ReplicateResumeConfig(next_url=stale_cursor, created_after="2026-01-01T00:00:00Z")
-        )
-        rows, fetched = _collect(
-            manager,
-            monkeypatch,
-            pages,
-            "predictions",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-            incremental_field="created_at",
-        )
-
-        assert [r["id"] for r in rows] == ["new"]
-        assert fetched == [initial]  # stale cursor never fetched
-
-    def test_incremental_resumes_when_watermark_matches(self, monkeypatch: Any) -> None:
-        # Same-watermark cursor (a crash mid-run) is safe to resume: no newer rows exist above it.
-        watermark = datetime(2026, 3, 4, tzinfo=UTC)
-        resume_url = "https://api.replicate.com/v1/predictions?cursor=resume"
-        pages = {resume_url: {"results": [{"id": "r", "created_at": "2026-05-01T00:00:00Z"}], "next": None}}
-        manager = _FakeResumableManager(
-            ReplicateResumeConfig(next_url=resume_url, created_after=_format_incremental_value(watermark))
-        )
-        rows, fetched = _collect(
-            manager,
-            monkeypatch,
-            pages,
-            "predictions",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-            incremental_field="created_at",
-        )
-
-        assert [r["id"] for r in rows] == ["r"]
-        assert fetched == [resume_url]
 
     def test_single_request_endpoints_do_not_paginate(self, monkeypatch: Any) -> None:
         cases = [

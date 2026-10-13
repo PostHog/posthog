@@ -33,7 +33,9 @@ describe('dataNodeCollectionLogic', () => {
     }
 
     afterEach(() => {
-        logic?.unmount()
+        if (logic?.isMounted()) {
+            logic.unmount()
+        }
     })
 
     it('reloadAll fires loadData on every mounted data node with force_async', () => {
@@ -143,6 +145,11 @@ describe('dataNodeCollectionLogic', () => {
                     last_tile_status: 'failure',
                     time_to_see_data_ms: expect.any(Number),
                     primary_interaction_id: expect.any(String),
+                    tiles_succeeded: 1,
+                    first_tile_ms: expect.any(Number),
+                    kind_ready_ms: { TrendsQuery: expect.any(Number) },
+                    was_hidden: false,
+                    visit_id: null,
                 }),
             ])
         })
@@ -186,6 +193,7 @@ describe('dataNodeCollectionLogic', () => {
             logic.actions.collectionNodeLoadDataFailure('tile-a')
 
             logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadData('tile-b')
             logic.actions.collectionNodeLoadDataSuccess('tile-b')
             expect(capturedLoads()).toHaveLength(0)
 
@@ -197,6 +205,7 @@ describe('dataNodeCollectionLogic', () => {
                     insights_fetched: 2,
                     insights_fetched_cached: 1,
                     failed_tile_count: 0,
+                    tiles_requeried_while_loading: 1,
                 }),
             ])
         })
@@ -274,6 +283,103 @@ describe('dataNodeCollectionLogic', () => {
                 }),
                 options
             )
+        })
+
+        it.each([
+            [
+                'the visit ends before any query starts',
+                (): void => logic.actions.endPageVisit(),
+                { status: 'no_load', cancel_reason: 'navigated_away', tiles_mounted: 1 },
+                undefined,
+            ],
+            [
+                'the page is hidden before any query starts',
+                (): void => {
+                    window.dispatchEvent(new Event('pagehide'))
+                    logic.actions.endPageVisit()
+                },
+                { status: 'no_load', cancel_reason: 'left_app', tiles_mounted: 1 },
+                { transport: 'sendBeacon' },
+            ],
+            [
+                'the visit ends mid-load',
+                (): void => {
+                    logic.actions.collectionNodeLoadData('tile-a')
+                    logic.actions.endPageVisit()
+                },
+                { status: 'cancelled', cancel_reason: 'navigated_away', tiles_still_loading: 1 },
+                undefined,
+            ],
+            [
+                'the collection unmounts mid-load without ending the visit',
+                (): void => {
+                    logic.actions.collectionNodeLoadData('tile-a')
+                    logic.unmount()
+                },
+                { status: 'cancelled', cancel_reason: 'navigated_away' },
+                undefined,
+            ],
+        ])('reports exactly one outcome for a page visit when %s', (_, act, expected, options) => {
+            logic.actions.startPageVisit('visit-1')
+            mountTile('tile-a')
+
+            act()
+
+            expect(posthog.capture).toHaveBeenCalledTimes(1)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'time to see data',
+                expect.objectContaining({ context: 'test-collection', visit_id: 'visit-1', ...expected }),
+                options
+            )
+        })
+
+        it('still reports a load that starts after the page returns from the back-forward cache', () => {
+            logic.actions.startPageVisit('visit-1')
+            mountTile('tile-a')
+            logic.actions.collectionNodeLoadData('tile-a')
+            window.dispatchEvent(new Event('pagehide'))
+
+            logic.actions.collectionNodeLoadData('tile-a')
+            window.dispatchEvent(new Event('pagehide'))
+            logic.actions.endPageVisit()
+
+            expect(capturedLoads().map((load) => [load.status, load.cancel_reason])).toEqual([
+                ['cancelled', 'left_app'],
+                ['cancelled', 'left_app'],
+            ])
+        })
+
+        it('reports a provisional hidden event and counts only visible time toward the wait', () => {
+            const setVisibility = (state: DocumentVisibilityState): void => {
+                Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+                document.dispatchEvent(new Event('visibilitychange'))
+            }
+            jest.useFakeTimers()
+            try {
+                mountTile('tile-a')
+                logic.actions.collectionNodeLoadData('tile-a')
+                jest.advanceTimersByTime(1000)
+                setVisibility('hidden')
+                jest.advanceTimersByTime(3000)
+                setVisibility('visible')
+                jest.advanceTimersByTime(1000)
+                logic.actions.collectionNodeLoadDataSuccess('tile-a')
+
+                const [hidden, settled] = capturedLoads()
+                expect(capturedLoads()).toHaveLength(2)
+                expect(hidden).toMatchObject({ status: 'hidden', time_to_see_data_ms: 1000, was_hidden: true })
+                expect(settled).toMatchObject({
+                    status: 'success',
+                    primary_interaction_id: hidden.primary_interaction_id,
+                    time_to_see_data_ms: 5000,
+                    visible_ms: 2000,
+                    was_hidden: true,
+                })
+                expect((posthog.capture as jest.Mock).mock.calls[0][2]).toEqual({ transport: 'sendBeacon' })
+            } finally {
+                Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+                jest.useRealTimers()
+            }
         })
     })
 })

@@ -164,7 +164,12 @@ export function PersonDisplay({
 
     content = (
         <span
-            className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
+            className={clsx(
+                'PersonDisplay',
+                muted && 'PersonDisplay--muted',
+                !noPopover && !notebookNode && 'cursor-pointer',
+                className
+            )}
             onClick={!noPopover ? handleClick : undefined}
         >
             {noLink || !href || !person?.properties ? (

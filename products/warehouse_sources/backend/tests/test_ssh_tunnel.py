@@ -1,9 +1,12 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from paramiko import RSAKey
+from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.models import ssh_tunnel as ssh_tunnel_module
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 
 
@@ -249,6 +252,33 @@ def test_get_tunnel_pins_host_key(key_type, hostname):
     assert (parsed.get_name(), parsed.get_base64()) == (key_name, key_base64)
     forwarder = tunnel.get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
     assert forwarder.ssh_host_key == parsed
+
+
+def test_gateway_connect_that_hangs_raises_the_gateway_error():
+    forwarder = _password_tunnel(host_key=None).get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+
+    with patch.object(ssh_tunnel_module.socket, "create_connection", side_effect=TimeoutError("timed out")) as dial:
+        with pytest.raises(BaseSSHTunnelForwarderError, match="Could not establish session to SSH gateway"):
+            forwarder.start()
+
+    dial.assert_called_once_with(("93.184.216.34", 5432), timeout=ssh_tunnel_module.SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS)
+
+
+def test_gateway_transport_limits_every_step_of_the_handshake():
+    forwarder = _password_tunnel(host_key=None).get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+
+    with (
+        patch.object(ssh_tunnel_module.socket, "create_connection", return_value=MagicMock()),
+        patch.object(ssh_tunnel_module, "Transport") as transport_class,
+    ):
+        transport = forwarder._get_transport()
+
+    assert transport is transport_class.return_value
+    assert (transport.banner_timeout, transport.handshake_timeout, transport.auth_timeout) == (
+        ssh_tunnel_module.SSH_TUNNEL_BANNER_TIMEOUT_SECONDS,
+        ssh_tunnel_module.SSH_TUNNEL_HANDSHAKE_TIMEOUT_SECONDS,
+        ssh_tunnel_module.SSH_TUNNEL_AUTH_TIMEOUT_SECONDS,
+    )
 
 
 def test_get_tunnel_invalid_auth():

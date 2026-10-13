@@ -54,6 +54,7 @@ import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPersonScopeFilter,
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
@@ -533,6 +534,14 @@ export type cohortEditLogicType = MakeLogicType<
     cohortEditLogicMeta
 >
 
+// A draft cohort has no id, so the persons table gets no cohort filter until `setCohort` supplies
+// a saved id. A filter with a missing id serializes to null, which the API rejects.
+function cohortFixedProperties(id: CohortType['id'] | undefined): AnyPersonScopeFilter[] {
+    return typeof id === 'number'
+        ? [{ type: PropertyFilterType.Cohort, key: 'id', value: id, operator: PropertyOperator.In }]
+        : []
+}
+
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
@@ -697,9 +706,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [
-                        { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
-                    ],
+                    fixedProperties: cohortFixedProperties(props.id),
                 },
                 full: true,
                 showPropertyFilter: false,
@@ -720,6 +727,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         source: {
                             ...source,
                             select: source.select ?? defaultSelect,
+                            fixedProperties: cohortFixedProperties(cohort.id),
                         },
                     }
                 },

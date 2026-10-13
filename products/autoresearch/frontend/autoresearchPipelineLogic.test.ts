@@ -1,4 +1,6 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -7,7 +9,9 @@ import { initKeaTests } from '~/test/init'
 
 import {
     SCORE_RUN_POLL_INTERVAL_MS,
+    TRAINING_RUN_POLL_INTERVAL_MS,
     autoresearchPipelineLogic,
+    featureChanges,
     scoringCoverage,
     trainingRunProgress,
 } from './autoresearchPipelineLogic'
@@ -17,8 +21,15 @@ import {
     autoresearchRunsList,
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
+    autoresearchTrainingRunsList,
 } from './generated/api'
-import { AutoresearchRunApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
+import {
+    AutoresearchRunApi,
+    AutoresearchTrainingRunApi,
+    FeatureDirectionEnumApi,
+    IterationTrailApi,
+    ModelExplanationFieldApi,
+} from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     autoresearchRetrieve: jest.fn(),
@@ -35,6 +46,7 @@ const mockModelsList = autoresearchModelsList as jest.Mock
 const mockRunsList = autoresearchRunsList as jest.Mock
 const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
+const mockTrainingRunsList = autoresearchTrainingRunsList as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
     const now = new Date().toISOString()
@@ -166,6 +178,38 @@ describe('autoresearchPipelineLogic', () => {
         }
     })
 
+    it('reloads training runs while one is live, then reloads the champion once it finishes', async () => {
+        jest.clearAllMocks()
+        jest.useFakeTimers()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList
+            .mockResolvedValueOnce({ results: [makeRun({ status: 'running' })], next: null })
+            .mockResolvedValueOnce({ results: [makeRun({ status: 'completed' })], next: null })
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTrainingRunsSuccess'])
+            expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(true)
+            const modelLoads = mockModelsList.mock.calls.length
+
+            await expectLogic(logic, () => jest.advanceTimersByTime(TRAINING_RUN_POLL_INTERVAL_MS)).toDispatchActions([
+                'pollTrainingRuns',
+                'loadTrainingRunsSuccess',
+                'loadModels',
+            ])
+            expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(false)
+            expect(mockModelsList.mock.calls.length).toBeGreaterThan(modelLoads)
+        } finally {
+            logic.unmount()
+            jest.useRealTimers()
+        }
+    })
+
     it.each([
         ['resumes a run started a minute ago', 60 * 1000, 'score-run-1'],
         ['ignores a run that has been running past the stale cutoff', 6 * 60 * 60 * 1000, null],
@@ -187,6 +231,83 @@ describe('autoresearchPipelineLogic', () => {
         expect(logic.values.activeScoreRun?.id ?? null).toEqual(expectedRunId)
         expect(logic.cache.disposables.registry.has('scorePoll')).toBe(expectedRunId !== null)
         logic.unmount()
+    })
+
+    describe('tabs', () => {
+        async function mountWithPipeline(
+            lastScoredAt: string | null,
+            url: string,
+            runsFail = false
+        ): Promise<ReturnType<typeof autoresearchPipelineLogic.build>> {
+            jest.clearAllMocks()
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], {
+                [FEATURE_FLAGS.AUTORESEARCH]: true,
+            })
+            mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', last_scored_at: lastScoredAt })
+            mockModelsList.mockResolvedValue({ results: [], next: null })
+            if (runsFail) {
+                mockRunsList.mockRejectedValue(new Error('runs failed'))
+            } else {
+                mockRunsList.mockResolvedValue({ results: [], next: null })
+            }
+            router.actions.push(url)
+            const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadPipelineSuccess'])
+            return logic
+        }
+
+        it.each([
+            ['a scored model', '2026-01-02T00:00:00Z', 'predictions'],
+            ['a model that never scored', null, 'agent_research'],
+        ])('opens %s on its default tab', async (_name, lastScoredAt, expectedTab) => {
+            const logic = await mountWithPipeline(lastScoredAt, '/autoresearch/pipeline-1')
+            expect(logic.values.activeTab).toEqual(expectedTab)
+            logic.unmount()
+        })
+
+        it.each([
+            ['training', 'agent_research'],
+            ['suggestions', 'agent_research'],
+            ['online_performance', 'accuracy'],
+            ['predictions', 'predictions'],
+            ['overview', undefined],
+            ['not_a_tab', undefined],
+        ])('rewrites the old ?tab=%s link to the tab it now opens', async (oldTab, expectedUrlTab) => {
+            const logic = await mountWithPipeline('2026-01-02T00:00:00Z', `/autoresearch/pipeline-1?tab=${oldTab}`)
+            expect(router.values.searchParams.tab).toEqual(expectedUrlTab)
+            expect(logic.values.activeTab).toEqual(expectedUrlTab ?? 'predictions')
+            logic.unmount()
+        })
+
+        it('keeps the lifecycle unknown when the runs fail to load', async () => {
+            const logic = await mountWithPipeline('2026-01-02T00:00:00Z', '/autoresearch/pipeline-1', true)
+            await expectLogic(logic).toDispatchActions(['loadModelsSuccess', 'loadRunsFailure'])
+            expect(logic.values.lifecycleSteps).toBeNull()
+            logic.unmount()
+        })
+
+        it('records a tab change from the user and keeps it in the URL, but not a change from the URL', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            const logic = await mountWithPipeline(null, '/autoresearch/pipeline-1')
+            capture.mockClear()
+
+            logic.actions.setActiveTab('setup')
+            expect(router.values.searchParams.tab).toEqual('setup')
+            expect(capture).toHaveBeenCalledWith('autoresearch model tab changed', {
+                pipeline_id: 'pipeline-1',
+                tab: 'setup',
+            })
+
+            capture.mockClear()
+            router.actions.push('/autoresearch/pipeline-1?tab=accuracy')
+            expect(logic.values.activeTab).toEqual('accuracy')
+            expect(capture).not.toHaveBeenCalledWith('autoresearch model tab changed', expect.anything())
+            logic.unmount()
+            capture.mockRestore()
+        })
     })
 
     describe('scoringCoverage', () => {
@@ -269,6 +390,25 @@ describe('autoresearchPipelineLogic', () => {
                 ],
             })
             expect(trainingRunProgress(run)).toEqual({ iterationCount: 2, bestHoldoutScore: 0.7 })
+        })
+    })
+
+    describe('featureChanges', () => {
+        const explanation = (...names: string[]): ModelExplanationFieldApi => ({
+            top_features: names.map((name) => ({
+                name,
+                importance: 1,
+                direction: FeatureDirectionEnumApi.Positive,
+            })),
+        })
+
+        it.each([
+            ['same features', explanation('a', 'b'), explanation('b', 'a'), { added: [], dropped: [] }],
+            ['added and dropped', explanation('a', 'c'), explanation('a', 'b'), { added: ['c'], dropped: ['b'] }],
+            ['run without importances', {}, explanation('a'), { added: [], dropped: [] }],
+            ['champion without importances', explanation('a'), {}, { added: [], dropped: [] }],
+        ])('%s', (_name, run, champion, expected) => {
+            expect(featureChanges(run, champion)).toEqual(expected)
         })
     })
 })

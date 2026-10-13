@@ -7593,6 +7593,7 @@ const schema80 = {
         'person',
         'event',
         'event_metadata',
+        'element',
         'group',
         'session',
         'hogql',
@@ -7619,6 +7620,7 @@ const schema85 = {
         'person',
         'event',
         'event_metadata',
+        'element',
         'group',
         'session',
         'hogql',
@@ -7892,6 +7894,7 @@ function validate95(data, { instancePath = '', parentData, parentDataProperty, r
                                                 data4 === 'person' ||
                                                 data4 === 'event' ||
                                                 data4 === 'event_metadata' ||
+                                                data4 === 'element' ||
                                                 data4 === 'group' ||
                                                 data4 === 'session' ||
                                                 data4 === 'hogql' ||
@@ -8410,6 +8413,7 @@ function validate94(data, { instancePath = '', parentData, parentDataProperty, r
                                                         data8 === 'person' ||
                                                         data8 === 'event' ||
                                                         data8 === 'event_metadata' ||
+                                                        data8 === 'element' ||
                                                         data8 === 'group' ||
                                                         data8 === 'session' ||
                                                         data8 === 'hogql' ||

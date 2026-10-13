@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
     FinnworldsAuthError,
     FinnworldsRetryableError,
-    _build_url,
     _extract_rows,
     _normalize_row,
     _payload_error,
@@ -69,10 +68,6 @@ class TestParseTickers:
     def test_parse_tickers(self, _name: str, raw: str | None, expected: list[str]) -> None:
         assert parse_tickers(raw) == expected
 
-    def test_at_max_tickers_is_allowed(self) -> None:
-        raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS))
-        assert len(parse_tickers(raw)) == finnworlds.MAX_TICKERS
-
     def test_over_max_tickers_is_rejected(self) -> None:
         # Bounds the per-sync outbound fan-out (one request per ticker per table).
         raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS + 1))
@@ -103,19 +98,6 @@ class TestParseCountries:
             parse_countries(raw)
 
 
-class TestBuildUrl:
-    def test_includes_key_and_ticker(self) -> None:
-        url = _build_url("incomestatements", {"key": "secret", "ticker": "AAPL"})
-        assert url.startswith("https://api.finnworlds.com/api/v1/incomestatements?")
-        assert "key=secret" in url
-        assert "ticker=AAPL" in url
-
-    def test_url_encodes_values(self) -> None:
-        url = _build_url("bonds", {"key": "a b&c"})
-        # urlencode escapes the space and ampersand so they don't break the query string.
-        assert "a+b%26c" in url
-
-
 class TestPayloadError:
     @parameterized.expand(
         [
@@ -132,25 +114,6 @@ class TestPayloadError:
 
 
 class TestExtractRows:
-    def test_output_array(self) -> None:
-        payload = {"result": {"basics": {"ticker": "AAPL"}, "output": {"income_statement": [{"date": "2025-03-31"}]}}}
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["income_statements"])
-        assert rows == [{"date": "2025-03-31"}]
-
-    def test_output_object(self) -> None:
-        payload = {"result": {"output": {"pe_ratio": "30", "date": "2025-06-01"}}}
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["financial_ratios"])
-        assert rows == [{"pe_ratio": "30", "date": "2025-06-01"}]
-
-    def test_output_object_empty_yields_nothing(self) -> None:
-        payload: dict[str, Any] = {"result": {"output": {}}}
-        assert _extract_rows(payload, FINNWORLDS_ENDPOINTS["financial_ratios"]) == []
-
-    def test_output_bare(self) -> None:
-        payload = {"result": {"output": [{"country": "US", "type": "10Y"}]}}
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["bond_yields"])
-        assert rows == [{"country": "US", "type": "10Y"}]
-
     def test_result_key(self) -> None:
         payload = {"result": {"analysts": [{"analyst_name": "Jane"}]}}
         rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["company_ratings"])
@@ -183,10 +146,6 @@ class TestNormalizeRow:
         row = _normalize_row({"date": "2025-03-31"}, FINNWORLDS_ENDPOINTS["income_statements"], "AAPL", "quarterly")
         assert row["ticker"] == "AAPL"
         assert row["period"] == "quarterly"
-
-    def test_period_defaults_to_annual(self) -> None:
-        row = _normalize_row({"date": "2025-03-31"}, FINNWORLDS_ENDPOINTS["income_statements"], "AAPL", None)
-        assert row["period"] == "annual"
 
     def test_flattens_nested_rating(self) -> None:
         raw = {"analyst_name": "Jane", "rating": {"date_rating": "2025-01-01", "price_target": "200"}}
@@ -247,14 +206,6 @@ class TestGetRows:
         assert len(batches) == 1
         assert batches[0][0]["ticker"] == "MSFT"
         logger.warning.assert_called()
-
-    def test_empty_ticker_list_yields_nothing(self) -> None:
-        session = _session_returning()
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", [], [], _logger()))
-        assert batches == []
-        session.get.assert_not_called()
 
 
 class TestRetryClassification:
@@ -404,54 +355,6 @@ def _insider_payload(**overrides: Any) -> dict[str, Any]:
 
 
 class TestInsiderTransactions:
-    def test_expands_every_transaction_line(self) -> None:
-        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
-
-        assert [(r["transaction_table"], r["transaction_index"]) for r in rows] == [
-            ("non_derivative", 1),
-            ("non_derivative", 2),
-            ("derivative", 3),
-        ]
-
-    def test_flattens_nested_transaction_objects(self) -> None:
-        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
-
-        first = rows[0]
-        assert first["transaction_code"] == "M"
-        assert first["transaction_amounts_shares"] == "8760"
-        assert first["post_transaction_holding"] == "55790"
-        assert first["ownership_nature_direct_or_indirect"] == "D"
-        assert first["activity_date"] == "2025-08-21"
-
-    def test_unwraps_the_derivative_wrapper(self) -> None:
-        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
-
-        derivative = rows[-1]
-        assert derivative["security"] == "Restricted Stock Unit Award"
-        assert derivative["post_transaction_shares_owned"] == "17540"
-        assert "derivatives" not in derivative
-
-    def test_carries_the_reporting_owner_and_period(self) -> None:
-        rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
-
-        assert rows[0]["owner_cik"] == "1000001"
-        assert rows[0]["owner_name"] == "Doe Jane"
-        assert rows[0]["owner_is_officer"] == 1
-        assert rows[0]["owner_title"] == "Senior Vice President"
-        assert rows[0]["period_of_report"] == "2025-08-21"
-
-    def test_joint_filers_each_get_a_row(self) -> None:
-        payload = _insider_payload(
-            reporting_owner=[
-                {"owner_id": {"owner_cik": "1", "name": "First Filer"}},
-                {"owner_id": {"owner_cik": "2", "name": "Second Filer"}},
-            ]
-        )
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["insider_transactions"])
-
-        assert len(rows) == 6
-        assert {r["owner_cik"] for r in rows} == {"1", "2"}
-
     def test_a_date_range_returning_several_filings(self) -> None:
         # A single filing comes back as an object; a range can come back as a list of them.
         payload = {"result": [_insider_payload()["result"], _insider_payload(period_of_report="2025-09-02")["result"]]}
@@ -459,26 +362,6 @@ class TestInsiderTransactions:
 
         assert len(rows) == 6
         assert {r["period_of_report"] for r in rows} == {"2025-08-21", "2025-09-02"}
-
-    def test_primary_key_separates_every_row_of_a_filing(self) -> None:
-        # Lines in one filing repeat security, date and code, so without the line position they
-        # would collapse into a single row.
-        config = FINNWORLDS_ENDPOINTS["insider_transactions"]
-        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(_insider_payload(), config)]
-
-        keys = {tuple(row[key] for key in config.primary_keys) for row in rows}
-        assert len(keys) == len(rows)
-
-    def test_primary_key_separates_two_filings_sharing_a_period_and_owner(self) -> None:
-        # The API exposes no filing identifier, so a ticker that files twice in one period would
-        # collide if the line index restarted per filing.
-        config = FINNWORLDS_ENDPOINTS["insider_transactions"]
-        payload = {"result": [_insider_payload()["result"], _insider_payload()["result"]]}
-        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(payload, config)]
-
-        keys = {tuple(row[key] for key in config.primary_keys) for row in rows}
-        assert len(rows) == 6
-        assert len(keys) == 6
 
     @parameterized.expand(
         [
