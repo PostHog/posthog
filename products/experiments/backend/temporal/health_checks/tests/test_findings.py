@@ -4,7 +4,6 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -87,29 +86,30 @@ class TestExperimentHealthFindings(BaseTest):
         assert detect_experiment_findings([self.team.id], flag_state) == {}
 
 
-class TestExperimentHealthLiveGate(SimpleTestCase):
+class TestExperimentHealthLiveGate(BaseTest):
     @parameterized.expand(
         [
-            ("enabled", True, [1]),
-            ("deliberately_disabled", False, []),
-            ("flag_absent", None, []),
-            ("a_variant_is_not_enabled", "control", []),
+            ("enabled", True, True),
+            ("deliberately_disabled", False, False),
+            ("flag_absent", None, False),
+            ("a_variant_is_not_enabled", "control", False),
         ]
     )
-    def test_the_gate_keeps_a_team_only_when_the_flag_answers_true(
-        self, _name: str, answer: Any, expected: list[int]
-    ) -> None:
+    def test_the_gate_keeps_a_team_only_when_the_flag_answers_true(self, _name: str, answer: Any, kept: bool) -> None:
         with (
             patch.multiple("posthoganalytics", disabled=False, feature_flag_definitions=lambda: [{"key": "x"}]),
             patch(FLAG_READ_TARGET, return_value=answer) as flag_read,
         ):
-            assert live_gate_team_ids([1]) == expected
+            assert live_gate_team_ids([self.team.id]) == ([self.team.id] if kept else [])
 
         assert flag_read.call_args == call(
             LIVE_GATE_FLAG,
-            "team-1",
-            groups={"project": "DEV:1"},
-            group_properties={"project": {"id": "1", "region": "DEV"}},
+            str(self.team.uuid),
+            groups={"organization": str(self.organization.id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.organization.id)},
+                "project": {"id": str(self.team.id), "uuid": str(self.team.uuid)},
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
@@ -127,6 +127,6 @@ class TestExperimentHealthLiveGate(SimpleTestCase):
             patch.multiple("posthoganalytics", disabled=disabled, feature_flag_definitions=lambda: definitions),
             patch(FLAG_READ_TARGET) as flag_read,
         ):
-            assert live_gate_team_ids([1]) == []
+            assert live_gate_team_ids([self.team.id]) == []
 
         flag_read.assert_not_called()

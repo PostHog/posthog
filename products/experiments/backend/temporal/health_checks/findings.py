@@ -10,11 +10,11 @@ from collections.abc import Callable, Iterator
 import structlog
 import posthoganalytics
 
+from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.framework import _SEVERITY_WEIGHT, AlertContent, SignalContent, build_signal_extra
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.utils import get_instance_region
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.context import HealthContext, load_health_context
@@ -58,18 +58,24 @@ def live_gate_team_ids(team_ids: list[int]) -> list[int]:
     if posthoganalytics.disabled or not posthoganalytics.feature_flag_definitions():
         logger.warning("experiments_health_checks_live_gate_unreadable", team_count=len(team_ids))
         return []
-    return [team_id for team_id in team_ids if _live_gate_answer(team_id) is True]
+    teams = Team.objects.filter(id__in=team_ids).order_by("id").values_list("id", "uuid", "organization_id")
+    return [
+        team_id
+        for team_id, team_uuid, organization_id in teams
+        if _live_gate_answer(team_id, str(team_uuid), str(organization_id)) is True
+    ]
 
 
-def _live_gate_answer(team_id: int) -> bool | str | None:
-    # Team ids repeat across regions and EU evaluates a mirror of this flag, so every condition
-    # needs a `region` filter, or one project-id condition matches two different customers.
-    region = get_instance_region() or "DEV"
+def _live_gate_answer(team_id: int, team_uuid: str, organization_id: str) -> bool | str | None:
+    # A team id repeats across PostHog instances, so a flag that must reach one project matches on the uuid.
     return get_feature_flag_or_none(
         LIVE_GATE_FLAG,
-        f"team-{team_id}",
-        groups={"project": f"{region}:{team_id}"},
-        group_properties={"project": {"id": str(team_id), "region": region}},
+        team_uuid,
+        groups={"organization": organization_id, "project": str(team_id)},
+        group_properties={
+            "organization": {"id": organization_id},
+            "project": {"id": str(team_id), "uuid": team_uuid},
+        },
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
