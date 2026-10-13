@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.roark.sett
 ROARK_BASE_URL = "https://api.roark.ai/v1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RoarkResumeConfig:
     # Cursor (`after`) pointing at the next page to fetch for the cursor-paginated endpoints. `None`
     # means "start at the first page". Saved after a page is yielded so a crash resumes from the next

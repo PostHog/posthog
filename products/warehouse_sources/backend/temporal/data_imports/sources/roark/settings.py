@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PaginationMode = Literal["cursor", "offset", "none"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoarkEndpointConfig:
     name: str
     path: str
