@@ -41,6 +41,10 @@ const HEATMAP_DATE_FROM = '-7d'
 // The content script matches rows in one pass, so the popup loads one page instead of the toolbar's pagination.
 const ELEMENT_STATS_LIMIT = 5000
 
+// The DevTools panel checks this many times, one second apart, for posthog-js on a newly loaded page.
+const PAGE_FLAG_RETRIES = 5
+const PAGE_FLAG_RETRY_MS = 1000
+
 // The floating toolbar loads the same list through toolbarApi.featureFlags.myFlags.
 const MY_FLAGS_PATH = '/api/projects/@current/feature_flags/my_flags/'
 
@@ -390,7 +394,7 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
                             })
                         ),
                     selectInspectedElement: async () => {
-                        const status = await command((tabId) =>
+                        await command((tabId) =>
                             sendContentCommand(tabId, {
                                 type: 'expect-inspected-element',
                                 dataAttributes: values.dataAttributes,
@@ -399,7 +403,8 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
                         if (!(await dispatchInspectedElementEvent())) {
                             throw new NoInspectedElementError()
                         }
-                        return status
+                        // The selection stops page selection mode, so the status from before the event is stale.
+                        return await command(getContentStatus)
                     },
                 },
             ],
@@ -471,7 +476,7 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
                 selectedElement && samePage(selectedElement.pageUrl, tabUrl) ? selectedElement : null,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         trackPageTool: ({ tool, properties }) => {
             // pinned: analytics event name
             toolbarPosthogJS.capture('toolbar extension page tool used', { tool, ...properties })
@@ -498,7 +503,17 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
         },
         setTab: () => {
             // A new document in the inspected tab has no content script and no flag overrides yet.
+            cache.pageFlagRetries = 0
             actions.loadContentStatus()
+            actions.loadPageFlags()
+        },
+        loadPageFlagsSuccess: async ({ pageFlags }, breakpoint) => {
+            // DevTools reports the navigation before the page's posthog-js loads, so check again for a short time.
+            if (!isDevtoolsPanel() || pageFlags?.available || cache.pageFlagRetries >= PAGE_FLAG_RETRIES) {
+                return
+            }
+            cache.pageFlagRetries += 1
+            await breakpoint(PAGE_FLAG_RETRY_MS)
             actions.loadPageFlags()
         },
         createAction: () => {
@@ -530,6 +545,7 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        cache.pageFlagRetries = 0
         actions.loadContentStatus()
         actions.loadUserFlags()
         actions.loadPageFlags()

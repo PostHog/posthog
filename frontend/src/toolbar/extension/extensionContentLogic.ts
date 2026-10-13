@@ -256,7 +256,11 @@ export const extensionContentLogic = kea<extensionContentLogicType>([
                 window.removeEventListener(INSPECTED_ELEMENT_EVENT, listener, true)
                 logicCache.inspectedElementListener = undefined
                 // The user picked this exact element in DevTools, so it isn't trimmed to a clickable parent.
-                const element = event.composedPath()[0]
+                // Autocapture records HTML elements, so an SVG pick uses its closest HTML ancestor.
+                let element: EventTarget | null = event.composedPath()[0] ?? null
+                while (element instanceof Element && !(element instanceof HTMLElement)) {
+                    element = element.parentElement
+                }
                 if (element instanceof HTMLElement) {
                     actions.selectElement(element)
                 }
