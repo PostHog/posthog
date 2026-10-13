@@ -14,10 +14,8 @@ from posthog.models.distinct_id_usage.sql import KAFKA_DISTINCT_ID_USAGE_TABLE_S
 from posthog.models.event.sql import KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.models.flag_evaluations.sql import KAFKA_FLAG_EVALUATIONS_TABLE_SQL
 from posthog.models.group.sql import KAFKA_GROUPS_TABLE_SQL
-from posthog.models.hog_invocation_results.sql import KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL
 from posthog.models.ingestion_warnings.sql import KAFKA_INGESTION_WARNINGS_TABLE_SQL
 from posthog.models.ingestion_warnings.sql_v2 import KAFKA_INGESTION_WARNINGS_V2_TABLE_SQL
-from posthog.models.message_assets.sql import KAFKA_MESSAGE_ASSETS_TABLE_SQL
 from posthog.models.performance.sql import KAFKA_PERFORMANCE_EVENTS_TABLE_SQL
 from posthog.models.person.sql import (
     KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL,
@@ -33,11 +31,13 @@ from posthog.models.usage_ingestion.billing_usage_records import KAFKA_BILLING_U
 from posthog.session_recordings.sql.session_replay_event_sql import KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.session_recordings.sql.session_replay_feature_sql import KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL
 
+from products.cdp.backend.facade.clickhouse import KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL
 from products.error_tracking.backend.embedding import KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL
 from products.error_tracking.backend.sql import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
+from products.workflows.backend.facade.clickhouse import KAFKA_MESSAGE_ASSETS_TABLE_SQL
 
 CREATE_KAFKA_TABLE_QUERIES: tuple[str | Callable[[], str], ...] = (
     KAFKA_LOG_ENTRIES_TABLE_SQL,

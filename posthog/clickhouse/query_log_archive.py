@@ -1,3 +1,5 @@
+SHARDED_QUERY_LOG_ARCHIVE_TABLE = "sharded_query_log_archive"
+
 # Curated JSON subset of log_comment. Keys not hinted here are still kept as
 # dynamic paths (bounded by max_dynamic_paths) UNLESS listed in SKIP. The SKIP
 # list drops PII (user_email, http_*) and bulky objects (query_settings, timings,
