@@ -631,8 +631,9 @@ def flag_evaluations_backfill_job() -> None:
     """Copy $feature_flag_called history from events into flag_evaluations, one op per shard.
 
     Safe to re-run over the same window: the anti-join inserts only rows that are missing.
-    A re-run does not rewrite a stored row, so it does not fill person columns on rows that an
-    earlier copy or the Kafka path wrote. Delete those rows before the run to copy them again.
+    A re-run does not rewrite a stored row. To copy a day again, first delete the rows that an earlier
+    run copied, which match _COPIED_ROW_FILTER. Delete a row that the Kafka path wrote only when events
+    also holds the call. Events does not hold the calls of an organization on FLAG_EVALUATIONS_ONLY.
     """
     plan = plan_flag_evaluations_backfill()
     shards = get_backfill_shards(plan=plan)
