@@ -15,8 +15,8 @@ SearchPlan = Literal["project_scan", "trigram"]
 # are level for short terms; the largest projects have millions of rows and must keep the index.
 PROJECT_SCAN_MAX_DEFINITIONS = 50_000
 
-# Nothing indexes `last_seen_at`, so a recency-ordered event list sorts every definition of the project
-# for each page. Above this many definitions the list defaults to name order, which the unique index
+# No index serves the `last_seen_at::date` default order, so a recency-ordered event list sorts every
+# definition of the project for each page. Above this many definitions the list defaults to name order, which the unique index
 # returns directly. Below it, the sort stays cheap enough to keep the recency default.
 NAME_ORDER_MIN_DEFINITIONS = 100_000
 
