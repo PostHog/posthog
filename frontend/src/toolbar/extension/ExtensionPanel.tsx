@@ -7,6 +7,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { urls } from '~/toolbar/urls'
 
+import { canRequestHostPermission } from './extensionBrowser'
 import { ExtensionFeatureList } from './ExtensionFeatureList'
 import { ExtensionPageTools } from './ExtensionPageTools'
 import { extensionPanelLogic } from './extensionPanelLogic'
@@ -37,6 +38,13 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
         case 'unsupported-page':
             return <LemonBanner type="info">{UNSUPPORTED_PAGE_MESSAGES[panelState.reason]}</LemonBanner>
         case 'host-permission-needed':
+            if (!canRequestHostPermission()) {
+                return (
+                    <LemonBanner type="info">
+                        Open the PostHog side panel and allow access to {host}, then open DevTools again.
+                    </LemonBanner>
+                )
+            }
             return (
                 <LemonBanner
                     type="info"
@@ -108,7 +116,7 @@ export function ExtensionPanel(): JSX.Element {
     const { panelState } = useValues(extensionPanelLogic)
 
     return (
-        <div className="flex min-h-screen flex-col gap-3 p-3">
+        <div className="flex min-h-screen max-w-xl flex-col gap-3 p-3">
             <div className="flex items-center gap-2 font-semibold">
                 <IconLogomark className="text-xl" />
                 PostHog toolbar

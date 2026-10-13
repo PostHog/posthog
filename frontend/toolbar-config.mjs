@@ -250,7 +250,10 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 // The browser extension ships one panel bundle in a folder per browser. Only the manifest differs:
 //
 //   dist/toolbar-extension/<browser>/manifest.json
-//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, content.js, assets/, icons/
+//   dist/toolbar-extension/<browser>/panel.html, panel.js, panel.css, background.js, content.js,
+//   devtools.html, devtools.js, assets/, icons/
+//
+// The DevTools panel also shows panel.html. The page code checks for the DevTools API to bind to the inspected tab.
 //
 // Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
 const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
@@ -289,7 +292,8 @@ export function getToolbarExtensionBuildConfig(dirname) {
 
 /**
  * The panel injects content.js into the tab with `scripting.executeScript`, which runs a file as a classic script, and
- * Firefox doesn't run a module as a background script. So each of these scripts is one self-contained IIFE.
+ * Firefox doesn't run a module as a background script or a DevTools page. So each of these scripts is one
+ * self-contained IIFE.
  */
 export function getToolbarExtensionScriptsBuildConfig(dirname) {
     return {
@@ -297,6 +301,7 @@ export function getToolbarExtensionScriptsBuildConfig(dirname) {
         entryPoints: {
             background: 'src/toolbar/extension/background.ts',
             content: 'src/toolbar/extension/content.tsx',
+            devtools: 'src/toolbar/extension/devtools.ts',
         },
         format: 'iife',
         splitting: false,
@@ -313,7 +318,7 @@ export function getToolbarExtensionScriptsBuildConfig(dirname) {
 }
 
 // Asks for every http and https site, because the panel follows the active tab without a click on the extension
-// button, which `activeTab` needs.
+// button, which `activeTab` needs. The DevTools panel uses the same grant.
 function buildToolbarExtensionManifest(browser) {
     const manifest = {
         manifest_version: 3,
@@ -325,6 +330,7 @@ function buildToolbarExtensionManifest(browser) {
             default_title: 'Open the PostHog toolbar',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
+        devtools_page: 'devtools.html',
         permissions: ['scripting', 'storage'],
         host_permissions: ['http://*/*', 'https://*/*'],
     }
@@ -356,7 +362,9 @@ export function finalizeToolbarExtensionBuild(dirname) {
         const outDir = path.resolve(dirname, 'dist', 'toolbar-extension', browser)
         fs.rmSync(outDir, { recursive: true, force: true })
         fs.cpSync(buildDir, outDir, { recursive: true })
-        fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/panel.html'), path.resolve(outDir, 'panel.html'))
+        for (const page of ['panel.html', 'devtools.html']) {
+            fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension', page), path.resolve(outDir, page))
+        }
         for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
             fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
             fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))

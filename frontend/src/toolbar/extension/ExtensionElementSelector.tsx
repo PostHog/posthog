@@ -1,46 +1,69 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconCursorClick, IconX } from '@posthog/icons'
+import { IconCopy, IconCursorClick, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { isDevtoolsPanel } from './extensionBrowser'
 import { extensionPageToolsLogic } from './extensionPageToolsLogic'
 
 export function ExtensionElementSelector(): JSX.Element {
-    const { selectedElementForPage, contentStatus, contentStatusLoading } = useValues(extensionPageToolsLogic)
-    const { startElementSelection, stopElementSelection, copySelector, clearSelectedElement } =
-        useActions(extensionPageToolsLogic)
+    const { selectedElementForPage, contentStatus, contentStatusLoading, user } = useValues(extensionPageToolsLogic)
+    const {
+        startElementSelection,
+        stopElementSelection,
+        selectInspectedElement,
+        copySelector,
+        clearSelectedElement,
+        createAction,
+    } = useActions(extensionPageToolsLogic)
     const actionStep = selectedElementForPage?.actionStep
 
     return (
         <div className="flex flex-col gap-1">
-            {contentStatus.selecting ? (
-                <LemonButton
-                    fullWidth
-                    type="secondary"
-                    size="small"
-                    icon={<IconX />}
-                    loading={contentStatusLoading}
-                    tooltip="Click an element on the page, or stop selecting"
-                    onClick={stopElementSelection}
-                    data-attr="toolbar-extension-stop-selecting"
-                >
-                    Stop selecting
-                </LemonButton>
-            ) : (
-                <LemonButton
-                    fullWidth
-                    type="secondary"
-                    size="small"
-                    icon={<IconCursorClick />}
-                    loading={contentStatusLoading}
-                    tooltip="Pick an element on the page to use in an action"
-                    onClick={startElementSelection}
-                    data-attr="toolbar-extension-select-element"
-                >
-                    Select an element
-                </LemonButton>
-            )}
+            <div className="flex flex-wrap gap-1">
+                {contentStatus.selecting ? (
+                    <LemonButton
+                        className="flex-1"
+                        type="secondary"
+                        size="small"
+                        icon={<IconX />}
+                        loading={contentStatusLoading}
+                        tooltip="Click an element on the page, or stop selecting"
+                        onClick={stopElementSelection}
+                        data-attr="toolbar-extension-stop-selecting"
+                    >
+                        Stop selecting
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        className="flex-1"
+                        type="secondary"
+                        size="small"
+                        icon={<IconCursorClick />}
+                        loading={contentStatusLoading}
+                        tooltip="Pick an element on the page to use in an action"
+                        onClick={startElementSelection}
+                        data-attr="toolbar-extension-select-element"
+                    >
+                        Select an element
+                    </LemonButton>
+                )}
+                {isDevtoolsPanel() && (
+                    <LemonButton
+                        className="flex-1"
+                        type="secondary"
+                        size="small"
+                        icon={<IconSearch />}
+                        loading={contentStatusLoading}
+                        tooltip="Use the element selected in the Elements panel ($0)"
+                        onClick={selectInspectedElement}
+                        data-attr="toolbar-extension-use-inspected-element"
+                    >
+                        Use inspected element
+                    </LemonButton>
+                )}
+            </div>
             {actionStep && (
                 <div className="flex flex-col gap-1 border rounded p-2 text-xs">
                     <div className="flex items-start gap-1">
@@ -70,6 +93,16 @@ export function ExtensionElementSelector(): JSX.Element {
                             {selectedElementForPage.selectorQuality.reason?.toLowerCase()}.
                         </div>
                     )}
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconPlusSmall />}
+                        disabledReason={user ? null : 'Checking your project…'}
+                        onClick={createAction}
+                        data-attr="toolbar-extension-create-action"
+                    >
+                        Create action
+                    </LemonButton>
                 </div>
             )}
         </div>

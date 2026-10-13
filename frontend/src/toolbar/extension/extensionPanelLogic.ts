@@ -16,7 +16,9 @@ import {
     getActiveTab,
     getStoredUiHost,
     hasHostPermission,
+    isDevtoolsPanel,
     onActiveTabChange,
+    onInspectedPageNavigated,
     openTab,
     requestHostPermission,
     setStoredUiHost,
@@ -384,14 +386,21 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             })
         },
     }),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
         toolbarPosthogJS.opt_in_capturing()
+        toolbarPosthogJS.register({ extension_surface: isDevtoolsPanel() ? 'devtools' : 'side-panel' })
         void getStoredUiHost().then((stored) => actions.setUiHost(canonicalizeUiHost(stored) ?? DEFAULT_UI_HOST))
         void getActiveTab().then(
             (tab) => actions.setTab(tab?.id ?? null, tab?.url ?? null),
             () => actions.setTab(null, null)
         )
-        cache.removeActiveTabListener = onActiveTabChange((tab) => actions.setTab(tab?.id ?? null, tab?.url ?? null))
+        if (isDevtoolsPanel()) {
+            onInspectedPageNavigated((url) => actions.setTab(values.tabId, url))
+        } else {
+            cache.removeActiveTabListener = onActiveTabChange((tab) =>
+                actions.setTab(tab?.id ?? null, tab?.url ?? null)
+            )
+        }
     }),
     beforeUnmount(({ cache }) => {
         cache.removeActiveTabListener?.()
