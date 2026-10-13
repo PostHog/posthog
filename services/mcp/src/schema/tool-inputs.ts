@@ -496,7 +496,7 @@ export const ExperimentVariantNotesSchema = z
 export const ExperimentVariantScreenshotMediaIdsSchema = z
     .record(z.string(), z.array(z.string()))
     .describe(
-        'Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant.'
+        'Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose "experiment", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant.'
     )
     .optional()
 

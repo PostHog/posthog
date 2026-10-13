@@ -17,7 +17,11 @@ function contextWith(responses: Record<string, unknown>): { context: Context; re
     const request = vi.fn(async ({ method }: { method: string }) => responses[method])
     const context = {
         stateManager: { getProjectId: async () => '7' },
-        api: { request, getProjectBaseUrl: () => 'https://app.example.com/project/7' },
+        api: {
+            request,
+            publicBaseUrl: 'https://app.example.com',
+            getProjectBaseUrl: () => 'https://app.example.com/project/7',
+        },
     } as unknown as Context
     return { context, request }
 }
@@ -114,6 +118,25 @@ describe('experiment variant notes and screenshots', () => {
 
         expect(request.mock.calls.map(([options]) => options.method)).toEqual(['PATCH'])
         expect(sentBody(request, 'PATCH')).toEqual({ name: 'Renamed' })
+    })
+
+    it('experiment-get maps each variant screenshot media ID to its viewable URL', async () => {
+        const { context } = contextWith({
+            GET: {
+                id: 1,
+                parameters: { variant_screenshot_media_ids: { control: ['media-1', 'media-2'], test: 'media-3' } },
+            },
+        })
+
+        const result = (await run('experiment-get', context, { id: 1 })) as Record<string, unknown>
+
+        expect(result.variant_screenshot_urls).toEqual({
+            control: [
+                'https://app.example.com/uploaded_media/media-1',
+                'https://app.example.com/uploaded_media/media-2',
+            ],
+            test: ['https://app.example.com/uploaded_media/media-3'],
+        })
     })
 
     it('experiment-list reports which variants have notes or screenshots', async () => {
