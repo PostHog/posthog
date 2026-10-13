@@ -69,11 +69,15 @@ def _context(filters: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
+    params = _window_params(transition)
+    return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
+
+
+def _window_params(transition: AnnouncedTransition) -> str:
     # The window the check counted, so the link opens on the logs that decided it.
     date_to = transition.occurred_at
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
-    params = build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
-    return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
+    return build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
 
 
 _LEGACY_WEBHOOK_TYPES: Final = {
@@ -107,15 +111,13 @@ def legacy_logs_webhook_body(
     }
     if transition.kind in (AlertEventKind.FIRING, AlertEventKind.RESOLVED):
         condition = transition.condition
-        date_to = transition.occurred_at
-        date_from = date_to - timedelta(minutes=condition["window_minutes"])
-        params = build_logs_url_params(filters, date_from=date_from, date_to=date_to)
         data |= {
             "result_count": int(transition.value) if transition.value is not None else None,
             "threshold_count": condition["threshold_count"],
             "threshold_operator": condition["threshold_operator"],
             "window_minutes": condition["window_minutes"],
-            "logs_url": absolute_uri(f"/project/{project_id}/logs?{params}"),
+            # The legacy template always added the "?", even with no parameters.
+            "logs_url": absolute_uri(f"/project/{project_id}/logs?{_window_params(transition)}"),
         }
     else:
         error_key = "last_error_message" if transition.kind == AlertEventKind.BROKEN else "error_message"
