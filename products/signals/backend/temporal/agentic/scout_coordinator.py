@@ -496,10 +496,6 @@ class _BackgroundDueRun:
     # Seconds since the config became due. A never-run config counts from its creation.
     due_age_s: float
 
-    def priority(self) -> tuple[bool, bool, float, int, str]:
-        """Coverage before cadence, then engaged before backed off, then most overdue first."""
-        return (not self.never_run, self.backed_off, -self.run.overdue_s, self.band or 0, self.run.config_pk)
-
 
 def _collect_planned_runs(
     enrollment: Enrollment,
@@ -667,11 +663,17 @@ def _apply_background_budget(
 ) -> list[_DueRun]:
     """The due background runs the lane budget admits this tick, highest priority first.
 
+    Coverage before cadence (never run first), then engaged before backed off, then most overdue,
+    with band and config pk as deterministic tiebreaks.
+
     The rest stay unstamped, so they are still due next tick: the deferred runs are the queue, and
     nothing new is stored. A deferred config keeps its backoff level, because only a stamp moves it.
     """
     allowance = budget.tick_allowance(runs_last_24h)
-    ordered = sorted(background_due, key=_BackgroundDueRun.priority)
+    ordered = sorted(
+        background_due,
+        key=lambda d: (not d.never_run, d.backed_off, -d.run.overdue_s, d.band or 0, d.run.config_pk),
+    )
     if len(ordered) > allowance:
         logger.info(
             "signals_scout coordinator: background budget defers due runs",
