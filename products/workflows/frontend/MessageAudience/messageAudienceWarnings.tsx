@@ -29,9 +29,19 @@ export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kin
     return verified ? null : UNVERIFIED_SENDER_MESSAGE
 }
 
+// The checks only advise, so a slow one must not hold the person on the page.
+const CHECK_TIMEOUT_MS = 5000
+
+function withinTimeout<T>(request: Promise<T>): Promise<T | null> {
+    return Promise.race([
+        request.catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), CHECK_TIMEOUT_MS)),
+    ])
+}
+
 /**
  * What would stop the email from going out, checked when the person clicks so the entry point costs nothing
- * on page view. A check that fails stays quiet: the broadcast launch and the workflow editor check again.
+ * on page view. A check that fails or times out stays quiet: the broadcast launch and the workflow editor check again.
  */
 export async function loadMessageAudienceWarnings(
     audience: MessageAudience,
@@ -41,51 +51,72 @@ export async function loadMessageAudienceWarnings(
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
     const [suspension, integrations, cohorts] = await Promise.all([
-        hogFlowsEmailSendingSuspensionRetrieve(projectId).catch(() => null),
-        integrationsList(projectId, { kind: 'email' }).catch(() => null),
+        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(projectId)),
+        withinTimeout(integrationsList(projectId, { kind: 'email' })),
         Promise.all(
             cohortIds.map((id) =>
-                cohortsRetrieve(projectId, id)
-                    .then((cohort) => toAudienceCohort(id, cohort))
-                    .catch(() => null)
+                withinTimeout(cohortsRetrieve(projectId, id).then((cohort) => toAudienceCohort(id, cohort)))
             )
         ),
     ])
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
-        integrations ? emailSenderWarning(integrations.results) : null,
+        // A verified sender can sit on a later page, so only a complete list can say none is verified.
+        integrations && !integrations.next ? emailSenderWarning(integrations.results) : null,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
 
-/** Opens the broadcast or workflow, asking first when something would stop the email from going out. */
+let opening = false
+
+/**
+ * Opens the broadcast or workflow, asking first when something would stop the email from going out. A second click
+ * while the checks run does nothing.
+ */
 export async function openMessageAudience(
     audience: MessageAudience,
     destination: MessageAudienceDestination
 ): Promise<void> {
-    const navigate = (): void => router.actions.push(messageAudienceUrl(audience, destination))
-    const warnings = await loadMessageAudienceWarnings(audience, destination)
-    if (warnings.length === 0) {
-        navigate()
+    if (opening) {
         return
     }
-    LemonDialog.open({
-        title: 'Before you send',
-        content: (
-            <ul className="list-disc pl-4 m-0 flex flex-col gap-1" data-attr="message-audience-warnings">
-                {warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                ))}
-            </ul>
-        ),
-        primaryButton: {
-            children: 'Continue',
-            onClick: navigate,
-            'data-attr': `message-audience-${audience.source}-continue`,
-        },
-        secondaryButton:
-            warnings.includes(NO_EMAIL_SENDER_MESSAGE) || warnings.includes(UNVERIFIED_SENDER_MESSAGE)
-                ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
-                : { children: 'Cancel' },
-    })
+    opening = true
+    try {
+        const navigate = async (): Promise<void> => {
+            router.actions.push(messageAudienceUrl(audience, destination))
+        }
+        const startedOn = router.values.location.pathname
+        const warnings = await loadMessageAudienceWarnings(audience, destination)
+        if (router.values.location.pathname !== startedOn) {
+            // The person left the page while the checks ran.
+            return
+        }
+        if (warnings.length === 0) {
+            await navigate()
+            return
+        }
+        // The modal covers the entry point, and Continue shows its own loading state while it opens the email.
+        LemonDialog.open({
+            title: 'Before you send',
+            content: (
+                <ul className="list-disc pl-4 m-0 flex flex-col gap-1" data-attr="message-audience-warnings">
+                    {warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                    ))}
+                </ul>
+            ),
+            shouldAwaitSubmit: true,
+            primaryButton: {
+                children: 'Continue',
+                onClick: navigate,
+                'data-attr': `message-audience-${audience.source}-continue`,
+            },
+            secondaryButton:
+                warnings.includes(NO_EMAIL_SENDER_MESSAGE) || warnings.includes(UNVERIFIED_SENDER_MESSAGE)
+                    ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
+                    : { children: 'Cancel' },
+        })
+    } finally {
+        opening = false
+    }
 }
