@@ -59,7 +59,8 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                         <div className="space-y-1">
                             <LemonLabel>Scanner limit</LemonLabel>
                             <div className="text-xs text-muted">
-                                Cap what this scanner spends in a billing period, on top of your organization's limit.
+                                Cap what this scanner spends in a billing period. Your organization's limit still
+                                applies.
                             </div>
                         </div>
                         <LemonSwitch
