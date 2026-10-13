@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconChevronDown } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconSparkles } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu, LemonMenuItem, LemonMenuSection, Spinner } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -87,11 +89,19 @@ export function SuggestedDashboardsMenu(): JSX.Element | null {
             <LemonButton
                 type="secondary"
                 size="small"
+                icon={<IconSparkles className="text-ai" />}
                 sideIcon={<IconChevronDown />}
                 data-attr="metrics-suggested-dashboards-menu"
             >
                 <span className="flex items-center gap-1">
-                    Suggested
+                    <span
+                        className={cn(
+                            'rainbow-text font-semibold',
+                            !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
+                        )}
+                    >
+                        Suggested
+                    </span>
                     {newSuggestionCount > 0 && (
                         <LemonBadge.Number count={newSuggestionCount} size="small" status="muted" />
                     )}

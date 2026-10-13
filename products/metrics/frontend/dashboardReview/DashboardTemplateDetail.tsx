@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardLoadAction } from 'scenes/dashboard/dashboardLogic'
@@ -70,6 +73,7 @@ export function DashboardTemplateDetail(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             size="small"
+                            icon={<IconSparkles className="text-ai" />}
                             onClick={editWithAI}
                             disabledReason={
                                 !previewDashboardId
@@ -81,7 +85,14 @@ export function DashboardTemplateDetail(): JSX.Element {
                             }
                             data-attr="metrics-dashboard-review-edit-with-ai"
                         >
-                            Edit with PostHog AI
+                            <span
+                                className={cn(
+                                    'rainbow-text font-semibold',
+                                    !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
+                                )}
+                            >
+                                Edit with PostHog AI
+                            </span>
                         </LemonButton>
                         {reviewable && template.status !== 'rejected' && (
                             <LemonButton
