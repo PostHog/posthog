@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from django.conf import settings
 
+import structlog
 from anthropic import AsyncAnthropic
 
 from posthog.llm.gateway_client import (
@@ -22,6 +23,8 @@ from products.signals.backend.trial_policy import OperationAdmission, TrialPolic
 from products.signals.backend.trial_reports import active_report_pass, report_trial_context, task_trial_context
 from products.signals.backend.trial_tasks import reconcile_trial_operation
 from products.tasks.backend.facade.gateway import mint_trial_gateway_token, revoke_private_gateway_token
+
+logger = structlog.get_logger(__name__)
 
 
 class TrialLLMExecution:
@@ -118,15 +121,22 @@ class TrialLLMExecution:
 
 @asynccontextmanager
 async def trial_llm_execution(*, team_id: int | None, model: str) -> AsyncIterator[TrialLLMExecution | None]:
-    execution = await database_sync_to_async(TrialLLMExecution.prepare)(team_id=team_id, model=model)
+    execution = await database_sync_to_async(TrialLLMExecution.prepare, thread_sensitive=False)(
+        team_id=team_id, model=model
+    )
     try:
         yield execution
     finally:
         if execution is not None:
-            await database_sync_to_async(revoke_private_gateway_token)(
-                execution.gateway.api_key, gateway_config=resolve_ai_gateway_config()
-            )
-            await database_sync_to_async(execution.finish)()
+            try:
+                await database_sync_to_async(revoke_private_gateway_token, thread_sensitive=False)(
+                    execution.gateway.api_key, gateway_config=resolve_ai_gateway_config()
+                )
+            except Exception:
+                # The bounded token expires; recovery retains the hold until accounting is complete.
+                logger.warning("signals_trial_token_revocation_pending", operation_id=str(execution.operation.id))
+            finally:
+                await database_sync_to_async(execution.finish, thread_sensitive=False)()
 
 
 @asynccontextmanager

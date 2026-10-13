@@ -2,7 +2,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -79,13 +79,16 @@ def reconcile_trial_operation(team_id: int, operation_id: str) -> None:
     )
     if terminal:
         policy.finish(operation.id)
-    SignalTrialOperation.objects.for_team(team_id, canonical=True).filter(id=operation.id).update(
-        last_reconciled_at=timezone.now()
-    )
     for pending in SignalTrialOperation.objects.for_team(team_id, canonical=True).filter(
         grant_id=operation.grant_id, cancel_requested_at__isnull=False, cancelled_at__isnull=True
     ):
         cancel_trial_operation(pending)
+    operation.refresh_from_db(fields=["accounting_complete"])
+    now = timezone.now()
+    SignalTrialOperation.objects.for_team(team_id, canonical=True).filter(id=operation.id).update(
+        last_reconciled_at=now,
+        next_reconcile_at=now + (timedelta(days=1) if operation.accounting_complete else timedelta(minutes=1)),
+    )
 
 
 @shared_task(ignore_result=True)
@@ -94,14 +97,22 @@ def reconcile_trials() -> None:
     for allocation in pending:
         retry_pending_trial_billing.delay(str(allocation.organization_id))
     # Cross-project recovery: failed callbacks and cancelled runs remain in the durable queue.
-    operations = (
-        SignalTrialOperation.objects.unscoped()
-        .filter(funding=SignalTrialOperation.Funding.TRIAL)
-        .filter(Q(accounting_complete=False) | Q(last_reconciled_at__lt=timezone.now() - timedelta(days=1)))
-        .order_by(F("last_reconciled_at").asc(nulls_first=True), "admitted_at")[:500]
-    )
+    now = timezone.now()
+    with transaction.atomic():
+        operations = list(
+            SignalTrialOperation.objects.unscoped()
+            .filter(funding=SignalTrialOperation.Funding.TRIAL)
+            .alias(due_at=Coalesce("next_reconcile_at", "admitted_at"))
+            .filter(due_at__lte=now)
+            .order_by("due_at", "admitted_at")
+            .select_for_update(skip_locked=True)
+            .only("id", "team_id")[:500]
+        )
+        SignalTrialOperation.objects.unscoped().filter(id__in=[operation.id for operation in operations]).update(
+            next_reconcile_at=now + timedelta(minutes=5)
+        )
     for operation in operations:
-        reconcile_trial_operation.delay(operation.team_id, str(operation.id))
+        reconcile_trial_operation.apply_async(args=(operation.team_id, str(operation.id)), expires=300)
 
 
 def notify_trial_cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:

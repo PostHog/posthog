@@ -94,7 +94,7 @@ def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
 
 def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
     from products.signals.backend.trial_billing import (
-        TrialBilling,  # noqa: PLC0415 -- trial policy imports Signals models
+        paid_trial_continuation_authorized,  # noqa: PLC0415 -- trial policy imports Signals models
     )
     from products.signals.backend.trial_policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
 
@@ -103,8 +103,7 @@ def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
         grant = policy.grant()
         if grant is not None and grant.exhausted_at is None:
             return SelfDrivingQuotaGate(limited=False, enforced=False)
-        authorized = TrialBilling(team.organization).status().paid_authorized
-        limited = not authorized or is_team_signals_quota_limited(team.api_token)
+        limited = not paid_trial_continuation_authorized(team)
         return SelfDrivingQuotaGate(limited=limited, enforced=limited)
     return None
 

@@ -73,7 +73,7 @@ class TrialPolicy:
             decision = None
         allocation, _ = SignalTrialOrganization.objects.get_or_create(organization_id=self.organization_id)
         confirmed = type(decision) is bool
-        if confirmed:
+        if confirmed and allocation.flag_enabled is not decision:
             SignalTrialOrganization.objects.filter(organization_id=self.organization_id).filter(
                 Q(flag_checked_at__isnull=True) | Q(flag_checked_at__lt=checked_at)
             ).update(flag_enabled=decision, flag_checked_at=checked_at)
@@ -355,6 +355,7 @@ class TrialPolicy:
         )
         if reservation is None:
             yield
+            self._finish_report_passes(report_id)
             return
         with self.locked_grant(reservation.grant_id) as grant:
             reservation.refresh_from_db()
@@ -379,12 +380,38 @@ class TrialPolicy:
                 grant.exhausted_at = timezone.now()
                 grant.exhaustion_reason = "report_limit"
                 grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
-            for operation in SignalTrialOperation.objects.for_team(self.team_id, canonical=True).filter(
-                report_id=report_id, stage=SignalTrialOperation.Stage.REPORT_PASS, finished_at__isnull=True
-            ):
-                operation.finished_at = timezone.now()
-                operation.save(update_fields=["finished_at"])
-                self._refresh_operation_cost(operation, grant)
+            self._finish_report_passes(report_id)
+
+    def _finish_report_passes(self, report_id: UUID) -> None:
+        for operation in SignalTrialOperation.objects.for_team(self.team_id, canonical=True).filter(
+            report_id=report_id, stage=SignalTrialOperation.Stage.REPORT_PASS, finished_at__isnull=True
+        ):
+            self.finish(operation.id)
+
+    def reserve_report_layers(self, parent_id: UUID, child_ids: list[UUID]) -> bool:
+        operations = SignalTrialOperation.objects.for_team(self.team_id, canonical=True)
+        parent_pass = (
+            operations.filter(report_id=parent_id, stage=SignalTrialOperation.Stage.REPORT_PASS)
+            .order_by("-admitted_at")
+            .first()
+        )
+        if parent_pass is not None:
+            grant_id = parent_pass.grant_id
+        else:
+            grant_id = (
+                SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
+                .filter(report_id=parent_id)
+                .values_list("grant_id", flat=True)
+                .first()
+            )
+        if grant_id is None:
+            return True
+        with self.locked_grant(grant_id) as grant:
+            if self._report_slots(grant) + len(child_ids) > grant.report_limit:
+                return False
+            for child_id in child_ids:
+                self._reserve_report(grant, child_id)
+        return True
 
     def reconcile(
         self,
@@ -422,6 +449,9 @@ class TrialPolicy:
     def finish(self, operation_id: UUID) -> None:
         operation = SignalTrialOperation.objects.for_team(self.team_id, canonical=True).get(id=operation_id)
         if operation.grant_id is None:
+            SignalTrialOperation.objects.for_team(self.team_id, canonical=True).filter(
+                id=operation.id, finished_at__isnull=True
+            ).update(finished_at=timezone.now())
             return
         with self.locked_grant(operation.grant_id) as grant:
             operation.refresh_from_db()

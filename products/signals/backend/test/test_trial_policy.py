@@ -1,10 +1,14 @@
+from datetime import timedelta
 from uuid import UUID, uuid4
 
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -14,9 +18,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.emission.pipeline import LLM_MODEL, _create_message
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport, SignalScoutConfig
+from products.signals.backend.quota import self_driving_quota_gate
+from products.signals.backend.report_generation.research import ReportLayer
+from products.signals.backend.stack_plan import create_layer_reports
+from products.signals.backend.trial_gateway import TrialGatewayCost
 from products.signals.backend.trial_models import (
     SignalTrialGrant,
     SignalTrialOperation,
@@ -24,7 +33,8 @@ from products.signals.backend.trial_models import (
     SignalTrialReportReservation,
 )
 from products.signals.backend.trial_policy import OperationAdmission, TrialPolicy, TrialRefused
-from products.signals.backend.trial_tasks import cancel_trial_operation
+from products.signals.backend.trial_reports import active_report_pass
+from products.signals.backend.trial_tasks import cancel_trial_operation, reconcile_trial_operation, reconcile_trials
 from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
 
 
@@ -89,10 +99,105 @@ class TestTrialPolicy(BaseTest):
 
     def test_unknown_flag_retains_confirmed_decision_but_cannot_claim(self) -> None:
         assert self.policy.flag_decision().enabled is True
+        with CaptureQueriesContext(connection) as queries:
+            assert self.policy.flag_decision().enabled is True
+        assert not any(query["sql"].startswith("UPDATE") for query in queries)
         self.flag_mock.side_effect = RuntimeError("unavailable")
         assert self.policy.flag_decision().enabled is True
         with self.assertRaisesMessage(TrialRefused, "flag_unavailable"):
             self.policy.claim(user_id=self.user.pk)
+        self.flag_mock.side_effect = None
+        self.flag_mock.return_value = False
+        assert self.policy.flag_decision().enabled is False
+
+    @parameterized.expand([(True, SignalReport.Status.POTENTIAL), (False, SignalReport.Status.READY)])
+    def test_report_pass_ends_without_leaking_slot_or_funding(self, trial: bool, status: str) -> None:
+        if trial:
+            self.claim()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+        operation = self.policy.admit(
+            OperationAdmission(
+                operation_key=str(uuid4()),
+                stage=SignalTrialOperation.Stage.REPORT_PASS,
+                report_id=report.id,
+                estimated_microusd=100_000,
+            ),
+            paid_authorized=True,
+        )
+        report.status = status
+        report.save(update_fields=["status"])
+        assert active_report_pass(self.team, report.id) is None
+        operation.refresh_from_db()
+        assert operation.finished_at is not None
+        if trial:
+            slot = SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report.id)
+            assert slot.status == SignalTrialReportReservation.Status.RELEASED
+            assert operation.reserved_microusd == 100_000
+        else:
+            self.claim()
+            assert self.admit(stage=SignalTrialOperation.Stage.IMPLEMENTATION, report_id=report.id).grant_id is not None
+
+    @parameterized.expand([(4, 4), (5, 0)])
+    def test_stack_layers_share_report_ceiling(self, count: int, delivered: int) -> None:
+        self.claim()
+        parent = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+        self.admit(stage=SignalTrialOperation.Stage.REPORT_PASS, report_id=parent.id)
+        parent.status = SignalReport.Status.READY
+        parent.save(update_fields=["status"])
+        children = create_layer_reports(
+            parent=parent,
+            layers=[ReportLayer(title=f"Layer {i}", scope="Implement this step") for i in range(count)],
+            attribution=ArtefactAttribution.system(),
+        )
+        assert len(children) == delivered
+        assert SignalReport.objects.filter(team=self.team, status=SignalReport.Status.READY).count() == delivered + 1
+        assert (
+            SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count()
+            == delivered + 1
+        )
+        assert not SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="reserved").exists()
+
+    def test_billing_outage_pauses_new_work_without_breaking_quota_status(self) -> None:
+        with patch("products.signals.backend.trial_billing.TrialBilling.status", side_effect=TimeoutError):
+            gate = self_driving_quota_gate(self.team)
+        assert gate.limited and gate.enforced
+
+    def test_recovery_leases_lost_jobs_and_recovers_late_costs(self) -> None:
+        self.claim()
+        operation = self.admit()
+        self.policy.finish(operation.id)
+        with (
+            time_machine.travel(timezone.now(), tick=False) as clock,
+            patch("products.signals.backend.trial_tasks.reconcile_trial_operation.apply_async") as enqueue,
+        ):
+            reconcile_trials()
+            reconcile_trials()
+            assert enqueue.call_count == 1
+            clock.shift(timedelta(minutes=5))
+            reconcile_trials()
+            assert enqueue.call_count == 2
+            with patch("products.signals.backend.trial_tasks.fetch_trial_gateway_cost", return_value=None):
+                reconcile_trial_operation(self.team.id, str(operation.id))
+            operation.refresh_from_db()
+            assert not operation.accounting_complete
+            assert operation.reserved_microusd == 100_000
+            clock.shift(timedelta(minutes=1))
+            reconcile_trials()
+            assert enqueue.call_count == 3
+            with patch(
+                "products.signals.backend.trial_tasks.fetch_trial_gateway_cost",
+                return_value=TrialGatewayCost(token_cost_microusd=12_345, complete=True),
+            ):
+                reconcile_trial_operation(self.team.id, str(operation.id))
+            operation = SignalTrialOperation.objects.for_team(self.team.id).get(id=operation.id)
+            assert operation.accounting_complete
+            assert operation.reserved_microusd == 0
+            clock.shift(timedelta(minutes=1))
+            reconcile_trials()
+            assert enqueue.call_count == 3
+            clock.shift(timedelta(days=1))
+            reconcile_trials()
+            assert enqueue.call_count == 4
 
     def test_activation_pauses_excess_scouts_and_preserves_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]
@@ -214,64 +319,6 @@ class TestTrialPolicy(BaseTest):
         assert run.state["cancel_source"] == "self_driving_trial"
         assert run.output == output
         assert task_model.objects.filter(id=task.id).exists()
-
-    @parameterized.expand([(True,), (False,)])
-    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_example")
-    def test_emission_uses_trial_token_and_refuses_next_request_after_exhaustion(self, gateway_ready: bool) -> None:
-        self.claim()
-        ordinary = MagicMock()
-        ordinary.messages.create = AsyncMock()
-        accounted = MagicMock()
-        accounted.messages.create = AsyncMock(return_value=MagicMock())
-        builder = MagicMock()
-        builder.with_options.return_value.__aenter__.return_value = accounted
-
-        def gateway_post(url: str, **kwargs: object) -> MagicMock:
-            if not gateway_ready:
-                return MagicMock(status_code=401, text="unavailable")
-            body = kwargs.get("json")
-            assert isinstance(body, dict)
-            return MagicMock(
-                status_code=200,
-                json=lambda: {
-                    "token": "phe_example",
-                    "trial_funding": body.get("trial_funding"),
-                    "revoked": True,
-                },
-            )
-
-        with (
-            patch("posthog.security.outbound_proxy.internal_requests.post", side_effect=gateway_post),
-            patch("products.signals.backend.trial_llm_execution.build_async_anthropic_client", return_value=builder),
-            patch("products.signals.backend.trial_llm_execution.reconcile_trial_operation.delay"),
-        ):
-            if not gateway_ready:
-                with self.assertRaises(GatewayNotConfiguredError):
-                    async_to_sync(_create_message)(ordinary, team_id=self.team.id, messages=[], extra_headers={})
-                failed = SignalTrialOperation.objects.for_team(self.team.id).get(stage=SignalTrialOperation.Stage.SHORT)
-                assert failed.finished_at is not None
-                assert not failed.accounting_complete
-                assert failed.reserved_microusd > 0
-                accounted.messages.create.assert_not_called()
-                ordinary.messages.create.assert_not_called()
-                return
-            async_to_sync(_create_message)(ordinary, team_id=self.team.id, messages=[], extra_headers={})
-            operation = SignalTrialOperation.objects.for_team(self.team.id).get(stage=SignalTrialOperation.Stage.SHORT)
-            assert operation.model == LLM_MODEL
-            assert operation.finished_at is not None
-            assert operation.funding == SignalTrialOperation.Funding.TRIAL
-            self.policy.reconcile(
-                operation_id=operation.id,
-                source_id="emission",
-                is_task=False,
-                token_cost_microusd=10_000_000,
-                compute_cost_microusd=0,
-                complete=True,
-            )
-            with self.assertRaises(TrialRefused):
-                async_to_sync(_create_message)(ordinary, team_id=self.team.id, messages=[], extra_headers={})
-        accounted.messages.create.assert_awaited_once()
-        ordinary.messages.create.assert_not_called()
 
     def test_gateway_remint_reserves_another_cap_and_cannot_reuse_exhausted_allowance(self) -> None:
         grant = self.claim()
@@ -441,3 +488,85 @@ class TestTrialPolicy(BaseTest):
         assert active.report_id is not None
         with self.policy.publish_report(active.report_id, delivered=True):
             pass
+
+
+class TestTrialLLMExecution(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+        self.policy = TrialPolicy(self.team)
+
+    @parameterized.expand([(True, False), (True, True), (False, False)])
+    @override_settings(
+        AI_GATEWAY_URL="https://gateway.example.com/v1",
+        AI_GATEWAY_API_KEY="phs_example",
+        SELF_DRIVING_TRIAL_V2_BILLING_READY=True,
+    )
+    def test_emission_uses_trial_token_and_refuses_next_request_after_exhaustion(
+        self, gateway_ready: bool, revoke_fails: bool
+    ) -> None:
+        self.policy.claim(user_id=self.user.pk)
+        SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
+            billing_migrated_at=timezone.now()
+        )
+        ordinary = MagicMock()
+        ordinary.messages.create = AsyncMock()
+        accounted = MagicMock()
+        accounted.messages.create = AsyncMock(return_value=MagicMock())
+        builder = MagicMock()
+        builder.with_options.return_value.__aenter__.return_value = accounted
+
+        def gateway_post(url: str, **kwargs: object) -> MagicMock:
+            if not gateway_ready:
+                return MagicMock(status_code=401, text="unavailable")
+            body = kwargs.get("json")
+            assert isinstance(body, dict)
+            return MagicMock(
+                status_code=200,
+                json=lambda: {
+                    "token": "phe_example",
+                    "trial_funding": body.get("trial_funding"),
+                    "revoked": True,
+                },
+            )
+
+        with (
+            patch("posthog.security.outbound_proxy.internal_requests.post", side_effect=gateway_post),
+            patch("products.signals.backend.trial_llm_execution.build_async_anthropic_client", return_value=builder),
+            patch("products.signals.backend.trial_llm_execution.reconcile_trial_operation.delay"),
+            patch(
+                "products.signals.backend.trial_llm_execution.revoke_private_gateway_token",
+                side_effect=TimeoutError if revoke_fails else None,
+            ),
+        ):
+            if not gateway_ready:
+                with self.assertRaises(GatewayNotConfiguredError):
+                    async_to_sync(_create_message)(ordinary, team_id=self.team.id, messages=[], extra_headers={})
+                failed = SignalTrialOperation.objects.for_team(self.team.id).get(stage=SignalTrialOperation.Stage.SHORT)
+                assert failed.finished_at is not None
+                assert not failed.accounting_complete
+                assert failed.reserved_microusd > 0
+                accounted.messages.create.assert_not_called()
+                ordinary.messages.create.assert_not_called()
+                return
+            async_to_sync(_create_message)(ordinary, team_id=self.team.id, messages=[], extra_headers={})
+            operation = SignalTrialOperation.objects.for_team(self.team.id).get(stage=SignalTrialOperation.Stage.SHORT)
+            assert operation.model == LLM_MODEL
+            assert operation.finished_at is not None
+            assert operation.funding == SignalTrialOperation.Funding.TRIAL
+            self.policy.reconcile(
+                operation_id=operation.id,
+                source_id="emission",
+                is_task=False,
+                token_cost_microusd=10_000_000,
+                compute_cost_microusd=0,
+                complete=True,
+            )
+            with self.assertRaises(TrialRefused):
+                async_to_sync(_create_message)(ordinary, team_id=self.team.id, messages=[], extra_headers={})
+        accounted.messages.create.assert_awaited_once()
+        ordinary.messages.create.assert_not_called()

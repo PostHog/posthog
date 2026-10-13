@@ -519,6 +519,7 @@ class SignalReport(UUIDModel):
         )
 
         terminal = self.status in {
+            self.Status.POTENTIAL,
             self.Status.READY,
             self.Status.PENDING_INPUT,
             self.Status.FAILED,

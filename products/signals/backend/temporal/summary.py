@@ -729,14 +729,13 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
     )
     from products.signals.backend.trial_reports import active_report_pass  # noqa: PLC0415 -- lazy policy boundary
 
-    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    if input.stage != "summary_entry":
-        parent = await database_sync_to_async(active_report_pass)(team, input.report_id)
-        if parent is not None and parent.funding == SignalTrialOperation.Funding.TRIAL:
-            # A running research pass owns its finalization, regardless of billing/rollout changes.
-            return parent.cancel_requested_at is not None
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        if input.stage != "summary_entry":
+            parent = await database_sync_to_async(active_report_pass)(team, input.report_id)
+            if parent is not None and parent.funding == SignalTrialOperation.Funding.TRIAL:
+                # A running research pass owns its finalization, regardless of billing/rollout changes.
+                return parent.cancel_requested_at is not None
         gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
         if gate.limited:
             capture_signal_report_quota_paused(
