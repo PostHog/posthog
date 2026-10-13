@@ -180,6 +180,13 @@ export function useKeys({
       if (navigating && !modalFor(workspace.focusedPaneId)) {
         if (key.upArrow || key.downArrow) navigate(key.downArrow ? 1 : -1);
         if (key.leftArrow || key.rightArrow) fold();
+        // The cursor rests on a folded title while its chat has focus; Enter with nothing to send opens it.
+        if (
+          key.return &&
+          rows[selectedIndex]?.kind === "workspace" &&
+          composerFor(workspace.focusedPaneId).isEmpty()
+        )
+          activate(selectedIndex);
       }
       if (key.pageUp) scrollPane(workspace.focusedPaneId, -10);
       if (key.pageDown) scrollPane(workspace.focusedPaneId, 10);
