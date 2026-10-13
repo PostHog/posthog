@@ -1,5 +1,9 @@
-from collections.abc import Mapping
+import re
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 from pydantic import ValidationError
@@ -29,8 +33,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.utils import GenericEmails
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.product_analytics.backend.facade.contracts import InsightDataCheck, InsightDataChecks
@@ -54,6 +61,17 @@ DEFAULT_DATE_FROM = "-7d"
 LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
 # An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
 CRAWLER_TRAFFIC_TYPES = ("Bot", "AI Agent")
+
+# A real person's email can contain one of these words, so only a word that stands alone marks a test account.
+TEST_ACCOUNT_WORDS = "test|testing|qa|demo|dummy|fake"
+# A member on a company domain is found by the domain, so these limits only bound the size of the query.
+MAX_OWN_TEAM_DOMAINS = 20
+MAX_OWN_TEAM_EMAILS = 200
+# Whether a person is internal comes from the person's properties. They are stored together, which makes them the
+# most expensive value these checks read, so the internal users check reads this many events at most.
+MAX_INTERNAL_USERS_CHECKED_EVENTS = 50_000
+# A few busy people can fill a small sample, so this check needs a larger share than the others to report a finding.
+MIN_INTERNAL_USERS_SHARE = 0.02
 
 MIN_FINDING_EVENTS = 50
 MIN_FINDING_SHARE = 0.01
@@ -104,6 +122,37 @@ _COUNTS_QUERY = """
     )
 """
 
+_INTERNAL_USERS_QUERY = """
+    SELECT
+        count() AS events,
+        countIf(NOT ifNull({kept_by_filter}, false)) AS removed_by_filter,
+        countIf(
+            ifNull({kept_by_filter}, false)
+            AND (
+                match(lower(toString(person.properties.email)), {own_team_pattern})
+                OR match(lower(distinct_id), {own_team_pattern})
+            )
+        ) AS missed_by_filter
+    FROM events
+    SAMPLE {sample}
+    WHERE {filters}
+        AND {insight_filters}
+        AND {event_condition}
+"""
+
+
+@frozen
+class InternalUserCounts:
+    # The internal users check reads its own, smaller sample of the insight's events.
+    events: int
+    removed_by_filter: int
+    missed_by_filter: int
+    is_sample: bool = False
+
+    @property
+    def internal_events(self) -> int:
+        return self.removed_by_filter + self.missed_by_filter
+
 
 @frozen
 class DataCheckCounts:
@@ -111,7 +160,16 @@ class DataCheckCounts:
     local_events: int
     bot_events: int
     distinct_events: int
+    internal_users: InternalUserCounts | None = None
     sample_rate: float = 1.0
+
+
+@frozen
+class OwnTeamEmails:
+    # Company domains, the one with the most members first.
+    domains: tuple[str, ...]
+    # Members on a public email provider, where the domain says nothing about the team.
+    addresses: tuple[str, ...]
 
 
 @frozen
@@ -169,8 +227,9 @@ class _EventReader:
 def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) -> InsightDataChecks:
     """Check the events an insight reads for the common ways they mislead.
 
-    Runs two ClickHouse queries: a cheap count that sets the sample, then the checks on that sample. A chart whose
-    filters keep few of its events runs the checks a second time on a larger sample.
+    Runs three ClickHouse queries: a cheap count that sets the samples, the checks on a large sample, and the
+    internal users check on a small one. A chart whose filters keep few of its events runs the checks a second
+    time on a larger sample.
     """
     checked = _checked_query(query)
     if checked is None:
@@ -178,6 +237,8 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
     # A property that is hidden from `user` reads as empty, so a check would count none of what it looks for.
     if get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk):
         return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
+    has_internal_users_filter = bool(team.test_account_filters)
+    own_team = _own_team_emails(team)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
         reader = _EventReader(
             team=team,
@@ -193,18 +254,37 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
         total = _count_events_in_range(checked, reader)
         if total == 0:
             return _not_checked(InsightDataChecksStatus.NO_EVENTS)
-        counts = _count_events(checked, reader, total=total)
+        counts = _count_events(
+            checked, reader, total=total, has_internal_users_filter=has_internal_users_filter, own_team=own_team
+        )
     if counts.events == 0:
         return _not_checked(InsightDataChecksStatus.NO_EVENTS)
-    checks = evaluate_data_checks(counts)
+    checks = evaluate_data_checks(
+        counts,
+        filters_internal_users=checked.filters_internal_users,
+        has_internal_users_filter=has_internal_users_filter,
+        own_team_domain=own_team.domains[0] if own_team.domains else None,
+    )
     return InsightDataChecks(
         status=_status_of(checks), checks=checks, events_checked=counts.events, sample_rate=counts.sample_rate
     )
 
 
-def evaluate_data_checks(counts: DataCheckCounts) -> list[InsightDataCheck]:
+def evaluate_data_checks(
+    counts: DataCheckCounts,
+    *,
+    filters_internal_users: bool,
+    has_internal_users_filter: bool,
+    own_team_domain: str | None = None,
+) -> list[InsightDataCheck]:
     """Every check, in a fixed order, so the list shows what was checked whatever the result."""
     return [
+        _internal_users_check(
+            counts,
+            filters_internal_users=filters_internal_users,
+            has_internal_users_filter=has_internal_users_filter,
+            own_team_domain=own_team_domain,
+        ),
         _local_development_check(counts),
         _bot_traffic_check(counts),
         _duplicate_events_check(counts),
@@ -287,6 +367,51 @@ def _counted_group_type(
     if counts_groups and series.math_group_type_index is not None:
         return int(series.math_group_type_index)
     return None
+
+
+@lru_cache(maxsize=1)
+def _generic_emails() -> GenericEmails:
+    return GenericEmails()
+
+
+def _own_team_emails(team: Team) -> OwnTeamEmails:
+    """The emails of the people who work on this project: the members of its organization, and its verified domains."""
+    member_emails = OrganizationMembership.objects.filter(organization_id=team.organization_id).values_list(
+        "user__email", flat=True
+    )
+    domains: Counter[str] = Counter()
+    addresses: set[str] = set()
+    for member_email in member_emails:
+        email = member_email.strip().lower()
+        if "@" not in email:
+            continue
+        if _generic_emails().is_generic(email):
+            addresses.add(email)
+        else:
+            domains[email.rpartition("@")[2]] += 1
+    verified_domains = OrganizationDomain.objects.verified_domains().filter(organization_id=team.organization_id)
+    for domain in verified_domains.values_list("domain", flat=True):
+        domains.setdefault(domain.strip().lower(), 0)
+    return OwnTeamEmails(
+        domains=tuple(domain for domain, _ in sorted(domains.items(), key=lambda item: (-item[1], item[0])))[
+            :MAX_OWN_TEAM_DOMAINS
+        ],
+        addresses=tuple(sorted(addresses))[:MAX_OWN_TEAM_EMAILS],
+    )
+
+
+def own_team_email_pattern(domains: Sequence[str], addresses: Sequence[str]) -> str:
+    """A pattern for a lowercase email that belongs to the project's own team or to a test account."""
+    alternatives = [
+        rf"^(?:{TEST_ACCOUNT_WORDS})(?:[._+0-9-][^@]*)?@",
+        rf"\+(?:{TEST_ACCOUNT_WORDS})(?:[._0-9-][^@]*)?@",
+    ]
+    if domains:
+        # A subdomain of a company domain is the same company. The end anchor keeps acme.com.br out.
+        alternatives.append(rf"@(?:[a-z0-9-]+\.)*(?:{'|'.join(re.escape(domain) for domain in domains)})$")
+    if addresses:
+        alternatives.append(rf"^(?:{'|'.join(re.escape(address) for address in addresses)})$")
+    return "|".join(f"(?:{alternative})" for alternative in alternatives)
 
 
 def _event_condition(checked: _CheckedQuery) -> ast.Expr:
@@ -390,14 +515,33 @@ def _count_events_in_range(checked: _CheckedQuery, reader: _EventReader) -> int:
     return int(row[0] or 0) if row else 0
 
 
-def _count_events(checked: _CheckedQuery, reader: _EventReader, *, total: int) -> DataCheckCounts:
+def _count_events(
+    checked: _CheckedQuery,
+    reader: _EventReader,
+    *,
+    total: int,
+    has_internal_users_filter: bool,
+    own_team: OwnTeamEmails,
+) -> DataCheckCounts:
     insight_filters = _insight_filters(checked, reader.team)
     sampled = min(total, MAX_CHECKED_EVENTS)
     counts = _query_counts(checked, reader, insight_filters=insight_filters, sampled=sampled, total=total)
     if sampled < total and counts.events < MIN_SAMPLED_EVENTS:
         sampled = min(total, sampled * RESAMPLED_EVENTS // max(counts.events, 1))
         counts = _query_counts(checked, reader, insight_filters=insight_filters, sampled=sampled, total=total)
-    return counts
+    if not counts.events:
+        return counts
+    return replace(
+        counts,
+        internal_users=_count_internal_user_events(
+            checked,
+            reader,
+            chart_events=round(counts.events / counts.sample_rate),
+            has_internal_users_filter=has_internal_users_filter,
+            own_team=own_team,
+            insight_filters=insight_filters,
+        ),
+    )
 
 
 def _query_counts(
@@ -432,6 +576,43 @@ def _sample(limit: int, total: int) -> ast.RatioExpr:
     if total > limit:
         return ast.RatioExpr(left=ast.Constant(value=limit), right=ast.Constant(value=total))
     return ast.RatioExpr(left=ast.Constant(value=1))
+
+
+def _count_internal_user_events(
+    checked: _CheckedQuery,
+    reader: _EventReader,
+    *,
+    chart_events: int,
+    has_internal_users_filter: bool,
+    own_team: OwnTeamEmails,
+    insight_filters: ast.Expr,
+) -> InternalUserCounts:
+    """`chart_events` is how many events the chart keeps after its filters, so the sample holds only those."""
+    # When the insight applies the filter, the events it would remove are gone before this count.
+    counts_filtered_events = has_internal_users_filter and not checked.filters_internal_users
+    row = reader.first_row(
+        _INTERNAL_USERS_QUERY,
+        query_type="insight_data_checks_internal_users",
+        filters=HogQLFilters(dateRange=checked.date_range, filterTestAccounts=checked.filters_internal_users),
+        placeholders={
+            "sample": _sample(MAX_INTERNAL_USERS_CHECKED_EVENTS, chart_events),
+            "insight_filters": insight_filters,
+            "event_condition": _event_condition(checked),
+            "kept_by_filter": (
+                property_to_expr(reader.team.test_account_filters, reader.team)
+                if counts_filtered_events
+                else ast.Constant(value=True)
+            ),
+            "own_team_pattern": ast.Constant(value=own_team_email_pattern(own_team.domains, own_team.addresses)),
+        },
+    )
+    events, removed_by_filter, missed_by_filter = (int(value or 0) for value in row or [0] * 3)
+    return InternalUserCounts(
+        events=events,
+        removed_by_filter=removed_by_filter,
+        missed_by_filter=missed_by_filter,
+        is_sample=chart_events > MAX_INTERNAL_USERS_CHECKED_EVENTS,
+    )
 
 
 def _check(
@@ -488,6 +669,63 @@ def _passed(key: InsightDataCheckKey, things: str, count: int, counts: DataCheck
     """`things` is what the check looks for, as it reads after "No": "bots or crawlers"."""
     result = f"Almost no {things} found ({_event_count(count, counts)} events)" if count else f"No {things} found"
     return _check(key, InsightDataCheckLevel.PASSED, result, events=count, share=count / counts.events)
+
+
+def _is_internal_users_finding(count: int, internal_users: InternalUserCounts) -> bool:
+    return count >= MIN_FINDING_EVENTS and count >= MIN_INTERNAL_USERS_SHARE * internal_users.events
+
+
+def _internal_users_check(
+    counts: DataCheckCounts,
+    *,
+    filters_internal_users: bool,
+    has_internal_users_filter: bool,
+    own_team_domain: str | None,
+) -> InsightDataCheck:
+    key = InsightDataCheckKey.INTERNAL_USERS
+    internal_users = counts.internal_users
+    if internal_users is None or internal_users.events == 0:
+        internal_users = InternalUserCounts(events=1, removed_by_filter=0, missed_by_filter=0)
+    share = internal_users.internal_events / internal_users.events
+    # The other checks count the larger sample, so this count is given on the same scale.
+    events = round(share * counts.events)
+    if _is_internal_users_finding(internal_users.internal_events, internal_users):
+        example = f", such as emails that end in @{own_team_domain}" if own_team_domain else ""
+        action = InsightDataCheckAction.OPEN_FILTER_SETTINGS
+        if not has_internal_users_filter:
+            fix = f"Set up the internal and test users filter so that it removes your team's emails{example}."
+        elif _is_internal_users_finding(internal_users.missed_by_filter, internal_users):
+            fix = (
+                "The internal and test users filter does not remove all of them. "
+                f"Change the filter so that it also removes your team's emails{example}."
+            )
+        else:
+            fix = "Turn on the internal and test users filter for this insight."
+            action = InsightDataCheckAction.FILTER_INTERNAL_USERS
+        if action == InsightDataCheckAction.OPEN_FILTER_SETTINGS and not filters_internal_users:
+            fix += " Then turn the filter on for this insight."
+        # A sample of people can hold more or fewer internal users than the whole insight does.
+        amount = f"About {_percent(share)}" if internal_users.is_sample else _percent(share)
+        return _check(
+            key,
+            _finding_level(share),
+            f"{amount} of these events came from internal and test users",
+            fix=fix,
+            action=action,
+            events=events,
+            share=share,
+        )
+    if filters_internal_users:
+        return _check(key, InsightDataCheckLevel.PASSED, "Internal and test users are filtered out")
+    if not has_internal_users_filter:
+        return _check(
+            key,
+            InsightDataCheckLevel.SKIPPED,
+            "This project has no filter for internal and test users",
+            fix="Set up the filter so PostHog knows which users are your own team.",
+            action=InsightDataCheckAction.OPEN_FILTER_SETTINGS,
+        )
+    return _passed(key, "internal or test users", events, counts)
 
 
 def _local_development_check(counts: DataCheckCounts) -> InsightDataCheck:

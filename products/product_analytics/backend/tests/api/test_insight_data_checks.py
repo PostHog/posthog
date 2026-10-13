@@ -107,6 +107,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
         assert result["status"] == "warning"
         assert (result["events_checked"], result["sample_rate"]) == (600, 1)
         assert {check["key"]: (check["level"], check["events"]) for check in result["checks"]} == {
+            "internal_users": ("warning", 60),
             "local_development": ("warning", 60),
             "bot_traffic": ("warning", 60),
             "duplicate_events": ("warning", 110),
@@ -237,6 +238,42 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert result["sample_rate"] == sample_rate
         assert result["events_checked"] in events_checked
+
+    @parameterized.expand(
+        [
+            ("email_on_the_person", "colleague", {"email": "Anna@Agency.Example"}),
+            ("email_as_the_distinct_id", "ben@agency.example", {}),
+        ]
+    )
+    def test_reports_team_emails_the_internal_users_filter_keeps(
+        self, _name: str, distinct_id: str, person_properties: dict[str, Any]
+    ) -> None:
+        self._create_user("owner@agency.example")
+        _create_person(team=self.team, distinct_ids=[distinct_id], properties=person_properties)
+        self._events(80, distinct_id=distinct_id, event=WIDELY_SENT_EVENT)
+        self._events(120, event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+
+        result = self._check(
+            self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True)
+        )
+
+        internal_users = result["checks"][0]
+        assert (internal_users["level"], internal_users["events"], internal_users["action"]) == (
+            "problem",
+            80,
+            "open_filter_settings",
+        )
+        assert "@agency.example" in internal_users["fix"]
+
+    def test_an_insight_that_filters_internal_users_passes_that_check(self) -> None:
+        result = self._check(self._query(filterTestAccounts=True))
+
+        internal_users = result["checks"][0]
+        assert (internal_users["level"], internal_users["result"]) == (
+            "passed",
+            "Internal and test users are filtered out",
+        )
 
     @parameterized.expand(
         [
