@@ -21,11 +21,19 @@ from django.conf import settings
 
 from posthog.security.outbound_proxy import internal_requests
 
+from products.managed_warehouse.backend.temporal.duckgres_usage.scan_rows import ScanRow, parse_scan_rows
+
 SECRET_HEADER = "X-Duckgres-Internal-Secret"
+METRICS_HEADER = "X-Hogtower-Billing-Metrics"
+LOGICAL_BYTES_METRIC = "logical_bytes_scanned"
 
 
 class DuckgresBillingNotConfigured(Exception):
-    """DUCKGRES_API_URL / DUCKGRES_INTERNAL_SECRET are not set in this environment."""
+    """No complete billing control-plane configuration is available."""
+
+
+class DuckgresBillingConfigurationError(DuckgresBillingNotConfigured):
+    pass
 
 
 class DuckgresBillingAPIError(Exception):
@@ -71,13 +79,13 @@ class UsageResponse:
     # dropped row is dropped billable usage, so it must be loud and its source data
     # preserved, not silently skipped.
     unparsed_row_count: int = 0
-    unparsed_row_sample: dict | None = None
+    unparsed_row_sample: object | None = None
     # Rows that parsed but carry an impossible measure — NaN, infinity, or a
     # negative amount. Dropped so they can't corrupt the mirror, and the caller
     # alerts, but the ack PROCEEDS: the value is permanently bad, so withholding
     # would only freeze the ack forever with no way to recover.
     invalid_value_row_count: int = 0
-    invalid_value_row_sample: dict | None = None
+    invalid_value_row_sample: object | None = None
     # Canonical billing scopes containing a permanently invalid row. Promotion
     # retains each scope's last-good value while other scopes advance, so the
     # invalid-value policy (drop, alert, ack) cannot erase data or become an
@@ -93,6 +101,9 @@ class UsageResponse:
     # AND withholds the ack because the shared acknowledgement could delete storage
     # buckets we did not mirror.
     storage_malformed: bool = False
+    scan_rows: list[ScanRow] = dataclasses.field(default_factory=list)
+    scans_malformed: bool = False
+    invalid_scan_scopes: frozenset[tuple[str, dt.date, str]] = dataclasses.field(default_factory=frozenset)
 
 
 def is_configured() -> bool:
@@ -106,6 +117,14 @@ def is_configured() -> bool:
 
 def _config() -> tuple[str, str] | None:
     """(base_url, secret) when both are set, else None."""
+    hogtower_url = getattr(settings, "HOGTOWER_API_URL", None)
+    hogtower_secret = getattr(settings, "HOGTOWER_INTERNAL_SECRET", None)
+    if hogtower_url or hogtower_secret:
+        if not hogtower_url or not hogtower_secret:
+            raise DuckgresBillingConfigurationError(
+                "HOGTOWER_API_URL and HOGTOWER_INTERNAL_SECRET must both be configured for billing"
+            )
+        return hogtower_url, hogtower_secret
     base_url = getattr(settings, "DUCKGRES_API_URL", None)
     secret = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     if not base_url or not secret:
@@ -121,8 +140,8 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
     # (couldn't be read) keeps the ack withheld so duckgres holds the source;
     # `invalid` (read but impossible value) is dropped but lets the ack proceed.
     # See the field docs on UsageResponse.
-    unparsed: list[dict] = []
-    invalid: list[dict] = []
+    unparsed: list[object] = []
+    invalid: list[object] = []
     invalid_compute_scopes: set[tuple[str, dt.date, bool]] = set()
     invalid_storage_scopes: set[tuple[str, dt.date]] = set()
 
@@ -180,6 +199,10 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
             continue
         storage_rows.append(storage_row)
 
+    scans = parse_scan_rows(body.get("scans", []))
+    unparsed.extend(scans.unparsed)
+    invalid.extend(scans.invalid)
+
     return UsageResponse(
         watermark_low=_parse_rfc3339(body["watermark_low"]),
         watermark_high=_parse_rfc3339(body["watermark_high"]),
@@ -193,6 +216,9 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
         invalid_storage_scopes=frozenset(invalid_storage_scopes),
         usage_missing=usage_missing,
         storage_malformed=storage_malformed,
+        scan_rows=scans.rows,
+        scans_malformed=scans.malformed,
+        invalid_scan_scopes=scans.invalid_scopes,
     )
 
 
@@ -236,12 +262,12 @@ def _request(method: str, path: str, json_body: dict | None = None, timeout: int
     config = _config()
     if config is None:
         raise DuckgresBillingNotConfigured(
-            "DUCKGRES_API_URL and DUCKGRES_INTERNAL_SECRET must both be set to pull billing usage"
+            "a billing control-plane URL and its matching internal secret must both be configured"
         )
 
     base_url, secret = config
     url = f"{base_url.rstrip('/')}/api/v1/{path}"
-    headers = {SECRET_HEADER: secret}
+    headers = {SECRET_HEADER: secret, METRICS_HEADER: LOGICAL_BYTES_METRIC}
 
     response = internal_requests.request(method, url, json=json_body, headers=headers, timeout=timeout)
     if response.status_code >= 400:

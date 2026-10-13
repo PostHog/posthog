@@ -229,6 +229,7 @@ class UsageReportCounters:
     managed_warehouse_compute_seconds_in_period: int
     managed_warehouse_endpoints_compute_seconds_in_period: int
     managed_warehouse_storage_gb_hours_in_period: int
+    managed_warehouse_logical_bytes_scanned_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
@@ -2149,6 +2150,12 @@ def get_teams_with_managed_warehouse_storage_gb_hours_in_period(begin: datetime,
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_logical_bytes_scanned_in_period(begin: datetime, end: datetime) -> list:
+    return managed_warehouse_api.duckgres_logical_bytes_rows_for_period(begin.date(), end.date())
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
     # get all external data schemas that are running or completed at run time
     return list(
@@ -2821,6 +2828,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.managed_warehouse_compute_seconds_in_period > 0
         or report.managed_warehouse_endpoints_compute_seconds_in_period > 0
         or report.managed_warehouse_storage_gb_hours_in_period > 0
+        or report.managed_warehouse_logical_bytes_scanned_in_period > 0
     )
 
 
@@ -3075,6 +3083,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_managed_warehouse_storage_gb_hours_in_period": get_teams_with_managed_warehouse_storage_gb_hours_in_period(
             period_start, period_end
         ),
+        "teams_with_managed_warehouse_logical_bytes_scanned_in_period": get_teams_with_managed_warehouse_logical_bytes_scanned_in_period(
+            period_start, period_end
+        ),
         "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
             period_start, period_end
         ),
@@ -3255,6 +3266,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ].get(team.id, 0),
         managed_warehouse_storage_gb_hours_in_period=all_data[
             "teams_with_managed_warehouse_storage_gb_hours_in_period"
+        ].get(team.id, 0),
+        managed_warehouse_logical_bytes_scanned_in_period=all_data[
+            "teams_with_managed_warehouse_logical_bytes_scanned_in_period"
         ].get(team.id, 0),
         free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(
             team.id, 0

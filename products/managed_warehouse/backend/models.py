@@ -135,6 +135,28 @@ class DuckgresDailyStorageUsage(UUIDModel):
         ]
 
 
+class DuckgresDailyScanUsage(TeamScopedRootMixin, UUIDModel):
+    all_teams = models.Manager()  # noqa: DJ012
+
+    date = models.DateField()
+    organization_id = models.UUIDField()
+    # Attribution is a snapshot so deleting a team must not delete billable usage.
+    team_id = models.BigIntegerField()
+    query_source = models.CharField(max_length=32)
+    logical_bytes_scanned = models.DecimalField(max_digits=38, decimal_places=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_duckgresdailyscanusage"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["date", "organization_id", "team_id", "query_source"],
+                name="duckgres_daily_scan_key",
+            ),
+        ]
+
+
 class DuckgresUsageCursor(UUIDModel):
     """Single-row record of the poller's progress against duckgres.
 

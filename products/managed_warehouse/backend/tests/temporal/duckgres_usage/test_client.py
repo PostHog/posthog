@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 from products.managed_warehouse.backend.temporal.duckgres_usage.client import (
     DuckgresBillingAPIError,
+    DuckgresBillingConfigurationError,
     DuckgresBillingNotConfigured,
     ack_usage,
     fetch_usage,
@@ -71,6 +72,8 @@ USAGE_BODY: dict[str, Any] = {
 
 @pytest.fixture
 def duckgres_configured(settings) -> None:
+    settings.HOGTOWER_API_URL = None
+    settings.HOGTOWER_INTERNAL_SECRET = None
     settings.DUCKGRES_API_URL = "https://duckgres.example.com"
     settings.DUCKGRES_INTERNAL_SECRET = "shh"
 
@@ -165,6 +168,7 @@ class TestFetchUsage:
         assert url == USAGE_URL
         headers = mock_requests.request.call_args.kwargs["headers"]
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
+        assert headers["X-Hogtower-Billing-Metrics"] == "logical_bytes_scanned"
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_surfaces_unparseable_rows_instead_of_dropping_silently(self, mock_requests: MagicMock) -> None:
@@ -360,6 +364,7 @@ class TestAckUsage:
         assert mock_requests.request.call_args.kwargs["json"] == {"watermark_high": "2026-07-07T00:00:00Z"}
         headers = mock_requests.request.call_args.kwargs["headers"]
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
+        assert headers["X-Hogtower-Billing-Metrics"] == "logical_bytes_scanned"
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:
@@ -387,11 +392,59 @@ class TestConfiguration:
         # Unlike provisioning (which optionally omits the header), billing pulls
         # are admin-authed: a missing secret means every call would 401, so
         # treat it as unconfigured rather than hammering the control plane.
+        settings.HOGTOWER_API_URL = None
+        settings.HOGTOWER_INTERNAL_SECRET = None
         settings.DUCKGRES_API_URL = "https://duckgres.example.com"
         settings.DUCKGRES_INTERNAL_SECRET = None
         assert is_configured() is False
 
     def test_configured_with_url_and_secret(self, settings) -> None:
+        settings.HOGTOWER_API_URL = None
+        settings.HOGTOWER_INTERNAL_SECRET = None
         settings.DUCKGRES_API_URL = "https://duckgres.example.com"
         settings.DUCKGRES_INTERNAL_SECRET = "shh"
         assert is_configured() is True
+
+
+@pytest.mark.parametrize(
+    "hogtower_url,hogtower_secret", [(None, None), ("", ""), ("https://hogtower.example.com", "hogtower-test-secret")]
+)
+@patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
+def test_billing_uses_one_complete_target_pair(
+    mock_requests: MagicMock, settings, hogtower_url: str | None, hogtower_secret: str | None
+) -> None:
+    settings.HOGTOWER_API_URL = hogtower_url
+    settings.HOGTOWER_INTERNAL_SECRET = hogtower_secret
+    settings.DUCKGRES_API_URL = "https://duckgres.example.com"
+    settings.DUCKGRES_INTERNAL_SECRET = "duckgres-test-secret"
+    mock_requests.request.return_value = _response(200, USAGE_BODY)
+    assert is_configured() is True
+    fetch_usage()
+    expected_url = hogtower_url or settings.DUCKGRES_API_URL
+    expected_secret = hogtower_secret or settings.DUCKGRES_INTERNAL_SECRET
+    assert mock_requests.request.call_args.args[1] == f"{expected_url}/api/v1/billing/usage"
+    assert mock_requests.request.call_args.kwargs["headers"]["X-Duckgres-Internal-Secret"] == expected_secret
+    ack_usage(dt.datetime(2026, 7, 7, tzinfo=dt.UTC))
+    assert mock_requests.request.call_args.args[1] == f"{expected_url}/api/v1/billing/ack"
+    assert mock_requests.request.call_args.kwargs["headers"]["X-Duckgres-Internal-Secret"] == expected_secret
+
+
+@pytest.mark.parametrize(
+    "hogtower_url,hogtower_secret", [("https://hogtower.example.com", None), (None, "hogtower-test-secret")]
+)
+@patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
+def test_partial_hogtower_configuration_never_falls_back(
+    mock_requests: MagicMock, settings, hogtower_url: str | None, hogtower_secret: str | None
+) -> None:
+    settings.HOGTOWER_API_URL = hogtower_url
+    settings.HOGTOWER_INTERNAL_SECRET = hogtower_secret
+    settings.DUCKGRES_API_URL = "https://duckgres.example.com"
+    settings.DUCKGRES_INTERNAL_SECRET = "duckgres-test-secret"
+    for operation in (is_configured, fetch_usage):
+        with pytest.raises(DuckgresBillingConfigurationError, match="must both be configured") as error:
+            operation()
+        assert "hogtower-test-secret" not in str(error.value)
+        assert "duckgres-test-secret" not in str(error.value)
+    with pytest.raises(DuckgresBillingConfigurationError):
+        ack_usage(dt.datetime(2026, 7, 7, tzinfo=dt.UTC))
+    mock_requests.request.assert_not_called()

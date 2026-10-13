@@ -32,9 +32,10 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import TypeVar
 
-from products.managed_warehouse.backend.temporal.duckgres_usage.client import StorageRow, UsageRow
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import ScanRow, StorageRow, UsageRow
 
-_Row = TypeVar("_Row", UsageRow, StorageRow)
+_Row = TypeVar("_Row", UsageRow, StorageRow, ScanRow)
+_ScanKey = tuple[str, dt.date, int, str]
 _ComputeKey = tuple[str, dt.date, int, str, Decimal, Decimal]
 _StorageKey = tuple[str, dt.date, int]
 
@@ -66,6 +67,7 @@ class ResolvedTeams:
     # never charge the wrong one, and withholding wouldn't fix a mis-stamped bucket.
     foreign_team_row_count: int = 0
     foreign_team_sample: tuple[int, ...] = ()
+    scan_rows: list[ScanRow] = dataclasses.field(default_factory=list)
 
 
 def _compute_key(row: UsageRow) -> _ComputeKey:
@@ -132,7 +134,9 @@ def _valid_org_id(org_id: str) -> bool:
         return False
 
 
-def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[StorageRow]) -> ResolvedTeams:
+def resolve_billing_teams(
+    compute_rows: list[UsageRow], storage_rows: list[StorageRow], scan_rows: list[ScanRow] | None = None
+) -> ResolvedTeams:
     """Remap rows under a *deleted* team to a billable team in the same org.
 
     Two notions of "not the right team", kept distinct on purpose:
@@ -148,6 +152,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     The elected surrogate is always billable (`billable_teams_queryset`, the gather's
     own definition) — electing a demo/internal team would silently under-bill.
     """
+    scan_rows = scan_rows or []
+
     # Lazy imports: the elected surrogate MUST come from the usage-report gather's own
     # "billable team" set, or we could elect a team it refuses to bill (silent, and —
     # once repointed — permanent under-billing). Team gives us liveness (exists at all).
@@ -157,21 +163,29 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     # Quarantine rows with a non-UUID org_id FIRST — they cannot survive any DB
     # touch downstream (org_id is a UUID column in both the election query and
     # the mirror), and one garbage row must never crash the poll for every org.
-    malformed = [r for r in compute_rows if not _valid_org_id(r.org_id)] + [
-        r for r in storage_rows if not _valid_org_id(r.org_id)
-    ]
+    malformed = (
+        [r for r in compute_rows if not _valid_org_id(r.org_id)]
+        + [r for r in storage_rows if not _valid_org_id(r.org_id)]
+        + [r for r in scan_rows if not _valid_org_id(r.org_id)]
+    )
     if malformed:
         compute_rows = [r for r in compute_rows if _valid_org_id(r.org_id)]
         storage_rows = [r for r in storage_rows if _valid_org_id(r.org_id)]
+        scan_rows = [r for r in scan_rows if _valid_org_id(r.org_id)]
     malformed_org_row_count = len(malformed)
     malformed_org_id_sample = tuple(sorted({r.org_id for r in malformed})[:3])
 
-    team_ids = {row.team_id for row in compute_rows} | {row.team_id for row in storage_rows}
+    team_ids = (
+        {row.team_id for row in compute_rows}
+        | {row.team_id for row in storage_rows}
+        | {row.team_id for row in scan_rows}
+    )
     if not team_ids:
         return ResolvedTeams(
             compute_rows,
             storage_rows,
             set(),
+            scan_rows=scan_rows,
             malformed_org_row_count=malformed_org_row_count,
             malformed_org_id_sample=malformed_org_id_sample,
         )
@@ -191,13 +205,18 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     # not the stamped team, is the billing authority. The ack still proceeds: a
     # mis-stamped bucket won't fix itself on a re-pull, and one bad row must not freeze
     # billing for everyone else.
-    def _foreign(row: UsageRow | StorageRow) -> bool:
+    def _foreign(row: UsageRow | StorageRow | ScanRow) -> bool:
         return row.team_id in team_to_org and team_to_org[row.team_id] != row.org_id
 
-    foreign = [r for r in compute_rows if _foreign(r)] + [r for r in storage_rows if _foreign(r)]
+    foreign = (
+        [r for r in compute_rows if _foreign(r)]
+        + [r for r in storage_rows if _foreign(r)]
+        + [r for r in scan_rows if _foreign(r)]
+    )
     if foreign:
         compute_rows = [r for r in compute_rows if not _foreign(r)]
         storage_rows = [r for r in storage_rows if not _foreign(r)]
+        scan_rows = [r for r in scan_rows if not _foreign(r)]
     foreign_team_row_count = len(foreign)
     foreign_team_sample = tuple(sorted({r.team_id for r in foreign})[:3])
 
@@ -210,11 +229,18 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     storage_rows, storage_dupes, storage_conflicts, storage_conflict_orgs = _dedup_raw(
         storage_rows, _storage_key, _storage_usage
     )
-    duplicate_row_count = compute_dupes + storage_dupes
-    conflicting_row_count = compute_conflicts + storage_conflicts
-    conflicting_org_ids = compute_conflict_orgs | storage_conflict_orgs
+    scan_rows, scan_dupes, scan_conflicts, scan_conflict_orgs = _dedup_raw(
+        scan_rows, _scan_key, lambda row: (row.logical_bytes_scanned,)
+    )
+    duplicate_row_count = compute_dupes + storage_dupes + scan_dupes
+    conflicting_row_count = compute_conflicts + storage_conflicts + scan_conflicts
+    conflicting_org_ids = compute_conflict_orgs | storage_conflict_orgs | scan_conflict_orgs
 
-    team_ids = {row.team_id for row in compute_rows} | {row.team_id for row in storage_rows}
+    team_ids = (
+        {row.team_id for row in compute_rows}
+        | {row.team_id for row in storage_rows}
+        | {row.team_id for row in scan_rows}
+    )
     if not team_ids:
         return ResolvedTeams(
             compute_rows,
@@ -223,6 +249,7 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             duplicate_row_count=duplicate_row_count,
             conflicting_row_count=conflicting_row_count,
             conflicting_org_ids=conflicting_org_ids,
+            scan_rows=scan_rows,
             malformed_org_row_count=malformed_org_row_count,
             malformed_org_id_sample=malformed_org_id_sample,
             foreign_team_row_count=foreign_team_row_count,
@@ -240,15 +267,18 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             duplicate_row_count=duplicate_row_count,
             conflicting_row_count=conflicting_row_count,
             conflicting_org_ids=conflicting_org_ids,
+            scan_rows=scan_rows,
             malformed_org_row_count=malformed_org_row_count,
             malformed_org_id_sample=malformed_org_id_sample,
             foreign_team_row_count=foreign_team_row_count,
             foreign_team_sample=foreign_team_sample,
         )
 
-    orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in deleted_team_ids} | {
-        row.org_id for row in storage_rows if row.team_id in deleted_team_ids
-    }
+    orgs_to_reattribute = (
+        {row.org_id for row in compute_rows if row.team_id in deleted_team_ids}
+        | {row.org_id for row in storage_rows if row.team_id in deleted_team_ids}
+        | {row.org_id for row in scan_rows if row.team_id in deleted_team_ids}
+    )
     # Deterministic: the org's lowest-id billable team. The same dead team maps to the
     # same surrogate across pulls, so the mirror stays stable. None = no billable team.
     # ONE query for every affected org (a pull can carry thousands of them), grouped
@@ -283,6 +313,7 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         duplicate_row_count,
         conflicting_row_count,
         conflicting_org_ids,
+        scan_rows=_fold_scans(reattribute(scan_rows)),
         malformed_org_row_count=malformed_org_row_count,
         malformed_org_id_sample=malformed_org_id_sample,
         foreign_team_row_count=foreign_team_row_count,
@@ -318,5 +349,24 @@ def _fold_storage(rows: list[StorageRow]) -> list[StorageRow]:
             row
             if existing is None
             else dataclasses.replace(existing, gib_seconds=existing.gib_seconds + row.gib_seconds)
+        )
+    return list(by_key.values())
+
+
+def _scan_key(row: ScanRow) -> _ScanKey:
+    return (row.org_id, row.date, row.team_id, row.query_source)
+
+
+def _fold_scans(rows: list[ScanRow]) -> list[ScanRow]:
+    by_key: dict[_ScanKey, ScanRow] = {}
+    for row in rows:
+        key = _scan_key(row)
+        existing = by_key.get(key)
+        by_key[key] = (
+            row
+            if existing is None
+            else dataclasses.replace(
+                existing, logical_bytes_scanned=existing.logical_bytes_scanned + row.logical_bytes_scanned
+            )
         )
     return list(by_key.values())

@@ -7,6 +7,7 @@ from products.managed_warehouse.backend.facade.contracts import ManagedWarehouse
 
 __all__ = [
     "create_duckgres_daily_storage_usage",
+    "create_duckgres_daily_scan_usage",
     "create_duckgres_daily_usage",
     "record_source_job_state",
 ]
@@ -28,3 +29,9 @@ def create_duckgres_daily_storage_usage(**kwargs: Any) -> None:
     from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage  # noqa: PLC0415
 
     DuckgresDailyStorageUsage.objects.create(**kwargs)
+
+
+def create_duckgres_daily_scan_usage(**kwargs: Any) -> None:
+    from products.managed_warehouse.backend.models import DuckgresDailyScanUsage  # noqa: PLC0415
+
+    DuckgresDailyScanUsage.all_teams.create(**kwargs)

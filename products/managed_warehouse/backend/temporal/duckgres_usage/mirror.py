@@ -25,8 +25,17 @@ from django.db import transaction
 
 import structlog
 
-from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
-from products.managed_warehouse.backend.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
+from products.managed_warehouse.backend.models import (
+    DuckgresDailyScanUsage,
+    DuckgresDailyStorageUsage,
+    DuckgresDailyUsage,
+)
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import (
+    ScanRow,
+    StorageRow,
+    UsageResponse,
+    UsageRow,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -63,8 +72,10 @@ def count_out_of_window_rows(response: UsageResponse) -> int:
     if response.watermark_high <= response.watermark_low:
         return 0
     first, last = derive_window(response.watermark_low, response.watermark_high)
-    return sum(1 for row in response.rows if not first <= row.date <= last) + sum(
-        1 for row in response.storage_rows if not first <= row.date <= last
+    return (
+        sum(1 for row in response.rows if not first <= row.date <= last)
+        + sum(1 for row in response.storage_rows if not first <= row.date <= last)
+        + sum(1 for row in response.scan_rows if not first <= row.date <= last)
     )
 
 
@@ -77,11 +88,11 @@ def replace_window(response: UsageResponse) -> int:
     """
     if response.watermark_high <= response.watermark_low:
         # Empty window (fresh cursor, or a pull racing right behind an ack).
-        if response.rows or response.storage_rows:
+        if response.rows or response.storage_rows or response.scan_rows:
             logger.warning(
                 "duckgres_usage_rows_in_empty_window_skipped",
                 watermark_low=response.watermark_low.isoformat(),
-                row_count=len(response.rows) + len(response.storage_rows),
+                row_count=len(response.rows) + len(response.storage_rows) + len(response.scan_rows),
             )
         return 0
 
@@ -91,6 +102,7 @@ def replace_window(response: UsageResponse) -> int:
     # rows are dropped (the activity captures + withholds the ack for them).
     compute_rows = [row for row in response.rows if window_first <= row.date <= window_last]
     storage_rows = [row for row in response.storage_rows if window_first <= row.date <= window_last]
+    scan_rows = [row for row in response.scan_rows if window_first <= row.date <= window_last]
 
     # BOTH families commit in this one transaction: duckgres's ack deletes
     # compute AND storage buckets atomically, so persisting one family and
@@ -107,6 +119,8 @@ def replace_window(response: UsageResponse) -> int:
             DuckgresDailyUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
         if storage_rows:
             DuckgresDailyStorageUsage.objects.filter(date__gte=window_first, date__lte=window_last).delete()
+        if scan_rows:
+            DuckgresDailyScanUsage.all_teams.filter(date__gte=window_first, date__lte=window_last).delete()
         created = DuckgresDailyUsage.objects.bulk_create(
             DuckgresDailyUsage(
                 date=row.date,
@@ -129,7 +143,8 @@ def replace_window(response: UsageResponse) -> int:
             )
             for row in storage_rows
         )
-    return len(created) + len(created_storage)
+        created_scans = _create_scans(scan_rows)
+    return len(created) + len(created_storage) + len(created_scans)
 
 
 def promote_window(
@@ -151,6 +166,7 @@ def promote_window(
     window_first, window_last = derive_window(response.watermark_low, response.watermark_high)
     compute_rows = [row for row in response.rows if window_first <= row.date <= window_last]
     storage_rows = [row for row in response.storage_rows if window_first <= row.date <= window_last]
+    scan_rows = [row for row in response.scan_rows if window_first <= row.date <= window_last]
 
     existing_compute = list(
         DuckgresDailyUsage.objects.filter(date__gte=window_first, date__lte=window_last).values(
@@ -169,6 +185,22 @@ def promote_window(
             "organization_id", "date", "team_id", "gib_seconds"
         )
     )
+
+    existing_scans = list(
+        DuckgresDailyScanUsage.all_teams.filter(date__gte=window_first, date__lte=window_last).values(
+            "organization_id", "date", "team_id", "query_source", "logical_bytes_scanned"
+        )
+    )
+    old_scans: defaultdict[tuple[str, dt.date], int] = defaultdict(int)
+    new_scans: defaultdict[tuple[str, dt.date], int] = defaultdict(int)
+    for row in existing_scans:
+        scope = (str(row["organization_id"]), row["date"], row["query_source"])
+        if scope not in response.invalid_scan_scopes:
+            old_scans[scope[:2]] += int(row["logical_bytes_scanned"])
+    for row in scan_rows:
+        scope = (row.org_id, row.date, row.query_source)
+        if scope not in response.invalid_scan_scopes:
+            new_scans[(row.org_id, row.date)] += row.logical_bytes_scanned
 
     old_compute: defaultdict[tuple[str, dt.date, bool], int] = defaultdict(int)
     new_compute: defaultdict[tuple[str, dt.date, bool], int] = defaultdict(int)
@@ -197,8 +229,11 @@ def promote_window(
         if scope not in response.invalid_storage_scopes and new_storage[scope] < total
     )
 
+    regressed_org_ids.update(scope[0] for scope, total in old_scans.items() if new_scans[scope] < total)
     blocked = set(blocked_org_ids or ()) | regressed_org_ids
-    incoming_org_ids = {row.org_id for row in compute_rows} | {row.org_id for row in storage_rows}
+    incoming_org_ids = (
+        {row.org_id for row in compute_rows} | {row.org_id for row in storage_rows} | {row.org_id for row in scan_rows}
+    )
     promotable_org_ids = incoming_org_ids - blocked
     # An invalid row is nonrecoverable, so it must not wedge the shared ack, but
     # neither may an unrelated valid product cause us to delete that product's
@@ -245,6 +280,25 @@ def promote_window(
                 )
             )
 
+    promotable_scans = [
+        row
+        for row in scan_rows
+        if row.org_id in promotable_org_ids
+        and (row.org_id, row.date, row.query_source) not in response.invalid_scan_scopes
+    ]
+    for row in existing_scans:
+        org_id = str(row["organization_id"])
+        if org_id in promotable_org_ids and (org_id, row["date"], row["query_source"]) in response.invalid_scan_scopes:
+            promotable_scans.append(
+                ScanRow(
+                    date=row["date"],
+                    org_id=org_id,
+                    team_id=row["team_id"],
+                    query_source=row["query_source"],
+                    logical_bytes_scanned=int(row["logical_bytes_scanned"]),
+                )
+            )
+
     with transaction.atomic():
         if promotable_org_ids:
             DuckgresDailyUsage.objects.filter(
@@ -253,6 +307,11 @@ def promote_window(
                 organization_id__in=promotable_org_ids,
             ).delete()
             DuckgresDailyStorageUsage.objects.filter(
+                date__gte=window_first,
+                date__lte=window_last,
+                organization_id__in=promotable_org_ids,
+            ).delete()
+            DuckgresDailyScanUsage.all_teams.filter(
                 date__gte=window_first,
                 date__lte=window_last,
                 organization_id__in=promotable_org_ids,
@@ -280,7 +339,22 @@ def promote_window(
             for row in promotable_storage
         )
 
+        created_scans = _create_scans(promotable_scans)
+
     return PromotionResult(
-        rows_written=len(created) + len(created_storage),
+        rows_written=len(created) + len(created_storage) + len(created_scans),
         regressed_org_ids=regressed_org_ids,
+    )
+
+
+def _create_scans(rows: list[ScanRow]) -> list[DuckgresDailyScanUsage]:
+    return DuckgresDailyScanUsage.all_teams.bulk_create(
+        DuckgresDailyScanUsage(
+            date=row.date,
+            organization_id=row.org_id,
+            team_id=row.team_id,
+            query_source=row.query_source,
+            logical_bytes_scanned=row.logical_bytes_scanned,
+        )
+        for row in rows
     )
