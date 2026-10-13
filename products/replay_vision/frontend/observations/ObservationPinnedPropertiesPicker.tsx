@@ -39,7 +39,13 @@ export function ObservationPinnedPropertiesPicker(): JSX.Element {
             <div className="flex items-center gap-2 px-3 py-2 border-b">
                 <IconPinFilled className="text-muted" />
                 <span className="text-sm font-semibold">Pinned properties</span>
-                <LemonButton size="xsmall" type="tertiary" className="ml-auto" onClick={resetPinnedProperties}>
+                <LemonButton
+                    data-attr="vision-observation-reset-pinned-picker"
+                    size="xsmall"
+                    type="tertiary"
+                    className="ml-auto"
+                    onClick={resetPinnedProperties}
+                >
                     Reset
                 </LemonButton>
             </div>

@@ -27,6 +27,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "embedText": HogQLFunctionMeta("embedText", 1, 2),
     "jev": HogQLFunctionMeta("jev", 2, 4, case_sensitive=False),
+    "decide": HogQLFunctionMeta("decide", 2, 5, case_sensitive=False),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "lookupDomainType": HogQLFunctionMeta("lookupDomainType", 1, 1),
     "lookupPaidSourceType": HogQLFunctionMeta("lookupPaidSourceType", 1, 1),

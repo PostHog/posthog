@@ -317,7 +317,7 @@ operations = [
 
 Several keys on one table go in one operation, `DropForeignKey("posthog_mymodel", column=["owner_id", "team_id"])`, so they share one lock phase. Keep that operation alone in its migration, next to the state-only `untrack_field` at most. Keys on other tables, and any other schema change to the same table, go in migrations of their own. The migration risk analyzer blocks a migration that runs two `DropForeignKey` operations, or one beside other database operations.
 
-When the keys point at several busy parents, one lock phase has to win every parent at once, which can fail on every retry under load. Set `atomic = False` on the migration instead and give each key its own `DropForeignKey`. Each one then locks one parent and the child in a transaction of its own, and a retry skips the keys already dropped. List the migration in `atomic_false_acknowledged_migrations.txt`, because `AtomicFalsePolicy` asks for that.
+When the keys point at several busy parents, one lock phase has to win every parent at once, which can fail on every retry under load. Set `atomic = False` on the migration instead and give each key its own `DropForeignKey`. Each one then locks one parent and the child in a transaction of its own, and a retry skips the keys already dropped. List the migration in `atomic_false_acknowledged_migrations.txt`, because `AtomicFalsePolicy` asks for that. The migration risk analyzer blocks one `DropForeignKey` whose keys reach two or more of `posthog_team`, `posthog_user`, `posthog_organization` and `posthog_project`, with or without `atomic = False`.
 
 **`deprecate_field()` is not an option for a foreign key.** It writes no migration, so there is nowhere for the constraint drop to live, and the hidden column leaves exactly the orphan described above. Use `untrack_field()` with `DropForeignKey`.
 
@@ -550,6 +550,14 @@ class Migration(migrations.Migration):
 Dropping an index uses the mirror helper, `SafeRemoveIndexConcurrently`
 (`model_name` + index `name`).
 
+Django also creates indexes outside `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot find them: the index of a field with `db_index=True`, including every `ForeignKey` by default, and the `_like` pattern-ops companion of a varchar or text field with `db_index=True` or `unique=True`.
+Drop them with `DropFieldIndexesConcurrently(model_name="mymodel", name="team")`, which derives the names the way Django does, so no hash-suffixed name is typed by hand.
+
+- For a field with `db_index=True`, set `db_index=False` on the model and use the op in place of the `AlterField` that `makemigrations` writes. It drops both indexes.
+- For a field with `unique=True`, it drops only the `_like` companion. Model state cannot record that, so a fresh database still creates the companion.
+
+It refuses when the table holds another index on only that column that no `Meta` index or constraint names. It also refuses when no other btree index leads with the column while a parent delete still reads it, including through a foreign key that only the database holds, such as one added with `AddForeignKeyNotValid`. A partial index counts only when its sole condition is `<column> IS NOT NULL`, because a key lookup never matches a null.
+
 ### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
 
 When the index doesn't map cleanly to a Django `Index` (e.g. an expression
@@ -614,6 +622,7 @@ helper.
 - **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** — they are non-idempotent and the CI policy blocks them
 - **Prefer `SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` from `posthog.migration_helpers`** — they take a `model_name` + Index, track Django state themselves (no `SeparateDatabaseAndState`), disable both timeouts, and recover from invalid leftover indexes
 - Use the raw-SQL `CreateIndexConcurrently` / `DropIndexConcurrently` (wrapped in `SeparateDatabaseAndState`) only when the index doesn't map to a Django `Index`
+- Drop the indexes Django creates for a field, such as a `ForeignKey` index or a `_like` companion, with `DropFieldIndexesConcurrently`, never with `DropIndexConcurrently` and a hand-typed name, which the CI policy blocks
 - Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a last-resort fallback but does not recover from invalid leftovers
 - Set `atomic = False` (required for all `CONCURRENTLY` operations)
 - If a prior deploy already left an invalid index (the helper would catch this on next run, but the fallback won't), clean it up with `REINDEX INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running

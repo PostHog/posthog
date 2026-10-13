@@ -1,92 +1,60 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    IconBook,
-    IconChat,
-    IconHome,
-    IconLogomark,
-    IconSearch,
-    IconSidebarClose,
-    IconSidebarOpen,
-    IconWrench,
-} from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { commandLogic } from 'lib/components/Command/commandLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { cn } from 'lib/utils/css-classes'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
-import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
-
-const RAIL_ITEMS: { pane: TodayRailPane; label: string; icon: JSX.Element }[] = [
-    { pane: 'home', label: 'Home', icon: <IconHome /> },
-    { pane: 'spaces', label: 'Spaces', icon: <IconChat /> },
-    { pane: 'library', label: 'Library', icon: <IconBook /> },
-    { pane: 'tools', label: 'Tools', icon: <IconWrench /> },
-]
+import { TodayAccountMenu } from './TodayAccountMenu'
+import { TodayOrgMenu } from './TodayOrgMenu'
+import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
+import { TodayRailTile } from './TodayRailTile'
+import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 export function TodayRail(): JSX.Element {
-    const { activePane, sidebarOpen } = useValues(todayShellLogic)
-    const { pickPane, toggleSidebar } = useActions(todayShellLogic)
-    const { toggleCommand } = useActions(commandLogic)
+    const { activePane } = useValues(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
 
     return (
         <nav
             aria-label="Main"
-            className="flex flex-col items-center gap-1 py-3 shrink-0"
+            className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-1.5 pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <div className="flex items-center justify-center size-9 mb-2 text-primary" aria-hidden>
-                <IconLogomark className="size-6" />
-            </div>
-            {RAIL_ITEMS.map(({ pane, label, icon }) => {
-                const active = activePane === pane
-                return (
-                    <ButtonPrimitive
-                        key={pane}
-                        iconOnly
-                        size="lg"
-                        active={active}
-                        aria-label={label}
-                        aria-current={active ? 'page' : undefined}
-                        tooltip={label}
-                        tooltipPlacement="right"
-                        data-attr={`today-rail-${pane}`}
-                        className={cn('text-secondary [&_svg]:size-5', active && 'text-primary')}
-                        onClick={() => pickPane(pane)}
-                    >
-                        {icon}
-                    </ButtonPrimitive>
-                )
-            })}
-            <div className="mt-auto flex flex-col items-center gap-1">
-                <ButtonPrimitive
-                    iconOnly
-                    size="lg"
-                    aria-label="Search"
-                    tooltip="Search"
-                    tooltipPlacement="right"
-                    data-attr="today-rail-search"
-                    className="text-secondary [&_svg]:size-5"
-                    onClick={() => toggleCommand('nav-search-button')}
+            <TodayOrgMenu />
+            {TODAY_RAIL_PANES.map((pane) => (
+                <TodayRailTile
+                    key={pane}
+                    label={TODAY_PANES[pane].label}
+                    icon={TODAY_PANES[pane].icon}
+                    active={activePane === pane}
+                    to={railPaneHref(pane)}
+                    onClick={() => clickRailPane(pane)}
+                    dataAttr={`today-rail-${pane}`}
+                />
+            ))}
+            <Tooltip>
+                <TooltipTrigger
+                    delay={0}
+                    render={
+                        <Button
+                            size="icon"
+                            aria-label="Settings"
+                            nativeButton={false}
+                            render={<LinkPrimitive to={urls.settings('project')} />}
+                            className="mt-auto size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
+                            // pinned: autocapture data-attr
+                            data-attr="today-settings"
+                        />
+                    }
                 >
-                    <IconSearch />
-                </ButtonPrimitive>
-                <ButtonPrimitive
-                    iconOnly
-                    size="lg"
-                    aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-                    tooltip={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-                    tooltipPlacement="right"
-                    data-attr="today-rail-toggle-sidebar"
-                    className="text-secondary [&_svg]:size-5"
-                    onClick={toggleSidebar}
-                >
-                    {sidebarOpen ? <IconSidebarClose /> : <IconSidebarOpen />}
-                </ButtonPrimitive>
-                <NewAccountMenu isLayoutNavCollapsed />
-            </div>
+                    <IconGear />
+                </TooltipTrigger>
+                <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
+            <TodayAccountMenu />
         </nav>
     )
 }

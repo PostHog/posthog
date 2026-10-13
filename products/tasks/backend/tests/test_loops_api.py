@@ -103,7 +103,8 @@ class LoopCRUDAPITest(LoopsAPITestCase):
     @parameterized.expand(
         [
             ("blank_model_with_effort_the_default_supports", "claude", "", "high", status.HTTP_201_CREATED),
-            ("blank_model_with_effort_the_default_rejects", "codex", "", "xhigh", status.HTTP_400_BAD_REQUEST),
+            ("blank_codex_model_with_effort_the_default_supports", "codex", "", "xhigh", status.HTTP_201_CREATED),
+            ("blank_model_with_effort_the_default_rejects", "codex", "", "ultracode", status.HTTP_400_BAD_REQUEST),
             ("pinned_glm_with_supported_effort", "claude", "@cf/zai-org/glm-5.2", "max", status.HTTP_201_CREATED),
             (
                 "pinned_glm_with_unsupported_effort",
@@ -1127,7 +1128,7 @@ class LoopScopeAPITest(LoopsAPITestCase):
         [
             (None, "GET", status.HTTP_403_FORBIDDEN),
             # Loops deliberately use their own scope object rather than reusing `task`, so a
-            # task-scoped key must never grant loop access (see products/tasks/docs/LOOPS.md).
+            # task-scoped key must never grant loop access.
             ("task:write", "GET", status.HTTP_403_FORBIDDEN),
             ("loop:read", "GET", status.HTTP_200_OK),
             ("loop:read", "POST", status.HTTP_403_FORBIDDEN),

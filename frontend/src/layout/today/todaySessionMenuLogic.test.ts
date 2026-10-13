@@ -68,6 +68,7 @@ describe('todaySessionMenuLogic', () => {
 
         expect(logic.values.handoffMenuId).toEqual('menu-1')
         expect(logic.values.handoffUser).toEqual(colleague)
+        expect(logic.values.sessionDialogOpen).toBe(true)
     })
 
     it('stops the run it is given and refreshes the lists', async () => {
@@ -87,6 +88,7 @@ describe('todaySessionMenuLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.archiveConfirmMenuId).toEqual(dialog)
+        expect(logic.values.sessionDialogOpen).toEqual(dialog !== null)
         expect(requests).toEqual(expected)
     })
 

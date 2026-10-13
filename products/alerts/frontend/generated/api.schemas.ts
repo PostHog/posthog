@@ -696,6 +696,12 @@ export interface AlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -795,6 +801,12 @@ export interface PatchedAlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -892,6 +904,12 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
+    /**
+     * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** Numeric insight ID or saved insight short ID to simulate the detector on. */
     insight: number | string
     /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
@@ -933,6 +951,14 @@ export interface BreakdownSimulationResultApi {
 }
 
 export interface AlertSimulateResponseApi {
+    /** Completed intervals skipped. */
+    evaluation_delay_intervals?: number
+    /** Start of the latest eligible interval. */
+    evaluated_interval_start?: string
+    /** Exclusive end of the latest eligible interval. */
+    evaluated_interval_end?: string
+    /** Project timezone of the interval. */
+    evaluated_interval_timezone?: string
     /** Data values for each point. */
     data: number[]
     /** Date labels for each point. */
@@ -978,127 +1004,6 @@ export interface PaginatedThresholdWithAlertListApi {
     /** @nullable */
     previous?: string | null
     results: ThresholdWithAlertApi[]
-}
-
-/**
- * * `logs` - Logs
- */
-export type PlatformAlertConfigurationSourceKindEnumApi =
-    (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
-
-export const PlatformAlertConfigurationSourceKindEnumApi = {
-    Logs: 'logs',
-} as const
-
-/**
- * * `not_firing` - Not firing
- * * `firing` - Firing
- * * `errored` - Errored
- * * `snoozed` - Snoozed
- * * `broken` - Broken
- */
-export type BillingAlertConfigurationStateEnumApi =
-    (typeof BillingAlertConfigurationStateEnumApi)[keyof typeof BillingAlertConfigurationStateEnumApi]
-
-export const BillingAlertConfigurationStateEnumApi = {
-    NotFiring: 'not_firing',
-    Firing: 'firing',
-    Errored: 'errored',
-    Snoozed: 'snoozed',
-    Broken: 'broken',
-} as const
-
-export interface PlatformAlertApi {
-    /** Unique identifier of this alert instance. */
-    readonly id: string
-    /** Key of the result group this instance tracks. Empty when the source does not group results. */
-    readonly grouping_key: string
-    /** Current state of this alert instance.
-     *
-     * * `not_firing` - Not firing
-     * * `firing` - Firing
-     * * `errored` - Errored
-     * * `snoozed` - Snoozed
-     * * `broken` - Broken */
-    readonly state: BillingAlertConfigurationStateEnumApi
-    /**
-     * When the current firing started. Null when the instance is not firing.
-     * @nullable
-     */
-    readonly firing_started_at: string | null
-    /**
-     * When a notification was last sent for this instance.
-     * @nullable
-     */
-    readonly last_notified_at: string | null
-    /**
-     * Time until which notifications are snoozed. Null when not snoozed.
-     * @nullable
-     */
-    readonly snooze_until: string | null
-}
-
-/**
- * Source-specific query settings. The shape depends on source_kind.
- */
-export type PlatformAlertConfigurationApiSourceConfig = { [key: string]: unknown }
-
-export interface PlatformAlertConfigurationApi {
-    /** Unique identifier of the alert configuration. */
-    readonly id: string
-    /** Human-readable name of the alert. */
-    readonly name: string
-    /** Whether the alert is evaluated on schedule. */
-    readonly enabled: boolean
-    /** Product whose data the alert evaluates.
-     *
-     * * `logs` - Logs */
-    readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
-    /** Source-specific query settings. The shape depends on source_kind. */
-    readonly source_config: PlatformAlertConfigurationApiSourceConfig
-    /** Count the evaluated value is compared against. */
-    readonly threshold_count: number
-    /** Comparison operator applied between the value and threshold_count. */
-    readonly threshold_operator: string
-    /** Length of the evaluated time window, in minutes. */
-    readonly window_minutes: number
-    /** Minutes between scheduled checks. */
-    readonly check_interval_minutes: number
-    /** Number of recent checks considered when deciding to fire. */
-    readonly evaluation_periods: number
-    /** Number of breaching checks within evaluation_periods required to fire. */
-    readonly datapoints_to_alarm: number
-    /** Minimum minutes between notifications for the same alert. */
-    readonly cooldown_minutes: number
-    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not run. Null means no quiet hours. */
-    readonly schedule_restriction: AlertScheduleRestrictionApi | null
-    /**
-     * When the next check is due. Null when no check is scheduled.
-     * @nullable
-     */
-    readonly next_check_at: string | null
-    /** Number of checks in a row that failed to evaluate. */
-    readonly consecutive_failures: number
-    /**
-     * ID of the legacy source configuration this row was backfilled from. Null for alerts created on the platform.
-     * @nullable
-     */
-    readonly legacy_configuration_id: string | null
-    /** When the configuration was created. */
-    readonly created_at: string
-    /** When the configuration was last changed. */
-    readonly updated_at: string
-    /** Runtime state for each result group of this configuration. */
-    readonly alerts: readonly PlatformAlertApi[]
-}
-
-export interface PaginatedPlatformAlertConfigurationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PlatformAlertConfigurationApi[]
 }
 
 export type AlertsListParams = {
@@ -1152,17 +1057,6 @@ export type AlertsRetrieveParams = {
 }
 
 export type InsightsThresholdsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PlatformAlertsListParams = {
     /**
      * Number of results to return per page.
      */

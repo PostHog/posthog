@@ -8,6 +8,8 @@ from products.signals.backend.scout_harness.rubrics import (
     ScoutRubricGenerationStatus as ScoutRubricGenerationStatus,
     ScoutRubricGenerationUnavailable as ScoutRubricGenerationUnavailable,
     ScoutRubricNotFound as ScoutRubricNotFound,
+    ScoutRubricReferenceContext as ScoutRubricReferenceContext,
+    ScoutRubricReportChannel as ScoutRubricReportChannel,
     ScoutRubricSource as ScoutRubricSource,
     default_criteria as default_criteria,
     generate_scout_rubric as generate_scout_rubric,

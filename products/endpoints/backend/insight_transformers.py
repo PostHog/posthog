@@ -84,6 +84,12 @@ def _make_runner(original_query: dict, team: Team, now: datetime | None = None) 
         # Pin the date range to materialization time so response labels reflect
         # when the data was snapshotted, not when the request was served.
         runner.query_date_range.pin_now(now)
+        if (
+            original_query.get("kind") == "TrendsQuery"
+            and runner.query.compareFilter is not None
+            and runner.query.compareFilter.compare
+        ):
+            runner.query_previous_date_range.pin_now(now)
     return runner
 
 
@@ -184,6 +190,12 @@ def _transform_trends(result: dict, original_query: dict, team: Team, now: datet
 
     columns = result.get("columns", [])
     rows = result.get("results", [])
+
+    if runner.query.compareFilter is not None and runner.query.compareFilter.compare:
+        result["resolved_compare_date_range"] = {
+            "date_from": runner.query_previous_date_range.date_from(),
+            "date_to": runner.query_previous_date_range.date_to(),
+        }
 
     if not rows:
         result["results"] = []

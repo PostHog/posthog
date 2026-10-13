@@ -31,7 +31,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, Logger, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -959,3 +959,10 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_logger_skips_produce_when_its_loop_is_closed():
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")

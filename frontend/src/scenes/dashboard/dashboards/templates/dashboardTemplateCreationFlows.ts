@@ -27,7 +27,6 @@ export function runDashboardTemplateClickFlow(
     if (ctx.isLoading) {
         return
     }
-    ctx.setIsLoading(true)
     const variables = template.variables ?? []
     if (variables.length === 0) {
         ctx.createDashboardFromTemplate(template, variables, ctx.redirectAfterCreation)
@@ -46,14 +45,16 @@ export type BlankDashboardFlowActions = {
     addDashboard: (form: Partial<NewDashboardForm>) => void
 }
 
-export function runBlankDashboardFlow(ctx: { isLoading: boolean } & BlankDashboardFlowActions): void {
+export function runBlankDashboardFlow(
+    ctx: { isLoading: boolean; redirectAfterCreation?: boolean } & BlankDashboardFlowActions
+): void {
     if (ctx.isLoading) {
         return
     }
     ctx.setIsLoading(true)
     ctx.addDashboard({
         name: 'New Dashboard',
-        show: true,
+        show: ctx.redirectAfterCreation ?? true,
         _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
     })
 }

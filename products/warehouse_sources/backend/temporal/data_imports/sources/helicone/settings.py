@@ -14,6 +14,8 @@ REQUESTS_ENDPOINT = "requests"
 SESSIONS_ENDPOINT = "sessions"
 USERS_ENDPOINT = "users"
 PROMPTS_ENDPOINT = "prompts"
+PROPERTIES_ENDPOINT = "properties"
+EVAL_SCORES_ENDPOINT = "eval_scores"
 
 # /v1/request/query-clickhouse is Helicone's bulk-export endpoint; their export CLI pages it with
 # limit/offset up to 10k rows per request. Rows can embed full request/response bodies, so we keep
@@ -77,6 +79,18 @@ HELICONE_ENDPOINTS: dict[str, HeliconeEndpointConfig] = {
         name=PROMPTS_ENDPOINT,
         path="/v1/prompt-2025/query",
         primary_keys=["id"],
+    ),
+    # Org-wide catalogs of the custom property keys and eval score names seen on requests. The
+    # per-request values already ride on the requests table (`properties`, `scores`).
+    PROPERTIES_ENDPOINT: HeliconeEndpointConfig(
+        name=PROPERTIES_ENDPOINT,
+        path="/v1/property/query",
+        primary_keys=["property"],
+    ),
+    EVAL_SCORES_ENDPOINT: HeliconeEndpointConfig(
+        name=EVAL_SCORES_ENDPOINT,
+        path="/v1/evals/scores",
+        primary_keys=["score"],
     ),
 }
 

@@ -2,6 +2,7 @@ import json
 import threading
 from datetime import datetime, timedelta
 from io import StringIO
+from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -15,6 +16,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
+from posthog.egress.firecrawl.client import FirecrawlSearch, FirecrawlSearchResult
 from posthog.models.organization import Organization
 
 from products.growth.backend.enrichment.labels import TransientToolError
@@ -23,6 +26,7 @@ from products.growth.backend.models import EnrichmentLabelResult, EnrichmentProm
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_TOOLS_MODULE = "products.growth.backend.enrichment.tools"
 
 _OUTPUT_FIELDS = [
     {"key": "is_ai", "type": "boolean", "description": ""},
@@ -564,7 +568,9 @@ class TestToolCallAccounting(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        def _classify(config: Any, payload: Any, signup_domain: Any, llm_client: Any) -> dict[str, Any]:
+        def _classify(
+            config: Any, payload: Any, signup_domain: Any, llm_client: Any, *, pacer: Any = None
+        ) -> dict[str, Any]:
             return {
                 "is_ai": True,
                 "confidence": 0.9,
@@ -583,11 +589,6 @@ class TestToolCallAccounting(_BatchCommandTestCase):
 
 
 class TestToolDeferral(_BatchCommandTestCase):
-    """A transient tool problem (Firecrawl busy/not_configured) must defer the whole org - no
-    classification, no result row, and no contribution to the circuit breaker - rather than
-    compute a permanent verdict with a missing tool result. See labels.py's TransientToolError
-    and enrichment_label_batch.py's _process."""
-
     def test_a_transient_tool_error_defers_the_org_without_writing_a_result(self):
         self._config()
         self._fetch()
@@ -597,6 +598,7 @@ class TestToolDeferral(_BatchCommandTestCase):
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+            self.assertRaises(CommandError),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
@@ -604,7 +606,39 @@ class TestToolDeferral(_BatchCommandTestCase):
         assert "tools_deferred 1" in out.getvalue()
         assert "failed 0" in out.getvalue()
 
-    def test_deferred_orgs_never_trip_the_circuit_breaker(self):
+    def test_a_budget_denial_is_waited_out_instead_of_deferring_the_org(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        asks_for_search = MagicMock()
+        asks_for_search.choices[0].message.tool_calls = [
+            SimpleNamespace(
+                id="search", function=SimpleNamespace(name="web_search", arguments=json.dumps({"query": "acme ai"}))
+            )
+        ]
+        asks_for_search.choices[0].message.content = None
+        client.chat.completions.create.side_effect = [asks_for_search, _good_response()]
+        limiter = MagicMock()
+        limiter.pace_seconds.return_value = 0.0
+        limiter.admission_interval_seconds.return_value = 0.0
+        found = FirecrawlSearch(query="acme ai", results=(FirecrawlSearchResult(url="https://acme.example"),))
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=limiter),
+            patch(f"{_TOOLS_MODULE}.time.sleep"),
+            patch(
+                f"{_TOOLS_MODULE}.search", side_effect=[FirecrawlEgressBudgetExhausted("full"), found]
+            ) as search_mock,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+        assert search_mock.call_count == 2
+        assert "tools_deferred 0" in out.getvalue()
+
+    def test_consecutive_deferrals_trip_the_circuit_breaker(self):
         self._config()
         for i in range(3):
             self._fetch(organization=Organization.objects.create(name=f"org-{i}"))
@@ -613,15 +647,17 @@ class TestToolDeferral(_BatchCommandTestCase):
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")) as classify_mock,
+            self.assertRaises(CommandError) as ctx,
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1, stdout=out)
 
+        assert "aborted after 1 consecutive failures or tool deferrals" in str(ctx.exception)
+        assert classify_mock.call_count == 1
         assert EnrichmentLabelResult.objects.count() == 0
-        assert "tools_deferred 3" in out.getvalue()
-        assert "failed 0" in out.getvalue()
+        assert "tools_deferred 1" in out.getvalue()
 
-    def test_deferred_orgs_are_excluded_from_the_success_rate_denominator(self) -> None:
+    def test_deferred_orgs_count_against_the_success_rate(self) -> None:
         self._config()
         self._fetch(organization=Organization.objects.create(name="good"), payload={"name": "good"})
         for i in range(3):
@@ -629,7 +665,9 @@ class TestToolDeferral(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        def _classify(config: Any, payload: Any, signup_domain: Any, llm_client: Any) -> dict[str, Any]:
+        def _classify(
+            config: Any, payload: Any, signup_domain: Any, llm_client: Any, *, pacer: Any = None
+        ) -> dict[str, Any]:
             if isinstance(payload, dict) and str(payload.get("name", "")).startswith("busy"):
                 raise TransientToolError("boom")
             return {"is_ai": True, "confidence": 0.9, "reasoning": "x", "inputs": {"signup_domain": None, "fields": {}}}
@@ -637,9 +675,11 @@ class TestToolDeferral(_BatchCommandTestCase):
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
+            self.assertRaises(CommandError) as ctx,
         ):
-            call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
+        assert "success_rate 0.25 is below --min-success-rate 0.5" in str(ctx.exception)
         assert EnrichmentLabelResult.objects.count() == 1
         assert "succeeded 1" in out.getvalue()
         assert "tools_deferred 3" in out.getvalue()
@@ -814,7 +854,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         # _process). A declined org costs nothing, so with --limit 1 and a declined org sorting
         # first, the run used to exhaust its whole budget on that one free
         # skip and never even enumerate the approved org behind it - zero verdicts, yet the
-        # command still exited 0 (tried == 0 skips the "every attempted org failed" check). A
+        # command still exited 0 (tried == 0 skips the "no attempted org succeeded" check). A
         # consent-filtered candidate count downstream can't tell that apart from a real failure.
         self._config()
         declined_org = Organization.objects.create(name="declined")

@@ -1,63 +1,96 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChat, IconList, IconLock, IconPlus, IconSearch } from '@posthog/icons'
-import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
+import { Button, Skeleton, Text, TooltipProvider, cn } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-
-import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
-
+import { TodayChatRow } from './TodayChatRow'
+import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
+import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
+import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
-import { TodayRecentSearchField } from './TodayRecentSearchField'
+import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
-import { TodaySpaceActions } from './TodaySpaceActions'
-import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
-import { TodaySpacesRow } from './TodaySpacesRow'
+import { selectionClick } from './todaySessionSelection'
+import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
+import { todayShellLogic } from './todayShellLogic'
+import { todayRecentClearLabel, todaySidebarSectionState } from './todaySidebarSectionState'
+import { TodayWorkSectionId, todaySpacesLogic } from './todaySpacesLogic'
+import { TodaySpacesSectionTabs } from './TodaySpacesSectionTabs'
 import { TodayWorkItem } from './todayWorkItems'
 import { useTodaySectionLayout } from './useTodaySectionLayout'
 
+const SKELETON_ROW_WIDTHS = ['w-3/5', 'w-4/5', 'w-2/5'] as const
+
 export function TodaySpacesSidebar(): JSX.Element {
     const {
-        visibleSpaces,
-        spacesLoading,
-        spacesUnavailable,
         pinnedItems,
+        shownPinnedItems,
         allRecentItems,
         recentItems,
         recentGroups,
-        recentSearchVisible,
+        recentQuery,
+        recentFiltersActive,
         recentLoading,
         recentTasksUnavailable,
         collapsedSections,
+        unreadSessionIds,
+        phoneSection,
+        pinnedTasksLoading,
     } = useValues(todaySpacesLogic)
-    const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
+    const { loadRecentTasks, toggleSection, setRecentQuery, clearRecentSearchAndFilters, setPhoneSection } =
         useActions(todaySpacesLogic)
-    const { openNewSpace } = useActions(newSpaceLogic)
-    const { location, searchParams } = useValues(router)
+    const { phoneLayout } = useValues(todayShellLogic)
+    const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
+    const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
-    const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
+    const shownSection: TodayWorkSectionId = phoneSection === 'pinned' ? 'pinned' : 'recent'
+    const selectedIds = new Set(selectedSessionIds)
 
-    const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element =>
+    // Like Desktop, Cmd/Ctrl-click and Shift-click pick rows instead of opening them, and a plain click clears the pick.
+    const onSelectClick = (sessionId: string, event: React.MouseEvent<HTMLElement>): void => {
+        if (phoneLayout && selectedIds.size > 0) {
+            event.preventDefault()
+            event.stopPropagation()
+            toggleSessionSelection(sessionId)
+            return
+        }
+        const click = selectionClick(event)
+        if (click === 'open') {
+            clearSelection()
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        if (click === 'toggle') {
+            toggleSessionSelection(sessionId)
+        } else {
+            selectSessionRange(sessionId)
+        }
+    }
+
+    // A session can show in more than one group, so the group keeps its rows apart on the keyboard path.
+    const optionValue = (group: string, item: TodayWorkItem): string => `${group}:${item.kind}-${item.id}`
+    const renderItem = (item: TodayWorkItem, group: string, dataAttr: string, inPinnedSection = false): JSX.Element =>
         item.kind === 'session' ? (
             <TodaySessionRow
                 key={`${item.kind}-${item.id}`}
+                optionValue={optionValue(group, item)}
                 item={item}
                 pinned={pinnedIds.has(item.id)}
+                showPinBadge={!inPinnedSection}
                 dataAttr={dataAttr}
                 surface="sidebar"
+                unread={unreadSessionIds.has(item.id)}
+                selected={selectedIds.has(item.id)}
+                onSelectClick={(event) => onSelectClick(item.id, event)}
             />
         ) : (
-            <TodaySpacesRow
+            <TodayChatRow
                 key={`${item.kind}-${item.id}`}
-                label={item.title || 'Untitled chat'}
-                icon={<IconChat className="text-muted-foreground" />}
-                to={urls.ai(item.id)}
-                active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
+                item={item}
                 dataAttr={dataAttr}
+                optionValue={optionValue(group, item)}
             />
         )
 
@@ -65,7 +98,6 @@ export function TodaySpacesSidebar(): JSX.Element {
     const layoutSections: { id: TodayWorkSectionId; open: boolean }[] = [
         ...(hasPinned ? [{ id: 'pinned' as const, open: !collapsedSections.includes('pinned') }] : []),
         { id: 'recent', open: !collapsedSections.includes('recent') },
-        { id: 'spaces', open: !collapsedSections.includes('spaces') },
     ]
     const layout = useTodaySectionLayout(layoutSections)
     const sectionLayout = (
@@ -84,216 +116,159 @@ export function TodaySpacesSidebar(): JSX.Element {
         }
     }
 
-    const loadingRows = (
-        <div className="flex flex-col gap-2 px-2 py-1">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-4 w-2/3" />
+    const recentState = todaySidebarSectionState({
+        loading: recentLoading,
+        failed: recentTasksUnavailable,
+        total: allRecentItems.length,
+        shown: recentItems.length,
+    })
+
+    const loadingRows = (label: string): JSX.Element => (
+        <div role="status" aria-label={label} className="flex flex-col gap-px">
+            {SKELETON_ROW_WIDTHS.map((width) => (
+                <div key={width} aria-hidden className="flex h-7 items-center gap-2 px-2">
+                    <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+                    <Skeleton className={cn('h-2.5', width)} />
+                </div>
+            ))}
         </div>
     )
-    const notice = (message: string, action: string, onClick: () => void, dataAttr: string): JSX.Element => (
+    const notice = (message: string, actions: JSX.Element): JSX.Element => (
         <div className="flex flex-col items-start gap-2 px-2 py-1">
             <Text size="xs" variant="muted">
                 {message}
             </Text>
-            <Button variant="outline" size="sm" onClick={onClick} data-attr={dataAttr}>
-                {action}
-            </Button>
+            <div className="flex flex-wrap gap-1">{actions}</div>
         </div>
     )
     const loadError = (message: string, onRetry: () => void, dataAttr: string): JSX.Element =>
-        notice(message, 'Try again', onRetry, dataAttr)
+        notice(
+            message,
+            <Button variant="outline" size="sm" onClick={onRetry} data-attr={dataAttr}>
+                Try again
+            </Button>
+        )
+
+    const pinnedRows = shownPinnedItems.map((item) => renderItem(item, 'pinned', 'today-pinned-session', true))
+
+    const recentBody =
+        recentState === 'loading' ? (
+            loadingRows('Loading recent')
+        ) : recentState === 'error' ? (
+            loadError('Recent chats didn’t load.', loadRecentTasks, 'today-recent-retry')
+        ) : recentState === 'empty' ? (
+            <Text size="xs" variant="muted" className="px-2 py-1">
+                Chats you start show up here. Start one with New chat.
+            </Text>
+        ) : recentState === 'no-matches' ? (
+            notice(
+                'No matches',
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={clearRecentSearchAndFilters}
+                    data-attr="today-recent-clear-filters"
+                >
+                    {todayRecentClearLabel(recentQuery !== '', recentFiltersActive)}
+                </Button>
+            )
+        ) : (
+            <>
+                {recentTasksUnavailable && loadError('Some chats didn’t load.', loadRecentTasks, 'today-recent-retry')}
+                {recentGroups.map((group, index) => (
+                    <Fragment key={group.key}>
+                        {group.label && <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>}
+                        {group.items.map((item) =>
+                            renderItem(
+                                item,
+                                'recent',
+                                item.kind === 'chat' ? 'today-recent-chat' : 'today-recent-session'
+                            )
+                        )}
+                    </Fragment>
+                ))}
+            </>
+        )
+
+    if (phoneLayout) {
+        const pinnedBody =
+            pinnedTasksLoading && pinnedItems.length === 0 ? (
+                loadingRows('Loading pinned')
+            ) : pinnedItems.length === 0 ? (
+                <Text size="sm" variant="muted" className="px-2 py-2">
+                    Pinned chats show up here. To pin a chat, press and hold it, then pick Pin.
+                </Text>
+            ) : shownPinnedItems.length === 0 ? (
+                <Text size="sm" variant="muted" className="px-2 py-2">
+                    No pinned chats match your search.
+                </Text>
+            ) : (
+                pinnedRows
+            )
+        return (
+            <TooltipProvider>
+                <div className="TodayPane" data-quill>
+                    <TodayPaneSearchList
+                        query={recentQuery}
+                        onQueryChange={setRecentQuery}
+                        searchLabel="Search chats"
+                        dataAttr="today-recent-search"
+                        listClassName="mt-1 flex flex-col pb-4"
+                    >
+                        <TodaySpacesSectionTabs
+                            value={shownSection}
+                            onChange={setPhoneSection}
+                            counts={{ pinned: pinnedItems.length }}
+                            actions={shownSection === 'recent' ? <TodayRecentFilterMenu /> : null}
+                        />
+                        <div className="flex flex-col gap-px" data-attr={`today-spaces-tab-panel-${shownSection}`}>
+                            {shownSection === 'pinned' ? pinnedBody : recentBody}
+                        </div>
+                    </TodayPaneSearchList>
+                    <TodaySessionBulkBar />
+                    <TodayListAppearanceDialog />
+                </div>
+            </TooltipProvider>
+        )
+    }
 
     return (
         <TooltipProvider>
             <div className="TodayPane" data-quill>
-                <Button
-                    variant="primary"
-                    size="lg"
-                    className="w-full"
-                    render={<LinkPrimitive to={urls.ai()} />}
-                    data-attr="today-spaces-new-chat"
+                <TodayPaneSearchList
+                    query={recentQuery}
+                    onQueryChange={setRecentQuery}
+                    searchLabel="Search chats"
+                    dataAttr="today-recent-search"
+                    searchActions={<TodayRecentFilterMenu />}
+                    listClassName="flex flex-col overflow-hidden pb-0"
                 >
-                    <IconPlus />
-                    New chat
-                </Button>
-                <div
-                    className="mt-6 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden px-1"
-                    ref={layout.measureRefs.area}
-                >
-                    {hasPinned && (
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden" ref={layout.measureRefs.area}>
+                        {hasPinned && (
+                            <TodayPaneSection
+                                label="Pinned"
+                                {...sectionLayout('pinned')}
+                                count={pinnedItems.length}
+                                onToggle={() => toggleSection('pinned')}
+                                dataAttr="today-section-pinned"
+                            >
+                                {pinnedRows}
+                            </TodayPaneSection>
+                        )}
                         <TodayPaneSection
-                            label="Pinned"
-                            {...sectionLayout('pinned')}
-                            count={pinnedItems.length}
-                            onToggle={() => toggleSection('pinned')}
-                            dataAttr="today-section-pinned"
+                            label="Recent"
+                            {...sectionLayout('recent')}
+                            count={recentItems.length}
+                            onToggle={() => toggleSection('recent')}
+                            divider={hasPinned}
+                            dataAttr="today-section-recent"
                         >
-                            {pinnedItems.map((item) => renderItem(item, 'today-pinned-session'))}
+                            {recentBody}
                         </TodayPaneSection>
-                    )}
-                    <TodayPaneSection
-                        label="Recent"
-                        {...sectionLayout('recent')}
-                        count={recentItems.length}
-                        onToggle={() => toggleSection('recent')}
-                        divider={hasPinned}
-                        dataAttr="today-section-recent"
-                        heading={recentSearchVisible ? <TodayRecentSearchField /> : null}
-                        actions={
-                            <>
-                                {!recentSearchVisible && (
-                                    <Tooltip>
-                                        <TooltipTrigger
-                                            delay={0}
-                                            render={
-                                                <Button
-                                                    size="icon-sm"
-                                                    aria-label="Search recent"
-                                                    onClick={() => setRecentSearchOpen(true)}
-                                                    data-attr="today-recent-search-open"
-                                                />
-                                            }
-                                        >
-                                            <IconSearch />
-                                        </TooltipTrigger>
-                                        <TooltipContent>Search recent</TooltipContent>
-                                    </Tooltip>
-                                )}
-                                <TodayRecentFilterMenu />
-                            </>
-                        }
-                    >
-                        {recentLoading && !allRecentItems.length ? (
-                            loadingRows
-                        ) : recentTasksUnavailable && !allRecentItems.length ? (
-                            loadError('Recent sessions didn’t load.', loadRecentTasks, 'today-recent-retry')
-                        ) : !allRecentItems.length ? (
-                            <Text size="xs" variant="muted" className="px-2 py-1">
-                                Sessions and chats you open show up here.
-                            </Text>
-                        ) : !recentItems.length ? (
-                            notice(
-                                'Nothing here matches.',
-                                'Clear filters',
-                                clearRecentSearchAndFilters,
-                                'today-recent-clear-filters'
-                            )
-                        ) : (
-                            <>
-                                {recentTasksUnavailable &&
-                                    loadError('Some sessions didn’t load.', loadRecentTasks, 'today-recent-retry')}
-                                {recentGroups.map((group, index) => (
-                                    <Fragment key={group.key}>
-                                        {group.label && (
-                                            <Text
-                                                size="xs"
-                                                weight="medium"
-                                                variant="muted"
-                                                className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
-                                            >
-                                                {group.label}
-                                            </Text>
-                                        )}
-                                        {group.items.map((item) =>
-                                            renderItem(
-                                                item,
-                                                item.kind === 'chat' ? 'today-recent-chat' : 'today-recent-session'
-                                            )
-                                        )}
-                                    </Fragment>
-                                ))}
-                            </>
-                        )}
-                    </TodayPaneSection>
-                    <TodayPaneSection
-                        label="Spaces"
-                        {...sectionLayout('spaces')}
-                        count={visibleSpaces.length}
-                        onToggle={() => toggleSection('spaces')}
-                        divider
-                        dataAttr="today-section-spaces"
-                        actions={
-                            <>
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        delay={0}
-                                        render={
-                                            <Button
-                                                size="icon-sm"
-                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
-                                                aria-current={browsingSpaces ? 'page' : undefined}
-                                                className={cn(browsingSpaces && 'bg-fill-selected')}
-                                                aria-label="Browse spaces"
-                                                data-attr="today-spaces-browse"
-                                            />
-                                        }
-                                    >
-                                        <IconList />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Browse spaces</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        delay={0}
-                                        render={
-                                            <Button
-                                                size="icon-sm"
-                                                aria-label="New space"
-                                                onClick={openNewSpace}
-                                                data-attr="today-new-space-open-sidebar"
-                                            />
-                                        }
-                                    >
-                                        <IconPlus />
-                                    </TooltipTrigger>
-                                    <TooltipContent>New space</TooltipContent>
-                                </Tooltip>
-                            </>
-                        }
-                    >
-                        {spacesLoading && !visibleSpaces.length ? (
-                            loadingRows
-                        ) : spacesUnavailable ? (
-                            loadError('Spaces didn’t load.', loadSpaces, 'today-spaces-retry')
-                        ) : (
-                            <>
-                                {visibleSpaces.map((space) => (
-                                    <TodaySpacesRow
-                                        key={space.id}
-                                        label={spaceLabel(space)}
-                                        icon={
-                                            isLockedSpace(space) ? (
-                                                <IconLock className="text-muted-foreground" />
-                                            ) : (
-                                                <span aria-hidden className="font-mono text-muted-foreground">
-                                                    #
-                                                </span>
-                                            )
-                                        }
-                                        to={urls.taskSpace(space.id)}
-                                        active={location.pathname.includes(urls.taskSpace(space.id))}
-                                        dataAttr="today-space-row"
-                                        action={<TodaySpaceActions space={space} />}
-                                        actionCount={2}
-                                    />
-                                ))}
-                                {visibleSpaces.length <= 1 && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="mt-1 self-start"
-                                        data-attr="today-spaces-add"
-                                        render={<LinkPrimitive to={urls.taskSpaces()} />}
-                                    >
-                                        <IconPlus />
-                                        Add the spaces you work in
-                                    </Button>
-                                )}
-                            </>
-                        )}
-                    </TodayPaneSection>
-                </div>
+                    </div>
+                </TodayPaneSearchList>
+                <TodaySessionBulkBar />
+                <TodayListAppearanceDialog />
             </div>
         </TooltipProvider>
     )

@@ -46,6 +46,7 @@ if TYPE_CHECKING:
         DuckLakeTableResult,
         ManagedWarehouseTrinoConnection,
         TrinoCompiledQuery,
+        TrinoIncrementalWrite,
     )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
     from products.managed_warehouse.backend.trino_compiler import PreparedTrinoCompiler
@@ -92,6 +93,7 @@ def execute_trino_shadow_materialization(
     team_id: int,
     saved_query_id: str | UUID,
     source_query: object,
+    incremental: TrinoIncrementalWrite | None = None,
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization as execute_shadow,
@@ -102,6 +104,7 @@ def execute_trino_shadow_materialization(
         team_id=team_id,
         saved_query_id=saved_query_id,
         source_query=source_query,
+        incremental=incremental,
     )
 
 
@@ -230,7 +233,12 @@ async def request_model_alias_reconciliation(team_id: int, saved_query_id: str |
 
 
 async def execute_trino_model(
-    *, organization_id: str, team_id: int, saved_query_id: str | UUID, source_query: object
+    *,
+    organization_id: str,
+    team_id: int,
+    saved_query_id: str | UUID,
+    source_query: object,
+    incremental: TrinoIncrementalWrite | None = None,
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_execution import (  # noqa: PLC0415 -- keeps executor creation off startup paths
         run_trino_model,
@@ -245,6 +253,7 @@ async def execute_trino_model(
             team_id=team_id,
             saved_query_id=saved_query_id,
             source_query=source_query,
+            incremental=incremental,
             control=control,
         ),
     )

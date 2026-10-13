@@ -25,6 +25,7 @@ The service is configured using environment variables:
 | MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
+| MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
 
 ## Authentication
 
@@ -44,12 +45,51 @@ POST /v1/logs?token=your-project-token
 
 The token is your PostHog project token.
 
+## Backdated logs
+
+A log record whose timestamp is more than 24 hours behind the ingest time is normally replaced
+with the ingest time, and the original is kept on the `$originalTimestamp` attribute. That guard
+protects every query range on the team from one client with a broken clock.
+
+A historical import needs the original timestamps. Widen the past bound for one request with the
+`backfill_days` query parameter, on `POST /v1/logs` and `POST /i/v1/logs` only. The Datadog and
+Prometheus routes do not accept it, because the Datadog agent cannot send a query string at all.
+Traces and metrics do not accept it either.
+
+```http
+POST /i/v1/logs?backfill_days=540
+```
+
+The value must be between 1 and `MAX_BACKFILL_DAYS`. A request outside that range is answered 400,
+rather than being narrowed to the default, because an import whose timestamps are quietly replaced
+looks successful and writes most of its records onto the ingest time.
+
+`MAX_BACKFILL_DAYS` is per-deployment. Which teams may use it is decided by the logs consumer's
+`LOGS_BACKFILL_ENABLED_TEAMS` list, which is empty in production by default. This service has no team
+ID, so it marks each message from a `backfill_days` request with a `backfill_days` header, and the
+logs consumer drops the whole message when the team is not on the list. That drop also happens
+after a 200, and is counted per team in the `records_dropped_backfill_not_enabled` usage metric.
+Row age cannot replace the header, because a backfill request can carry recent records.
+
+The future bound stays at 24 hours whatever `backfill_days` says. A timestamp ahead of the
+ingest time is a client clock error in every case, and accepting one would let a single client
+write rows past the end of every other query range on the team.
+
+A backfill keeps only the records that are still inside the team's retention. A record whose
+timestamp plus its retention is already in the past is dropped by the logs consumer before it is
+written, even though this service answered the request with a 200. Dropped records are counted
+per team in the `records_dropped_retention_expired` usage metric. A record that is kept expires
+`retention_days` after it is imported, not after its own timestamp.
+
+Each message carries a `min_timestamp` header, the earliest record timestamp in it, so the
+consumer only decodes and checks the messages that can hold an expired record.
+
 ## Response codes
 
 | Status | Meaning | Client behavior |
 |--------|---------|-----------------|
 | 200 | Accepted | — |
-| 400 | Body could not be decoded as OTLP protobuf or JSON | Permanent |
+| 400 | Body could not be decoded as OTLP protobuf or JSON, or `backfill_days` was rejected | Permanent |
 | 401 | No token, or a token that cannot be a project API key (for example a `phx_` personal API key) | Permanent, so the client stops and surfaces the misconfiguration |
 | 413 | Body over `MAX_REQUEST_BODY_SIZE_BYTES` | Permanent |
 

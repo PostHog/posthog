@@ -83,4 +83,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "public": "Whether the load zone is public or private.",
         },
     },
+    "labels": {
+        "description": "A label key defined for the organization, used to label projects.",
+        "docs_url": "https://grafana.com/docs/grafana-cloud/testing/k6/reference/cloud-rest-api/",
+        "columns": {
+            "id": "Label key ID.",
+            "key": "Label key name.",
+            "description": "Label key description.",
+        },
+    },
+    "test_run_distribution": {
+        "description": "Distribution of nodes across the load generators for a test run, one row per load zone.",
+        "docs_url": "https://grafana.com/docs/grafana-cloud/testing/k6/reference/cloud-rest-api/",
+        "columns": {
+            "test_run_id": "ID of the load test run.",
+            "test_run_created": "Date and time when the test run was started.",
+            "load_zone": "Name of the load zone.",
+            "percentage": "Percentage of the total load handled by this load zone.",
+            "nodes": "List of nodes allocated to this load zone, each with its size and public IP address.",
+        },
+    },
 }

@@ -6,11 +6,12 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::utils::json_size::estimate_json_heap_size;
 
 mod properties;
 mod raw;
-pub use properties::PersonPredicate;
+pub use properties::{Predicate, Subject};
 pub(crate) use raw::validate_raw_document;
 
 pub static MAX_CONFIG_BYTES: Lazy<usize> = Lazy::new(|| {
@@ -106,12 +107,14 @@ impl NonV1Config {
 pub struct Config {
     pub default_value: Option<Value>,
     pub rules: Vec<Rule>,
+    /// The group type rules assign by, or `None` for persons. The parser does not admit it yet.
+    pub aggregation_group_type_index: Option<GroupTypeIndex>,
 }
 
 #[derive(Clone)]
 pub struct Rule {
     pub id: Uuid,
-    pub targeting: Vec<PersonPredicate>,
+    pub targeting: Vec<Predicate>,
     pub outcome: Outcome,
 }
 
@@ -204,6 +207,7 @@ impl Config {
         Ok(Self {
             default_value,
             rules,
+            aggregation_group_type_index: None,
         })
     }
 
@@ -286,11 +290,11 @@ impl Rule {
     }
 
     fn estimated_heap_bytes(&self) -> usize {
-        self.targeting.capacity() * std::mem::size_of::<PersonPredicate>()
+        self.targeting.capacity() * std::mem::size_of::<Predicate>()
             + self
                 .targeting
                 .iter()
-                .map(PersonPredicate::estimated_heap_bytes)
+                .map(Predicate::estimated_heap_bytes)
                 .sum::<usize>()
             + match &self.outcome {
                 Outcome::PercentageRollout { seed, value, .. } => {

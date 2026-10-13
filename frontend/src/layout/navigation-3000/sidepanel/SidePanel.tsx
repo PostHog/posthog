@@ -3,7 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
+import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -31,6 +31,9 @@ const SidePanelAccessDetail = lazyWithRetry(() =>
 )
 const SidePanelExports = lazyWithRetry(() =>
     import('./panels/exports/SidePanelExports').then((m) => ({ default: m.SidePanelExports }))
+)
+const CanvasSidePanel = lazyWithRetry(() =>
+    import('products/canvas/frontend/sidePanel/CanvasSidePanel').then((m) => ({ default: m.CanvasSidePanel }))
 )
 const SidePanelActivity = lazyWithRetry(() =>
     import('./panels/activity/SidePanelActivity').then((m) => ({ default: m.SidePanelActivity }))
@@ -99,6 +102,21 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
+    },
+    [SidePanelTab.CanvasChat]: {
+        label: 'Chat',
+        Icon: IconChat,
+        Content: CanvasSidePanel,
+    },
+    [SidePanelTab.CanvasBlocks]: {
+        label: 'Blocks',
+        Icon: IconApps,
+        Content: CanvasSidePanel,
+    },
+    [SidePanelTab.CanvasTimeline]: {
+        label: 'Timeline',
+        Icon: IconPulse,
+        Content: CanvasSidePanel,
     },
 }
 

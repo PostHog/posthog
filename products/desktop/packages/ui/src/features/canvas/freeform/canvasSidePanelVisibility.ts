@@ -25,13 +25,11 @@ export function canvasSidePanelVisibility(args: {
   viewOpen: boolean;
   /** Whether the dock is minimized to the rail. */
   collapsed: boolean;
-  /** Whether this canvas's comments are available. */
-  commentsEnabled: boolean;
 }): CanvasSidePanelVisibility {
   return {
     editing:
       (args.interactive && (args.hasContent || args.hasActiveTask)) ||
       args.generatingPanelOpen,
-    viewing: args.viewOpen && !args.collapsed && args.commentsEnabled,
+    viewing: args.viewOpen && !args.collapsed,
   };
 }

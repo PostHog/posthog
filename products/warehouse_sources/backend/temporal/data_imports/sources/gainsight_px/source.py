@@ -68,8 +68,8 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the `/events/*` streams expose a server-side date filter; the entity endpoints have
-        # no "updated since" filter and stay full refresh.
+        # Only the `/events/*` streams and survey responses expose a server-side date filter; the entity
+        # endpoints have no "updated since" filter and stay full refresh.
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -130,8 +130,9 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
                 "Connect Gainsight PX with your project's **API key**. Generate a key with **Read** "
                 "access under **Administration → REST API** in Gainsight PX, then pick the region your "
                 "subscription is hosted in.\n\n"
-                "Event tables (page views, sessions, engagement views and feature matches) can sync "
-                "incrementally on the event `date`. The other tables sync as full refresh because "
+                "Event tables (page views, sessions, engagement views, feature and segment matches, "
+                "custom events, identify events and survey responses) can sync incrementally on the "
+                "event `date`. The other tables sync as full refresh because "
                 'Gainsight PX doesn\'t expose an "updated since" filter for them.'
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/gainsight-px",

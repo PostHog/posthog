@@ -20,6 +20,7 @@ from products.feature_flags.backend.facade.api import (
     _redact_unchanged_encrypted_payloads,
     _roll_out_variant,
     archive_flag,
+    clear_feature_enrollment,
     create_flag,
     flag_disable_requires_approval,
     set_flag_active,
@@ -31,6 +32,7 @@ from products.feature_flags.backend.facade.filters import (
     _leads_with_unconditional_rollout,
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
+    reachable_conditions,
     replace_release_conditions,
     replace_variant_distribution,
     restrict_groups_to_cohort,
@@ -933,6 +935,46 @@ class TestReleaseConditionTransforms:
         assert filters["groups"][0]["properties"][0]["key"] == "old"  # input not mutated
 
 
+EVERYONE: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
+STAFF: dict[str, Any] = {
+    "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
+    "rollout_percentage": 100,
+}
+
+
+class TestReachableConditions:
+    @parameterized.expand(
+        [
+            ("person_catch_all_ends_the_evaluation", [EVERYONE, STAFF], False, (0,)),
+            ("absent_rollout_reads_as_full", [{"properties": []}, STAFF], False, (0,)),
+            ("condition_at_zero_serves_nobody", [{**STAFF, "rollout_percentage": 0}, EVERYONE], False, (1,)),
+            ("partial_catch_all_continues", [{**EVERYONE, "rollout_percentage": 50}, STAFF], False, (0, 1)),
+            ("partial_catch_all_ends_with_early_exit", [{**EVERYONE, "rollout_percentage": 50}, STAFF], True, (0,)),
+            ("zero_catch_all_ends_with_early_exit", [{**EVERYONE, "rollout_percentage": 0}, EVERYONE], True, ()),
+            (
+                "group_catch_all_ends_only_its_group_type",
+                [{**EVERYONE, "aggregation_group_type_index": 0}, STAFF],
+                False,
+                (0, 1),
+            ),
+            (
+                "condition_of_an_ended_group_type_is_skipped",
+                [
+                    {**EVERYONE, "aggregation_group_type_index": 0},
+                    {**EVERYONE, "aggregation_group_type_index": 0},
+                    STAFF,
+                ],
+                False,
+                (0, 2),
+            ),
+        ]
+    )
+    def test_reachable_conditions(
+        self, _name: str, conditions: list[dict[str, Any]], early_exit: bool, expected: tuple[int, ...]
+    ) -> None:
+        assert reachable_conditions(conditions, flag_aggregation=None, early_exit=early_exit) == expected
+
+
 class TestExperimentRuleFromFilters:
     @parameterized.expand(
         [
@@ -1070,8 +1112,6 @@ class TestModelAccessorsRequireV1:
                 getattr(flag, accessor)
         with pytest.raises(ConfigFormatError):
             flag.get_payload("true")
-        with pytest.raises(ConfigFormatError):
-            flag.get_cohort_ids()
         assert flag.is_eligible_for_experiment is False
         assert flag.get_analytics_metadata() == {
             "created_at": flag.created_at,
@@ -1113,6 +1153,30 @@ class TestModelAccessorsRequireV1:
         assert flag.has_feature_enrollment is enrolled
         assert flag.get_payload("a") == (filters.get("payloads") or {}).get("a")
         assert flag.get_analytics_metadata()["groups_count"] == len(conditions)
+
+
+class TestGetCohortIdsReadsEitherFormat:
+    @parameterized.expand([(name, filters) for name, filters in UNSUPPORTED_DOCUMENTS if name != "v2_document"])
+    def test_rejects_documents_in_no_readable_format(self, _name, filters):
+        with pytest.raises(ConfigFormatError):
+            FeatureFlag(filters=filters).get_cohort_ids()
+
+    def test_reads_a_v2_document(self):
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
+
+    def test_a_non_integer_cohort_id_raises_in_v1_and_is_skipped_in_v2(self):
+        prop = {"key": "id", "type": "cohort", "value": "abc"}
+        with pytest.raises(ValueError):
+            FeatureFlag(filters={"groups": [{"properties": [prop]}]}).get_cohort_ids()
+        rule = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {"properties": [prop]},
+            "value": True,
+        }
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": [rule]}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
 
 
 class TestScheduledChangeBuilderRequiresV1:
@@ -1158,3 +1222,13 @@ class TestFilterTransformsRequireV1:
         with pytest.raises(ConfigFormatError):
             transform(filters)
         assert filters == pristine
+
+
+class TestClearFeatureEnrollmentRequiresV1(APIBaseTest):
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_refuses_before_either_write(self, _name, filters):
+        flag = FeatureFlag.objects.create(team=self.team, key="other-format", filters=filters, version=2)
+        with pytest.raises(ConfigFormatError):
+            clear_feature_enrollment(flag.id, team=self.team)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (filters, 2)

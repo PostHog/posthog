@@ -6,13 +6,15 @@
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "react": "*"
     }

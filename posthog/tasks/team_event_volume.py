@@ -1,4 +1,7 @@
+from collections import Counter
+from datetime import datetime, timedelta
 from time import perf_counter
+from typing import Any, Optional
 
 from django.utils import timezone
 
@@ -20,6 +23,39 @@ logger = structlog.get_logger(__name__)
 EVENT_VOLUME_DAYS = 365
 
 
+def _month_starts(window_start: datetime, window_end: datetime) -> list[datetime]:
+    month = window_start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    months = []
+    while month <= window_end:
+        months.append(month)
+        month = (month + timedelta(days=31)).replace(day=1)
+    return months
+
+
+def _team_counts_in_partition(
+    table: str, partition_id: str, lower: Optional[datetime], upper: Optional[datetime]
+) -> dict[int, int]:
+    predicates = ["_partition_id = %(partition_id)s"]
+    params: dict[str, Any] = {"partition_id": partition_id}
+    if lower is not None:
+        predicates.append("timestamp >= %(lower)s")
+        params["lower"] = lower
+    if upper is not None:
+        predicates.append("timestamp <= %(upper)s")
+        params["upper"] = upper
+    rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit - table is events_read_table() output and the predicates are literals; every value is parameterized
+        f"""
+        SELECT team_id, count() AS events
+        FROM {table}
+        WHERE {" AND ".join(predicates)}
+        GROUP BY team_id
+        """,
+        params,
+        workload=Workload.OFFLINE,
+    )
+    return dict(rows)
+
+
 @shared_task(
     ignore_result=True, autoretry_for=CH_TRANSIENT_ERRORS, retry_backoff=60, retry_backoff_max=600, max_retries=3
 )
@@ -29,23 +65,25 @@ def update_team_event_volumes() -> None:
         return
     started = perf_counter()
     computed_at = timezone.now()
+    window_start = computed_at - timedelta(days=EVENT_VOLUME_DAYS)
     tag_queries(product=Product.INTERNAL, feature=Feature.API_QUERIES_BUDGET)
-    # Timestamps are client-supplied, so a future-dated event would raise the budget until its
-    # timestamp passed. now64() rather than now(), which truncates the sub-second timestamp.
-    rows = sync_execute(
-        f"""
-        SELECT team_id, count() AS events
-        FROM {events_read_table(use_new_events_schema())}
-        WHERE timestamp >= now() - INTERVAL %(days)s DAY AND timestamp <= now64()
-        GROUP BY team_id
-        """,
-        {"days": EVENT_VOLUME_DAYS},
-        workload=Workload.OFFLINE,
-    )
+    table = events_read_table(use_new_events_schema())
+    months = _month_starts(window_start, computed_at)
+    counts: Counter[int] = Counter()
+    for index, month in enumerate(months):
+        counts.update(
+            _team_counts_in_partition(
+                table,
+                month.strftime("%Y%m"),
+                window_start if index == 0 else None,
+                computed_at if index == len(months) - 1 else None,
+            )
+        )
+
     team_ids = set(Team.objects.values_list("id", flat=True))
     volumes = [
         TeamEventVolume(team_id=team_id, events_last_year=events, computed_at=computed_at)
-        for team_id, events in rows
+        for team_id, events in counts.items()
         if team_id in team_ids
     ]
     TeamEventVolume.objects.unscoped().bulk_create(
@@ -55,13 +93,15 @@ def update_team_event_volumes() -> None:
         unique_fields=["team"],
         batch_size=1000,
     )
-    # A team with no events in the window is absent from the result, so its row is the only one
-    # this run did not stamp.
     reset = (
         TeamEventVolume.objects.unscoped()
         .filter(computed_at__lt=computed_at)
         .update(events_last_year=0, computed_at=computed_at)
     )
     logger.info(
-        "team_event_volumes_updated", teams=len(volumes), reset=reset, seconds=round(perf_counter() - started, 1)
+        "team_event_volumes_updated",
+        teams=len(volumes),
+        reset=reset,
+        partitions=len(months),
+        seconds=round(perf_counter() - started, 1),
     )

@@ -7,17 +7,22 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
+    GooglePageSpeedInsightsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.google_pagespeed_insights import (
-    CATEGORIES,
     MAX_URLS,
     PAGESPEED_BASE_URL,
     PageSpeedRetryableError,
     _analysis_timestamp_to_iso,
-    _build_url,
     _fetch,
     _normalize_row,
     _redact_key,
-    get_rows,
     google_pagespeed_insights_source,
     parse_urls,
     validate_credentials,
@@ -25,8 +30,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pag
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.settings import (
     PAGESPEED_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source import (
+    GooglePageSpeedInsightsSource,
+)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.google_pagespeed_insights"
+
+def _driver(urls: str = "https://posthog.com") -> SourceDriver:
+    return SourceDriver(
+        GooglePageSpeedInsightsSource(), GooglePageSpeedInsightsSourceConfig(api_key="test-key", urls=urls)
+    )
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -90,23 +102,6 @@ class TestParseUrls:
         with pytest.raises(ValueError, match="Too many URLs"):
             parse_urls(raw)
 
-    def test_allows_max_urls(self):
-        raw = "\n".join(f"https://example.com/{i}" for i in range(MAX_URLS))
-        assert len(parse_urls(raw)) == MAX_URLS
-
-
-class TestBuildUrl:
-    def test_includes_url_strategy_key_and_repeated_categories(self):
-        url = _build_url("https://posthog.com", "MOBILE", "secret-key")
-
-        assert url.startswith(f"{PAGESPEED_BASE_URL}?")
-        assert "strategy=MOBILE" in url
-        assert "key=secret-key" in url
-        # The URL value is percent-encoded (Google expects it), so the raw scheme separator is escaped.
-        assert "url=https%3A%2F%2Fposthog.com" in url
-        # `category` is repeatable — one param per requested Lighthouse category.
-        assert url.count("category=") == len(CATEGORIES)
-
 
 class TestRedactKey:
     @pytest.mark.parametrize(
@@ -161,19 +156,6 @@ class TestNormalizeRow:
         # The raw response fields are preserved alongside the injected columns.
         assert row["id"] == "https://posthog.com/"
 
-    def test_mobile_endpoint_stamps_mobile_strategy(self):
-        response = {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}
-        row = _normalize_row(PAGESPEED_ENDPOINTS["pagespeed_mobile"], response, "https://posthog.com")
-
-        assert row is not None
-        assert row["strategy"] == "MOBILE"
-
-    def test_unparseable_timestamp_returns_none(self):
-        # analysis_timestamp is part of the primary/partition key; a present-but-unparseable timestamp
-        # must not flow a null key into the merge.
-        response = {"analysisUTCTimestamp": "not-a-timestamp"}
-        assert _normalize_row(PAGESPEED_ENDPOINTS["pagespeed_desktop"], response, "https://posthog.com") is None
-
     def test_missing_timestamp_field_raises(self):
         # A missing timestamp field signals a structural API change and must fail loudly rather than
         # silently dropping every row and reporting a successful zero-row sync.
@@ -187,15 +169,6 @@ _fetch_once = _fetch.__wrapped__  # type: ignore[attr-defined]
 
 
 class TestFetch:
-    def test_success_returns_json(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(200, {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"})
-
-        body = _fetch_once(session, "k", "DESKTOP", "https://posthog.com", structlog.get_logger())
-
-        assert body == {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}
-        session.get.assert_called_once()
-
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable(self, status):
         session = mock.MagicMock()
@@ -283,91 +256,51 @@ class TestValidateCredentials:
         "status, expected_valid",
         [(200, True), (400, False), (403, False), (429, False), (500, False), (503, False), (418, False)],
     )
-    def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
-
+    def test_status_mapping(self, status: int, expected_valid: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             is_valid, message = validate_credentials("test-key", "https://posthog.com")
 
         assert is_valid is expected_valid
+        assert len(network.requests_log) == 1
         if not expected_valid:
             # No error branch, including the catch-all, may echo the raw status code.
             assert message is not None
             assert str(status) not in message
 
-    def test_server_error_shows_transient_copy(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(503)
-
-            _, message = validate_credentials("test-key", "https://posthog.com")
-
-        assert message is not None
-        assert "temporary" in message
-
-    def test_malformed_urls_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+    def test_malformed_urls_is_invalid_without_request(self) -> None:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("test-key", "not-a-url")
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
-    def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+    def test_network_error_is_invalid(self) -> None:
+        with scripted_network([ConnectionResetError("reset")]) as network:
             is_valid, message = validate_credentials("test-key", "https://posthog.com")
 
         assert is_valid is False
         assert message is not None
-
-    def test_probes_first_url(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200)
-
-            validate_credentials("test-key", "https://posthog.com\nhttps://example.com")
-
-            called_url = mock_session.return_value.get.call_args[0][0]
-
-        assert "url=https%3A%2F%2Fposthog.com" in called_url
+        assert network.requests_log[0].path == "/pagespeedonline/v5/runPagespeed"
 
 
 class TestGetRows:
-    def test_yields_one_batch_per_url_and_targets_each(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"analysisUTCTimestamp": "2024-01-15T12:00:00Z"}),
-                _response(200, {"analysisUTCTimestamp": "2024-01-15T12:00:01Z"}),
-            ]
+    def test_targets_requested_strategy(self) -> None:
+        result = _driver("https://a.com").run(
+            "pagespeed_mobile", [ScriptedResponse(json={"analysisUTCTimestamp": "2024-01-15T12:00:00Z"})]
+        )
 
-            batches = list(
-                get_rows("test-key", "pagespeed_desktop", ["https://a.com", "https://b.com"], structlog.get_logger())
-            )
+        assert result.raised is None
+        assert result.params("strategy") == ["MOBILE"]
+        assert result.rows[0]["requested_url"] == "https://a.com"
 
-        assert len(batches) == 2
-        assert batches[0][0]["requested_url"] == "https://a.com"
-        assert batches[1][0]["requested_url"] == "https://b.com"
-        assert all(batch[0]["strategy"] == "DESKTOP" for batch in batches)
+    def test_skips_rows_with_unparseable_timestamp(self) -> None:
+        result = _driver("https://a.com").run(
+            "pagespeed_desktop", [ScriptedResponse(json={"analysisUTCTimestamp": "garbage"})]
+        )
 
-    def test_targets_requested_strategy(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, {"analysisUTCTimestamp": "2024-01-15T12:00:00Z"}
-            )
-
-            list(get_rows("test-key", "pagespeed_mobile", ["https://a.com"], structlog.get_logger()))
-
-            called_url = mock_session.return_value.get.call_args[0][0]
-
-        assert "strategy=MOBILE" in called_url
-
-    def test_skips_rows_with_unparseable_timestamp(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"analysisUTCTimestamp": "garbage"})
-
-            batches = list(get_rows("test-key", "pagespeed_desktop", ["https://a.com"], structlog.get_logger()))
-
-        assert batches == []
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestSource:

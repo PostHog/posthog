@@ -28,7 +28,7 @@ interface ReadyActions {
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
-    if (!values.header || !values.summary) {
+    if (!values.summary) {
         return null
     }
     return {
@@ -54,8 +54,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
 }
 
 export function TraceScene(): JSX.Element {
-    const { traceId, query } = useValues(aiObservabilityTraceLogic)
-    const logic = traceViewAdapterLogic({ traceId, query })
+    const { traceId, query, dateRange } = useValues(aiObservabilityTraceLogic)
+    const logic = traceViewAdapterLogic({ traceId, query, timestampHint: dateRange?.dateFrom ?? null })
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
         status,

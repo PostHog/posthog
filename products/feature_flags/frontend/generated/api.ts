@@ -1090,8 +1090,9 @@ export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,

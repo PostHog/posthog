@@ -1,5 +1,7 @@
 import { combineUrl } from 'kea-router'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -19,6 +21,36 @@ export const VISION_ROOT_BREADCRUMB: Breadcrumb = {
  */
 export const OBSERVATION_ORIGIN_PARAM = 'from'
 export const WATCH_FEED_ORIGIN = 'watch'
+export const RECORDING_ORIGIN = 'recording'
+export const POSTHOG_AI_ORIGIN = 'ai'
+/** The in-app page the reader left, such as a playlist or the scene a PostHog AI side panel was open over. */
+export const OBSERVATION_RETURN_PATH_PARAM = 'return_to'
+
+export type ReturnOrigin = typeof RECORDING_ORIGIN | typeof POSTHOG_AI_ORIGIN
+
+const OBSERVATION_ORIGINS: readonly string[] = [WATCH_FEED_ORIGIN, RECORDING_ORIGIN, POSTHOG_AI_ORIGIN]
+
+export function isObservationOrigin(value: unknown): value is string {
+    return typeof value === 'string' && OBSERVATION_ORIGINS.includes(value)
+}
+
+/** Accepts only a same-origin path, so a crafted link can't point the back button at another site. */
+export function safeReturnPath(value: unknown): string | null {
+    return typeof value === 'string' ? getRelativeNextPath(value, window.location) : null
+}
+
+/** The current in-app path, without the project prefix, for an observation link's `return_to`. */
+export function currentReturnPath(location: { pathname: string; search: string; hash: string }): string {
+    // The hash matters: the player modal keeps the open recording there.
+    return removeProjectIdIfPresent(location.pathname) + location.search + location.hash
+}
+
+export function observationFromOriginUrl(observationId: string, origin: ReturnOrigin, returnPath?: string): string {
+    return combineUrl(urls.replayVisionObservation(observationId), {
+        [OBSERVATION_ORIGIN_PARAM]: origin,
+        ...(returnPath ? { [OBSERVATION_RETURN_PATH_PARAM]: returnPath } : {}),
+    }).url
+}
 
 /** The crumb the back button returns to for an observation opened from the "What to watch" feed. */
 export function watchFeedBreadcrumb(): Breadcrumb {

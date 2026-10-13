@@ -38,6 +38,21 @@ describe('TimeSeriesLineChart', () => {
         cleanup()
     })
 
+    it('reserves the requested bottom margin for axis overlays', () => {
+        let bottomMargin: number | undefined
+        function Measure(): null {
+            const { dimensions } = useChartLayout()
+            bottomMargin = dimensions.height - dimensions.plotTop - dimensions.plotHeight
+            return null
+        }
+        renderHogChart(
+            <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ margins: { bottom: 76 } }}>
+                <Measure />
+            </TimeSeriesLineChart>
+        )
+        expect(bottomMargin).toBe(76)
+    })
+
     describe('config.xAxis', () => {
         it('hides x-axis ticks when xAxis.hide is true', () => {
             const { chart } = renderHogChart(

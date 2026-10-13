@@ -248,11 +248,12 @@ function fireCallback(
         releaseClaim?: () => Promise<void>
         turnCompleted?: boolean
         turnSucceeded?: boolean
+        activityStarted?: boolean
         budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
         processKilled?: { sequence: number; payload: ProcessKilledPayload }
     } = {}
 ): void {
-    const { releaseClaim, turnCompleted, turnSucceeded, budgetSteer, processKilled } = options
+    const { releaseClaim, turnCompleted, turnSucceeded, activityStarted, budgetSteer, processKilled } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -282,6 +283,7 @@ function fireCallback(
         team_id: teamId,
         turn_completed: turnCompleted,
         turn_succeeded: turnSucceeded,
+        activity_started: activityStarted,
     })
 
     const headers: Record<string, string> = {
@@ -426,20 +428,6 @@ async function releaseMilestoneClaim(
     }
 }
 
-// heartbeatWorkflowIfNeeded implements the side-effect decision from docs/DESIGN.md §2
-// and mirrors event_ingest.py:_heartbeat_workflow_if_needed exactly.
-//
-// Decision tree:
-//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback (or turn_failed
-//                        for a pi runtime error), return.
-//  2. isSessionUpdate -> setAgentActive(true), set agentActive=true.
-//  3. else            -> agentActive = getAgentActive().
-//  4. if !agentActive -> return.
-//  5. claimAgentActiveHeartbeat(30s) -> if throttled, return.
-//  6. fire heartbeat callback.
-//
-// Redis operations are awaited synchronously (they gate the callback decision).
-// The Django HTTP callback is fire-and-forget in both branches.
 export async function heartbeatWorkflowIfNeeded(
     redisStream: TaskRunRedisStream,
     runId: string,
@@ -477,8 +465,9 @@ export async function heartbeatWorkflowIfNeeded(
     }
 
     let agentActive: boolean
-    if (isSessionUpdate(event)) {
-        await redisStream.setAgentActive(true)
+    let activityStarted = false
+    if (isSessionUpdate(event) || isAgentGenerationEvent(event)) {
+        activityStarted = !(await redisStream.setAgentActive(true))
         agentActive = true
     } else {
         agentActive = await redisStream.getAgentActive()
@@ -489,9 +478,9 @@ export async function heartbeatWorkflowIfNeeded(
     }
 
     const claimed = await redisStream.claimAgentActiveHeartbeat(HEARTBEAT_THROTTLE_SECONDS)
-    if (!claimed) {
+    if (!claimed && !activityStarted) {
         return
     }
 
-    fireCallback(runId, 'heartbeat', true, taskId, teamId, originalToken, config)
+    fireCallback(runId, 'heartbeat', true, taskId, teamId, originalToken, config, { activityStarted })
 }

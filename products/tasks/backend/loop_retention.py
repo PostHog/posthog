@@ -1,4 +1,4 @@
-"""Retention sweeps for loop bookkeeping. See products/tasks/docs/LOOPS.md (Run: Cleanup).
+"""Retention sweeps for loop bookkeeping.
 
 Keeps the newest 200 tasks per loop and soft-deletes the rest (skipping any task with a
 non-terminal TaskRun), and prunes old LoopFire dedup rows so that table doesn't grow unbounded.

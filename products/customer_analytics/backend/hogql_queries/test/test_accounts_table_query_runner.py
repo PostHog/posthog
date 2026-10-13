@@ -655,11 +655,9 @@ class TestAccountsTableQueryRunner(BaseTest):
         self, _name: str, lifecycle_field: AccountsTableAccountField
     ) -> None:
         timestamp = datetime(2026, 1, 1, tzinfo=UTC)
-        churned_at = timestamp if lifecycle_field == AccountsTableAccountField.CHURNED_AT else None
-        ignored_at = timestamp if lifecycle_field == AccountsTableAccountField.IGNORED_AT else None
         create_account(team_id=self.team.id, name="Shared active")
-        create_account(team_id=self.team.id, name="Shared hidden", churned_at=churned_at, ignored_at=ignored_at)
-        create_account(team_id=self.team.id, name="Target hidden", churned_at=churned_at, ignored_at=ignored_at)
+        create_account(team_id=self.team.id, name="Shared hidden", churned_at=timestamp, ignored_at=timestamp)
+        create_account(team_id=self.team.id, name="Target hidden", churned_at=timestamp, ignored_at=timestamp)
         groups = [
             [
                 AccountsTableAccountFieldFilter(
@@ -809,7 +807,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                         operator=AccountsTableAccountFieldOperator.IS_SET,
                     )
                 ],
-                {"Active ignored"},
+                {"Active ignored", "Churned ignored"},
             ),
             (
                 "churned",
@@ -819,7 +817,17 @@ class TestAccountsTableQueryRunner(BaseTest):
                         operator=AccountsTableAccountFieldOperator.IS_SET,
                     )
                 ],
-                {"Churned tracked"},
+                {"Churned tracked", "Churned ignored"},
+            ),
+            (
+                "not_ignored",
+                [
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.IGNORED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_NOT_SET,
+                    )
+                ],
+                {"Active tracked"},
             ),
             (
                 "churned_and_ignored",

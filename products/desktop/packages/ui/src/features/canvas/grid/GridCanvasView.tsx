@@ -5,7 +5,6 @@ import type {
 } from "@posthog/core/canvas/gridLayoutSchemas";
 import { Button, Text } from "@posthog/quill";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
-import { useCanvasCommentsEnabled } from "@posthog/ui/features/canvas/hooks/useCanvasCommentsEnabled";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
   useCanvasVersions,
@@ -78,7 +77,6 @@ export function GridCanvasView({
     dashboard?.generationTaskId ?? startedCanvasTaskId,
     versions,
   );
-  const commentsEnabled = useCanvasCommentsEnabled(commentTaskId);
   const versionText = useMemo(() => {
     if (!currentVersionId || versions.length === 0) return null;
     const index = versions.findIndex(
@@ -261,7 +259,6 @@ export function GridCanvasView({
             target={widgetTarget}
             canvasTaskId={dashboard.generationTaskId ?? startedCanvasTaskId}
             commentTaskId={commentTaskId}
-            commentsEnabled={commentsEnabled}
             canvasVersionId={currentVersionId ?? null}
             commentVersionLabel={commentVersionLabel}
             canvasId={canvasId}

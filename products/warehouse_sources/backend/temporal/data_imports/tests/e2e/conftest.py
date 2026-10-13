@@ -39,6 +39,12 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import PostImportWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.queue_replay import (
+    PostgresQueueReplay,
+    ensure_queue_tables_in_test_database,
+    patch_producer_to_test_database,
+    replay_v3_consumer,
+)
 from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, STATUS_TABLE
 from products.warehouse_sources_queue.backend.testing import (
     ensure_queue_tables as _ensure_tables,
@@ -176,6 +182,9 @@ async def run_external_data_job_workflow(
             DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+            DATA_WAREHOUSE_REDIS_HOST="localhost",
+            DATA_WAREHOUSE_REDIS_PORT="6379",
+            DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
         mock.patch.object(DeltaMaintenance, "run_scheduled") as mock_run_scheduled,
         mock.patch(
@@ -183,7 +192,9 @@ async def run_external_data_job_workflow(
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
+        patch_producer_to_test_database(),
     ):
+        await sync_to_async(ensure_queue_tables_in_test_database)()
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
@@ -211,6 +222,8 @@ async def run_external_data_job_workflow(
                     task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+
+        await replay_v3_consumer(PostgresQueueReplay(), team.id, external_data_schema.id, BUCKET_NAME)
 
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
 

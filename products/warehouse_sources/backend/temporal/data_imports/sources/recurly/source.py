@@ -162,5 +162,5 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

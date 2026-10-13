@@ -1,4 +1,5 @@
 import re
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -22,6 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.set
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
+# Bounds a runaway child pagination (a bot-spammed issue) in a fan-out. 100 pages = 10k rows per parent.
+# Children page newest-first, so the cap drops the oldest tail and new rows still arrive every sync.
+MAX_PAGES_PER_PARENT = 100
+# In a fan-out, a partly filled chunk is yielded at a parent boundary once this long has passed since
+# the last yield, so the batcher empties and sparse runs still reach safe points.
+PARTIAL_FLUSH_INTERVAL_SECONDS = 60.0
 
 DEFAULT_HOST = "https://gitlab.com"
 HOST_NOT_ALLOWED_ERROR = "GitLab host is not allowed"
@@ -48,7 +55,7 @@ class GitLabHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GitLabResumeConfig:
     next_url: str
 
@@ -168,8 +175,14 @@ def _build_initial_params(
     return params
 
 
-def _build_initial_url(host: str | None, config: GitLabEndpointConfig, project: str, params: dict[str, Any]) -> str:
-    path = config.path.format(project=_encode_project(project))
+def _build_initial_url(
+    host: str | None,
+    config: GitLabEndpointConfig,
+    project: str,
+    params: dict[str, Any],
+    parent_iid: Any = None,
+) -> str:
+    path = config.path.format(project=_encode_project(project), parent_iid=quote(str(parent_iid), safe=""))
     url = f"{_base_url(host)}{path}"
     if not params:
         return url
@@ -335,10 +348,22 @@ def get_rows(
         # fails fast instead of retrying an SSRF/host failure (_is_host_safe returns its own message).
         raise GitLabHostNotAllowedError(f"{HOST_NOT_ALLOWED_ERROR}: {host_err}" if host_err else HOST_NOT_ALLOWED_ERROR)
 
-    params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
-    initial_url = _build_initial_url(host, config, project, params)
+    # A fan-out child walks its parent list, bounded by the parent's own cursor (updated_after)
+    # compared against the child watermark; see the fan-out comment in settings.py.
+    parent_config = GITLAB_ENDPOINTS[config.fan_out_parent] if config.fan_out_parent else None
+    if parent_config is not None:
+        params = _build_initial_params(
+            parent_config,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            parent_config.default_incremental_field,
+        )
+        initial_url = _build_initial_url(host, parent_config, project, params)
+    else:
+        params = _build_initial_params(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+        initial_url = _build_initial_url(host, config, project, params)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None and _is_same_host(resume_config.next_url, host):
@@ -355,7 +380,7 @@ def get_rows(
         wait=_retry_wait,
         reraise=True,
     )
-    def fetch_page(page_url: str) -> requests.Response:
+    def fetch_page(page_url: str, allow_not_found: bool = False) -> requests.Response | None:
         # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
         response = make_tracked_session().get(
             page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
@@ -374,42 +399,93 @@ def get_rows(
                 f"(status={response.status_code}); refusing to follow it"
             )
 
+        if allow_not_found and response.status_code == 404:
+            return None
+
         if not response.ok:
             logger.error(f"GitLab API error: status={response.status_code}, body={response.text}, url={page_url}")
             response.raise_for_status()
 
         return response
 
-    while True:
-        response = fetch_page(url)
+    def iter_pages(
+        start_url: str, max_pages: int | None = None, allow_not_found: bool = False
+    ) -> Iterator[tuple[str, list[Any]]]:
+        page_url = start_url
+        pages = 0
+        while True:
+            response = fetch_page(page_url, allow_not_found=allow_not_found)
+            if response is None:
+                logger.warning("GitLab: fan-out parent no longer exists, skipping it", endpoint=endpoint, url=page_url)
+                return
+            data = response.json()
+            if not isinstance(data, list) or not data:
+                return
 
-        data = response.json()
-        if not isinstance(data, list) or not data:
-            break
+            yield page_url, data
+            pages += 1
 
-        next_url = _parse_next_url(response.headers.get("Link", ""))
+            next_url = _parse_next_url(response.headers.get("Link", ""))
+            if not next_url:
+                return
 
-        # Page and chunk boundaries don't line up, so checkpoint the CURRENT page URL. On resume we
-        # re-fetch it and rely on primary-key merge semantics to dedupe already-yielded rows.
-        checkpoint_url = url
+            # The next-page URL is server-controlled; only follow it if it stays on the configured host.
+            if not _is_same_host(next_url, host):
+                logger.warning("GitLab: stopping pagination, next URL host does not match the configured host")
+                return
 
-        for item in data:
-            batcher.batch(item)
+            if max_pages is not None and pages >= max_pages:
+                logger.warning(
+                    "GitLab: page cap reached for fan-out parent, remaining child pages skipped",
+                    endpoint=endpoint,
+                    url=page_url,
+                    max_pages=max_pages,
+                )
+                return
 
-            if batcher.should_yield():
-                py_table = batcher.get_table()
-                yield py_table
-                resumable_source_manager.save_state(GitLabResumeConfig(next_url=checkpoint_url))
+            page_url = next_url
 
-        if not next_url:
-            break
+    if parent_config is None:
+        for page_url, data in iter_pages(url):
+            # Page and chunk boundaries don't line up, so checkpoint the CURRENT page URL. On resume we
+            # re-fetch it and rely on primary-key merge semantics to dedupe already-yielded rows.
+            for item in data:
+                batcher.batch(item)
 
-        # The next-page URL is server-controlled; only follow it if it stays on the configured host.
-        if not _is_same_host(next_url, host):
-            logger.warning("GitLab: stopping pagination, next URL host does not match the configured host")
-            break
+                if batcher.should_yield():
+                    py_table = batcher.get_table()
+                    yield py_table
+                    resumable_source_manager.save_state(GitLabResumeConfig(next_url=page_url))
+    else:
+        assert config.fan_out_parent_column is not None
+        child_params = _build_initial_params(config, False, None, None)
+        last_flush_at = time.monotonic()
+        # Checkpoint the parent page: resuming re-fans its parents, and merge dedupes their children.
+        for parent_page_url, parents in iter_pages(url):
+            for parent in parents:
+                parent_iid = parent["iid"]
+                child_url = _build_initial_url(host, config, project, child_params, parent_iid=parent_iid)
+                # A parent deleted after the parent page was listed 404s; that must not fail the run
+                # with the non-retryable "project not found" error.
+                for _, children in iter_pages(child_url, max_pages=MAX_PAGES_PER_PARENT, allow_not_found=True):
+                    for child in children:
+                        batcher.batch({**child, config.fan_out_parent_column: parent_iid})
 
-        url = next_url
+                        if batcher.should_yield():
+                            py_table = batcher.get_table()
+                            yield py_table
+                            last_flush_at = time.monotonic()
+                            resumable_source_manager.save_state(GitLabResumeConfig(next_url=parent_page_url))
+
+                # Most parents have no state events, so a run can make many requests that yield nothing.
+                if batcher.should_yield(include_incomplete_chunk=True):
+                    if time.monotonic() - last_flush_at >= PARTIAL_FLUSH_INTERVAL_SECONDS:
+                        # Staged before the yield, so the commit that follows this table's write covers it.
+                        resumable_source_manager.save_state(GitLabResumeConfig(next_url=parent_page_url))
+                        yield batcher.get_table()
+                        last_flush_at = time.monotonic()
+                else:
+                    resumable_source_manager.safe_point()
 
     if batcher.should_yield(include_incomplete_chunk=True):
         py_table = batcher.get_table()
@@ -444,7 +520,9 @@ def gitlab_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
         ),
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=[endpoint_config.fan_out_parent_column, endpoint_config.primary_key]
+        if endpoint_config.fan_out_parent_column
+        else [endpoint_config.primary_key],
         sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,

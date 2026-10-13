@@ -24,10 +24,11 @@ use cohort_core::hogvm::VmErrorClass;
 use metrics::counter;
 
 use crate::clickhouse::person_sql::ScanFilterOutcome;
-use crate::clickhouse::ScanSkipReason;
+use crate::clickhouse::{ResourceError, ScanSkipReason};
 use crate::observability::metrics::{
-    CHUNKS_POISONED, EVENTS_SKIPPED, HOGVM_ERRORS, PERSON_CONDITIONS_SHORTCUT, PERSON_ROWS_PRUNED,
-    PERSON_SCAN_FILTER, PRUNE_REASON_IRRELEVANT,
+    CHUNKS_POISONED, CLICKHOUSE_RESOURCE_ERRORS, EVENTS_SKIPPED, HOGVM_ERRORS,
+    PERSON_CONDITIONS_SHORTCUT, PERSON_ROWS_PRUNED, PERSON_SCAN_FILTER, PRUNE_REASON_IRRELEVANT,
+    RUN_BREAKER_TRIPS,
 };
 use crate::store::runs::RunKind;
 
@@ -42,6 +43,15 @@ pub fn prime_zero_series() {
     }
     for kind in RunKind::ALL {
         counter!(CHUNKS_POISONED, "kind" => kind.as_str()).increment(0);
+        counter!(RUN_BREAKER_TRIPS, "kind" => kind.as_str()).increment(0);
+        for resource in ResourceError::ALL {
+            counter!(
+                CLICKHOUSE_RESOURCE_ERRORS,
+                "kind" => kind.as_str(),
+                "code" => resource.as_str(),
+            )
+            .increment(0);
+        }
     }
     // The person canary is read against these two: a run that pruned nothing and a run whose filter
     // never rendered have to look different from an exporter that dropped the family.
@@ -73,6 +83,8 @@ mod tests {
             format!("{EVENTS_SKIPPED}{{reason=\"globals_parse_error\"}} 0"),
             format!("{HOGVM_ERRORS}{{class=\"unknown_ref\"}} 0"),
             format!("{CHUNKS_POISONED}{{kind=\"behavioral\"}} 0"),
+            format!("{CLICKHOUSE_RESOURCE_ERRORS}{{kind=\"behavioral\",code=\"241\"}} 0"),
+            format!("{RUN_BREAKER_TRIPS}{{kind=\"behavioral\"}} 0"),
             format!("{PERSON_ROWS_PRUNED}{{reason=\"irrelevant\"}} 0"),
             format!("{PERSON_SCAN_FILTER}{{outcome=\"key_presence\"}} 0"),
             format!("{PERSON_SCAN_FILTER}{{outcome=\"none\"}} 0"),

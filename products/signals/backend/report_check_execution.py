@@ -16,8 +16,10 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import partial
+from typing import cast
 
 from django.db import transaction
 from django.db.models import F, Window
@@ -53,6 +55,7 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
 )
+from products.signals.backend.report_check_timing import metric_check_ready_at, metric_check_window_start
 from products.signals.backend.report_checks import (
     AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_SOAK_HOURS,
@@ -63,6 +66,7 @@ from products.signals.backend.report_checks import (
     CheckInconclusiveReason,
     CheckOutcome,
     MetricThresholdConfig,
+    check_schedule_expires_at,
     parse_check_config,
     soak_minutes_from_gap,
 )
@@ -103,6 +107,8 @@ class CheckRunSummary:
     # Neither is an outcome: both rows are still active and still owe a verdict.
     dispatched: int = 0
     deferred: int = 0
+    # An `agent` check stopped because its project has no scout to run it.
+    cancelled: int = 0
 
 
 @frozen
@@ -223,6 +229,26 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
         config = parse_check_config(check.kind, check.config)
         assert isinstance(config, MetricThresholdConfig)
         query = resolve_check_query(config, check.report)
+        if check.measurement_start_at is not None:
+            now = timezone.now()
+            window_start = metric_check_window_start(query, check.report.team, now)
+            if window_start < check.measurement_start_at:
+                return CheckVerdict(
+                    outcome="inconclusive", reason="awaiting_data", explanation="Waiting for a full measurement window."
+                )
+            # Pin this run's bounds so a cached relative query cannot include pre-resolution data.
+            query = {
+                **query,
+                "source": {
+                    **query["source"],
+                    "dateRange": {
+                        **query["source"]["dateRange"],
+                        "date_from": window_start.isoformat(),
+                        "date_to": now.isoformat(),
+                        "explicitDate": True,
+                    },
+                },
+            }
         tag_queries(trigger="signals_report_check")
         measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
     except Exception as error:
@@ -325,7 +351,11 @@ def record_check_verdict(
             .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
             .first()
         )
-        if current is None:
+        if (
+            current is None
+            or current.measurement_start_at != check.measurement_start_at
+            or current.dispatched_at != check.dispatched_at
+        ):
             return
         transition = _next_state(current, verdict, now)
         current.status = transition.status
@@ -542,6 +572,43 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
         logger.exception("signals.report_check.expired_report_failed")
 
 
+def _park_checks(active: Iterable[SignalReportCheck], now: datetime) -> int:
+    parked = 0
+    for check in active:
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy row's retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
+        parked += (
+            SignalReportCheck.objects.for_team(check.team_id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .exclude(report__status=SignalReport.Status.RESOLVED)
+            .update(
+                status=SignalReportCheck.Status.PENDING,
+                soak_minutes=soak_minutes,
+                measurement_start_at=None,
+                next_run_at=now + timedelta(minutes=soak_minutes),
+                expires_at=now + MAX_CHECK_HORIZON,
+                consecutive_errors=0,
+                consecutive_inconclusive=0,
+                dispatched_at=None,
+                updated_at=now,
+            )
+        )
+    return parked
+
+
+def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime) -> int:
+    return _park_checks(
+        SignalReportCheck.objects.for_team(team_id).filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE),
+        now,
+    )
+
+
 def park_checks_on_unresolved_reports(now: datetime) -> int:
     """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
 
@@ -562,29 +629,7 @@ def park_checks_on_unresolved_reports(now: datetime) -> int:
             :MAX_CHECK_PARKS_PER_TICK
         ]
     )
-    parked = 0
-    for check in active:
-        soak_minutes = check.soak_minutes
-        if soak_minutes is None:
-            # A legacy row's retry or recurring date no longer identifies its initial soak.
-            soak_minutes = (
-                DEFAULT_CHECK_SOAK_HOURS * 60
-                if check.last_run_at is not None or check.dispatched_at is not None
-                else soak_minutes_from_gap(check.next_run_at, check.created_at)
-            )
-        parked += (
-            SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
-            .exclude(report__status=SignalReport.Status.RESOLVED)
-            .update(
-                status=SignalReportCheck.Status.PENDING,
-                soak_minutes=soak_minutes,
-                next_run_at=now + timedelta(minutes=soak_minutes),
-                expires_at=now + MAX_CHECK_HORIZON,
-                consecutive_errors=0,
-                dispatched_at=None,
-                updated_at=now,
-            )
-        )
+    parked = _park_checks(active, now)
     if parked:
         logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
     return parked
@@ -653,6 +698,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         "inconclusive": 0,
         "dispatched": 0,
         "deferred": 0,
+        "cancelled": 0,
     }
     for check in collect_due_checks(now, limit=limit):
         if time.monotonic() >= deadline:
@@ -669,7 +715,46 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
                     "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
                 )
             continue
-        verdict = measure_check(check, deadline=deadline)
+        verdict: CheckVerdict | None = None
+        if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+            start_at = check.measurement_start_at or now
+            try:
+                query = resolve_check_query(
+                    cast(MetricThresholdConfig, parse_check_config(check.kind, check.config)), check.report
+                )
+                ready_at = metric_check_ready_at(query, check.report.team, start_at)
+            except (CheckConfigValidationError, ValueError):
+                ready_at = now
+            if check.measurement_start_at is None or now < ready_at:
+                next_run_at = max(check.next_run_at, ready_at)
+                expires_at = check.expires_at
+                if check.measurement_start_at is None:
+                    expires_at = check_schedule_expires_at(
+                        next_run_at=next_run_at,
+                        run_interval_minutes=check.run_interval_minutes,
+                        runs_remaining=check.runs_remaining,
+                        start_at=start_at,
+                    )
+                if next_run_at >= expires_at:
+                    verdict = CheckVerdict(
+                        outcome="inconclusive",
+                        reason="unmeasurable",
+                        explanation="The full measurement window cannot fit before this check expires.",
+                    )
+                else:
+                    SignalReportCheck.objects.for_team(check.team_id).filter(
+                        id=check.id,
+                        status=SignalReportCheck.Status.ACTIVE,
+                        measurement_start_at=check.measurement_start_at,
+                    ).update(
+                        measurement_start_at=start_at,
+                        next_run_at=next_run_at,
+                        expires_at=expires_at,
+                        updated_at=now,
+                    )
+                    continue
+        if verdict is None:
+            verdict = measure_check(check, deadline=deadline)
         try:
             record_check_verdict(check, verdict)
         except Exception:

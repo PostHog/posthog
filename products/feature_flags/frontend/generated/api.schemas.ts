@@ -209,7 +209,7 @@ export interface StaffTeamConfigApi {
     max_feature_flags_override: number | null
     /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
     effective_max_feature_flags: number
-    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+    /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
@@ -244,7 +244,7 @@ export interface StaffTeamConfigMutationApi {
 }
 
 export interface StaffFlagEvaluationsModeMutationApi {
-    /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+    /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
      *
      * * `0` - Events
      * * `1` - Read flag evaluations
@@ -256,7 +256,7 @@ export interface StaffFlagEvaluationsModeMutationApi {
      * @maxItems 50
      */
     team_ids: number[]
-    /** Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2. */
+    /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
     allow_downgrade?: boolean
     /** Report what the write would change, and write nothing. */
     dry_run?: boolean
@@ -281,6 +281,8 @@ export interface StaffOrganizationModeChangeApi {
     organization_name: string
     /** Teams of the organization. They all read the organization's mode. */
     team_count: number
+    /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+    running_experiments_on_feature_flag_called: number
     /** True when the write moved the organization to the target mode, or would on a dry run. */
     changed: boolean
     /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -646,7 +648,7 @@ export interface FeatureFlagApi {
     tags?: unknown[]
     evaluation_contexts?: unknown[]
     /**
-     * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+     * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
      * @nullable
      */
     readonly usage_dashboard: number | null
@@ -1405,7 +1407,7 @@ export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
 }
 
 export interface FeatureFlagRolloutSummaryApi {
-    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation. */
     effectively_full_rollout: boolean
     /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
     has_targeting_conditions: boolean
@@ -1479,7 +1481,7 @@ export interface FeatureFlagConditionAnalysisApi {
     /** Whether this condition matched properties but was excluded due to rollout */
     rollout_excluded: boolean
     /**
-     * Variant associated with this condition
+     * Variant associated with this condition. Empty or null when the condition has no variant override.
      * @nullable
      */
     variant: string | null
@@ -1607,7 +1609,7 @@ export const BulkDeleteFiltersTypeEnumApi = {
  * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
  */
 export interface BulkDeleteFiltersApi {
-    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+    /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      *
      * * `true` - true
      * * `false` - false
@@ -1615,7 +1617,7 @@ export interface BulkDeleteFiltersApi {
     active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
-    /** Search by feature flag key or name (case-insensitive). */
+    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
     search?: string
     /** Filter by flag type.
      *
@@ -2094,7 +2096,9 @@ export type OrgFeatureFlagsKeysParams = {
 
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string
 }
@@ -2128,7 +2132,7 @@ export const FeatureFlagRequestUsageListTimeInterval = {
 
 export type FeatureFlagsListParams = {
     /**
-     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      */
     active?: FeatureFlagsListActive
     /**
@@ -2172,7 +2176,7 @@ export type FeatureFlagsListParams = {
      */
     offset?: number
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string
     /**

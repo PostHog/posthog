@@ -37,6 +37,8 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 
 Property filters to narrow the count. Same format as `query-apm-spans` filters — each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`.
 
+A `span` filter on `duration` takes a value in milliseconds. For example, `{ "key": "duration", "operator": "gt", "type": "span", "value": "30000" }` counts spans longer than 30 seconds.
+
 # Examples
 
 ## Count error spans in a service over the last day

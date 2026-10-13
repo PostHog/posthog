@@ -151,13 +151,13 @@
   FROM (
     SELECT countState() AS total_pageviews 
     FROM events 
-    WHERE and(equals(events.team_id, 420), less(events.timestamp, minus(now64(6, %(hogql_val_0)s), toIntervalDay(1))))) 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_0)s), toIntervalDay(1)), 6, %(hogql_val_1)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT countMerge(total_pageviews) AS total_pageviews 
   FROM (
     SELECT countState() AS total_pageviews 
     FROM events 
-    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_2)s), toIntervalDay(1)), 6, %(hogql_val_3)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -480,13 +480,13 @@
   FROM (
     SELECT countState() AS total_pageviews 
     FROM events 
-    WHERE and(equals(events.team_id, 420), less(events.timestamp, minus(now64(6, %(hogql_val_0)s), toIntervalDay(1))))) 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_0)s), toIntervalDay(1)), 6, %(hogql_val_1)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT countMerge(total_pageviews) AS total_pageviews 
   FROM (
     SELECT countState() AS total_pageviews 
     FROM events 
-    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(minus(now64(6, %(hogql_val_2)s), toIntervalDay(1)), 6, %(hogql_val_3)s)))) 
   LIMIT 50000
   '''
 # ---

@@ -274,7 +274,7 @@
         },
         "volumeResolution": {
             "default": 0,
-            "description": "Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.",
+            "description": "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets.",
             "maximum": 200,
             "minimum": 0,
             "type": "number"

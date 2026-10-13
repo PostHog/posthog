@@ -84,7 +84,8 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
     "regions": FlyIoEndpointConfig(
         name="regions",
         path="/platform/regions",
-        response_data_path="regions",
+        # The platform regions endpoint capitalizes its list key, unlike every other Fly.io endpoint.
+        response_data_path="Regions",
         primary_keys=["code"],
         # Regions are a static lookup with no timestamps.
         partition_key=None,

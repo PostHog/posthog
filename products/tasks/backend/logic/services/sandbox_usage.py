@@ -315,7 +315,7 @@ def get_billable_sandbox_compute_usage_by_team(
         SandboxSession.objects.unscoped()
         .select_related("task_run__task__loop")
         .filter(
-            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            client_provenance__in=TaskClientProvenance.values,
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
         )

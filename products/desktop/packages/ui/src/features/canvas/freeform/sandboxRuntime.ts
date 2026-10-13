@@ -225,7 +225,15 @@ export function buildSandboxDocument(
   const bootstrap = /* js */ `
     import * as Babel from "${FREEFORM_BABEL_URL}";
     const CHANNEL = "posthog-canvas";
-    const post = (msg) => parent.postMessage({ channel: CHANNEL, ...msg }, "*");
+    const portOnly = new URLSearchParams(location.hash.slice(1)).get("bridge") === "port";
+    let bridgePort = null;
+    let sendToHost = null;
+    let disconnectBridge = null;
+    const post = (msg) => {
+      const message = { channel: CHANNEL, ...msg };
+      if (sendToHost) sendToHost(message);
+      else if (!portOnly) parent.postMessage(message, "*");
+    };
 
     // --- data shim: the ONLY way canvas code reaches PostHog. No token here. ---
     const pending = new Map();
@@ -519,7 +527,7 @@ export function buildSandboxDocument(
           if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
             event.preventDefault();
             event.stopPropagation();
-            post({ type: "comment-activate", id: item.id });
+            post({ type: "comment-activate", id: item.id, rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left } });
             return;
           }
         }
@@ -709,8 +717,7 @@ export function buildSandboxDocument(
       }
     };
 
-    window.addEventListener("message", (e) => {
-      const d = e.data;
+    const receive = (d) => {
       if (!d || d.channel !== CHANNEL) return;
       if (editing.handle(d)) return;
       if (d.type === "init") {
@@ -733,7 +740,20 @@ export function buildSandboxDocument(
           ? p.resolve(d.result)
           : p.reject(new Error(d.error || "data error"), d.retryable === true);
       }
+    };
+    window.addEventListener("message", (e) => {
+      if (e.source !== parent) return;
+      if (e.data?.channel === CHANNEL && e.data.type === "connect" && e.ports[0] && !bridgePort) {
+        bridgePort = e.ports[0];
+        sendToHost = bridgePort.postMessage.bind(bridgePort);
+        disconnectBridge = bridgePort.close.bind(bridgePort);
+        bridgePort.onmessage = (event) => receive(event.data);
+        post({ type: "ready" });
+      } else if (!portOnly && !bridgePort) {
+        receive(e.data);
+      }
     });
+    window.addEventListener("pagehide", () => disconnectBridge?.());
 
     post({ type: "ready" });
   `;
@@ -813,9 +833,8 @@ function contentSecurityPolicy(analyticsApiHost?: string): string {
   return [
     "default-src 'none'",
     // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
-    // posthog-js recorder script + the in-browser Tailwind engine (JIT-compiles,
-    // so 'unsafe-eval' is required).
-    `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
+    // posthog-js recorder script + the in-browser Tailwind engine.
+    `script-src 'unsafe-inline' blob: ${twCdn} ${esm} ${ph}`,
     `style-src 'unsafe-inline' ${esm}`,
     `font-src data: ${esm}`,
     "img-src data: blob: https:",

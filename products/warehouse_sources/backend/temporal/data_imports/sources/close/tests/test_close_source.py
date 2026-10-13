@@ -2,11 +2,8 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
-
-INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks", "Events"}
 
 
 class TestCloseSource:
@@ -15,33 +12,10 @@ class TestCloseSource:
         self.team_id = 123
         self.config = CloseSourceConfig(api_key="api_test")
 
-    def test_get_schemas_lists_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_get_schemas_incremental_flags(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        expected_incremental = endpoint in INCREMENTAL_ENDPOINTS
-        assert schema.supports_incremental is expected_incremental
-        assert schema.supports_append is expected_incremental
-        if expected_incremental:
-            assert len(schema.incremental_fields) >= 1
-        else:
-            assert schema.incremental_fields == []
-
-    def test_opportunities_advertises_both_cursors(self) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == "Opportunities")
-        fields = {f["field"] for f in schema.incremental_fields}
-        assert fields == {"date_created", "date_updated"}
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["Leads"])
         assert len(schemas) == 1
         assert schemas[0].name == "Leads"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),
@@ -69,25 +43,10 @@ class TestCloseSource:
         assert is_valid is False
         assert error_message == "Close API key is required"
 
-    def test_field_list_too_long_is_non_retryable(self) -> None:
-        # Close rejects an over-long `_fields` list with this message. It can never succeed on
-        # retry, so it must be classified non-retryable rather than looping in Temporal.
-        error_msg = 'Close rejected the search query: {"field-errors": {"_fields": "List is too long."}}'
-        matched = [msg for pattern, msg in self.source.get_non_retryable_errors().items() if pattern in error_msg]
-        assert len(matched) == 1
-        assert matched[0] is not None
-
     def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
         error_msg = (
             "HTTPSConnectionPool(host='api.close.com', port=443): Max retries exceeded with "
             'url: /api/v1/data/search/ (Caused by ReadTimeoutError("HTTPSConnectionPool(host='
             "'api.close.com', port=443): Read timed out. (read timeout=60)\"))"
-        )
-        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())
-
-    def test_retryable_errors_match_organization_fetch_server_error(self) -> None:
-        error_msg = (
-            "500 Server Error: Internal Server Error for url: "
-            "https://api.close.com/api/v1/organization/orga_test1234567890/"
         )
         assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())

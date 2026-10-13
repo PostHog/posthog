@@ -1,11 +1,11 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatChips } from './NodeStatChips'
 
 export interface NodeDetailHeaderProps {
-    node: TraceTreeNode
+    node: TraceNodeApi
 }
 
 export function NodeDetailHeader({ node }: NodeDetailHeaderProps): JSX.Element {

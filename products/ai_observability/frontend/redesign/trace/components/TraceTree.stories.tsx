@@ -1,16 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSession'
 import { FIXTURE_TREE, withWidth } from '../storyFixtures'
-import { TraceTreeNode } from '../types'
 import { TraceTree } from './TraceTree'
 
 function Stateful({
     nodes,
     initialSelectedId = 'gen-answer',
 }: {
-    nodes: TraceTreeNode[]
+    nodes: TraceNodeApi[]
     initialSelectedId?: string
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)

@@ -7,16 +7,17 @@ Fields that are legitimately not secrets go in the exemptions file.
 
 Print the current violations (to fix them or to exempt a non-secret):
 
-    python posthog/test/test_dataclass_secret_fields.py
+    python posthog/test/repo_invariants/test_dataclass_secret_fields.py
 """
 
 import ast
+import subprocess
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parents[2]
+REPO_ROOT = Path(__file__).parents[3]
 EXEMPTIONS_PATH = Path(__file__).parent / "dataclass_secret_field_exemptions.txt"
 SCANNED_ROOTS = ("posthog", "ee", "products", "dags", "common")
-SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache", "migrations", "test", "tests"}
+SKIPPED_DIRS = {"migrations", "test", "tests"}
 
 SECRET_NAME_TOKENS = (
     "secret",
@@ -66,12 +67,11 @@ def _is_secret_name(name: str) -> bool:
     return any(token in lowered for token in SECRET_NAME_TOKENS)
 
 
-def _hides_repr(value: ast.expr | None) -> bool:
-    """True when the field default is a field(...) call carrying repr=False."""
+def _hides_repr(value: ast.expr | None, field_names: set[str]) -> bool:
+    """True when the field default is a dataclasses.field(...) call carrying repr=False."""
     if not isinstance(value, ast.Call):
         return False
-    dotted = _dotted_name(value.func)
-    if dotted is None or (dotted != "field" and not dotted.endswith(".field")):
+    if _dotted_name(value.func) not in field_names:
         return False
     return any(
         kw.arg == "repr" and isinstance(kw.value, ast.Constant) and kw.value.value is False for kw in value.keywords
@@ -96,37 +96,63 @@ def _pydantic_bound_names(tree: ast.Module) -> set[str]:
     return names
 
 
+def _dataclass_field_names(tree: ast.Module) -> set[str]:
+    """Module-level names that resolve to dataclasses.field, so a look-alike helper cannot pass as one."""
+    names: set[str] = set()
+    for node in tree.body:
+        match node:
+            case ast.ImportFrom(module="dataclasses", names=aliases):
+                names.update(alias.asname or alias.name for alias in aliases if alias.name == "field")
+            case ast.Import(names=aliases):
+                names.update(f"{alias.asname or alias.name}.field" for alias in aliases if alias.name == "dataclasses")
+    return names
+
+
 def _is_test_file(path: Path) -> bool:
     return path.name == "conftest.py" or path.name.startswith("test_")
 
 
+def _candidate_paths() -> list[Path]:
+    """Tracked Python files with a dataclass decorator, found by git grep so most files are never read."""
+    pathspecs = [f"{root}/**/*.py" for root in SCANNED_ROOTS]
+    result = subprocess.run(
+        ["git", "grep", "-l", "-E", "-e", "@([A-Za-z_]+\\.)?(dataclass|frozen)", "--", *pathspecs],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return sorted(REPO_ROOT / line for line in result.stdout.splitlines())
+
+
 def collect_violations() -> list[str]:
     violations: list[str] = []
-    for root in SCANNED_ROOTS:
-        for path in sorted((REPO_ROOT / root).rglob("*.py")):
-            if SKIPPED_DIRS.intersection(path.parts) or _is_test_file(path):
+    for path in _candidate_paths():
+        if SKIPPED_DIRS.intersection(path.parts) or _is_test_file(path):
+            continue
+        source = path.read_text(encoding="utf-8", errors="ignore")
+        # Parsing dominates the run time, so skip files that cannot hold a secret-looking name.
+        if not any(token in source.lower() for token in SECRET_NAME_TOKENS):
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+        pydantic_names = _pydantic_bound_names(tree)
+        field_names = _dataclass_field_names(tree)
+        relpath = path.relative_to(REPO_ROOT).as_posix()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
                 continue
-            source = path.read_text(encoding="utf-8", errors="ignore")
-            if "dataclass" not in source:
+            if not any(_is_dataclass_decorator(decorator, pydantic_names) for decorator in node.decorator_list):
                 continue
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                continue
-            pydantic_names = _pydantic_bound_names(tree)
-            relpath = path.relative_to(REPO_ROOT).as_posix()
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.ClassDef):
+            for stmt in node.body:
+                if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
                     continue
-                if not any(_is_dataclass_decorator(decorator, pydantic_names) for decorator in node.decorator_list):
+                if isinstance(stmt.annotation, ast.Name) and stmt.annotation.id == "bool":
                     continue
-                for stmt in node.body:
-                    if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
-                        continue
-                    if isinstance(stmt.annotation, ast.Name) and stmt.annotation.id == "bool":
-                        continue
-                    if _is_secret_name(stmt.target.id) and not _hides_repr(stmt.value):
-                        violations.append(f"{relpath} {node.name}.{stmt.target.id}")
+                if _is_secret_name(stmt.target.id) and not _hides_repr(stmt.value, field_names):
+                    violations.append(f"{relpath} {node.name}.{stmt.target.id}")
     return violations
 
 
@@ -139,7 +165,7 @@ def test_secret_dataclass_fields_hide_repr() -> None:
     assert not violations, (
         "Dataclass fields with secret-looking names must be declared with field(repr=False) "
         "so repr() cannot leak them into tracebacks and logs. Fix them, or if a flagged field "
-        "is genuinely not a secret, add it to posthog/test/dataclass_secret_field_exemptions.txt:\n"
+        "is genuinely not a secret, add it to posthog/test/repo_invariants/dataclass_secret_field_exemptions.txt:\n"
         + "\n".join(violations)
     )
 

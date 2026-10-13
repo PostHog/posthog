@@ -94,7 +94,7 @@ jobs:
                   esac
                   # Scoped to products/desktop/: monorepo master always has commits landing, so an
                   # unscoped check would never see a quiet period.
-                  LAST_COMMIT_EPOCH=$(git log -1 --format=%ct HEAD -- products/desktop/)
+                  LAST_COMMIT_EPOCH=$(git log -1 --format=%ct HEAD -- products/desktop/ packages/agent/)
                   NOW_EPOCH=$(date +%s)
                   AGE_MINUTES=$(( (NOW_EPOCH - LAST_COMMIT_EPOCH) / 60 ))
 
@@ -207,7 +207,7 @@ jobs:
 
                   # Scoped to products/desktop/: an unscoped count would include every PostHog
                   # commit and inflate patch numbers meaninglessly.
-                  PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- products/desktop/)
+                  PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- products/desktop/ packages/agent/)
 
                   if [ "$PATCH" -eq 0 ]; then
                     echo "No desktop commits since $LATEST_TAG. Nothing to release."

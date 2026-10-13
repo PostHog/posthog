@@ -306,6 +306,7 @@
       '__preview_isBot',
       '_defaultChannelType',
       '_domainType',
+      'decide',
       'embedText',
       'explainCSPReport',
       'getBotName',

@@ -1,7 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { resetContext } from 'kea'
-import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
@@ -36,10 +35,6 @@ const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
 describe('workflowTemplateLogic', () => {
     beforeEach(() => {
         initKeaTests()
-
-        resetContext({
-            plugins: [testUtilsPlugin],
-        })
 
         jest.clearAllMocks()
     })

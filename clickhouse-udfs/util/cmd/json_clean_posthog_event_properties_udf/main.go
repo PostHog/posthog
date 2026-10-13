@@ -95,8 +95,11 @@ func isTemporaryProperty(key string) bool {
 		"$debug_first_full_snapshot_timestamp", "$snapshot_max_depth_exceeded",
 		"$sess_rec_flush_size", "$session_recording_remote_config",
 		"$session_recording_network_payload_capture", "$session_recording_canvas_recording",
-		"$replay_script_config", "$sent_at", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
+		"$replay_script_config", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
 		return true
+	case "$sdk_debug_current_session_duration":
+		// Customers read it over windows longer than the temporary retention, so it stays permanent.
+		return false
 	}
 	return strings.HasPrefix(key, "$sdk_debug_")
 }
@@ -142,10 +145,10 @@ func makeEventPropertyRules() *pathRule {
 	return root
 }
 
-// The typed map stores every flag value as a string, so a variant named "false" would read the same as a flag that
-// was evaluated and switched off (JSON false). The variant is stored under this sentinel instead. The query layer
-// maps it back to "false" and the flag API refuses it as a variant key.
-const falseVariantSentinel = "$false"
+// The typed map stores every flag value as a string, so a variant named "false" or "true" would read the same as a
+// boolean flag that evaluated to JSON false or true. Such a variant is stored under its sentinel instead. The query
+// layer maps the sentinels back to the variant names and the flag API refuses them as variant keys.
+var variantSentinels = map[string]string{"false": "$false", "true": "$true"}
 
 type valueKind byte
 
@@ -380,8 +383,8 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	for _, property := range cleaned.entries {
 		if property.key == "$feature_flags" && property.value.kind == kindObject {
 			for _, flag := range property.value.entries {
-				if flag.value.kind == kindString && flag.value.s == "false" {
-					flag.value.s = falseVariantSentinel
+				if sentinel, ok := variantSentinels[flag.value.s]; ok && flag.value.kind == kindString {
+					flag.value.s = sentinel
 					p.mutated = true
 				}
 			}

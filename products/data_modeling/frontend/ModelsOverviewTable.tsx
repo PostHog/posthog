@@ -8,26 +8,30 @@ export function ModelsOverviewTable<T extends Record<string, any>>({
 }: LemonTableProps<T>): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const contentRef = useRef<HTMLDivElement>(null)
+    const preservedHeightRef = useRef(0)
     const hasMultiplePages = props.dataSource.length > 10
 
     useLayoutEffect(() => {
         const container = containerRef.current
         const content = contentRef.current
-        if (!container || !content || !hasMultiplePages) {
-            container?.style.removeProperty('min-height')
+        if (!container || !content || props.loading) {
             return
         }
-        let height = 0
+        if (!hasMultiplePages) {
+            preservedHeightRef.current = 0
+            container.style.removeProperty('min-height')
+            return
+        }
         const preserveHeight = (): void => {
             const bounds = content.getBoundingClientRect()
-            height = Math.max(height, bounds.height)
-            container.style.minHeight = `${height}px`
+            preservedHeightRef.current = Math.max(preservedHeightRef.current, bounds.height)
+            container.style.minHeight = `${preservedHeightRef.current}px`
         }
         preserveHeight()
         const observer = new ResizeObserver(preserveHeight)
         observer.observe(content)
         return () => observer.disconnect()
-    }, [hasMultiplePages])
+    }, [hasMultiplePages, props.loading])
 
     return (
         <div ref={containerRef} data-attr={dataAttr}>

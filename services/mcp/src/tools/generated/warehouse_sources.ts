@@ -303,6 +303,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.full_refresh_interval_days !== undefined) {
             body['full_refresh_interval_days'] = params.full_refresh_interval_days
         }
+        if (params.full_refresh_time_of_day !== undefined) {
+            body['full_refresh_time_of_day'] = params.full_refresh_time_of_day
+        }
         if (params.primary_key_columns !== undefined) {
             body['primary_key_columns'] = params.primary_key_columns
         }

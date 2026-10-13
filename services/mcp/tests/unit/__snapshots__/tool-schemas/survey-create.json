@@ -1181,7 +1181,7 @@
             "description": "Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with user approval; never remove targeting rules to work around validation."
         },
         "translations": {
-            "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."
+            "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, thank-you message, and intro screen fields. Question text translations belong inside each question's translations object."
         },
         "type": {
             "description": "Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints, external_survey for hosted forms with a shareable public URL, and api only for headless custom implementations.",

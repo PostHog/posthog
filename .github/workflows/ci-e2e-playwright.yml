@@ -1045,7 +1045,7 @@ jobs:
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
                   VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
-                  # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
+                  # The rerun target for recompute until the complete job records its own ID.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
                   # A selective run only regenerates a subset of snapshots. --partial tells VR
                   # not to flag the un-run baseline snapshots as REMOVED and routes the run to a
@@ -1143,9 +1143,12 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
+                  test-collection-id: kF88Gx2u # e2e-playwright
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
@@ -1369,6 +1372,8 @@ jobs:
               continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  # Recompute re-runs this job, which re-reads the verdict without re-running the E2E suite.
+                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   node products/visual_review/cli/dist/cli/src/index.js run complete \
                     --run-id "${{ needs.playwright.outputs.vr_run_id }}" \

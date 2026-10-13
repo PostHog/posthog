@@ -5,6 +5,14 @@ from products.experiments.backend.temporal.enrollment_census_workflow import (
     ExperimentPrecomputeEnrollmentCensusWorkflow,
 )
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+    check_experiment_exposures,
+    discover_scheduled_recalculation_candidates,
+    start_scheduled_recalculation,
+)
+from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+    ScheduledExperimentRecalculationWorkflow,
+)
 
 
 def test_activities_registered():
@@ -17,6 +25,9 @@ def test_activities_registered():
         "run_experiment_metric_canary",
         "report_experiment_canary_results",
         "run_experiment_enrollment_census",
+        "discover_scheduled_recalculation_candidates",
+        "check_experiment_exposures",
+        "start_scheduled_recalculation",
     }
 
 
@@ -25,6 +36,7 @@ def test_workflow_registered():
         ExperimentMetricsRecalculationWorkflow,
         ExperimentPrecomputeCanaryWorkflow,
         ExperimentPrecomputeEnrollmentCensusWorkflow,
+        ScheduledExperimentRecalculationWorkflow,
     ]
 
 
@@ -49,3 +61,7 @@ def test_scheduled_workflows_registered_on_general_purpose_queue():
         assert ExperimentPrecomputeCanaryWorkflow in workflows
         assert ExperimentPrecomputeEnrollmentCensusWorkflow in workflows
         assert run_experiment_enrollment_census in activities
+        assert ScheduledExperimentRecalculationWorkflow in workflows
+        assert discover_scheduled_recalculation_candidates in activities
+        assert check_experiment_exposures in activities
+        assert start_scheduled_recalculation in activities

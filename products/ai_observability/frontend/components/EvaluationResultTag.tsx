@@ -86,10 +86,11 @@ export function getEvaluationResultDisplay(
             return { type: 'muted', icon: <IconMinus />, label: 'No score', sortValue: -1 }
         }
         const passed = numericScorePasses(run.score, options.passingRule)
+        const label = formatNumericEvaluationScore(run.score)
         return {
             type: passed === null ? 'none' : passed ? 'success' : 'danger',
             icon: passed === null ? <IconMinus /> : passed ? <IconCheck /> : <IconX />,
-            label: formatNumericEvaluationScore(run.score),
+            label: numericScorePasses(Number(label), options.passingRule) === passed ? label : String(run.score),
             sortValue: 4,
         }
     }

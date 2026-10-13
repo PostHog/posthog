@@ -66,4 +66,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "The timestamp when the conversation was last updated.",
         },
     },
+    "memory_stores": {
+        "description": "A Tavus memory store — the persistent memory one PAL keeps for one participant across conversations.",
+        "docs_url": "https://docs.tavus.io/api-reference/memory-stores/list-memory-stores",
+        "columns": {
+            "memory_store_id": "The unique ID of the memory store.",
+            "pal_id": "The ID of the PAL this memory store belongs to.",
+            "participant_tag": "The developer-provided identifier of the participant this memory store is for.",
+        },
+    },
 }

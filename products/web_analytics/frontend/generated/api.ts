@@ -15,6 +15,7 @@ import type {
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
+    ContentAutopilotOpportunityDraftRequestApi,
     ContentAutopilotOpportunityRefreshRequestApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalEditRequestApi,
@@ -795,6 +796,27 @@ export const webAnalyticsContentAutopilotOpportunitiesDismiss = async (
             method: 'POST',
         }
     )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesDraftUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/draft/`
+}
+
+/**
+ * Starts a run that researches and drafts content for the selected opportunities.
+ * @summary Draft content for opportunities
+ */
+export const webAnalyticsContentAutopilotOpportunitiesDraft = async (
+    projectId: string,
+    contentAutopilotOpportunityDraftRequestApi: ContentAutopilotOpportunityDraftRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotOpportunitiesDraftUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotOpportunityDraftRequestApi),
+    })
 }
 
 export const getWebAnalyticsContentAutopilotOpportunitiesRefreshUrl = (projectId: string) => {

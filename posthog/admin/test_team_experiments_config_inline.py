@@ -1,5 +1,3 @@
-from datetime import time
-
 from posthog.test.base import BaseTest
 
 from django.forms import ModelForm, modelform_factory
@@ -16,7 +14,7 @@ class TestTeamExperimentsConfigInlineForm(BaseTest):
         form_class = modelform_factory(
             TeamExperimentsConfig,
             form=TeamExperimentsConfigInlineForm,
-            fields=["experiment_recalculation_time", "experiment_recalculation_times"],
+            fields=["experiment_recalculation_times"],
         )
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         return form_class(data=data, instance=config)
@@ -26,22 +24,8 @@ class TestTeamExperimentsConfigInlineForm(BaseTest):
         self.assertFalse(form.is_valid())
         self.assertIn("experiment_recalculation_times", form.errors)
 
-    def test_admin_saves_keep_recalculation_fields_in_sync(self):
-        # The hourly workflows read the legacy column; an admin edit that skips the
-        # sync leaves recalculations running at the old hour.
+    def test_admin_saves_recalculation_times(self):
         form = self._form({"experiment_recalculation_times": '["14:00:00", "02:00:00"]'})
         self.assertTrue(form.is_valid(), form.errors)
         config = form.save()
-        self.assertEqual(config.experiment_recalculation_time, time(hour=14))
-
-        # The admin submits every rendered field, so an edit to the legacy time arrives
-        # with the list field holding its unchanged value.
-        form = self._form(
-            {
-                "experiment_recalculation_time": "08:00:00",
-                "experiment_recalculation_times": '["14:00:00", "02:00:00"]',
-            }
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-        config = form.save()
-        self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
+        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])

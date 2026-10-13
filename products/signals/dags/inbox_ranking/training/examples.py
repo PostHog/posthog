@@ -64,14 +64,16 @@ def state_columns(feature_set: FeatureSet) -> tuple[str, ...]:
     return (*BASE_STATE_COLUMNS, *(name for name in feature_set.state_columns if name not in BASE_STATE_COLUMNS))
 
 
-# The moment spine, before any feature set's columns are added to it.
-MOMENT_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", "label")
+# The moment spine, before any feature set's columns are added to it. `team_id` is the report's team
+# on the moment's snapshot. No feature set reads it: the trainer reads it to grade the order inside
+# one team.
+MOMENT_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", "team_id", "label")
 
 
 def example_columns(feature_set: FeatureSet) -> tuple[str, ...]:
     """The examples Parquet columns for `feature_set`. One object per set, because two sets carry
     different feature columns."""
-    return ("head", "report_id", "snapshot_date", "report_created_at", *feature_set.feature_names, "label")
+    return (*MOMENT_COLUMNS[:-1], *feature_set.feature_names, MOMENT_COLUMNS[-1])
 
 
 def state_rows(state: pd.DataFrame, feature_set: FeatureSet) -> pd.DataFrame:
@@ -225,6 +227,9 @@ class HeadExamples:
     window_start: datetime.date | None
     # True when the row budget dropped at least one older day.
     cap_bound: bool
+    # Snapshot pairs dropped because one side lacks a label column the head reads. A high count
+    # with few positives means the labels partitions predate the current schema.
+    pairs_skipped_missing_label_columns: int
 
     def window(self) -> dict[str, object]:
         return {
@@ -247,6 +252,22 @@ def build_head_examples(
         examples=_with_features(kept, snapshots, feature_set, extras),
         window_start=days.min().date() if len(days) else None,
         cap_bound=len(kept) < len(moments),
+        pairs_skipped_missing_label_columns=pairs_missing_label_columns(snapshots, head),
+    )
+
+
+def _label_columns_readable(now: Snapshot, later: Snapshot, head: Head) -> bool:
+    return all(column in now.labels and column in later.labels for column in head.label_columns)
+
+
+def pairs_missing_label_columns(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> int:
+    """The (snapshot, `horizon_days`-later snapshot) pairs `example_moments` skips for a missing
+    label column."""
+    return sum(
+        1
+        for date, now in snapshots.items()
+        if (later := snapshots.get(date + datetime.timedelta(days=head.horizon_days))) is not None
+        and not _label_columns_readable(now, later, head)
     )
 
 
@@ -271,7 +292,7 @@ def example_moments(
         # only in the later snapshot (a column that entered the schema mid-window) would pass the
         # "not yet observed at now" guard below and mint an outcome from before `now` as a future
         # positive. Skip the pair when the head's label cannot be read from both snapshots.
-        if any(column not in now.labels or column not in later.labels for column in head.label_columns):
+        if not _label_columns_readable(now, later, head):
             continue
         ids = now.state.index.intersection(now.labels.index).intersection(later.labels.index)
         if len(ids) == 0:
@@ -311,6 +332,7 @@ def example_moments(
                     "report_id": kept_ids.to_numpy(),
                     "snapshot_date": date,
                     "report_created_at": pd.to_datetime(state.loc[kept_ids, "report_created_at"], utc=True).to_numpy(),
+                    "team_id": _team_ids(state, kept_ids),
                     "label": head.label(labels_later.loc[kept_ids]).astype(int).to_numpy(),
                 }
             )
@@ -318,6 +340,12 @@ def example_moments(
     if not frames:
         return pd.DataFrame(columns=list(MOMENT_COLUMNS))
     return pd.concat(frames, ignore_index=True)
+
+
+def _team_ids(state: pd.DataFrame, ids: pd.Index) -> pd.api.extensions.ExtensionArray:
+    if "report_team_id" not in state:
+        return pd.array([None] * len(ids), dtype="Int64")
+    return pd.to_numeric(state.loc[ids, "report_team_id"], errors="coerce").astype("Int64").array
 
 
 def birth_day_positives(examples: pd.DataFrame) -> int:

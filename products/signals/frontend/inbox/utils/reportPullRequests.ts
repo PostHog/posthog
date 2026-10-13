@@ -50,3 +50,9 @@ export function hasActiveReportPullRequest(report: ReportWithPullRequests | null
 export function hasMergedReportPullRequest(report: ReportWithPullRequests | null | undefined): boolean {
     return reportPullRequests(report).some((pr) => pr.merged || pr.state === 'merged')
 }
+
+export function hasApprovedOpenReportPullRequest(report: ReportWithPullRequests | null | undefined): boolean {
+    return reportPullRequests(report).some(
+        (pr) => pr.state === 'open' && !pr.merged && pr.review_decision === 'approved'
+    )
+}

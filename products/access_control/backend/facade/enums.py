@@ -14,6 +14,8 @@ should stay in the implementation (logic.py, models.py).
 
 from typing import Literal, get_args
 
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN
+
 from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS
 
 ResolvedAccessSourceValue = Literal[
@@ -38,3 +40,5 @@ RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES: list[str] = list(get_args(ResolvedAccess
 # Keep every grantable scope object here. The scope pickers get their type from this enum, so a
 # narrower list would remove objects from the OAuth consent screen and the key picker.
 SCOPE_OBJECT_CHOICES: list[str] = list(GRANTABLE_API_SCOPE_OBJECTS)
+
+AI_EVENT_PROPERTY_CHOICES: list[str] = list(AI_PROPERTY_TO_COLUMN)

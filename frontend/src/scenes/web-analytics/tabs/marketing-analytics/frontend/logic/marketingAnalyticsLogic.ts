@@ -90,6 +90,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     AD_PERFORMANCE = 'ad-performance',
+    SEARCH_PERFORMANCE = 'search-performance',
     PAGE_VISIBILITY = 'page-visibility',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',
@@ -393,6 +394,7 @@ export interface marketingAnalyticsLogicValues {
     externalTables: ExternalTable[]
     hasNoConfiguredSources: boolean
     hasSources: boolean
+    hasSyncedMarketingSources: boolean
     includeConversionGoals: boolean
     initialized: boolean
     integrationFilter: IntegrationFilter
@@ -735,6 +737,7 @@ export interface marketingAnalyticsLogicMeta {
             loading: boolean,
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => boolean
+        hasSyncedMarketingSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         hasSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         allExternalTablesWithStatus: (
             externalTables: ExternalTable[],
@@ -1029,7 +1032,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             return state
                         }
                         const dateFrom = params.dateFrom ?? state.dateFrom
-                        const dateTo = params.dateTo ?? state.dateTo
+                        const dateTo = params.dateTo !== undefined ? params.dateTo : state.dateTo
                         const interval = params.interval ?? state.interval
                         return { dateFrom, dateTo, interval }
                     },
@@ -1110,7 +1113,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s.activeTab, s.featureFlags],
             (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet): boolean =>
                 activeTab === MarketingAnalyticsTab.AD_PERFORMANCE &&
-                !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+                (!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
+                    !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]),
         ],
         includeConversionGoals: [
             (s) => [s.isAdPerformance, s.adPerformanceConversionGoals, s.conversion_goals],
@@ -1402,6 +1406,19 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return validExternalTables.length === 0 && validNativeSources.length === 0
             },
         ],
+        hasSyncedMarketingSources: [
+            (s) => [s.validExternalTables, s.validNativeSources],
+            (externalTables: ExternalTable[], nativeSources: NativeSource[]): boolean =>
+                externalTables.length > 0 ||
+                nativeSources.some(({ source }) => {
+                    const requiredFields =
+                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+                    return requiredFields.every((fieldName) => {
+                        const schema = findSchemaByFieldName(source.schemas, fieldName, source.source_type)
+                        return schema?.should_sync && !!schema.last_synced_at
+                    })
+                }),
+        ],
         hasSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]): boolean =>
@@ -1579,9 +1596,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
             }
-            if (values.dateFilter.dateTo) {
-                searchParams.set('date_to', values.dateFilter.dateTo)
-            }
+            searchParams.set('date_to', values.dateFilter.dateTo ?? '')
             if (values.dateFilter.interval) {
                 searchParams.set('interval', values.dateFilter.interval)
             }
@@ -1668,7 +1683,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             })
         },
     })),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         const trackDashboardInteraction = (): void => {
             // Only track after initialization to avoid tracking initial render/setup
             if (!values.initialized) {
@@ -1763,19 +1778,53 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // Clean up integrationFilter if it contains IDs of sources that no longer exist
                 const currentFilter = values.integrationFilter
                 if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
-                    const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                    const availableSourceIds = [
+                        ...values.allAvailableSources.map((s) => s.id),
+                        ...(values.dataWarehouseSources?.results ?? [])
+                            .filter((source) => source.source_type === 'GoogleSearchConsole')
+                            .map((source) => source.id),
+                    ]
                     const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
                         availableSourceIds.includes(id)
                     )
 
                     if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
-                        actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                        actions.setIntegrationFilter({ ...currentFilter, integrationSourceIds: validFilterIds })
                     }
                 }
 
-                // Refresh warehouse tables to pick up new source tables, then reload queries.
-                actions.loadDatabase()
-                actions.reloadAll()
+                const sourceConfigurationKey = JSON.stringify(
+                    (values.dataWarehouseSources?.results ?? []).map((source) => [
+                        source.id,
+                        source.source_type,
+                        source.prefix,
+                        source.schemas.map((schema) => [
+                            schema.id,
+                            schema.name,
+                            schema.should_sync,
+                            !!schema.last_synced_at,
+                            schema.table?.name,
+                            schema.table?.hogql_name,
+                        ]),
+                    ])
+                )
+                const sourceSyncKey = JSON.stringify(
+                    (values.dataWarehouseSources?.results ?? []).map((source) => [
+                        source.id,
+                        source.status,
+                        source.schemas.map((schema) => [schema.id, schema.last_synced_at]),
+                    ])
+                )
+                // Health polling must not force every dashboard query while only sync status changes.
+                if (cache.sourceConfigurationKey !== sourceConfigurationKey) {
+                    cache.sourceConfigurationKey = sourceConfigurationKey
+                    actions.loadDatabase()
+                    actions.reloadAll()
+                } else if (cache.sourceSyncKey !== sourceSyncKey) {
+                    actions.loadDatabase()
+                    actions.loadSourceValidation()
+                }
+                cache.sourceSyncKey = sourceSyncKey
 
                 // Mark as initialized after initial data load to enable interaction tracking
                 if (!values.initialized) {
@@ -1793,9 +1842,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
         const rawTab = searchParams.get('tab')
-        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
-            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
-        }
 
         const section = searchParams.get('section') as SetupSection | null
         if (section && Object.values(SetupSection).includes(section)) {
@@ -1806,9 +1852,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (dateFrom) {
             params.dateFrom = dateFrom
         }
+        // Web analytics writes an open-ended range as an empty `date_to`, which must clear a saved end date.
         const dateTo = searchParams.get('date_to')
-        if (dateTo) {
-            params.dateTo = dateTo
+        if (dateTo !== null) {
+            params.dateTo = dateTo || null
         }
         const interval = searchParams.get('interval') as IntervalType | null
         if (interval) {
@@ -1847,6 +1894,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         // Apply URL params if any were found
         if (Object.keys(params).length > 0) {
             actions.syncFromUrl(params)
+        }
+
+        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
         }
 
         actions.loadSources()

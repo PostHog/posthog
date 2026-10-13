@@ -6,7 +6,8 @@ import { castTimestampOrNow } from '~/common/utils/utils'
 import { isOkResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '~/types'
+import { createTestTeam } from '~/tests/helpers/team'
+import { Person, PersonMode, PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
 
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
 
@@ -14,9 +15,11 @@ describe('create-event-step', () => {
     let mockPerson: Person
     let mockPreparedEvent: PreIngestionEvent
     let mockMessage: Message
+    let mockTeam: Team
 
     beforeEach(() => {
         mockMessage = createTestMessage()
+        mockTeam = createTestTeam({ id: 1 })
         mockPerson = {
             team_id: 1,
             properties: { email: 'test@example.com', name: 'Test User' },
@@ -40,6 +43,7 @@ describe('create-event-step', () => {
         it('should create event with processPerson=true', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
@@ -75,6 +79,7 @@ describe('create-event-step', () => {
         it('should create event with processPerson=false', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: false,
@@ -105,6 +110,7 @@ describe('create-event-step', () => {
 
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: personWithForceUpgrade,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
@@ -134,6 +140,7 @@ describe('create-event-step', () => {
 
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: eventWithSetProperties,
                 processPerson: true,
@@ -159,6 +166,7 @@ describe('create-event-step', () => {
         it('should preserve event properties as native object', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
@@ -191,6 +199,7 @@ describe('create-event-step', () => {
 
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: eventWithElements,
                 processPerson: true,
@@ -217,6 +226,7 @@ describe('create-event-step', () => {
 
             const step = createCreateEventStep<typeof EVENTS_OUTPUT, CustomInput>(EVENTS_OUTPUT)
             const input: CustomInput = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
@@ -238,6 +248,7 @@ describe('create-event-step', () => {
         it('should set correct timestamps', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
+                team: mockTeam,
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
@@ -269,6 +280,7 @@ describe('create-event-step', () => {
 
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: mockPerson,
                     preparedEvent: eventWithType,
                     processPerson: true,
@@ -292,6 +304,7 @@ describe('create-event-step', () => {
             it('duplicates multivariate $feature_flag_called events for allowlisted teams with a deterministic uuid', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
                 const input = {
+                    team: mockTeam,
                     person: mockPerson,
                     preparedEvent: {
                         ...mockPreparedEvent,
@@ -340,6 +353,7 @@ describe('create-event-step', () => {
             ])('does not duplicate %s', async (_, teamId, event, response) => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
                 const result = await step({
+                    team: mockTeam,
                     person: mockPerson,
                     preparedEvent: {
                         ...mockPreparedEvent,
@@ -363,6 +377,7 @@ describe('create-event-step', () => {
             it('does not duplicate when no teams are configured', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const result = await step({
+                    team: mockTeam,
                     person: mockPerson,
                     preparedEvent: {
                         ...mockPreparedEvent,
@@ -388,6 +403,7 @@ describe('create-event-step', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
@@ -409,6 +425,7 @@ describe('create-event-step', () => {
             it('should not include historical_migration in event when historicalMigration=false', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
@@ -441,6 +458,7 @@ describe('create-event-step', () => {
 
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person,
                     preparedEvent: mockPreparedEvent,
                     processPerson: config.processPerson,
@@ -464,6 +482,7 @@ describe('create-event-step', () => {
             it('should generate deterministic person_id from distinct_id when person is undefined', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
@@ -486,6 +505,7 @@ describe('create-event-step', () => {
             it('should return empty person_properties when person is undefined', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
@@ -507,6 +527,7 @@ describe('create-event-step', () => {
             it('should set person_created_at to null when person is undefined', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
@@ -528,6 +549,7 @@ describe('create-event-step', () => {
             it('should set person_mode to full when person is undefined and processPerson=true', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
@@ -549,6 +571,7 @@ describe('create-event-step', () => {
             it('should set person_mode to propertyless when person is undefined and processPerson=false', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
+                    team: mockTeam,
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
                     processPerson: false,

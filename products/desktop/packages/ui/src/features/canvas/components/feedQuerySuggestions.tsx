@@ -116,7 +116,7 @@ const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
     insert: "type:",
     label: "type:",
-    hint: "task, space, command, saved",
+    hint: "task, canvas, space, command, saved",
     icon: keyIcon(<SquaresFourIcon size={14} />),
   },
   {
@@ -129,6 +129,7 @@ const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
 
 const TYPE_VALUES: FeedQuerySuggestion[] = [
   { insert: "task", label: "task", hint: "only tasks" },
+  { insert: "canvas", label: "canvas", hint: "only canvases" },
   { insert: "space", label: "space", hint: "only spaces" },
   { insert: "command", label: "command", hint: "only commands" },
   { insert: "saved", label: "saved", hint: "only saved searches" },

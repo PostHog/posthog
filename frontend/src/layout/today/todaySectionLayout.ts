@@ -10,9 +10,9 @@ export interface TodaySectionInput {
     contentHeight: number
 }
 
-const FILL_ORDER: readonly TodayWorkSectionId[] = ['recent', 'spaces', 'pinned']
+const FILL_ORDER: readonly TodayWorkSectionId[] = ['recent', 'pinned']
 
-export const TODAY_SECTION_HEADER_HEIGHT = 36
+export const TODAY_SECTION_HEADER_HEIGHT = 28
 const SHARE_CAP = 0.4
 const MIN_FILL_HEIGHT = 56
 const MIN_DRAG_HEIGHT = 40
@@ -27,7 +27,7 @@ export function layoutTodaySections(
     available: number,
     preferred: PreferredTodaySectionHeights = {}
 ): TodaySectionHeights {
-    const heights: TodaySectionHeights = { pinned: 0, recent: 0, spaces: 0 }
+    const heights: TodaySectionHeights = { pinned: 0, recent: 0 }
     const fill = fillingSection(sections)
     if (fill === null || available <= 0) {
         return heights

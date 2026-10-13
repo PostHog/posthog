@@ -28,6 +28,7 @@ import pyarrow as pa
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     SafeSQL,
@@ -189,6 +190,14 @@ def resolve_keyset_eligibility(
     return KeysetEligibility(column=key)
 
 
+@frozen
+class KeysetPage:
+    """One keyset page as the driver returned it."""
+
+    columns: list[str]
+    rows: Sequence[Sequence[Any]]
+
+
 def iter_keyset_pages(
     *,
     builder: SelectQueryBuilder,
@@ -196,49 +205,84 @@ def iter_keyset_pages(
     table_name: str,
     keyset_column: str,
     chunk_size: int,
-    run_page: Callable[[SafeSQL], pa.Table | None],
+    run_page: Callable[[SafeSQL], KeysetPage | None],
+    to_table: Callable[[list[str], list[Sequence[Any]]], pa.Table],
     initial_last_value: Any | None,
     checkpoint: Callable[[Any], None] | None = None,
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
 ) -> Iterator[pa.Table]:
-    """Yield successive keyset pages of a table as Arrow tables, seeking on `keyset_column`.
+    """Yield a table as successive Arrow batches, read by keyset pages that seek on `keyset_column`.
 
     Each page is an independent bounded query (``… WHERE pk > :last ORDER BY pk ASC LIMIT n``) — no
     server-side streaming cursor is held, so the read survives being resumed on another pod. `run_page`
-    is the driver's executor: it runs one `SafeSQL` and returns the page as an Arrow table (or `None`
-    when the page is empty). `initial_last_value` seeds the seek from a persisted checkpoint (or `None`
-    to start at the beginning). Pagination advances on the last (largest) key of each page; a short
-    page ends the walk.
+    is the driver's executor: it runs one `SafeSQL` and returns the rows of the page (or `None` when
+    the page is empty). `to_table` builds the Arrow table of one batch. `initial_last_value` seeds the
+    seek from a persisted checkpoint (or `None` to start at the beginning). Pagination advances on the
+    last (largest) key of each page; a short page ends the walk.
 
-    `checkpoint` records the last key of a page once the consumer has come back for the next one.
+    A page and a batch are not the same rows. `chunk_size` only bounds memory while every row is close
+    to the sampled row size, so the pages go through `fetch_row_batches`: a page asks for fewer rows
+    once the walk reads a wide row, and a batch closes on its byte budget. A batch can therefore end
+    inside a page, or hold several pages.
+
+    `checkpoint` records the last key of a batch once the consumer has come back for the next one.
     Generator laziness is what makes that the right moment: the call happens after the consumer has
-    taken the page, not when it was read, so an abandoned walk leaves the checkpoint on the last page
-    the consumer actually received rather than one the source had merely queued up.
+    taken the batch, not when it was read, so an abandoned walk leaves the checkpoint on the last batch
+    the consumer actually received rather than one the source had merely queued up. The key is the
+    last row of that batch and not the read position, which can already be past rows that wait for
+    the next batch.
     """
     last_value = initial_last_value
-    while True:
-        page_sql = builder.select_keyset(
-            schema=schema,
-            table_name=table_name,
-            keyset_column=keyset_column,
-            keyset_last_value=last_value,
-            limit=chunk_size,
-            enabled_columns=enabled_columns,
-            primary_keys=primary_keys,
-            row_filters=row_filters,
+    last_read_key: tuple[Any, ...] | None = None
+    columns: list[str] = []
+    exhausted = False
+
+    def fetch_page(requested_rows: int) -> Sequence[Sequence[Any]]:
+        nonlocal last_value, last_read_key, columns, exhausted
+        if exhausted:
+            return []
+        if last_read_key is not None:
+            # Never fall through to another query on a NULL key: with `last_value` back to None the
+            # next page would carry no seek predicate and return the same page again, indefinitely.
+            (last_value,) = checked_keyset_key(last_read_key, [keyset_column])
+
+        page = run_page(
+            builder.select_keyset(
+                schema=schema,
+                table_name=table_name,
+                keyset_column=keyset_column,
+                keyset_last_value=last_value,
+                limit=requested_rows,
+                enabled_columns=enabled_columns,
+                primary_keys=primary_keys,
+                row_filters=row_filters,
+            )
         )
-        table = run_page(page_sql)
-        if table is None or table.num_rows == 0:
-            break
+        if page is None or not page.rows:
+            return []
+
+        rows = page.rows
+        if not columns:
+            columns = list(page.columns)
+        elif page.columns != columns:
+            # One batch can hold rows from several pages, and it reads every row with the columns of
+            # the first page.
+            positions = [page.columns.index(name) if name in page.columns else None for name in columns]
+            rows = [tuple(row[position] if position is not None else None for position in positions) for row in rows]
+
+        last_read_key = (rows[-1][columns.index(keyset_column)],)
+        exhausted = len(rows) < requested_rows
+        return rows
+
+    # A page is one query and one round trip, so the page ceiling is the chunk size and not the lower
+    # default that suits a driver reading from an open result stream.
+    for rows in fetch_row_batches(fetch_page, max_rows=chunk_size, max_page_rows=chunk_size):
+        table = to_table(columns, rows)
 
         yield table
 
-        # Never fall through to another query on a NULL key: with `last_value` back to None the next
-        # page would carry no seek predicate and return this same page again, indefinitely.
-        (last_value,) = keyset_key_of_last_row(table, [keyset_column])
+        (batch_last_value,) = keyset_key_of_last_row(table, [keyset_column])
         if checkpoint is not None:
-            checkpoint(last_value)
-        if table.num_rows < chunk_size:
-            break
+            checkpoint(batch_last_value)

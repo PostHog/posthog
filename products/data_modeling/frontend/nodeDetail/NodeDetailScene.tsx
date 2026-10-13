@@ -40,7 +40,7 @@ const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     query: 'Query',
     lineage: 'Lineage',
     materialization: 'Materialization',
-    tests: 'Data quality',
+    'data-quality': 'Data quality',
     history: 'History',
 }
 
@@ -48,7 +48,7 @@ function tabLabel(
     tab: NodeDetailSceneTab,
     dataQualitySubject: NodeDetailDataQualitySubject | null
 ): JSX.Element | string {
-    if (tab === 'tests' && dataQualitySubject) {
+    if (tab === 'data-quality' && dataQualitySubject) {
         return <NodeDetailTestsTabLabel {...dataQualitySubject} />
     }
     return TAB_LABELS[tab]
@@ -104,7 +104,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                         id={savedQueryId ?? ''}
                     />
                 )
-            case 'tests':
+            case 'data-quality':
                 return <NodeDetailTests id={id} />
         }
     }

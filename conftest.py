@@ -4,7 +4,8 @@ import sys
 import atexit
 import warnings
 import contextlib
-from collections.abc import Generator
+from collections.abc import Generator, Iterable, Iterator
+from functools import update_wrapper
 from pathlib import Path
 
 import pytest
@@ -195,29 +196,45 @@ def _cache_url_resolution() -> None:
 
 
 def _cache_fixture_parent_nodeids() -> None:
-    # FixtureManager._matchfactories rebuilds a node's parent-nodeid set for every fixture-name
+    # FixtureManager._matchfactories rebuilds a node's parent sets for every fixture-name
     # lookup, and collection resolves many fixture names per item. A node's parents are fixed at
-    # construction, so the set can be reused. Node uses __slots__, so key by id() and keep a strong
-    # reference to prevent id() reuse for the node's session lifetime.
+    # construction, so the sets can be reused for the collection session.
     from _pytest import fixtures, nodes  # noqa: PLC0415 — deferred until pytest_configure
 
     orig_matchfactories = fixtures.FixtureManager._matchfactories
-    parents: dict[int, tuple[nodes.Node, set[str]]] = {}
+    parents: dict[nodes.Node, tuple[set[nodes.Node], set[str]]] = {}
 
-    def _matchfactories(self, fixturedefs, node):
-        entry = parents.get(id(node))
+    def _matchfactories(
+        self: fixtures.FixtureManager, fixturedefs: Iterable[fixtures.FixtureDef[object]], node: nodes.Node
+    ) -> Iterator[fixtures.FixtureDef[object]]:
+        entry = parents.get(node)
         if entry is None:
-            entry = parents[id(node)] = (node, {n.nodeid for n in node.iter_parents()})
-        parentnodeids = entry[1]
+            parent_nodes = set(node.iter_parents())
+            entry = parents[node] = (parent_nodes, {n.nodeid for n in parent_nodes})
+        parent_nodes, parentnodeids = entry
         for fixturedef in fixturedefs:
-            if fixturedef.baseid in parentnodeids:
+            if fixturedef.node is not None:
+                if fixturedef.node in parent_nodes:
+                    yield fixturedef
+            elif fixturedef.baseid in parentnodeids:
                 yield fixturedef
 
-    _matchfactories.__wrapped__ = orig_matchfactories  # exposes the original for the canary tests
+    update_wrapper(_matchfactories, orig_matchfactories)
     fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]
 
 
+def _report_subtest_failures_as_test_failures() -> None:
+    # pytest 9.1.1 reports unittest subTest failures without the failed-subtest counter that
+    # pytest-rerunfailures 16.7 needs. Removing addSubTest restores fail-fast test-level failures
+    # so retries work and successful retries leave no failures in JUnit XML.
+    from _pytest import unittest as pytest_unittest  # noqa: PLC0415 — deferred until pytest_configure
+
+    if "addSubTest" in vars(pytest_unittest.TestCaseFunction):
+        del pytest_unittest.TestCaseFunction.addSubTest
+
+
 def pytest_configure(config) -> None:
+    _report_subtest_failures_as_test_failures()
     _cache_reverse_rel_identity()
     _cache_select_masks()
     _cache_drf_field_info()

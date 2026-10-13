@@ -22,7 +22,8 @@ Principle: logic is portable; hosts are thin.
 | Package | Owns | Must not contain |
 | --- | --- | --- |
 | `@posthog/platform` | Host-capability interfaces and DI tokens. Host-neutral, zero runtime dependencies. | Implementations, Node, DOM, tRPC, Electron |
-| `@posthog/shared` | Host-neutral primitives, types, Saga pattern, cloud-prompt encoding. Depends on published packages only. | Internal package imports, I/O |
+| `@posthog/agent-contracts` | Types, schemas and helpers the agent runtime shares with its hosts: task and run domain types, model catalog, Saga pattern, cloud-prompt encoding. Depends on published packages only. | Internal package imports, I/O, desktop-only code |
+| `@posthog/shared` | Host-neutral desktop primitives and types. Re-exports `@posthog/agent-contracts`, so desktop code imports both through `@posthog/shared`. | Internal package imports other than `agent-contracts`, I/O |
 | `@posthog/api-client` | PostHog/Django HTTPS client. Constructed by factory, not DI. | UI, Node-only host syscalls |
 | `@posthog/workspace-client` | Thin tRPC client for local or sandbox workspace-server. Runs in any JS environment. | Business logic, UI |
 | `@posthog/workspace-server` | Node backend services and colocated tRPC routers for git, fs, watchers, processes. | UI, core, Electron |
@@ -33,6 +34,10 @@ Principle: logic is portable; hosts are thin.
 | `@posthog/di` | DI and boot primitives: `CONTRIBUTION`, `boot()`, `ROOT_LOGGER`, `setRootContainer()`, `useService`. | Feature code |
 | `@posthog/electron-trpc` | tRPC-over-Electron-IPC transport. | Feature code |
 | `@posthog/git`, `@posthog/enricher`, `@posthog/agent` | Reusable domain implementation packages. | Host-specific code |
+
+`@posthog/agent`, `@posthog/agent-contracts`, `@posthog/enricher`, `@posthog/git` and `@posthog/harness` live in their own workspace at `packages/agent` in the repo root, because cloud sandboxes boot the agent without the desktop app.
+This workspace links them by path, so turbo cannot see their files: `pnpm build`, `pnpm typecheck` and `pnpm test` build that workspace first and write `.agent-workspace-stamp`, which turbo hashes.
+After changing that workspace, run `pnpm build:agent` before calling `turbo` directly, or turbo serves stale cached results.
 
 Hosts:
 
@@ -64,7 +69,8 @@ Hard boundary: no new `@radix-ui/*` imports anywhere in the repo.
 
 Enforced by Biome `noRestrictedImports`.
 
-- `platform` and `shared` import no internal packages.
+- `platform` and `agent-contracts` import no internal packages. `shared` imports `agent-contracts` only.
+- `agent`, `harness`, `git`, and `enricher` import `agent-contracts`, never `shared`, so the agent runtime does not depend on desktop code.
 - `api-client` and `workspace-client` may import `shared` and relevant `platform` contracts. No UI or Node host syscalls.
 - `workspace-server` may import `shared`, `platform` contracts, Node modules, and workspace-server code. Never `core` or `ui`.
 - `core` may import `shared`, `platform`, `workspace-client`, `api-client`, and other core code. Never `ui`, `workspace-server`, `electron`, `node:*`, `trpcClient`, or host-router runtime.
@@ -210,8 +216,9 @@ await boot(container);
 - `pnpm bootstrap:cloud-task`: link dependencies from the prebaked pnpm store without running unrelated app install hooks, then build the packages required before scoped typechecks in cloud tasks.
 - `pnpm bootstrap:cloud-task:wait`: in a cloud task, the backend already started `bootstrap:cloud-task` in the background. Run this before any other `pnpm` command here, so a second install does not race it. Exit code 2 means nothing was started, so run `pnpm bootstrap:cloud-task` yourself.
 - `pnpm dev`: run agent watch and desktop app.
+- `pnpm build:agent`: install if needed and build the agent workspace at `packages/agent`, then refresh the turbo stamp.
 - `pnpm build`: build all packages.
-- `pnpm typecheck`: typecheck all packages.
+- `pnpm typecheck`: typecheck all packages, including the agent workspace.
 - `pnpm lint`: run Biome lint and autofix.
 - `pnpm format`: run Biome format.
 - `pnpm test`: run unit tests.

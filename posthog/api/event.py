@@ -132,6 +132,23 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+class EventPropertyValueSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text="A value of the property, always as a string. Booleans come back as 'true' or 'false', "
+        "and objects and lists as JSON."
+    )
+    count = serializers.IntegerField(
+        required=False, help_text="How many times the value occurs, when the lookup counts values."
+    )
+
+
+class EventPropertyValuesResponseSerializer(serializers.Serializer):
+    results = EventPropertyValueSerializer(many=True, help_text="Values of the property that match the request.")
+    refreshing = serializers.BooleanField(
+        help_text="True when these results come from a stale cache and a refresh runs in the background."
+    )
+
+
 class UncountedLimitOffsetPagination(LimitOffsetPagination):
     """
     the events api works with the default LimitOffsetPagination, but the
@@ -382,6 +399,31 @@ class EventViewSet(
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
+    @extend_schema(
+        description="List values of an event property from recent events.",
+        parameters=[
+            OpenApiParameter("key", OpenApiTypes.STR, required=True, description="The property to list values for."),
+            OpenApiParameter(
+                "event_name",
+                OpenApiTypes.STR,
+                many=True,
+                # The generated client emits repeated keys only for params the spec marks explode,
+                # and getlist below needs repeated keys, because a comma-joined value matches no event.
+                explode=True,
+                description="Only read values from events with these names. Repeat to pass several. "
+                "Required with a personal API key. Projects that read values from the precomputed "
+                "property values table ignore this filter.",
+            ),
+            OpenApiParameter(
+                "value", OpenApiTypes.STR, description="Only return values that contain this text, ignoring case."
+            ),
+            OpenApiParameter(
+                "is_column", OpenApiTypes.BOOL, description="Read 'key' as an events table column, not a property."
+            ),
+        ],
+        responses=EventPropertyValuesResponseSerializer,
+        extensions={"x-product": "core"},
+    )
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         # `/events/values` is hit from every taxonomic property-value picker across the app, so

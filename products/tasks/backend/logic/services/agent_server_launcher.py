@@ -136,7 +136,9 @@ def _session_init_probe_hosts() -> list[str]:
     reason to exist.
     """
     hosts = list(SESSION_INIT_PROBE_HOSTS)
-    mcp_host = _hostname_from_url(resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL))
+    mcp_host = _hostname_from_url(
+        resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
+    )
     if mcp_host and mcp_host not in hosts:
         hosts.insert(0, mcp_host)
     for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
@@ -333,6 +335,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -359,6 +362,7 @@ class AgentServerLaunchMixin(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
@@ -699,6 +703,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
@@ -785,6 +790,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
+                pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
                 codex_model_access=codex_model_access,

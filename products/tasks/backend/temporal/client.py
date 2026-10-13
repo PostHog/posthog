@@ -27,6 +27,8 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.dev_stack_image_refresh import reconcile_dev_stack_image
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
@@ -582,6 +584,10 @@ def execute_bake_dev_stack_image_workflow(
     TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
     fresh one instead of blocking it.
     """
+    target = DevStackImageState.target(publish_name)
+    if target is not None:
+        reconcile_dev_stack_image(target, trigger=trigger)
+        return
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
@@ -655,11 +661,14 @@ def signal_task_followup_message(
     asyncio.run(signal())
 
 
-def signal_agent_text_delta(workflow_id: str, text: str) -> None:
-    """Push text into the live agent-design plan-block stream for a running task."""
+def signal_agent_final_text(workflow_id: str, text: str, trace_id: str | None = None) -> None:
+    """Give the live agent-design reply of a running task the turn's whole answer.
+
+    The relay replaces its streamed text deltas with this text, so the answer shows one time
+    even when this signal lands between two deltas."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("agent_text_delta", text))
+    asyncio.run(handle.signal("agent_final_text", {"text": text, "trace_id": trace_id}))
 
 
 def execute_posthog_code_agent_relay_workflow(

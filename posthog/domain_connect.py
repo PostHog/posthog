@@ -20,6 +20,7 @@ import dns.resolver
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from dns.rdtypes.txtbase import TXTBase
 
 from posthog.schema import DomainConnectProviderName
 
@@ -102,6 +103,7 @@ def build_sync_apply_url(
     redirect_uri: str | None = None,
     private_key: RSAPrivateKey | None = None,
     key_id: str | None = None,
+    group_ids: tuple[str, ...] = (),
 ) -> str:
     """Build a Domain Connect synchronous apply URL.
 
@@ -112,6 +114,8 @@ def build_sync_apply_url(
     prefixes it to the host of each template record, which scopes the template to a
     subdomain. Templates that set hostRequired must get one.
 
+    If group_ids is set, the provider applies only those template groups instead of all of them.
+
     If private_key is provided, the query string is signed with RS256 and
     sig= / key= parameters are appended (required by providers like Cloudflare).
     """
@@ -121,6 +125,8 @@ def build_sync_apply_url(
     if host:
         params["host"] = host
     params.update(variables)
+    if group_ids:
+        params["groupId"] = ",".join(group_ids)
     if redirect_uri:
         params["redirect_uri"] = redirect_uri
 
@@ -221,6 +227,11 @@ class DomainConnectContext:
     host: str
     service_id: str
     variables: dict[str, str]
+    group_ids: tuple[str, ...] = ()
+
+
+# Cloudflare ignores TXT conflict matching and would publish a second, invalidating DMARC record.
+EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC: tuple[str, ...] = ("verification", "dkim", "spf", "mailfrom")
 
 
 def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectContext:
@@ -268,6 +279,9 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
         "mailFromSub": mail_from_subdomain,
         "sesRegion": ses_region,
     }
+    group_ids = (
+        () if _dmarc_absence_confirmed(instance.config.get("domain", "")) else EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC
+    )
     # The template variables are bare SES tokens and a subdomain label, so they stay
     # the same when the records move from the full sender domain to root plus host.
     return DomainConnectContext(
@@ -275,6 +289,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
         host=domain_parts.host,
         service_id=service_id,
         variables=variables,
+        group_ids=group_ids,
     )
 
 
@@ -307,6 +322,7 @@ def generate_apply_url(
     host: str | None = None,
     provider_endpoint: str | None = None,
     redirect_uri: str | None = None,
+    group_ids: tuple[str, ...] = (),
 ) -> str:
     """Generate a Domain Connect apply URL, either via auto-discovery or a specific provider.
 
@@ -349,7 +365,23 @@ def generate_apply_url(
         redirect_uri=redirect_uri,
         private_key=signing_key,
         key_id=key_id,
+        group_ids=group_ids,
     )
+
+
+def _txt_value(rdata: TXTBase) -> str:
+    return "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings).strip()
+
+
+def _dmarc_absence_confirmed(domain: str) -> bool:
+    try:
+        answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
+        return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        return True
+    except Exception:
+        logger.warning("DMARC lookup failed for %s", domain, exc_info=True)
+        return False
 
 
 def _lookup_domain_connect_endpoint(domain: str) -> str | None:
@@ -360,10 +392,9 @@ def _lookup_domain_connect_endpoint(domain: str) -> str | None:
     try:
         answers = dns.resolver.resolve(f"_domainconnect.{domain}", "TXT")
         for rdata in answers:
-            # TXT records come as a list of strings; join them
-            txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
+            txt_value = _txt_value(rdata)
             if txt_value:
-                return txt_value.strip()
+                return txt_value
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
         pass
     except Exception:

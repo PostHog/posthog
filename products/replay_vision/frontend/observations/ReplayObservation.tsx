@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -23,7 +23,9 @@ import { ObservationPrompt } from '../components/ObservationPrompt'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { configFromSnapshot } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
+import { recordingTimeline } from '../utils/recordingTimeline'
 import { parseNumericParam } from '../utils/urlParams'
+import { ConfidenceBadge } from './ConfidenceBadge'
 import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
@@ -43,6 +45,7 @@ import {
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 const ObservationRecording = lazyWithRetry(() => import('./ObservationRecording'))
+const ObservationTimeline = lazyWithRetry(() => import('./ObservationTimeline'))
 
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
@@ -51,7 +54,8 @@ export const scene: SceneExport = {
 }
 
 export function ReplayObservationSceneComponent(): JSX.Element {
-    const { observationId } = useValues(replayObservationSceneLogic)
+    const { observationId, resultTab } = useValues(replayObservationSceneLogic)
+    const { setResultTab } = useActions(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
     const playerRef = useRef<HTMLDivElement>(null)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
@@ -74,6 +78,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
         useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
+    const hasTimeline = useMemo(
+        () => (observation ? recordingTimeline([observation]).chapters.length > 0 : false),
+        [observation]
+    )
 
     // Filters carried over from the scanner's observations table; preserved on prev/next so
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
@@ -116,7 +124,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <SceneTitleSection name="Observation not found" resourceType={{ type: 'replay_vision' }} />
                 <p className="text-muted">
                     This observation either doesn't exist or you don't have access to it.{' '}
-                    <Link to={urls.replayVision()}>Go to Replay vision</Link>.
+                    <Link data-attr="vision-observation-back" to={urls.replayVision()}>
+                        Go to Replay vision
+                    </Link>
+                    .
                 </p>
             </SceneContent>
         )
@@ -227,18 +238,54 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             {observation.status === 'succeeded' && snapshot && result && (
                                 <>
                                     {/* The answer and its evidence sit closer to each other than to the rest. */}
-                                    <div className="flex flex-col gap-2">
-                                        <ObservationHeadline observation={observation} onSeek={seekEmbeddedPlayer} />
-                                        {scannerType !== 'summarizer' && reasoning && (
-                                            <LabeledRow label="Reasoning" size="medium">
-                                                <ObservationReasoning
-                                                    reasoning={reasoning}
-                                                    segments={reasoningSegments}
-                                                    onSeek={seekEmbeddedPlayer}
-                                                />
-                                            </LabeledRow>
-                                        )}
-                                    </div>
+                                    {hasTimeline && (
+                                        <LemonTabs
+                                            size="small"
+                                            activeKey={resultTab}
+                                            onChange={setResultTab}
+                                            tabs={[
+                                                {
+                                                    key: 'summary',
+                                                    label: 'Summary',
+                                                    'data-attr': 'vision-observation-tab-summary',
+                                                },
+                                                {
+                                                    key: 'timeline',
+                                                    label: 'Timeline',
+                                                    'data-attr': 'vision-observation-tab-timeline',
+                                                },
+                                            ]}
+                                            barClassName="!mb-0"
+                                            rightSlot={<ConfidenceBadge observation={observation} />}
+                                            rightSlotClassName="bg-transparent pr-0"
+                                        />
+                                    )}
+                                    {hasTimeline && resultTab === 'timeline' ? (
+                                        <Suspense fallback={<Spinner />}>
+                                            <ObservationTimeline
+                                                observation={observation}
+                                                playerKey={playerKey}
+                                                onSeek={seekEmbeddedPlayer}
+                                            />
+                                        </Suspense>
+                                    ) : (
+                                        <div className="flex flex-col gap-2">
+                                            <ObservationHeadline
+                                                observation={observation}
+                                                onSeek={seekEmbeddedPlayer}
+                                                hideLabel={hasTimeline}
+                                            />
+                                            {scannerType !== 'summarizer' && reasoning && (
+                                                <LabeledRow label="Reasoning" size="medium">
+                                                    <ObservationReasoning
+                                                        reasoning={reasoning}
+                                                        segments={reasoningSegments}
+                                                        onSeek={seekEmbeddedPlayer}
+                                                    />
+                                                </LabeledRow>
+                                            )}
+                                        </div>
+                                    )}
                                     <ObservationLabelControl
                                         observationId={observation.id}
                                         initialLabel={observation.label}
