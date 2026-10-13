@@ -18,9 +18,13 @@ export function resolveSecretHeaders(
 
     const headers: Record<string, string> = {}
     for (const [name, headerValue] of Object.entries(value)) {
-        if (typeof headerValue === 'string') {
-            headers[name] = headerValue
+        if (typeof headerValue !== 'string') {
+            return {
+                ok: false,
+                error: `Secret headers failed: the value of ${name} in input ${inputKey} is not text. Refusing to send the request without its credential headers.`,
+            }
         }
+        headers[name] = headerValue
     }
 
     return { ok: true, headers }
