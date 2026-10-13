@@ -401,6 +401,14 @@ export interface TrunkQuarantineData {
  */
 export type LoaderStatus = 'ok' | 'notConnected' | 'error'
 
+/** Whether repoScopeLogic is about to forward the current repo-less URL to a repository. A load waits for
+ *  the forward, which ends in a refresh, so it does not read a repository the page leaves at once. */
+export function awaitsRepoForward(): boolean {
+    const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+    const repoLess = pathname.startsWith('/engineering-analytics/') && repoFromPath(pathname) === null
+    return repoLess && (repoScopeLogic.findMounted()?.values.pendingForward ?? false)
+}
+
 export function loaderStatusFromError(errorObject: unknown): LoaderStatus {
     return errorObject instanceof ApiError && errorObject.status === 400 ? 'notConnected' : 'error'
 }
@@ -1353,9 +1361,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             actions.loadGithubSources()
             // A scoped URL already refreshed through urlToAction, which runs before this hook. A repo-less
             // product URL loads once repoScopeLogic forwards it, or once it finds nothing to forward to.
-            const pathname = removeProjectIdIfPresent(router.values.location.pathname)
-            const awaitsForward = pathname.startsWith('/engineering-analytics/') && repoFromPath(pathname) === null
-            if (!awaitsForward && !values.cardsLoading) {
+            if (!awaitsRepoForward() && !values.cardsLoading) {
                 actions.refresh()
             }
         }),
