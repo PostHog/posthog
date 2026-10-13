@@ -10,6 +10,7 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
+import math
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -27,7 +28,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import COORDINATOR_INTERVAL_MINUTES, MAX_ENABLED_SCOUTS_PER_TEAM
 
 logger = structlog.get_logger(__name__)
 
@@ -262,6 +263,31 @@ class BackgroundBackoff:
         return current + 1
 
 
+# Coordinator ticks in one day. A lane budget with no `max_runs_per_tick` spreads the day over these.
+TICKS_PER_DAY = 24 * 60 // COORDINATOR_INTERVAL_MINUTES
+
+
+@dataclass(frozen=True)
+class BackgroundBudget:
+    """Parsed `background.budget`: the run budget of the whole background lane in one region.
+
+    `max_runs_per_day` bounds the background runs dispatched in the trailing `DAILY_BUDGET_WINDOW`.
+    `0` stops background dispatch and keeps every config as it is. `max_runs_per_tick` is `None`
+    when unset, so the day spreads evenly across `TICKS_PER_DAY`.
+    """
+
+    max_runs_per_day: int
+    max_runs_per_tick: int | None = None
+
+    def tick_allowance(self, runs_last_24h: int) -> int:
+        tick_cap = (
+            self.max_runs_per_tick
+            if self.max_runs_per_tick is not None
+            else math.ceil(self.max_runs_per_day / TICKS_PER_DAY)
+        )
+        return max(0, min(self.max_runs_per_day - runs_last_24h, tick_cap))
+
+
 @dataclass(frozen=True)
 class BackgroundEnrollment:
     """Parsed `background` block from the `signals-scout` flag payload.
@@ -280,6 +306,8 @@ class BackgroundEnrollment:
     bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
     # `None` turns the backoff off, so every background config runs at its band interval.
     backoff: BackgroundBackoff | None = None
+    # `None` means no lane budget, so every due background run goes on to the shared tick caps.
+    budget: BackgroundBudget | None = None
 
     def band_interval_minutes(self, band: int | None) -> int | None:
         entry = self.bands.get(band) if band is not None else None
@@ -322,6 +350,21 @@ def _parse_background_backoff(raw: object) -> BackgroundBackoff | None:
     if factor is None or factor < 2 or max_interval_minutes is None:
         return None
     return BackgroundBackoff(factor=factor, max_interval_minutes=max_interval_minutes)
+
+
+def _parse_background_budget(raw: object) -> BackgroundBudget | None:
+    """Parse `background.budget`. A missing or malformed block means no lane budget.
+
+    A malformed `max_runs_per_tick` alone falls back to the even spread and keeps the daily budget.
+    """
+    if not isinstance(raw, dict):
+        return None
+    max_runs_per_day = raw.get("max_runs_per_day")
+    if not isinstance(max_runs_per_day, int) or isinstance(max_runs_per_day, bool) or max_runs_per_day < 0:
+        return None
+    return BackgroundBudget(
+        max_runs_per_day=max_runs_per_day, max_runs_per_tick=_positive_int_or_none(raw.get("max_runs_per_tick"))
+    )
 
 
 def resolve_background_backoff() -> BackgroundBackoff | None:
@@ -380,8 +423,8 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
     `team_ids` must not read as an empty list, because an empty list pauses every background
     config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
-    `max_new_teams_per_tick`, `bands` entry, or `backoff` falls back to its default and does not
-    invalidate the block.
+    `max_new_teams_per_tick`, `bands` entry, `backoff`, or `budget` falls back to its default and does
+    not invalidate the block.
     """
     if payload is None:
         return None
@@ -408,6 +451,7 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
         bands=_parse_background_bands(raw.get("bands")),
         backoff=_parse_background_backoff(raw.get("backoff")),
+        budget=_parse_background_budget(raw.get("budget")),
     )
 
 
