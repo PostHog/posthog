@@ -24,7 +24,6 @@ import type { AttachedContextItem } from '../types/contextTypes'
 import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
-import { translatePiWireEntry } from '../utils/piWire'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { resolveToolCall } from '../utils/toolResolver'
 import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
@@ -1378,7 +1377,7 @@ describe('runStreamLogic', () => {
             ...extra,
         })
 
-        it('replays a Pi run log into the thread', async () => {
+        it('replays a run log written before Pi runs used ACP', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
                 { type: 'pi_run_started', runId: 'run-1', taskId: 'task-1', timestamp: '2026-01-01T00:00:00Z' },
                 piEvent(
@@ -1424,7 +1423,6 @@ describe('runStreamLogic', () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
 
-            expect(logic.values.piRuntime).toBe(true)
             expect(logic.values.threadItems.map((item) => [item.type, item.text])).toEqual([
                 ['human_message', 'fix it'],
                 ['assistant_message', 'On it'],
@@ -1462,71 +1460,24 @@ describe('runStreamLogic', () => {
             )
 
             resolveLogs([
-                { type: 'pi_run_started', timestamp: '2026-01-01T00:00:00Z', event_id: 'b-1' },
-                piEvent({ type: 'turn_completed', timestamp: 2, stopReason: 'end_turn' }, 'b-3'),
+                { ...notification('_posthog/run_started', { runId: 'run-1' }), event_id: 'b-1' },
+                { ...notification('_posthog/turn_complete', { stopReason: 'end_turn' }), event_id: 'b-3' },
             ])
             await flushPromises()
 
             expect(logic.values.pendingPermissionRequest?.requestId ?? null).toBe(shown ? 'mcp-1' : null)
         })
 
-        it.each([
-            { caseName: 'a live', persisted: false },
-            { caseName: 'a persisted', persisted: true },
-        ])('offers a one-shot allow on $caseName Pi MCP request', async ({ persisted }) => {
-            const request = {
-                requestId: 'mcp-1',
-                toolCall: { toolCallId: 'mcp-1', _meta: { posthog: { toolName: 'mcp__linear__create_issue' } } },
-                options: [
-                    { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
-                    { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
-                ],
-            }
-            let resolveLogs: (entries: unknown[]) => void = () => {}
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
-                new Promise<unknown[]>((resolve) => (resolveLogs = resolve)) as any
-            )
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', taskRuntime: 'pi' })
-            await flushPromises()
-            await MockStream.latest().emitOpen()
-            if (!persisted) {
-                await MockStream.latest().emitMessage(
-                    { type: 'permission_request', event_id: 'b-2', ...request },
-                    '1700-0'
-                )
-            }
-
-            resolveLogs([
-                { type: 'pi_run_started', timestamp: '2026-01-01T00:00:00Z', event_id: 'b-1' },
-                ...(persisted ? [{ ...notification('_posthog/permission_request', request), event_id: 'b-2' }] : []),
-            ])
-            await flushPromises()
-
-            expect(
-                logic.values.pendingPermissionRequest?.options.map(({ optionId, hint }) => [optionId, hint])
-            ).toEqual([
-                ['allow', undefined],
-                ['allow_always', undefined],
-                ['reject', 'Blocks this tool call. The agent keeps working.'],
-            ])
-        })
-
         it('drops a live tool update that the persisted log already covers', () => {
-            const persisted = translatePiWireEntry(
-                piEvent(
-                    { type: 'tool_call_updated', timestamp: 4, toolCall: { id: 't1', status: 'completed' } },
-                    'b-6',
-                    {
-                        covered_event_ids: ['b-5'],
-                    }
-                )
-            ) as StoredLogEntry
-            const liveEarlier = translatePiWireEntry(
-                piEvent(
-                    { type: 'tool_call_updated', timestamp: 3, toolCall: { id: 't1', status: 'in_progress' } },
-                    'b-5'
-                )
-            ) as StoredLogEntry
+            const persisted: StoredLogEntry = {
+                ...sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }),
+                event_id: 'b-6',
+                covered_event_ids: ['b-5'],
+            }
+            const liveEarlier: StoredLogEntry = {
+                ...sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'in_progress' }),
+                event_id: 'b-5',
+            }
 
             const log = reconcileRunLog([persisted], [], [liveEarlier])
 
@@ -1714,27 +1665,23 @@ describe('runStreamLogic', () => {
             it('reads the attachments of a Pi prompt from the links the Pi server writes', () => {
                 const items = foldReplay([
                     {
-                        ...(translatePiWireEntry({
-                            type: 'pi_event',
-                            event: {
-                                type: 'user_message',
-                                id: 'u1',
-                                content: [
-                                    { type: 'text', text: 'Look here' },
-                                    {
-                                        type: 'resource_link',
-                                        uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-1/report.csv',
-                                        name: 'report.csv',
-                                    },
-                                    {
-                                        type: 'resource_link',
-                                        uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-2/shot.png',
-                                        name: 'shot.png',
-                                        mimeType: 'image/png',
-                                    },
-                                ],
-                            },
-                        }) as StoredLogEntry),
+                        ...notification('_posthog/user_message', {
+                            messageId: 'u1',
+                            content: [
+                                { type: 'text', text: 'Look here' },
+                                {
+                                    type: 'resource_link',
+                                    uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-1/report.csv',
+                                    name: 'report.csv',
+                                },
+                                {
+                                    type: 'resource_link',
+                                    uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-2/shot.png',
+                                    name: 'shot.png',
+                                    mimeType: 'image/png',
+                                },
+                            ],
+                        }),
                         source_run_id: 'run-7',
                     },
                 ])
@@ -5222,37 +5169,6 @@ describe('runStreamLogic', () => {
             expect(logic.values.contextUsage?.breakdown).toEqual({ conversation: 9000 })
         })
 
-        it('sums Pi turn usage once per turn and takes the context ring from the latest turn', async () => {
-            const turnEnd = (eventId: string, usage: Record<string, number>): StoredLogEntry => ({
-                ...notification('_posthog/turn_complete', { stopReason: 'end_turn', usage }),
-                event_id: eventId,
-            })
-            const first = turnEnd('boot-1', {
-                inputTokens: 100,
-                outputTokens: 10,
-                contextTokens: 900,
-                contextWindow: 200000,
-            })
-            const second = turnEnd('boot-2', {
-                inputTokens: 50,
-                outputTokens: 5,
-                contextTokens: 1200,
-                contextWindow: 200000,
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(first, 'replay')
-                logic.actions.ingestAcpFrame(second, 'replay')
-                logic.actions.ingestAcpFrame(second, 'replay')
-            }).toFinishAllListeners()
-
-            expect(logic.values.contextUsage).toMatchObject({
-                tokens: { inputTokens: 150, outputTokens: 15 },
-                used: 1200,
-                size: 200000,
-            })
-        })
-
         it('lands the numeric used/size aggregate from a session/update-framed usage_update', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -5624,10 +5540,12 @@ describe('runStreamLogic', () => {
 
     describe('reset clears notification state', () => {
         it('clears contextUsage, sdkSession and the Pi runtime on reset', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
             await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', taskRuntime: 'pi' })
                 logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
                 logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
-                logic.actions.markPiRuntime()
             }).toFinishAllListeners()
 
             expect(logic.values.contextUsage).not.toBeNull()
@@ -5763,94 +5681,40 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it.each([
-            {
-                caseName: 'an ACP run',
-                pi: false,
-                frame: notification('_posthog/permission_request', {
+        it('commands the streamed run via the tasks relay on respondToPermission', async () => {
+            logic.actions.openSseForRun({
+                taskId: 'task-1',
+                runId: 'run-1',
+                traceId: 'trace-1',
+            })
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/permission_request', {
                     requestId: 'req-1',
                     toolCall: { toolCallId: 'tool-1', toolName: 'example_tool' },
                     options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }],
                 }),
-                optionId: 'allow_once',
-                body: {
+                'replay'
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.respondToPermission({
+                    requestId: 'req-1',
+                    optionId: 'allow_once',
+                })
+            }).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
                     jsonrpc: '2.0',
                     method: 'permission_response',
                     params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
                 },
-            },
-            {
-                caseName: 'a Pi MCP approval',
-                pi: true,
-                frame: notification('_posthog/permission_request', {
-                    requestId: 'req-1',
-                    toolCall: { toolCallId: 'req-1', _meta: { posthog: { toolName: 'mcp__linear__create_issue' } } },
-                    options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-                }),
-                optionId: 'allow',
-                body: {
-                    jsonrpc: '2.0',
-                    method: 'pi/rpc',
-                    id: expect.any(String),
-                    params: {
-                        command: {
-                            id: expect.any(String),
-                            type: 'mcp_permission_response',
-                            requestId: 'req-1',
-                            decision: 'allow',
-                        },
-                    },
-                },
-            },
-            {
-                caseName: 'a Pi extension confirmation',
-                pi: false,
-                frame: translatePiWireEntry({
-                    type: 'pi_extension_event',
-                    source_run_id: 'run-1',
-                    notification: {
-                        method: '_posthog/pi_extension_event',
-                        params: {
-                            type: 'extension_ui_request',
-                            id: 'req-1',
-                            method: 'confirm',
-                            title: 'Push?',
-                            message: 'To main',
-                        },
-                    },
-                }) as StoredLogEntry,
-                optionId: 'confirm',
-                body: {
-                    jsonrpc: '2.0',
-                    method: 'pi/rpc',
-                    id: 'req-1',
-                    params: { command: { type: 'extension_ui_response', id: 'req-1', confirmed: true } },
-                },
-            },
-        ])(
-            'commands the streamed run via the tasks relay on respondToPermission for $caseName',
-            async ({ pi, frame, optionId, body }) => {
-                logic.actions.openSseForRun({
-                    taskId: 'task-1',
-                    runId: 'run-1',
-                    traceId: 'trace-1',
-                })
-                if (pi) {
-                    logic.actions.markPiRuntime()
-                }
-                logic.actions.ingestAcpFrame(frame, 'replay')
-
-                await expectLogic(logic, () => {
-                    logic.actions.respondToPermission({ requestId: 'req-1', optionId })
-                }).toFinishAllListeners()
-
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', body, {
-                    signal: expect.any(AbortSignal),
-                })
-                const sent = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3]
-                expect(sent.id).toBe(sent.method === 'pi/rpc' ? sent.params.command.id : undefined)
-            }
-        )
+                { signal: expect.any(AbortSignal) }
+            )
+        })
 
         it('cancelRun cancels the streamed run via the tasks relay', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })

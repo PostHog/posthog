@@ -3,7 +3,6 @@ import {
     actions,
     afterMount,
     connect,
-    getContext,
     kea,
     key,
     listeners,
@@ -18,7 +17,6 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 
 import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
@@ -54,7 +52,6 @@ import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
-import { parsePiSessionConfig, type PiSessionConfig, piRpcRequest, piRpcResponseError } from '../utils/piWire'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -237,7 +234,6 @@ export interface runInteractionLogicValues {
     modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
-    piSessionConfig: PiSessionConfig | null
     queueEditing: boolean
     queueHeld: boolean
     queueHold: QueueHold
@@ -326,9 +322,6 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
-    } // runStreamLogic
-    markRunStarted: () => {
-        value: true
     } // runStreamLogic
     markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
@@ -489,9 +482,6 @@ export interface runInteractionLogicActions {
     setModel: (model: string) => {
         model: string
     }
-    setPiSessionConfig: (config: PiSessionConfig) => {
-        config: PiSessionConfig
-    }
     setQueueEditing: (editing: boolean) => {
         editing: boolean
     }
@@ -567,12 +557,7 @@ export interface runInteractionLogicMeta {
             isTerminal: boolean
         ) => boolean
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
-        sessionBaseline: (
-            piSessionConfig: PiSessionConfig | null,
-            defaultModel: string | null,
-            defaultEffort: string | null,
-            arg: any
-        ) => SessionBaseline
+        sessionBaseline: (defaultModel: string | null, defaultEffort: string | null, arg: any) => SessionBaseline
         selectedModel: (
             modelOverride: string | null,
             arg: any,
@@ -697,7 +682,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'respondToPermission',
                 'cancelRun',
                 'markTurnComplete',
-                'markRunStarted',
                 'setCurrentMode',
                 'handleTerminalStatus',
                 'markPermissionRequestResolved',
@@ -766,7 +750,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // doesn't persist live changes back to the run state, so the override is the source of truth.
         setModel: (model: string) => ({ model }),
         setEffort: (effort: string) => ({ effort }),
-        setPiSessionConfig: (config: PiSessionConfig) => ({ config }),
         // Pick the permission mode for the run. Like model/effort, selection is held client-side and synced to
         // the running agent (via `set_config_option { configId: 'mode' }`) at send time, or seeds the next run.
         setMode: (mode: PermissionMode) => ({ mode, beforeStart: !values.runStarted }),
@@ -874,12 +857,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setModel: (_, { model }) => model,
-            },
-        ],
-        piSessionConfig: [
-            null as PiSessionConfig | null,
-            {
-                setPiSessionConfig: (_, { config }) => config,
             },
         ],
         effortOverride: [
@@ -1020,18 +997,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (s) => [s.currentRunStatus],
             (status: null | import('./runStreamLogic').RunStatus): boolean => isTerminalRunStatus(status),
         ],
-        // A Pi session reports its own model and thinking level through `get_state`; an ACP run starts from
-        // the server-resolved defaults (user preference over project default).
         sessionBaseline: [
-            (s) => [s.piSessionConfig, s.defaultModel, s.defaultEffort, (_, p) => p.taskRuntime],
+            (s) => [s.defaultModel, s.defaultEffort, (_, p) => p.taskRuntime],
             (
-                piSession: PiSessionConfig | null,
                 defaultModel: string | null,
                 defaultEffort: string | null,
                 taskRuntime: TaskRuntimeEnumApi | undefined
             ): SessionBaseline =>
                 isPiTaskRuntime(taskRuntime)
-                    ? { model: piSession?.model ?? null, effort: piSession?.effort ?? null }
+                    ? { model: null, effort: null }
                     : { model: defaultModel, effort: defaultEffort },
         ],
         // The model/effort to display in the picker and launch the next run with: the optimistic client-side
@@ -1388,27 +1362,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
                 actions.persistTaskDraft()
                 try {
-                    // Sync the picked model/effort to the agent session first, but only what differs from what the
-                    // session runs with — mid-run config lives as session state, so it must go as a command before
-                    // the message rather than ride inside `user_message`. A failure here aborts the send (the catch
-                    // restores the content); `setSent*` runs only after a successful sync so the next send retries
-                    // an unsent change. The two runtimes take the same change through different commands: a Pi
-                    // session through `pi/rpc`, an ACP session through `set_config_option`.
-                    const isPi = isPiTaskRuntime(props.taskRuntime)
-                    const sendPiCommand = async (
-                        command: Record<string, unknown> & { type: string }
-                    ): Promise<void> => {
-                        const response = await tasksRunsCommandCreate(
-                            String(values.currentProjectId),
-                            props.taskId,
-                            props.runId,
-                            piRpcRequest(command, uuid())
-                        )
-                        const error = piRpcResponseError(response.result)
-                        if (error) {
-                            throw new Error(error)
-                        }
-                    }
+                    // Sync the picked model/effort to the agent session first, but only what the user actually
+                    // changed since the last sync — mid-run config lives as session state, so it must go via a
+                    // `set_config_option` command before the message rather than ride inside `user_message`. A
+                    // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
+                    // successful sync so the next send retries an unsent change.
                     const setConfigOption = (configId: string, value: string): Promise<unknown> =>
                         tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                             jsonrpc: '2.0',
@@ -1426,25 +1384,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         activeModel
                     )
                     if (values.selectedModel !== activeModel) {
-                        await (isPi
-                            ? sendPiCommand({ type: 'set_model', provider: 'posthog', modelId: values.selectedModel })
-                            : setConfigOption(MODEL_CONFIG_ID, values.selectedModel))
+                        await setConfigOption(MODEL_CONFIG_ID, values.selectedModel)
                         if (!isCurrent()) {
                             return
                         }
                         actions.setSentModel(values.selectedModel)
                     }
                     if (values.selectedEffort !== activeEffort) {
-                        await (isPi
-                            ? sendPiCommand({ type: 'set_thinking_level', level: values.selectedEffort })
-                            : setConfigOption(EFFORT_CONFIG_ID, values.selectedEffort))
+                        await setConfigOption(EFFORT_CONFIG_ID, values.selectedEffort)
                         if (!isCurrent()) {
                             return
                         }
                         actions.setSentEffort(values.selectedEffort)
                     }
-                    // Pi has no permission modes, so only an ACP session takes a mode.
-                    if (!isPi) {
+                    if (!isPiTaskRuntime(props.taskRuntime)) {
                         const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
                         const lastKnownMode =
                             values.sentMode ??
@@ -1537,49 +1490,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     }
                     // Drops the spinners off chips that outlived a failed send.
                     actions.setUploading(false)
-                }
-            },
-
-            markRunStarted: async () => {
-                const { currentProjectId } = values
-                const { taskId, runId } = props
-                if (
-                    !isPiTaskRuntime(props.taskRuntime) ||
-                    values.isTerminal ||
-                    currentProjectId === null ||
-                    !taskId ||
-                    !runId ||
-                    cache.piSessionConfigRunId === runId
-                ) {
-                    return
-                }
-                cache.piSessionConfigRunId = runId
-                const disposables = cache.disposables
-                const context = getContext()
-                let result: unknown
-                try {
-                    const response = await tasksRunsCommandCreate(
-                        String(currentProjectId),
-                        taskId,
-                        runId,
-                        piRpcRequest({ type: 'get_state' }, uuid())
-                    )
-                    result = response.result
-                } catch {
-                    return
-                }
-                if (
-                    disposables.isDisposed ||
-                    getContext() !== context ||
-                    values.currentProjectId !== currentProjectId ||
-                    props.taskId !== taskId ||
-                    props.runId !== runId
-                ) {
-                    return
-                }
-                const config = parsePiSessionConfig(result)
-                if (config) {
-                    actions.setPiSessionConfig(config)
                 }
             },
 

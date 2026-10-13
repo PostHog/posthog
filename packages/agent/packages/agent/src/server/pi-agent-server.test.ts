@@ -339,6 +339,279 @@ describe("PiAgentServer", () => {
     );
   });
 
+  it("writes ACP notifications to the log when the run uses the ACP format", async () => {
+    const appendTaskRunLog = vi.fn(
+      async (_taskId: string, _runId: string, _entries: unknown[]) => ({}),
+    );
+    const server = new PiAgentServer(
+      config({ piConversationFormat: "acp" }),
+    ) as unknown as {
+      posthogAPI: { appendTaskRunLog: typeof appendTaskRunLog };
+      handleConversationEvent(event: Record<string, unknown>): void;
+      logFlushQueue: Promise<void>;
+    };
+    server.posthogAPI.appendTaskRunLog = appendTaskRunLog;
+
+    server.handleConversationEvent({
+      type: "user_message",
+      id: "message-1",
+      timestamp: 1,
+      content: [{ type: "text", text: "hello" }],
+    });
+    server.handleConversationEvent({
+      type: "turn_completed",
+      timestamp: 2,
+      stopReason: "end_turn",
+      usage: {
+        inputTokens: 5,
+        outputTokens: 1,
+        cachedReadTokens: 0,
+        cachedWriteTokens: 0,
+        totalTokens: 6,
+        contextTokens: 6,
+        contextWindow: 200_000,
+      },
+    });
+    await server.logFlushQueue;
+
+    const notifications = appendTaskRunLog.mock.calls
+      .flatMap(([, , entries]) => entries)
+      .map((entry) => {
+        expect(entry).toMatchObject({ type: "notification" });
+        return (entry as { notification: unknown }).notification;
+      });
+    expect(notifications).toEqual([
+      {
+        jsonrpc: "2.0",
+        method: "_posthog/user_message",
+        params: {
+          content: [{ type: "text", text: "hello" }],
+          messageId: "message-1",
+        },
+      },
+      expect.objectContaining({
+        method: "_posthog/turn_complete",
+        params: expect.objectContaining({ stopReason: "end_turn" }),
+      }),
+      {
+        jsonrpc: "2.0",
+        method: "_posthog/usage_update",
+        params: {
+          used: {
+            inputTokens: 5,
+            outputTokens: 1,
+            cachedReadTokens: 0,
+            cachedWriteTokens: 0,
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          update: { sessionUpdate: "usage_update", used: 6, size: 200_000 },
+        },
+      },
+    ]);
+  });
+
+  it("answers an ACP-format MCP approval through permission_response", async () => {
+    const appendTaskRunLog = vi.fn(
+      async (_taskId: string, _runId: string, _entries: unknown[]) => ({}),
+    );
+    const approveMcpTool = vi.fn(async () => {});
+    const respondMcpToolPermission = vi.fn();
+    const server = new PiAgentServer(
+      config({ piConversationFormat: "acp" }),
+    ) as unknown as {
+      posthogAPI: {
+        appendTaskRunLog: typeof appendTaskRunLog;
+        approveMcpTool: typeof approveMcpTool;
+      };
+      session: unknown;
+      pendingEvents: Record<string, unknown>[];
+      handleMcpToolPermissionRequest(request: Record<string, unknown>): void;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+      flushConversationLog(): Promise<void>;
+    };
+    server.posthogAPI.appendTaskRunLog = appendTaskRunLog;
+    server.posthogAPI.approveMcpTool = approveMcpTool;
+    server.session = { runtime: { client: { respondMcpToolPermission } } };
+
+    server.handleMcpToolPermissionRequest({
+      requestId: "request-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: { query: "workers" },
+    });
+    await server.executeCommand("permission_response", {
+      requestId: "request-1",
+      optionId: "allow_always",
+    });
+    await server.flushConversationLog();
+
+    expect(server.pendingEvents[0]).toMatchObject({
+      type: "permission_request",
+      options: [
+        { optionId: "allow", kind: "allow_once" },
+        { optionId: "allow_always" },
+        { optionId: "reject", _meta: { hint: expect.any(String) } },
+      ],
+    });
+    expect(approveMcpTool).toHaveBeenCalledWith("installation-1", "search");
+    expect(respondMcpToolPermission).toHaveBeenCalledWith(
+      "request-1",
+      "allow_always",
+    );
+    expect(
+      appendTaskRunLog.mock.calls
+        .flatMap(([, , entries]) => entries)
+        .map(
+          (entry) =>
+            (entry as { notification: { method: string } }).notification.method,
+        ),
+    ).toEqual(["_posthog/permission_request", "_posthog/permission_resolved"]);
+  });
+
+  it("answers a Pi dialog through permission_response and closes it when it times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const appendTaskRunLog = vi.fn(
+        async (_taskId: string, _runId: string, _entries: unknown[]) => ({}),
+      );
+      const respondToExtensionUI = vi.fn(async () => {});
+      const server = new PiAgentServer(
+        config({ piConversationFormat: "acp" }),
+      ) as unknown as {
+        posthogAPI: { appendTaskRunLog: typeof appendTaskRunLog };
+        session: unknown;
+        handleExtensionEvent(event: Record<string, unknown>): void;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+        logFlushQueue: Promise<void>;
+      };
+      server.posthogAPI.appendTaskRunLog = appendTaskRunLog;
+      server.session = { runtime: { client: { respondToExtensionUI } } };
+      const select = {
+        type: "extension_ui_request",
+        id: "select-1",
+        method: "select",
+        title: "Pick one",
+        options: ["A", "B"],
+      };
+
+      server.handleExtensionEvent(select);
+      await server.executeCommand("permission_response", {
+        requestId: "select-1",
+        optionId: "option_1",
+      });
+      server.handleExtensionEvent({
+        type: "extension_ui_request",
+        id: "confirm-1",
+        method: "confirm",
+        title: "Push?",
+        message: "To main",
+        timeout: 1_000,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await server.logFlushQueue;
+
+      expect(respondToExtensionUI).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: "select-1",
+        value: "B",
+      });
+      await expect(
+        server.executeCommand("permission_response", {
+          requestId: "confirm-1",
+          optionId: "confirm",
+        }),
+      ).rejects.toThrow("No pending permission request");
+      const notifications = appendTaskRunLog.mock.calls
+        .flatMap(([, , entries]) => entries)
+        .map(
+          (entry) =>
+            (entry as { notification: { method: string; params: unknown } })
+              .notification,
+        );
+      expect(notifications).toEqual([
+        expect.objectContaining({
+          method: "_posthog/permission_request",
+          params: expect.objectContaining({
+            requestId: "select-1",
+            options: [
+              expect.objectContaining({ optionId: "option_0", name: "A" }),
+              expect.objectContaining({ optionId: "option_1", name: "B" }),
+            ],
+            _meta: { piExtension: expect.objectContaining(select) },
+          }),
+        }),
+        expect.objectContaining({
+          method: "_posthog/permission_resolved",
+          params: expect.objectContaining({ requestId: "select-1" }),
+        }),
+        expect.objectContaining({
+          method: "_posthog/permission_request",
+          params: expect.objectContaining({ requestId: "confirm-1" }),
+        }),
+        expect.objectContaining({
+          method: "_posthog/permission_resolved",
+          params: expect.objectContaining({ requestId: "confirm-1" }),
+        }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    {
+      configId: "model",
+      value: "claude-opus-5-5",
+      command: {
+        type: "set_model",
+        provider: "posthog",
+        modelId: "claude-opus-5-5",
+      },
+      state: { model: "claude-opus-5-5" },
+    },
+    {
+      configId: "effort",
+      value: "high",
+      command: { type: "set_thinking_level", level: "high" },
+      state: { reasoning_effort: "high" },
+    },
+  ])(
+    "applies a $configId change from set_config_option and records it on the run",
+    async ({ configId, value, command, state }) => {
+      const sendCommand = vi.fn(async () => ({ success: true }));
+      const updateTaskRun = vi.fn(async () => ({}));
+      const server = new PiAgentServer(config()) as unknown as {
+        posthogAPI: { updateTaskRun: typeof updateTaskRun };
+        session: unknown;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      server.posthogAPI.updateTaskRun = updateTaskRun;
+      server.session = {
+        runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
+      };
+
+      await server.executeCommand("set_config_option", { configId, value });
+
+      expect(sendCommand).toHaveBeenCalledWith(command);
+      expect(updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", { state });
+    },
+  );
+
   it("bounds events retained while no SSE client is connected", () => {
     const server = new PiAgentServer(config()) as unknown as {
       broadcast(event: Record<string, unknown>): void;

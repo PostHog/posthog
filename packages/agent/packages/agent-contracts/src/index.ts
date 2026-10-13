@@ -1,6 +1,10 @@
 export {
+  type AcpConversationNotification,
+  acpNotificationToAgentConversationEvent,
   agentConversationEventToAcpNotification,
   agentConversationEventToSessionUpdate,
+  PI_EXTENSION_META_KEY,
+  readPiExtensionMessage,
 } from "./acp-conversation";
 export * from "./adapter";
 export {

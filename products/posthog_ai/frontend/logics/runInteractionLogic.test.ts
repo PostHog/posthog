@@ -1092,16 +1092,11 @@ describe('runInteractionLogic', () => {
             logic.mount()
         })
 
-        const piCommand = (command: Record<string, unknown>): [string, string, string, Record<string, unknown>] => [
+        const configCommand = (configId: string, value: string): [string, string, string, Record<string, unknown>] => [
             '997',
             TASK_ID,
             RUN_ID,
-            {
-                jsonrpc: '2.0',
-                method: 'pi/rpc',
-                id: expect.any(String),
-                params: { command: { ...command, id: expect.any(String) } },
-            },
+            { jsonrpc: '2.0', method: 'set_config_option', params: { configId, value } },
         ]
 
         it.each([
@@ -1109,12 +1104,12 @@ describe('runInteractionLogic', () => {
             {
                 caseName: 'a picked model',
                 pick: () => piLogic.actions.setModel('claude-opus-5-5'),
-                commands: [piCommand({ type: 'set_model', provider: 'posthog', modelId: 'claude-opus-5-5' })],
+                commands: [configCommand('model', 'claude-opus-5-5')],
             },
             {
                 caseName: 'a picked effort',
                 pick: () => piLogic.actions.setEffort('low'),
-                commands: [piCommand({ type: 'set_thinking_level', level: 'low' })],
+                commands: [configCommand('effort', 'low')],
             },
         ])('syncs $caseName to the Pi session before a follow-up', async ({ pick, commands }) => {
             pick()
@@ -1149,19 +1144,6 @@ describe('runInteractionLogic', () => {
                 { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
                 expect.objectContaining({ signal: expect.any(AbortSignal) })
             )
-        })
-
-        it('shows the model a live Pi session reports once the agent starts', async () => {
-            ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValueOnce({
-                jsonrpc: '2.0',
-                result: { success: true, data: { model: { id: 'claude-opus-5-5' }, thinkingLevel: 'low' } },
-            })
-
-            await expectLogic(piLogic, () => stream.actions.markRunStarted()).toFinishAllListeners()
-
-            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([piCommand({ type: 'get_state' })])
-            expect(piLogic.values.selectedModel).toBe('claude-opus-5-5')
-            expect(piLogic.values.selectedEffort).toBe('low')
         })
     })
 
