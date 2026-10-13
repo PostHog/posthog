@@ -427,6 +427,22 @@ def sync_saved_query_to_dag(
     return target
 
 
+def adopt_saved_query_without_edges(
+    saved_query: "DataWarehouseSavedQuery", error: Exception, dag: DAG | None = None
+) -> Node:
+    """Give a saved query whose lineage did not sync a node marked sync-failed, without rebuilding its edges."""
+    with transaction.atomic():
+        node, _ = Node.objects.get_or_create(
+            team_id=saved_query.team_id,
+            saved_query=saved_query,
+            dag=dag or DAG.get_or_create_default(saved_query.team),
+            defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
+        )
+        node.mark_lineage_sync_failed(str(error))
+        node.save(update_fields=["properties"])
+    return node
+
+
 def _nameless_refusal(view_name: str) -> str:
     return f"Can't delete {view_name} yet. Something else reads from it. Update or delete it first."
 

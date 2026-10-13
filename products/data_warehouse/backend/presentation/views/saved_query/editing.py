@@ -402,6 +402,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                modeling_api.adopt_saved_query_without_edges(view, e)
             if sync_frequency is not None:
                 if sync_frequency != "never":
                     assert_user_can_read_query(
@@ -588,13 +589,15 @@ class DataWarehouseSavedQuerySerializer(
             # DAG the move just left. The savepoint keeps a failed sync best effort without
             # poisoning the update's own transaction.
             if "query" in validated_data:
+                node = Node.objects.filter(team_id=view.team_id, saved_query=view).select_related("dag").first()
+                dag = node.dag if node else None
                 try:
                     with transaction.atomic():
-                        node = Node.objects.filter(team_id=view.team_id, saved_query=view).select_related("dag").first()
-                        modeling_api.sync_saved_query_to_dag(view, dag=node.dag if node else None)
+                        modeling_api.sync_saved_query_to_dag(view, dag=dag)
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    modeling_api.adopt_saved_query_without_edges(view, e, dag=dag)
 
         self._report_view_action(
             "view updated",
