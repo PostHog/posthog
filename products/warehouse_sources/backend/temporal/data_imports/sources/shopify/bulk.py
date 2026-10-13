@@ -15,6 +15,9 @@ from requests.exceptions import ChunkedEncodingError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    default_request_timeout,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
@@ -22,7 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 BULK_POLL_INTERVAL_SECONDS = 30.0
 # The stored resume state expires after 24 hours, and an operation can run for days.
 BULK_STATE_REFRESH_SECONDS = 300.0
+# A minted access token lasts about a day. The poll takes a new one well before that.
+BULK_SESSION_REFRESH_SECONDS = 6 * 60 * 60.0
 BULK_BATCH_SIZE = 1000
+# An order with many line items or large metafields is big, so a batch also ends on its size in the file.
+BULK_BATCH_MAX_BYTES = 50 * 1024 * 1024
 BULK_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 # Reconnects allowed in a row while one batch downloads. The count starts again after each batch.
 BULK_DOWNLOAD_MAX_RECONNECTS = 5
@@ -121,12 +128,14 @@ class _Line:
     content: bytes
     start: int
     end: int
+    # False for the last bytes of a download that do not end in a newline.
+    terminated: bool = True
 
 
 def _iter_lines(session: requests.Session, url: str, offset: int) -> Iterator[_Line]:
     """Yield each line of the file from byte `offset`, with the byte range the line covers."""
     headers = {"Range": f"bytes={offset}-"} if offset else {}
-    with session.get(url, stream=True, headers=headers) as response:
+    with session.get(url, stream=True, headers=headers, timeout=default_request_timeout()) as response:
         if response.status_code == requests.codes.requested_range_not_satisfiable:
             # The offset is at or past the end of the file. The caller checks it against the file size.
             return
@@ -155,7 +164,7 @@ def _iter_lines(session: requests.Session, url: str, offset: int) -> Iterator[_L
                 yield _Line(content=content, start=position, end=end)
                 position = end
         if pending:
-            yield _Line(content=pending, start=position, end=position + len(pending))
+            yield _Line(content=pending, start=position, end=position + len(pending), terminated=False)
 
 
 @frozen
@@ -180,7 +189,13 @@ def _iter_rows(session: requests.Session, url: str, offset: int, connections: di
         end = line.end
         if not line.content.strip():
             continue
-        item = json.loads(line.content)
+        try:
+            item = json.loads(line.content)
+        except json.JSONDecodeError:
+            if line.terminated:
+                raise
+            # The download stopped in the middle of a line.
+            raise _BulkDownloadInterruptedError("The Shopify bulk file download ended inside a row") from None
         parent_id = item.pop("__parentId", None)
         if parent_id is None:
             if current is not None:
@@ -210,12 +225,13 @@ def iter_bulk_batches(
     offset: int,
     connections: dict[str, str],
     file_size: int | None = None,
-    batch_size: int = BULK_BATCH_SIZE,
+    safe_point: Callable[[], None] | None = None,
 ) -> Iterator[ShopifyBulkBatch]:
     """Yield the rows of a bulk file from byte `offset`, which must be the start of a top-level row.
 
     `file_size` is the size Shopify reports for the file. With it, a download that stops early is
-    read again from the last batch and never taken for the end of the file.
+    read again from the last batch and never taken for the end of the file. `safe_point` runs when
+    the worker shuts down during a reconnect wait, where the reader holds no row.
     """
     # The URL is signed, so it is a credential. `identity` keeps the byte offsets of the response
     # equal to the byte offsets of the file, which a compressed transfer does not.
@@ -231,7 +247,7 @@ def iter_bulk_batches(
                         break
                     rows.append(row.row)
                     end = row.end
-                    if len(rows) >= batch_size:
+                    if len(rows) >= BULK_BATCH_SIZE or end - offset >= BULK_BATCH_MAX_BYTES:
                         offset = end
                         reconnects = 0
                         yield ShopifyBulkBatch(rows=rows, next_offset=offset)
@@ -247,11 +263,18 @@ def iter_bulk_batches(
                 requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
                 ChunkedEncodingError,
-            ):
-                # The rows read since the last batch are dropped here and read again from `offset`.
+            ) as error:
                 reconnects += 1
                 if reconnects > BULK_DOWNLOAD_MAX_RECONNECTS:
-                    raise
-                interruptible_wait(min(2.0**reconnects, BULK_DOWNLOAD_MAX_RECONNECT_WAIT_SECONDS))
+                    # A `requests` error names the URL it failed on, and this URL is a credential.
+                    raise ShopifyBulkOperationError(
+                        f"Shopify bulk file download failed after {BULK_DOWNLOAD_MAX_RECONNECTS} reconnects "
+                        f"({type(error).__name__})"
+                    ) from None
+                # The rows read since the last batch are dropped here and read again from `offset`.
+                rows = []
+                interruptible_wait(
+                    min(2.0**reconnects, BULK_DOWNLOAD_MAX_RECONNECT_WAIT_SECONDS), safe_point=safe_point
+                )
     finally:
         session.close()
