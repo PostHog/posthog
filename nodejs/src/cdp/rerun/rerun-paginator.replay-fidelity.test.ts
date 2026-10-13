@@ -89,6 +89,8 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 startedAtTimestamp: 999,
                 awaitingResume: { key: 'old-key', deadlineAt: '2020-01-01T00:00:00Z', dispatch: { id: 'old-task' } },
                 resumeResult: { key: 'old-key', status: 'failed' },
+                cohortLookupAttempts: 2,
+                cohortLookupFailed: true,
                 hogFunctionState: {
                     globals: { event: { uuid: 'evt-1' }, source: { name: 'Email', url: '' } },
                     timings: [],
