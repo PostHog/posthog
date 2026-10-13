@@ -315,7 +315,7 @@ class TestCodeCheckSkillDefault(BaseTest):
 
         return check
 
-    def _last_run(self, status: str) -> datetime:
+    def _last_run(self, status: str, *, hours_ago: float = 24, check: bool = False) -> datetime:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
@@ -326,9 +326,10 @@ class TestCodeCheckSkillDefault(BaseTest):
             task_run=TaskRun.objects.create(task=task, team=self.team, status=status),
             skill_name=WORKFLOWS_SKILL,
             skill_version=1,
+            metadata={"check_id": "check-1"} if check else {},
         )
-        SignalScoutRun.all_teams.filter(pk=run.pk).update(created_at=NOW - timedelta(hours=24))
-        return NOW - timedelta(hours=24)
+        SignalScoutRun.all_teams.filter(pk=run.pk).update(created_at=NOW - timedelta(hours=hours_ago))
+        return NOW - timedelta(hours=hours_ago)
 
     def _evaluate(self, answer: str | None | Exception, rollout_percent: int = 100):
         with (
@@ -363,6 +364,14 @@ class TestCodeCheckSkillDefault(BaseTest):
         assert result.should_run == (outcome != "skip")
         assert self.calls == ([last_run_at] if checked else [])
         assert capture.call_args.kwargs["properties"]["detail"] == detail
+
+    def test_report_check_runs_do_not_move_the_cut_off(self) -> None:
+        last_run_at = self._last_run("completed", hours_ago=24)
+        self._last_run("completed", hours_ago=2, check=True)
+
+        self._evaluate(None)
+
+        assert self.calls == [last_run_at]
 
     def test_first_run_passes_no_last_run(self) -> None:
         self._evaluate(None)

@@ -334,6 +334,8 @@ def _code_precheck_reason(config: SignalScoutConfig, now: datetime) -> str | Non
         SignalScoutRun.objects.for_team(config.team_id)
         .filter(skill_name=config.skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+        # A report check reads only its report's claim, not the scout's input.
+        .exclude(metadata__has_key="check_id")
         .order_by("-created_at")
         .values_list("created_at", "task_run__status")
         .first()

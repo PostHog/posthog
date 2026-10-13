@@ -5,6 +5,7 @@ none gains nothing from its runs. The first live opted-in workflow switches the 
 project, and losing the last one, by opting out, archiving or deleting it, removes it again.
 """
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -177,41 +178,63 @@ def _email_metrics_reason(
     because the skill reads the live version only.
     """
     tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutEmailMetrics")
-    rows = sync_execute(
+    params = {
+        "team_ids": sorted({workflow.team_id for workflow in opted_in}),
+        "app_source": HOG_FLOW_VERSION_APP_SOURCE,
+        "version_source_ids": [workflow.version_source_id for workflow in opted_in],
+        "sent": TARGET_SEND_METRIC,
+        "opened": TARGET_OPEN_METRIC,
+        "matured_after": _clickhouse_time(last_run_at - SEND_MATURITY),
+        "matured_before": _clickhouse_time(now - SEND_MATURITY),
+        "last_run_at": _clickhouse_time(last_run_at),
+    }
+    recent = _bounded_metrics_read(
         """
         SELECT
-            sumIf(count, metric_name = %(sent)s
-                AND timestamp >= toDateTime64(%(matured_after)s, 6)
-                AND timestamp < toDateTime64(%(matured_before)s, 6)) AS matured_sends,
-            sumIf(count, metric_name = %(opened)s AND timestamp >= toDateTime64(%(last_run_at)s, 6)) AS new_opens,
-            sumIf(count, metric_name = %(opened)s AND timestamp < toDateTime64(%(last_run_at)s, 6)) AS earlier_opens
+            app_source_id,
+            sumIf(count, metric_name = %(sent)s AND timestamp < toDateTime64(%(matured_before)s, 6)) AS matured_sends,
+            sumIf(count, metric_name = %(opened)s AND timestamp >= toDateTime64(%(last_run_at)s, 6)) AS new_opens
         FROM app_metrics2
         WHERE team_id IN %(team_ids)s
           AND app_source = %(app_source)s
           AND app_source_id IN %(version_source_ids)s
           AND metric_name IN (%(sent)s, %(opened)s)
+          AND timestamp >= toDateTime64(%(matured_after)s, 6)
         GROUP BY app_source_id
         """,
-        {
-            "team_ids": sorted({workflow.team_id for workflow in opted_in}),
-            "app_source": HOG_FLOW_VERSION_APP_SOURCE,
-            "version_source_ids": [workflow.version_source_id for workflow in opted_in],
-            "sent": TARGET_SEND_METRIC,
-            "opened": TARGET_OPEN_METRIC,
-            "matured_after": _clickhouse_time(last_run_at - SEND_MATURITY),
-            "matured_before": _clickhouse_time(now - SEND_MATURITY),
-            "last_run_at": _clickhouse_time(last_run_at),
-        },
+        params,
+    )
+    if any(matured_sends > 0 for _, matured_sends, _ in recent):
+        return "sends_matured"
+    opened_versions = [source_id for source_id, _, new_opens in recent if new_opens > 0]
+    if not opened_versions:
+        return None
+    # Only versions with new opens reach this read of their history, which is a quiet tick's rare case.
+    opened_before = _bounded_metrics_read(
+        """
+        SELECT DISTINCT app_source_id
+        FROM app_metrics2
+        WHERE team_id IN %(team_ids)s
+          AND app_source = %(app_source)s
+          AND app_source_id IN %(version_source_ids)s
+          AND metric_name = %(opened)s
+          AND timestamp < toDateTime64(%(last_run_at)s, 6)
+          AND count > 0
+        """,
+        {**params, "version_source_ids": opened_versions},
+    )
+    return "first_opens" if len(opened_before) < len(opened_versions) else None
+
+
+def _bounded_metrics_read(query: str, params: Mapping[str, object]) -> list:
+    return sync_execute(
+        query,
+        params,
         workload=Workload.OFFLINE,
         # The pre-check activity gives up after its own timeout and runs the scout, so a longer read
         # would only hold a worker thread and a connection for an answer nobody uses.
         settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
     )
-    if any(matured_sends > 0 for matured_sends, _, _ in rows):
-        return "sends_matured"
-    if any(new_opens > 0 and earlier_opens == 0 for _, new_opens, earlier_opens in rows):
-        return "first_opens"
-    return None
 
 
 def _clickhouse_time(moment: datetime) -> str:
