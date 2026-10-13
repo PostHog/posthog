@@ -96,7 +96,7 @@ class EvaluationClusteringComputeResult:
     coords_2d: list[list[float]]
     centroid_coords_2d: list[list[float]]
     num_noise_points: int = 0
-    skip_reason: str | None = None  # Set when there weren't enough embeddings or the team is gone
+    skip_reason: str | None = None  # Set when there weren't enough embeddings
 
 
 @dataclass
