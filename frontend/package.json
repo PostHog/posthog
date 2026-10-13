@@ -53,6 +53,8 @@
         "start-vite": "pnpm build:products && concurrently --kill-others-on-fail -n VITE,TOOLBAR,WORKERS -c green,magenta,cyan \"vite --host 0.0.0.0\" \"pnpm watch:toolbar\" \"pnpm watch:workers\"",
         "watch:workers": "node ./bin/watch-workers.mjs --dev",
         "watch:toolbar": "node ./bin/build-toolbar.mjs --dev",
+        "build:toolbar-extension": "node ./bin/build-toolbar-extension.mjs",
+        "watch:toolbar-extension": "node ./bin/build-toolbar-extension.mjs --dev",
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/posthog-js/dist/rrweb-types.d.ts' --type 'eventWithTime' --expose all --no-top-ref --no-type-check --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --no-type-check --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
