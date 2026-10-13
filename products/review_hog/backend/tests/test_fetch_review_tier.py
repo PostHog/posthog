@@ -89,7 +89,14 @@ class TestFetchDecidesTheTier(BaseTest):
         expected_status = "closed" if state == "closed" else "idle" if complete or skipped else "active"
         assert report.status == expected_status
 
-    @parameterized.expand([("flash", REVIEW_MODE_FLASH, 1), ("full", REVIEW_MODE_FULL, 0)])
+    @parameterized.expand(
+        [
+            ("flash", REVIEW_MODE_FLASH, [10], 1, True),
+            ("flash_two_parts", REVIEW_MODE_FLASH, [600, 600], 2, True),
+            ("full", REVIEW_MODE_FULL, [10], 0, False),
+        ]
+    )
+    @patch(f"{_MODULE}.standard_coordinator_on", return_value=True)
     @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.PRFetcher")
@@ -97,19 +104,25 @@ class TestFetchDecidesTheTier(BaseTest):
         self,
         _name: str,
         review_mode: str,
+        additions: list[int],
         expected_parts: int,
+        expected_coordinator: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
         _kill_switch: MagicMock,
+        _coordinator: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
         # default runs every Flash turn without its lenses and no error shows it. Only the
         # single-agent design fetches test and `.txt` files, so the design must be known first.
         # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
-        pr_file = PRFile(filename="a.py", status="modified", additions=10, deletions=0)
+        pr_files = [
+            PRFile(filename=f"d{index}/a.py", status="modified", additions=count, deletions=0)
+            for index, count in enumerate(additions)
+        ]
         merge_base_sha = "f" * 40
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
-            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[pr_file], diff="", merge_base_sha=merge_base_sha
+            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=pr_files, diff="", merge_base_sha=merge_base_sha
         )
         meta = _fetch_and_persist(
             FetchPRDataInput(
@@ -124,10 +137,11 @@ class TestFetchDecidesTheTier(BaseTest):
         )
 
         assert meta.lens_chunk_count == expected_parts
+        assert meta.coordinator is expected_coordinator
         single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
             "review_tests_and_text": single_agent,
-            "with_merge_base": single_agent,
+            "with_merge_base": True,
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha

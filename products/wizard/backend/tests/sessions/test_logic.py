@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from kombu.exceptions import OperationalError
 
@@ -88,15 +89,17 @@ def test_upsert_with_same_session_id_replaces_state(_mock_sync, team):
     _, first_created = wizard_facade.upsert(_input(team.id))
     assert first_created is True
 
-    updated, second_created = wizard_facade.upsert(
-        _input(
-            team.id,
-            run_phase=WizardSessionRunPhase.COMPLETED,
-            tasks=(WizardTaskDTO(id="1", title="Install SDK", status=WizardSessionTaskStatus.COMPLETED),),
+    with CaptureQueriesContext(connection) as queries:
+        updated, second_created = wizard_facade.upsert(
+            _input(
+                team.id,
+                run_phase=WizardSessionRunPhase.COMPLETED,
+                tasks=(WizardTaskDTO(id="1", title="Install SDK", status=WizardSessionTaskStatus.COMPLETED),),
+            )
         )
-    )
 
     assert second_created is False
+    assert sum("FOR UPDATE" in query["sql"] for query in queries.captured_queries) == 1
     assert updated.run_phase == WizardSessionRunPhase.COMPLETED
     assert updated.tasks[0].status == WizardSessionTaskStatus.COMPLETED
     assert len(wizard_facade.list_for_team(team.id, limit=100)) == 1
