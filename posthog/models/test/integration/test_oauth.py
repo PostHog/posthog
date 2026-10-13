@@ -30,9 +30,14 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
     OauthIntegration,
+    oauth_refresh_counter,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
+)
+from posthog.models.integration.refresh_tracking import (
+    CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED,
+    REFRESH_FAILURE_REASON_LEGACY_CLIENT_DISABLED,
 )
 
 
@@ -608,31 +613,56 @@ class TestOauthIntegrationModel(BaseTest):
         [
             # Primary works: the fallback must not fire, even when configured, and the grant is no
             # longer tied to the legacy app - so the reconnect prompt must stop showing.
-            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1, True, False),
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1, True, False, True),
             # A token issued by the previous app only refreshes with the fallback pair. Flagging it
             # is what identifies the connections that break when the legacy app is retired.
-            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2, False, True),
+            (
+                "fallback_rescues",
+                True,
+                [(401, None), (200, "fallback-token")],
+                "fallback-token",
+                "",
+                2,
+                False,
+                True,
+                False,
+            ),
             # Both credentials failing still marks the integration errored so the reconnect banner shows.
-            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2, True, True),
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2, True, True, False),
             # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
-            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, False, False),
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, False, False, True),
+            ("fallback_disabled", True, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, True, True, True),
+            ("unmarked_fallback_disabled", True, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, False, False, True),
+            (
+                "flag_unavailable",
+                True,
+                [(401, None), (200, "fallback-token")],
+                "fallback-token",
+                "",
+                2,
+                False,
+                True,
+                None,
+            ),
         ]
     )
     def test_refresh_falls_back_to_previous_credentials(
         self,
-        _name,
-        has_fallback,
-        responses,
-        expected_token,
-        expected_errors,
-        expected_calls,
-        initial_legacy_flag,
-        expected_legacy_flag,
-    ):
+        _name: str,
+        has_fallback: bool,
+        responses: list[tuple[int, str | None]],
+        expected_token: str | None,
+        expected_errors: str,
+        expected_calls: int,
+        initial_legacy_flag: bool,
+        expected_legacy_flag: bool,
+        disable_fallback: bool | None,
+    ) -> None:
         fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
         config = {"expires_in": 1000}
         if initial_legacy_flag:
             config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+            config[CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED] = True
         integration = self.create_integration(kind="bing-ads", config=config)
 
         with (
@@ -642,6 +672,10 @@ class TestOauthIntegrationModel(BaseTest):
                 OAUTH_CLIENT_FALLBACKS=fallbacks,
             ),
             patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
+            patch("posthog.models.integration.oauth.is_cloud", return_value=True),
+            patch(
+                "posthog.models.integration.oauth.get_feature_flag_or_none", return_value=disable_fallback
+            ) as mock_flag,
             patch(
                 "posthog.models.integration.oauth.requests.post",
                 side_effect=[self._mock_token_response(status, token) for status, token in responses],
@@ -653,8 +687,102 @@ class TestOauthIntegrationModel(BaseTest):
         assert mock_post.call_count == expected_calls
         assert integration.errors == expected_errors
         assert integration.config.get(CONFIG_LEGACY_OAUTH_CLIENT, False) == expected_legacy_flag
+        assert integration.config.get(CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED, False) == (
+            has_fallback and disable_fallback is True and bool(expected_errors)
+        )
         if expected_token is not None:
             assert integration.sensitive_config["access_token"] == expected_token
+        if has_fallback and responses[0][0] != 200:
+            mock_flag.assert_called_once_with(
+                "bing-ads-disable-legacy-oauth-fallback",
+                str(self.team.uuid),
+                groups={"project": str(self.team.uuid)},
+                group_properties={"project": {"id": str(self.team.id), "uuid": str(self.team.uuid)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        else:
+            mock_flag.assert_not_called()
+
+    @parameterized.expand([("self_hosted", "bing-ads", False), ("other_provider", "hubspot", True)])
+    def test_legacy_fallback_rollout_does_not_affect_other_refreshes(self, _name: str, kind: str, cloud: bool) -> None:
+        integration = self.create_integration(kind=kind)
+        with (
+            self.settings(
+                **self.mock_settings,
+                BING_ADS_CLIENT_ID="new-app-id",
+                BING_ADS_CLIENT_SECRET="new-app-secret",
+                OAUTH_CLIENT_FALLBACKS={kind: {"client_id": "old-app-id", "client_secret": "old-app-secret"}},
+            ),
+            patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
+            patch("posthog.models.integration.oauth.is_cloud", return_value=cloud),
+            patch("posthog.models.integration.oauth.get_feature_flag_or_none", return_value=True) as mock_flag,
+            patch(
+                "posthog.models.integration.oauth.requests.post",
+                side_effect=[self._mock_token_response(401, None), self._mock_token_response(200, "fallback-token")],
+            ),
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "fallback-token"
+        assert integration.errors == ""
+        mock_flag.assert_not_called()
+
+    def test_disabled_legacy_fallback_recovers_after_rollout_rollback(self) -> None:
+        integration = self.create_integration(
+            kind="bing-ads",
+            config={"refreshed_at": 0, CONFIG_LEGACY_OAUTH_CLIENT: True, "refresh_invalid_grant_count": 4},
+            sensitive_config={"access_token": "original-token"},
+        )
+        stored_before = get_db_field_value("sensitive_config", integration.id)
+        rejected = self._mock_token_response(400, None)
+        rejected.json.return_value = {"error": "invalid_grant"}
+        counter = oauth_refresh_counter.labels(
+            kind="bing-ads", result="failed", reason=REFRESH_FAILURE_REASON_LEGACY_CLIENT_DISABLED, attempt="retry"
+        )
+        counter_before = counter._value.get()
+
+        with (
+            self.settings(
+                BING_ADS_CLIENT_ID="new-app-id",
+                BING_ADS_CLIENT_SECRET="new-app-secret",
+                OAUTH_CLIENT_FALLBACKS={"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}},
+            ),
+            patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
+            patch("posthog.models.integration.oauth.is_cloud", return_value=True),
+            patch("posthog.models.integration.oauth.get_feature_flag_or_none", return_value=True) as mock_flag,
+            patch("posthog.models.integration.oauth.requests.post", return_value=rejected) as mock_post,
+            time_machine.travel("2024-01-01T14:00:00Z", tick=False),
+        ):
+            for _ in range(6):
+                OauthIntegration(integration).refresh_access_token()
+                integration.refresh_from_db()
+
+            assert integration.errors == "TOKEN_REFRESH_FAILED"
+            assert integration.config[CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED] is True
+            assert integration.config[CONFIG_LEGACY_OAUTH_CLIENT] is True
+            assert "refresh_terminal" not in integration.config
+            assert "refresh_invalid_grant_count" not in integration.config
+            assert get_db_field_value("sensitive_config", integration.id) == stored_before
+            assert mock_post.call_count == 6
+            assert counter._value.get() == counter_before + 5
+            next_attempt_at = integration.config["refresh_next_attempt_at"]
+            assert next_attempt_at == 1704117600 + 3600
+
+            mock_flag.return_value = False
+            mock_post.side_effect = [rejected, self._mock_token_response(200, "recovered-token")]
+            with time_machine.travel(next_attempt_at, tick=False):
+                assert refresh_backoff_active(integration) is False
+                OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "recovered-token"
+        assert integration.config[CONFIG_LEGACY_OAUTH_CLIENT] is True
+        assert CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED not in integration.config
+        assert "refresh_failure_count" not in integration.config
+        assert "refresh_next_attempt_at" not in integration.config
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")

@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from posthog.models.integration.refresh_tracking import CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -152,6 +154,22 @@ class TestBingAdsSource:
             incremental_field_type=IncrementalFieldType.Date,
             db_incremental_field_last_value="2024-01-01",
         )
+
+    @mock.patch.object(BingAdsSource, "get_oauth_integration")
+    def test_source_for_pipeline_retired_legacy_grant_stays_retryable(self, mock_get_oauth: mock.MagicMock) -> None:
+        mock_get_oauth.return_value = mock.MagicMock(
+            config={CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED: True},
+            access_token="original-token",
+            refresh_token="original-refresh-token",
+        )
+
+        result = SourceDriver(self.source, self.valid_config).run("campaigns", [], team_id=self.team_id)
+
+        assert isinstance(result.raised, RuntimeError)
+        assert "Reconnect your Bing Ads integration" in str(result.raised)
+        assert error_message_matches(str(result.raised), self.source.get_retryable_errors())
+        assert not error_message_matches(str(result.raised), self.source.get_non_retryable_errors())
+        assert result.requests == []
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_access_token(self, mock_get_oauth):
