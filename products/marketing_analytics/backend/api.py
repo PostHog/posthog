@@ -411,13 +411,15 @@ def _normalized_goal_name(name: Any) -> str | None:
 def _readable_pydantic_errors(error: PydanticValidationError, kind: Any = None) -> list[str]:
     """Pydantic reports one error per union member, which is noise. Keep the field and the message.
 
-    Errors are preferred from the member matching the payload's `kind`: otherwise the first member
-    wins per field, so a data warehouse payload could be told about the events node's requirements
-    for a field it did send correctly.
+    Errors use the member matching the payload's `kind` when it is known. Otherwise the first member
+    wins per field. This keeps errors for other goal shapes out of the replacement instructions.
     """
     preferred_model = _GOAL_MODEL_BY_KIND.get(kind)
     seen: dict[str, str] = {}
-    for detail in sorted(error.errors(), key=lambda d: str(d["loc"][:1]) != str((preferred_model,))):
+    details = error.errors()
+    if preferred_model:
+        details = [detail for detail in details if detail["loc"][:1] == (preferred_model,)]
+    for detail in details:
         field = ".".join(str(part) for part in detail["loc"] if not str(part).startswith("ConversionGoalFilter"))
         seen.setdefault(field or "goal", detail["msg"])
     return [f"{field}: {message}" for field, message in seen.items()]
@@ -1337,7 +1339,12 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             index = self._index_of(goals, conversion_goal_id)
 
             merged = self._merged_goal(goals[index], patch, conversion_goal_id)
-            goals[index] = self._validated_goal(merged, existing=goals, ignore_index=index)
+            goals[index] = self._validated_goal(
+                merged,
+                existing=goals,
+                ignore_index=index,
+                replacing_kind=patch.get("kind") not in (None, goals[index].get("kind")),
+            )
             self._store_goals(config, goals, previous=previous)
 
         return Response({"goal": goals[index], "conversion_goals": goals})
@@ -1389,11 +1396,20 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         config = self.team.marketing_analytics_config
         return TeamMarketingAnalyticsConfig.objects.select_for_update().get(pk=config.pk)
 
-    def _validated_goal(self, goal: dict, existing: list[Any], ignore_index: int | None = None) -> dict[str, Any]:
+    def _validated_goal(
+        self, goal: dict, existing: list[Any], ignore_index: int | None = None, *, replacing_kind: bool = False
+    ) -> dict[str, Any]:
         try:
             validated = _CONVERSION_GOAL_ADAPTER.validate_python(goal)
         except PydanticValidationError as e:
-            raise serializers.ValidationError({"goal": _readable_pydantic_errors(e, goal.get("kind"))})
+            errors = _readable_pydantic_errors(e, goal.get("kind"))
+            if replacing_kind:
+                message = (
+                    "Changing kind replaces the conversion goal. Send the complete new goal, including "
+                    "conversion_goal_name, schema_map, and the target fields for the new kind. " + "; ".join(errors)
+                )
+                raise serializers.ValidationError({"goal": message}, code="conversion_goal_kind_change_invalid") from e
+            raise serializers.ValidationError({"goal": errors}) from e
 
         name = goal.get("conversion_goal_name")
         # Normalized, because names differing only in case collide as SQL column aliases.
