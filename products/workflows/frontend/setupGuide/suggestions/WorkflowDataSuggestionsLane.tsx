@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -51,7 +51,14 @@ export function WorkflowDataSuggestionsLane(): JSX.Element | null {
                 <div className="flex items-start gap-2">
                     <IconSparkles className="mt-0.5 size-5 text-accent" />
                     <div className="flex flex-col">
-                        <h3 className="mb-0 text-base font-semibold">Suggested for you</h3>
+                        <div className="flex items-center gap-1.5">
+                            <h3 className="mb-0 text-base font-semibold">Suggested for you</h3>
+                            <Tooltip title="AI writes these suggestions from your project's events. Check each draft before you turn it on.">
+                                <LemonTag type="completion" size="small">
+                                    Beta
+                                </LemonTag>
+                            </Tooltip>
+                        </div>
                         <span className="text-xs text-secondary">
                             Workflows built around events your project sent this week.
                         </span>
