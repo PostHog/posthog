@@ -57,9 +57,15 @@ describe("Composer", () => {
     for (const key of ["h", "e", "y", "\x1b[D", "!"]) composer.handleInput(key);
 
     const lines = composer.render(30, true).editor;
-    expect(lines.join("\n")).not.toContain("\x1b_pi:c");
+    expect(lines.join("\n")).not.toContain("\x1b_pi:");
     expect(lines.map((line) => stripTerminalSequences(line).trim())).toContain(
       "❯ he!y",
+    );
+    // pi marks the cursor cell with zero-width markers for its own screen; here it is drawn as an inverse block,
+    // and only on the pane with focus.
+    expect(lines.join("\n")).toContain("\x1b[7my\x1b[27m");
+    expect(composer.render(30, false).editor.join("\n")).not.toContain(
+      "\x1b[7m",
     );
     expect(repaints).toBeGreaterThan(0);
   });

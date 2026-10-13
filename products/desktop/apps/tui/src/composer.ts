@@ -51,7 +51,14 @@ export function isAppKey(sequence: string): boolean {
 
 export const PASTE_START = "\u001b[200~";
 const PLAIN_RULE = /^─+$/;
-const INVERSE = "\u001b[7m";
+const ESC = "\u001b";
+const INVERSE = `${ESC}[7m`;
+// pi's own screen turns these zero-width markers into the hardware cursor; drawn through Ink, the cell is inverse.
+// The end marker is optional: a line truncated right after the cursor cell has lost it.
+const FAKE_CURSOR = new RegExp(
+  `${ESC}_pi:fc\u0007(.*?)(?:${ESC}_pi:/fc\u0007|$)`,
+  "s",
+);
 // The prompt before the input, "❯ " or "! ", in cells.
 const PROMPT_WIDTH = 2;
 
@@ -388,11 +395,17 @@ export class Composer {
     // Shell mode turns the rule and the prompt PostHog orange, so it is hard to miss.
     this.editor.borderColor = this.shellMode ? orange : RULE;
     const prompt = this.shellMode ? orange("!") : "❯";
-    // pi draws its cursor as an inverse block in every pane; only the focused pane shows one.
+    // pi marks the cursor cell in every pane; only the focused pane draws it, as an inverse block, and a
+    // selection stands in for it while one is live.
+    const caret = focused && !this.selection;
     const lines = this.editor
       .render(Math.max(1, width - PROMPT_WIDTH))
       .map((line) => line.replace(CURSOR_MARKER, ""))
-      .map((line) => (focused ? line : line.replaceAll(INVERSE, "")));
+      .map((line) =>
+        line.replace(FAKE_CURSOR, (_, cell: string) =>
+          caret ? `${INVERSE}${cell}\u001b[27m` : cell,
+        ),
+      );
     // pi closes the input with a rule (or a "↓ n more" line); suggestions follow it.
     const found = lines.findLastIndex(
       (line, index) =>
