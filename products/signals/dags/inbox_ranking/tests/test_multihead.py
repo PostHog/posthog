@@ -1,4 +1,3 @@
-import math
 import datetime
 
 import pytest
@@ -6,18 +5,12 @@ import pytest
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from parameterized import parameterized
 
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import HISTORY_LIMIT, MIN_HISTORY_REPORTS, VECTOR_KINDS
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
-from products.signals.dags.inbox_ranking.multihead.network import (
-    MultiHeadNetwork,
-    NetworkConfig,
-    NetworkInputs,
-    ProjectContext,
-)
 from products.signals.dags.inbox_ranking.multihead.prototype import (
     ABLATIONS,
     CHAMPION_RECIPE,
@@ -127,47 +120,6 @@ class _SyntheticInbox:
         )
 
 
-@parameterized.expand([("report_only", False), ("with_project_vectors", True)])
-def test_backward_pass_matches_the_numerical_gradient(_name: str, with_context: bool) -> None:
-    rng = np.random.default_rng(0)
-    rows, kinds = 6, 2
-    network = MultiHeadNetwork(
-        heads=3,
-        with_context=with_context,
-        kinds=kinds,
-        config=NetworkConfig(projection_dim=3, trunk_dim=4, dropout=0.0),
-    )
-    network.params = {name: value.astype(np.float64) for name, value in network.params.items()}
-    scale = 1 / math.sqrt(EMBEDDING_DIMENSIONS)
-    context = (
-        ProjectContext(
-            vectors=rng.normal(0.0, scale, size=(2, kinds, EMBEDDING_DIMENSIONS)),
-            has_history=np.array([[1.0, 0.0], [1.0, 1.0]]),
-            index=np.array([0, 1, 0, 1, 0, 1]),
-        )
-        if with_context
-        else None
-    )
-    inputs = NetworkInputs(reports=rng.normal(0.0, scale, size=(rows, EMBEDDING_DIMENSIONS)), context=context)
-    labels = rng.integers(0, 2, size=(rows, 3)).astype(np.float64)
-    labels[0, 1] = labels[3, 2] = np.nan
-    every_row = np.arange(rows)
-
-    _, gradients = network.loss_and_gradients(inputs, labels, every_row, train=False)
-
-    epsilon = 1e-6
-    for name, value in network.params.items():
-        for flat in rng.choice(value.size, size=min(6, value.size), replace=False):
-            position = np.unravel_index(flat, value.shape)
-            original = value[position]
-            value[position] = original + epsilon
-            plus, _ = network.loss_and_gradients(inputs, labels, every_row, train=False)
-            value[position] = original - epsilon
-            minus, _ = network.loss_and_gradients(inputs, labels, every_row, train=False)
-            value[position] = original
-            assert gradients[name][position] == pytest.approx((plus - minus) / (2 * epsilon), rel=1e-4, abs=1e-8)
-
-
 def test_example_table_keeps_each_champion_holdout_and_trains_the_network_on_none_of_them() -> None:
     inbox = _SyntheticInbox()
     snapshots = inbox.snapshots()
@@ -217,6 +169,7 @@ def test_project_context_reads_the_team_history_from_before_the_birth_day() -> N
 
 
 def test_every_model_is_graded_on_the_champion_holdout_rows_and_each_head_reads_its_own_output() -> None:
+    pytest.importorskip("torch")
     inbox = _SyntheticInbox()
     embeddings = inbox.embeddings()
 
