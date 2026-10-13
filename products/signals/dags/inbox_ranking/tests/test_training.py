@@ -51,12 +51,14 @@ from products.signals.backend.ranking.serving_manifest import (
     model_key,
     serving_manifest_key,
     serving_model_prefix,
+    serving_project_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
     STATE_TABLE,
     TITLE_EMBEDDINGS_TABLE,
 )
@@ -2798,13 +2800,17 @@ class _AppObjectStore:
         self.written.append(key)
 
 
-def _serving_dataset_s3(prefix: str, partition_key: str, model_kind: str = DEFAULT_MODEL_KIND):
+def _serving_dataset_s3(
+    prefix: str, partition_key: str, model_kind: str = DEFAULT_MODEL_KIND, project_vector_kinds: tuple[str, ...] = ()
+):
     """The dataset bucket holding one champion and one candidate of the served family."""
     onnx = model_kind == ONNX_MODEL_KIND
     model_file = ONNX_MODEL_FILE if onnx else "open.ubj"
 
     def metadata(version: str) -> dict[str, Any]:
-        kind = {"model_kind": model_kind, "model_file": ONNX_MODEL_FILE} if onnx else {}
+        kind: dict[str, Any] = {"model_kind": model_kind, "model_file": ONNX_MODEL_FILE} if onnx else {}
+        if project_vector_kinds:
+            kind["project_vector_kinds"] = list(project_vector_kinds)
         return _serving_metadata(EMBEDDINGS_MODEL_NAME, version, heads=("open",), **kind)
 
     objects: dict[str, bytes] = {}
@@ -2895,6 +2901,47 @@ def test_a_failed_mirror_leaves_the_primary_publish_intact(monkeypatch: pytest.M
     event = _manifest_event(capture)
     assert event["published"] is True
     assert event["mirror_published"] is False
+
+
+@pytest.mark.parametrize(
+    "source_present,already_published,mirrored",
+    [(True, False, False), (True, True, False), (True, False, True), (False, False, False)],
+)
+def test_project_vectors_are_published_before_the_manifest_that_names_them(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, mirrored: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_project_vectors_key(prefix, partition_key)
+    previous = b'{"manifest_version": "2026-08-18T06:00:00+00:00"}'
+    existing = {serving_manifest_key(prefix): previous}
+    if already_published:
+        existing[target] = b"published before"
+    store = _AppObjectStore(existing)
+    mirror = _AppObjectStore() if mirrored else None
+    dataset = _serving_dataset_s3(
+        prefix, partition_key, model_kind=ONNX_MODEL_KIND, project_vector_kinds=("typical", "open", "action", "dismiss")
+    )
+    if source_present:
+        dataset.objects[partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)] = b"vectors"
+
+    if not source_present:
+        with pytest.raises(dagster.Failure, match="project vectors"):
+            _run_serving_manifest(monkeypatch, store, dataset_client=dataset)
+        assert store.objects[serving_manifest_key(prefix)] == previous
+        return
+    _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.project_vectors == target
+    assert all(entry.reads_project_vectors for entry in manifest.models)
+    assert store.objects[target] == (b"published before" if already_published else b"vectors")
+    assert store.written[-1] == serving_manifest_key(prefix)
+    assert (target in store.written) is not already_published
+    if mirror is not None:
+        # Team-level vectors stay in the deployment that owns the teams.
+        assert target not in mirror.objects
+        assert ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)]).project_vectors is None
 
 
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
