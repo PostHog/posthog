@@ -12249,7 +12249,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertTrue(asyncio.run(_watched()))
 
 
-class TestTaskRunRedisStreamKeepalive(TestCase):
+class TestTaskRunRedisStreamKeepalive(SimpleTestCase):
     def test_read_stream_entries_yields_keepalive_sentinel_when_idle(self):
         class StubRedis:
             def __init__(self):

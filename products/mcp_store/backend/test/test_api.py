@@ -69,7 +69,7 @@ POLICY_REQUEST_SERIALIZER_CASES = [
 ]
 
 
-class TestIsValidPosthogCodeCallbackUrl(TestCase):
+class TestIsValidPosthogCodeCallbackUrl(SimpleTestCase):
     @parameterized.expand(
         [
             ("array_scheme", "array://callback", True),

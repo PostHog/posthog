@@ -30,6 +30,9 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     scanners_rate_limited: int = 0
     scanners_backed_off: int = 0
     input_tokens: int = 0
+    # Seconds the run's requests spent waiting for their pacing slot, so a run that spends its
+    # budget paced rather than judging is visible without log access.
+    pacing_wait_seconds: float = 0.0
     estimated_cost_usd: float = 0.0
     hit_team_cap: bool = False
     hit_scanner_cap: bool = False
