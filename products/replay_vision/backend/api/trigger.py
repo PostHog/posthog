@@ -80,14 +80,14 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
 
 
 def check_scanner_quota(scanner: ReplayScanner) -> None:
-    """Raise 402 when this scanner's own credit limit leaves no room for another observation."""
+    """Raise 402 when the scanner's own limit, or a free-only scanner's free credits, leave no room for another observation."""
     if not scanner.has_spend_ceiling:
         return
     budget = compute_scanner_budget(scanner)
     # blocked is only true when a limit is set; the direct check narrows without an assert.
     if budget.credit_limit is not None and budget.blocked:
         record_scanner_limit_reached("on_demand")
-        if scanner.free_only and budget.credit_limit != scanner.credit_limit:
+        if budget.free_credits_bound:
             raise QuotaLimitExceeded(
                 detail=(
                     f"This scanner only uses free credits, and your organization has used all {budget.credit_limit:,} "

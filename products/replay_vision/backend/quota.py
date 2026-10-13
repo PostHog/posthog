@@ -1,4 +1,5 @@
 import json
+import math
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
@@ -277,6 +278,8 @@ class ScannerBudget(QuotaState):
     """
 
     credits_per_observation: int = 0
+    # True when the org's free credits bind a free-only scanner, rather than its own limit.
+    free_credits_bound: bool = False
 
     @property
     def blocked(self) -> bool:
@@ -318,7 +321,11 @@ def _scanner_in_flight_credits(
 
 
 def compute_scanner_budgets(
-    organization_id: UUID, scanner_ids: list[UUID], period: BillingPeriod | None = None
+    organization_id: UUID,
+    scanner_ids: list[UUID],
+    period: BillingPeriod | None = None,
+    *,
+    include_free_credits: bool = True,
 ) -> dict[UUID, ScannerBudget]:
     """Per-scanner budgets for the org's current billing period, with an entry for every requested scanner.
 
@@ -345,8 +352,12 @@ def compute_scanner_budgets(
     scanner_rows = ReplayScanner.all_origins.filter(
         team__organization_id=organization_id, pk__in=scanner_ids
     ).values_list("id", "credit_limit", "model", "free_only")
-    configs = {scanner_id: (limit, model) for scanner_id, limit, model, _ in scanner_rows}
-    free_only_ids = {scanner_id for scanner_id, _, _, free_only in scanner_rows if free_only}
+    configs: dict[UUID, tuple[int | None, str]] = {}
+    free_only_ids: set[UUID] = set()
+    for scanner_id, limit, model, free_only in scanner_rows:
+        configs[scanner_id] = (limit, model)
+        if free_only:
+            free_only_ids.add(scanner_id)
     # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
     # rest report zero usage, and `blocked` is always False without a limit.
     capped_ids = [scanner_id for scanner_id in scanner_ids if (configs.get(scanner_id) or (None,))[0] is not None]
@@ -382,20 +393,23 @@ def compute_scanner_budgets(
             credits_settled=settled_credits,
             credits_reserved=reserved,
         )
-    if free_only_ids:
+    if free_only_ids and include_free_credits:
         free_budget = _free_credits_budget(organization_id, period)
-        for scanner_id in free_only_ids & set(scanner_ids):
+        for scanner_id in free_only_ids:
             own = result[scanner_id]
             free = replace(free_budget, credits_per_observation=own.credits_per_observation)
             # A free-only scanner can carry its own cap too; whichever leaves less room binds.
-            if own.remaining is None or free.remaining is not None and free.remaining < own.remaining:
-                result[scanner_id] = free
+            result[scanner_id] = min(own, free, key=lambda b: b.remaining if b.remaining is not None else math.inf)
     return result
 
 
-def compute_scanner_budget(scanner: ReplayScanner, period: BillingPeriod | None = None) -> ScannerBudget:
+def compute_scanner_budget(
+    scanner: ReplayScanner, period: BillingPeriod | None = None, *, include_free_credits: bool = True
+) -> ScannerBudget:
     """This scanner's own credit allowance and draw for the org's current billing period."""
-    budgets = compute_scanner_budgets(scanner.team.organization_id, [scanner.id], period)
+    budgets = compute_scanner_budgets(
+        scanner.team.organization_id, [scanner.id], period, include_free_credits=include_free_credits
+    )
     return budgets[scanner.id]
 
 
@@ -410,12 +424,14 @@ def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanne
     if exclude_scanner_id is not None:
         scanners = scanners.exclude(pk=exclude_scanner_id)
     # Credit weighting happens in Python: the per-model price table lives in code, and orgs have few scanners.
-    rows = list(scanners.values_list("id", "model", "estimated_monthly_observations", "credit_limit"))
-    capped_ids = [scanner_id for scanner_id, _, _, credit_limit in rows if credit_limit is not None]
+    rows = list(scanners.values_list("id", "model", "estimated_monthly_observations", "credit_limit", "free_only"))
+    capped_ids = [
+        scanner_id for scanner_id, _, _, credit_limit, free_only in rows if credit_limit is not None or free_only
+    ]
     budgets = compute_scanner_budgets(organization_id, capped_ids) if capped_ids else {}
     now = datetime.now(UTC)
     total = 0.0
-    for scanner_id, model, estimate, _credit_limit in rows:
+    for scanner_id, model, estimate, _credit_limit, _free_only in rows:
         rate = observation_credits_for_model(model) * (estimate or 0)
         budget = budgets.get(scanner_id)
         if budget is None or budget.remaining is None:
@@ -567,6 +583,7 @@ def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> Scanne
         period_end=period.end,
         credits_settled=quota.credits_settled,
         credits_reserved=quota.credits_reserved,
+        free_credits_bound=True,
     )
 
 

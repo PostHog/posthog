@@ -174,7 +174,8 @@ def _admit_within_cap(scanner: ReplayScanner, cost: int, period: BillingPeriod) 
     if locked is None or locked.credit_limit is None:
         # Uncapped (or deleted) by the time the lock resolved; nothing to enforce.
         return None
-    budget = compute_scanner_budget(scanner, period)
+    # The org admission enforces a free-only ceiling, so this cache holds the scanner's own spend only.
+    budget = compute_scanner_budget(scanner, period, include_free_credits=False)
     admitted = not budget.would_exceed(cost)
     ReplayScanner.all_origins.filter(pk=scanner.pk).update(
         admission_budget_used=budget.credits_used,
