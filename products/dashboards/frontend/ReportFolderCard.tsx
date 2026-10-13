@@ -40,7 +40,7 @@ export function ReportFolderCard({
                 </div>
                 {context.team_folder && <LemonTag className="shrink-0">Team</LemonTag>}
             </div>
-            <p className="text-secondary text-sm m-0 line-clamp-2">
+            <p className="text-secondary text-sm m-0 line-clamp-2 break-words">
                 {context.description ||
                     (context.team_folder
                         ? 'A shared home for this team’s analysis.'

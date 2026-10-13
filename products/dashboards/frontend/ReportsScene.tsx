@@ -32,7 +32,7 @@ export const scene: SceneExport = { component: ReportsScene }
 
 export function ReportsScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const folder = typeof searchParams.folder === 'string' ? searchParams.folder.replace(/^\/+|\/+$/g, '') : ''
+    const folder = typeof searchParams.folder === 'string' ? joinPath(splitPath(searchParams.folder)) : ''
     const { currentTeamId } = useValues(teamLogic)
     const teamId = currentTeamId ?? getCurrentTeamIdOrNone()
     const logic = reportsLogic({ folder, teamId })
@@ -210,10 +210,10 @@ export function ReportsScene(): JSX.Element {
                             <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <h2 className="text-xl m-0">{parts.at(-1)}</h2>
+                                        <h2 className="text-xl m-0 min-w-0 max-w-full break-words">{parts.at(-1)}</h2>
                                         {folderContext.team_folder && <LemonTag>Team folder</LemonTag>}
                                     </div>
-                                    <p className="text-secondary mt-1 mb-0">
+                                    <p className="text-secondary mt-1 mb-0 break-words">
                                         {folderContext.description ||
                                             'Keep this team’s dashboards, insights, and notes together.'}
                                     </p>
@@ -234,7 +234,7 @@ export function ReportsScene(): JSX.Element {
                                         <IconPinFilled />
                                         <span>{folderContext.team_folder ? 'Team dashboard' : 'Pinned dashboard'}</span>
                                     </div>
-                                    <strong>
+                                    <strong className="break-words">
                                         {pinnedDashboard?.name ||
                                             (folderContext.pinned_dashboard_id
                                                 ? dashboardsLoading
