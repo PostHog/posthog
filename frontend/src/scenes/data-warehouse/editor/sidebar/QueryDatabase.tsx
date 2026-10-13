@@ -60,8 +60,10 @@ import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/fronte
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
+import { LineageTarget } from './findLineageNode'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+import { SeeLineageMenuItem } from './SeeLineageMenuItem'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -751,6 +753,13 @@ export const QueryDatabase = ({
                         warehouseAccessControlEnabled && item.record.table?.type === 'data_warehouse'
                             ? item.record.table?.id
                             : null
+                    const tableLineageTarget: LineageTarget | null = isEmbeddedMode
+                        ? null
+                        : item.record.table?.type === 'data_warehouse'
+                          ? { kind: 'warehouse_table', warehouseTableId: item.record.table.id }
+                          : item.record.table?.type === 'posthog'
+                            ? { kind: 'posthog_table', tableName: item.record.table.name }
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -770,6 +779,7 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {tableLineageTarget ? <SeeLineageMenuItem target={tableLineageTarget} /> : null}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
@@ -1025,6 +1035,11 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {!isEmbeddedMode && item.record.type === 'view' && item.record.isSavedQuery ? (
+                                <SeeLineageMenuItem
+                                    target={{ kind: 'saved_query', savedQueryId: item.record.view.id }}
+                                />
+                            ) : null}
                             {addJoinSourceTableName ? (
                                 <DropdownMenuItem
                                     asChild
