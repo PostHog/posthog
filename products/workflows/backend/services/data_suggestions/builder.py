@@ -65,23 +65,28 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     The draft cannot be enabled until they do, because enabling validates every step in full.
     """
     if idea.trigger_event not in context.allowed_events:
-        return _rejected("trigger event the project does not send", trigger_event=idea.trigger_event)
+        _log_rejection("trigger event the project does not send", trigger_event=idea.trigger_event)
+        return None
     if not plan.steps or len(plan.steps) > MAX_PLANNED_STEPS:
-        return _rejected("no steps or too many steps", step_count=len(plan.steps))
+        _log_rejection("no steps or too many steps", step_count=len(plan.steps))
+        return None
     steps = _with_waits_between_emails(plan.steps)
     steps_by_id = {step.id: step for step in steps}
     if len(steps_by_id) != len(steps) or plan.first_step not in steps_by_id:
-        return _rejected("duplicate step ids or unknown first step", first_step=plan.first_step)
+        _log_rejection("duplicate step ids or unknown first step", first_step=plan.first_step)
+        return None
     action_ids = {step.id: f"action_{index}_{step.type}" for index, step in enumerate(steps)}
 
     links: dict[str, list[_Link]] = {}
     for step in steps:
         step_links = _links(step)
         if step_links is None or any(link.target is not None and link.target not in steps_by_id for link in step_links):
-            return _rejected("step links to an unknown step", step_id=step.id, step_type=step.type)
+            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type)
+            return None
         links[step.id] = step_links
     if not _is_acyclic_and_connected(plan.first_step, links):
-        return _rejected("loop or unreachable step")
+        _log_rejection("loop or unreachable step")
+        return None
 
     trigger_config = {
         "type": "event",
@@ -95,9 +100,10 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     for step in steps:
         action = _build_step(step, action_ids[step.id], context)
         if action is None:
-            return _rejected(
+            _log_rejection(
                 "step the builder cannot use", step_id=step.id, step_type=step.type, template_id=step.template_id
             )
+            return None
         uses_saved_template = uses_saved_template or (step.type == "email" and bool(step.email_template_id))
         actions.append(action)
         for link in links[step.id]:
@@ -133,10 +139,9 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     )
 
 
-def _rejected(reason: str, **details: Any) -> None:
+def _log_rejection(reason: str, **details: Any) -> None:
     # A rejected plan turns into a 422 for the user, so the reason is only visible here.
     logger.info("workflows.data_suggestions.plan_rejected", reason=reason, **details)
-    return None
 
 
 def _links(step: PlannedStep) -> list[_Link] | None:
