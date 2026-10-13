@@ -34,7 +34,11 @@ export function assertNoSharedKeys(keys: SigningKeys): void {
 
 /** Every signing key on the mount, keyed by deployment. */
 export async function readSigningKeys(dir: string): Promise<SigningKeys> {
-    const values = (await readMount(dir)) ?? {}
+    return parseSigningKeys((await readMount(dir)) ?? {})
+}
+
+/** Every signing key in one snapshot of the secret, keyed by deployment. */
+export function parseSigningKeys(values: Record<string, string>): SigningKeys {
     const keys: SigningKeys = {}
     for (const [entry, value] of Object.entries(values)) {
         if (!entry.startsWith(CALLER_KEY_PREFIX)) {
@@ -62,13 +66,23 @@ export class SigningKeyLoader {
     private keys: SigningKeys = {}
     private loaded = false
 
+    /**
+     * @param dir The mount directory `load()` and `reload()` read. A server fed by a secret
+     *   source calls `loadFrom()` and `reloadFrom()` instead and passes a description of the
+     *   source here, for error messages only.
+     */
     constructor(private readonly dir: string) {}
 
     /** Replace the in-memory key set. Throws on the first load so boot fails closed. */
     async load(): Promise<void> {
-        const keys = await readSigningKeys(this.dir)
+        this.loadFrom((await readMount(this.dir)) ?? {})
+    }
+
+    /** As `load()`, from one snapshot of the secret. */
+    loadFrom(values: Record<string, string>): void {
+        const keys = parseSigningKeys(values)
         if (Object.keys(keys).length === 0) {
-            throw new Error(`no ${CALLER_KEY_PREFIX}* entries on the secret mount at ${this.dir}`)
+            throw new Error(`no ${CALLER_KEY_PREFIX}* entries in ${this.dir}`)
         }
         assertNoSharedKeys(keys)
         this.keys = keys
@@ -83,8 +97,16 @@ export class SigningKeyLoader {
      * visible when a revocation does not land.
      */
     async reload(): Promise<void> {
+        this.reloadFrom(await readMount(this.dir))
+    }
+
+    /** As `reload()`, from one snapshot of the secret. Null means the source could not be read. */
+    reloadFrom(values: Record<string, string> | null): void {
         try {
-            await this.load()
+            if (values === null) {
+                throw new Error(`could not read ${this.dir}`)
+            }
+            this.loadFrom(values)
         } catch (err) {
             signingKeyReloadFailuresTotal.inc()
             logger.error('auth:signing_keys_reload_failed', {

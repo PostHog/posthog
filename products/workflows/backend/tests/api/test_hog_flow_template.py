@@ -2,13 +2,14 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.fixtures import template_slack
 from posthog.models import Organization, Team, User
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.templates import clear_template_cache, load_global_templates
@@ -173,6 +174,39 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         assert function_actions[0]["config"]["inputs"] == {"url": {"value": "https://custom1.example.com"}}
         assert function_actions[1]["config"]["inputs"] == {"url": {"value": "https://custom2.example.com"}}
+
+    @parameterized.expand(
+        [
+            ("schedule", {"type": "schedule"}, 201),
+            (
+                "slack_message",
+                {
+                    "type": "internal-event",
+                    "filters": {
+                        "source": "internal-events",
+                        "events": [{"id": "$slack_message_received", "type": "events"}],
+                        "properties": [{"key": "bot_id", "operator": "is_set", "type": "event"}],
+                    },
+                },
+                201,
+            ),
+            (
+                "disallowed_internal_event",
+                {
+                    "type": "internal-event",
+                    "filters": {"source": "internal-events", "events": [{"id": "$billing_event", "type": "events"}]},
+                },
+                400,
+            ),
+        ]
+    )
+    def test_template_creation_trigger_types(self, _name: str, trigger_config: dict, expected_status: int) -> None:
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["actions"][0]["config"] = trigger_config
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data, format="json")
+
+        assert response.status_code == expected_status, response.json()
 
     def test_template_creation_sets_team_and_created_by(self):
         """Test that team_id and created_by are set from context"""

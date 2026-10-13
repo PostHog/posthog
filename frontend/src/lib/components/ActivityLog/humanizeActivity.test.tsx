@@ -12,13 +12,13 @@ import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 
 import { ActivityScope } from '~/types'
 
 import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
+import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 
 describe('humanizeActivity', () => {
     const makeLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => ({

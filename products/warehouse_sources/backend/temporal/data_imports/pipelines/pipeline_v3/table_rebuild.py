@@ -2,18 +2,11 @@ from typing import Any
 
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    attempt_of,
     update_sync_type_config_keys,
 )
 
 TABLE_REBUILD_RUN_KEY = "table_rebuild_run_uuid"
-
-
-def attempt_of(run_uuid: str) -> tuple[str, int] | None:
-    """Split `<workflow run id>-a<attempt>`, the run id format of the extract pipeline."""
-    workflow_run_id, separator, attempt = run_uuid.rpartition("-a")
-    if not separator or not workflow_run_id or not attempt.isdigit():
-        return None
-    return workflow_run_id, int(attempt)
 
 
 class TableRebuildRun:

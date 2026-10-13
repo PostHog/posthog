@@ -38,7 +38,7 @@ from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
 
-# This client always knows its installation, so it records under source="integration" with a real id.
+# App-JWT and user-OAuth calls made directly by this class record under this source.
 _OBSERVABILITY_SOURCE = "integration"
 
 github_cache_access_counter = Counter(
@@ -230,15 +230,15 @@ class GitHubIntegrationBase:
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
     # Names the table `integration` lives in, so a background task can load the row again.
     is_user_integration: bool = False
-    # Per-subsystem attribution on the shared egress metrics. Product callers construct their client
-    # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
-    # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
-    source: str = _OBSERVABILITY_SOURCE
+    # Per-subsystem attribution on the shared egress metrics. Every caller constructs its client
+    # with its own source (e.g. GitHubIntegration(integration, source="visual_review", ...)) so every
+    # request made through this instance — api_request, verbs, GraphQL — is attributed to it.
+    source: str
     # How sheddable this instance's calls are when the installation's shared budget runs hot.
-    # CRITICAL (the default) is never blocked; deferrable background callers construct with
-    # priority=Priority.BATCH so the egress limiter sheds them first — a denied sheddable call
-    # raises GitHubEgressBudgetExhausted from api_request before anything is sent.
-    priority: Priority = Priority.CRITICAL
+    # Every caller picks it at construction. CRITICAL is never blocked; deferrable background callers
+    # construct with priority=Priority.BATCH so the egress limiter sheds them first — a denied
+    # sheddable call raises GitHubEgressBudgetExhausted from api_request before anything is sent.
+    priority: Priority
 
     @property
     def github_installation_id(self) -> str | None:
@@ -314,6 +314,7 @@ class GitHubIntegrationBase:
             timeout=timeout,
             # requests omits the body entirely when json is None
             json=json_body,
+            priority=Priority.CRITICAL,
         )
 
     @classmethod
@@ -481,6 +482,7 @@ class GitHubIntegrationBase:
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": 1},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code == 200:
             return True
