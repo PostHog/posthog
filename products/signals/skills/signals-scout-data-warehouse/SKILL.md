@@ -16,6 +16,21 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: data_warehouse
+scout-precheck-query: |
+  SELECT 'armed_schemas' AS kind, count() AS n
+  FROM system.source_schemas
+  WHERE should_sync AND deleted = 0
+  HAVING n > 0
+  UNION ALL
+  SELECT 'warehouse_tables' AS kind, count() AS n
+  FROM system.data_warehouse_tables
+  WHERE deleted = 0
+  HAVING n > 0
+  UNION ALL
+  SELECT 'views' AS kind, count() AS n
+  FROM system.data_modeling_views
+  WHERE deleted = 0
+  HAVING n > 0
 ---
 
 # Signals scout: data warehouse imports
@@ -35,6 +50,8 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
 ## Quick close-out: are imports even armed?
+
+A scheduled run can start with a `<precheck_result>` block. An `armed_schemas` row counts the armed schemas, a `warehouse_tables` row counts the warehouse tables that are not deleted, and a `views` row counts the views that are not deleted. A run starts only when at least one row is present, so the not-in-use case does not occur. Use the rows in place of the presence counts below to pick the lanes.
 
 One SQL count over the schema metadata tells you whether imports are in play:
 
