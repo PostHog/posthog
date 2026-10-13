@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # The Slack destination itself lives in nodejs (nodejs/src/cdp/templates/_destinations/slack). Tests
 # that need a real destination template in the database sync this stand-in instead of reaching out to
