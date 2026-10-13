@@ -1,5 +1,6 @@
 import time
 import asyncio
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -62,6 +63,10 @@ def _decision(
         interval_seconds=INTERVAL,
         late_seconds=1.0,
     )
+
+
+def _with_job(record: DecisionRecord, job_id: str) -> DecisionRecord:
+    return dataclasses.replace(record, job_id=job_id)
 
 
 async def _fetch_states(conn: psycopg.AsyncConnection[Any]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -134,6 +139,35 @@ class TestSchedulerState:
         )
         other_kind = _decision("s1", boundary, kind="other.kind")
         assert await SchedulerStateTable.insert_decisions(conn, [other_kind]) == ([other_kind], 0)
+
+    @pytest.mark.parametrize(
+        "decisions,expected_keys",
+        [
+            pytest.param(("fired",), ["fired"], id="fired_only"),
+            pytest.param(("would_fire",), ["would_fire"], id="would_fire_only"),
+            pytest.param(("fired", "skip_duplicate"), ["fired", "skip_duplicate"], id="several"),
+            pytest.param(("skip_cdc_halted",), [], id="none_match"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_decisions_keep_their_job_id_and_read_back_by_type(self, _db_url, conn, decisions, expected_keys):
+        boundary = datetime.now(UTC).replace(microsecond=0)
+        job_id = str(uuid4())
+        records = [
+            _with_job(_decision("fired", boundary, decision="fired"), job_id),
+            _decision("would_fire", boundary),
+            _decision("skip_duplicate", boundary, decision="skip_duplicate"),
+            _decision("old_fired", boundary - timedelta(days=2), decision="fired"),
+            _decision("other_kind", boundary, decision="fired", kind="other.kind"),
+        ]
+        await SchedulerStateTable.insert_decisions(conn, records)
+
+        with psycopg.Connection.connect(_db_url) as sync_conn:
+            read = SchedulerStateTable.fetch_decisions(sync_conn, KIND, boundary - timedelta(hours=1), decisions)
+
+        assert sorted(record.schedule_key for record in read) == expected_keys
+        assert {record.schedule_key: record.job_id for record in read}.get("fired", job_id) == job_id
+        assert all(record.job_id is None for record in read if record.schedule_key != "fired")
 
     @pytest.mark.asyncio
     async def test_state_operations_are_scoped_to_kind(self, conn):

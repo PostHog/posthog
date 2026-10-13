@@ -654,10 +654,15 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
 
 async def _update_job_status(
-    inputs: UpdateExternalDataJobStatusInputs, logger: FilteringBoundLogger, *, exclude_workflow_id: str | None
+    inputs: UpdateExternalDataJobStatusInputs,
+    logger: FilteringBoundLogger,
+    *,
+    exclude_workflow_id: str | None,
+    platform_fault: bool = False,
 ) -> None:
     """Write the run's final status. `exclude_workflow_id` names the run that is finishing, so an
-    automatic disable does not cancel it."""
+    automatic disable does not cancel it. `platform_fault` marks a failure that PostHog caused
+    without any word from the source, so it does not count toward the schema's failure streak."""
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         # `rows_tracked` is decremented by rows actually written, but incremented by
@@ -792,7 +797,8 @@ async def _update_job_status(
     # A failure PostHog caused says nothing about the source, and an auto-disabled schema runs
     # again only once a person turns syncing back on, so neither may throttle the next run.
     counts_as_source_failure = (
-        not platform_failure
+        not platform_fault
+        and not platform_failure
         and not has_non_retryable_error
         and (inputs.latest_error not in (WORKER_RESTART_ERROR_MESSAGE, CANCELLED_RUN_MESSAGE))
     )

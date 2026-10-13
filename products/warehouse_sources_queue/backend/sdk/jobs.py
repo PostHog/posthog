@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from contextvars import ContextVar
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
@@ -105,8 +105,8 @@ class JobContext:
     # owns an external state must finish that state at this attempt at the latest.
     max_attempts: int
 
-    async def retry_history(self, job: Job, *, uncounted_tag: str) -> RetryHistory:
-        """The job's earlier retries, without the ones a handler returned with ``uncounted_tag``."""
+    async def retry_history(self, job: Job, *, uncounted_tags: Collection[str]) -> RetryHistory:
+        """The job's earlier retries, without the ones a handler returned with one of ``uncounted_tags``."""
         if job.latest_attempt <= 0:
             return RetryHistory(counted_retries=0, last_error=None)
         async with await psycopg.AsyncConnection.connect(self.database_url, autocommit=True) as conn:
@@ -115,7 +115,7 @@ class JobContext:
                 job_id=job.id,
                 job_created_at=job.created_at,
                 max_retries=job.latest_attempt,
-                uncounted_reason=uncounted_tag,
+                uncounted_reasons=uncounted_tags,
             )
 
 

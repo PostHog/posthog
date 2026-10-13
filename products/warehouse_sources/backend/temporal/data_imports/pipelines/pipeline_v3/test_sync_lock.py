@@ -6,11 +6,13 @@ import temporalio.exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
+    LockAcquireResult,
     _get_redis_client,
     _lock_key,
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
+    try_acquire_v3_pipeline_lock,
 )
 
 
@@ -21,23 +23,31 @@ class TestLockKey:
 
 class TestAcquireV3PipelineLock:
     @pytest.mark.parametrize(
-        "set_return, expected",
+        "redis_up, set_effect, expected",
         [
-            (True, True),
-            (None, False),
+            (True, True, LockAcquireResult.ACQUIRED),
+            (True, None, LockAcquireResult.HELD),
+            (True, Exception("connection lost"), LockAcquireResult.UNAVAILABLE),
+            (False, None, LockAcquireResult.UNAVAILABLE),
         ],
-        ids=["acquired", "already_held"],
+        ids=["acquired", "already_held", "set_error", "redis_down"],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_acquire_result(self, mock_ctx: MagicMock, set_return: bool | None, expected: bool) -> None:
+    def test_acquire_result(
+        self, mock_ctx: MagicMock, redis_up: bool, set_effect: object, expected: LockAcquireResult
+    ) -> None:
         mock_redis = MagicMock()
-        mock_redis.set.return_value = set_return
-        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        if isinstance(set_effect, Exception):
+            mock_redis.set.side_effect = set_effect
+        else:
+            mock_redis.set.return_value = set_effect
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis if redis_up else None)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = acquire_v3_pipeline_lock(1, "s-1", "tok-1")
-        assert result is expected
-        mock_redis.set.assert_called_once_with(_lock_key(1, "s-1"), "tok-1", nx=True, ex=LOCK_TTL_SECONDS)
+        assert try_acquire_v3_pipeline_lock(1, "s-1", "tok-1") == expected
+        assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is (expected == LockAcquireResult.ACQUIRED)
+        if redis_up:
+            mock_redis.set.assert_called_with(_lock_key(1, "s-1"), "tok-1", nx=True, ex=LOCK_TTL_SECONDS)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
     def test_fail_closed_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:

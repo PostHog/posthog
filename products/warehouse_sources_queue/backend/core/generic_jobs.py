@@ -15,7 +15,9 @@ run orchestrator so it can ship with tests and no production traffic.
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any, assert_never
 
 import psycopg
@@ -110,6 +112,29 @@ class Job:
     @property
     def is_final_batch(self) -> bool:
         return False
+
+
+class InsertRefusal(StrEnum):
+    # A job with the same kind and dedup key exists and has not failed.
+    DEDUP = "dedup"
+    # The overlap policy refused the job because of the group's live jobs.
+    OVERLAP = "overlap"
+
+
+@frozen
+class InsertResult:
+    """What a guarded insert did with one requested job."""
+
+    job_id: str | None
+    refusal: InsertRefusal | None
+
+
+@frozen
+class JobLiveness:
+    """One job's state, as the overlap policies see it."""
+
+    latest_state: str
+    is_live: bool
 
 
 @frozen
@@ -343,6 +368,102 @@ _INSERT_MANY_SQL = f"""
 """
 
 
+def _insert_many_guarded_sql(overlap_policy: OverlapPolicy | None) -> str:
+    """Batch insert that reports, per job, which guard refused it.
+
+    The dedup guard runs first, so a repeat of a job that is still live reads as a
+    duplicate, not as an overlap. The overlap guard then sees the jobs already in
+    the table and the earlier jobs of the same group in this batch: a second job
+    for one group always waits behind the first, so both policies refuse it. Same
+    single-enqueuer assumption as ``_insert_sql``.
+    """
+    overlap_check = "FALSE"
+    if overlap_policy is not None:
+        overlap_check = f"""(
+            row_number() OVER (PARTITION BY d.kind, d.lane, d.group_key ORDER BY d.ordinality) > 1
+            OR EXISTS (
+                SELECT 1 FROM {JOB_TABLE} o
+                WHERE o.kind = d.kind
+                  AND o.lane = d.lane
+                  AND o.group_key = d.group_key
+                  AND o.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
+                  AND NOT o.superseded
+                  AND {_overlap_blocking_predicate(overlap_policy, "o")}
+            )
+        )"""
+    return f"""
+    WITH raw AS (
+        SELECT value, ordinality
+        FROM jsonb_array_elements(%(jobs)s::jsonb) WITH ORDINALITY
+    ),
+    input AS MATERIALIZED (
+        SELECT
+            gen_random_uuid() AS id,
+            value->>'kind' AS kind,
+            value->>'lane' AS lane,
+            value->>'group_key' AS group_key,
+            (value->>'team_id')::bigint AS team_id,
+            value->>'run_id' AS run_id,
+            COALESCE((value->>'sequence')::int, 0) AS sequence,
+            COALESCE(value->'payload', '{{}}'::jsonb) AS payload,
+            COALESCE((value->>'priority')::smallint, 0) AS priority,
+            value->>'dedup_key' AS dedup_key,
+            ordinality,
+            row_number() OVER (
+                PARTITION BY value->>'kind', value->>'dedup_key'
+                ORDER BY ordinality
+            ) AS dedup_rank
+        FROM raw
+    ),
+    dedup_checked AS MATERIALIZED (
+        SELECT
+            i.*,
+            (
+                i.dedup_key IS NOT NULL AND (
+                    i.dedup_rank > 1
+                    OR EXISTS (
+                        SELECT 1 FROM {JOB_TABLE} d
+                        WHERE d.kind = i.kind
+                          AND d.dedup_key = i.dedup_key
+                          AND d.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
+                          AND d.latest_state != 'failed'
+                          AND NOT d.superseded
+                    )
+                )
+            ) AS refused_dedup
+        FROM input i
+    ),
+    overlap_checked AS MATERIALIZED (
+        SELECT d.id, {overlap_check} AS refused_overlap
+        FROM dedup_checked d
+        WHERE NOT d.refused_dedup
+    ),
+    inserted AS (
+        INSERT INTO {JOB_TABLE} (
+            id, kind, lane, group_key, team_id, run_id, sequence, payload,
+            priority, dedup_key, created_at
+        )
+        SELECT
+            d.id, d.kind, d.lane, d.group_key, d.team_id, d.run_id,
+            d.sequence, d.payload, d.priority, d.dedup_key, now()
+        FROM dedup_checked d
+        INNER JOIN overlap_checked o ON o.id = d.id
+        WHERE NOT o.refused_overlap
+        RETURNING id
+    )
+    SELECT d.ordinality, ins.id, d.refused_dedup, COALESCE(o.refused_overlap, FALSE)
+    FROM dedup_checked d
+    LEFT JOIN overlap_checked o ON o.id = d.id
+    LEFT JOIN inserted ins ON ins.id = d.id
+    ORDER BY d.ordinality
+"""
+
+
+_INSERT_MANY_GUARDED_SQL: dict[OverlapPolicy | None, str] = {
+    policy: _insert_many_guarded_sql(policy) for policy in (None, *OverlapPolicy)
+}
+
+
 def _claim_candidates_sql() -> str:
     """Claimable-job candidates from the denormalized state columns.
 
@@ -465,6 +586,45 @@ class JobsTable:
             cursor = await conn.execute(_INSERT_MANY_SQL, {"jobs": json.dumps(normalized)})
             rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
+
+    @staticmethod
+    async def insert_many_guarded(
+        conn: psycopg.AsyncConnection[Any],
+        jobs: list[dict[str, Any]],
+        *,
+        overlap_policy: OverlapPolicy | None,
+    ) -> list[InsertResult]:
+        """Enqueue several jobs in one statement and say what happened to each one.
+
+        Each entry takes the ``insert`` keyword arguments, except ``overlap_policy``,
+        which applies to every entry. The result is in input order. Unlike
+        ``insert_many``, a refused job does not refuse the others.
+        """
+        if not jobs:
+            return []
+        normalized = [
+            {
+                "run_id": None,
+                "sequence": 0,
+                "priority": 0,
+                "dedup_key": None,
+                **job,
+                "payload": job.get("payload", {}),
+            }
+            for job in jobs
+        ]
+        cursor = await conn.execute(_INSERT_MANY_GUARDED_SQL[overlap_policy], {"jobs": json.dumps(normalized)})
+        rows = await cursor.fetchall()
+        results: list[InsertResult] = []
+        for _, job_id, refused_dedup, refused_overlap in rows:
+            if job_id is not None:
+                results.append(InsertResult(job_id=str(job_id), refusal=None))
+            elif refused_dedup:
+                results.append(InsertResult(job_id=None, refusal=InsertRefusal.DEDUP))
+            else:
+                assert refused_overlap
+                results.append(InsertResult(job_id=None, refusal=InsertRefusal.OVERLAP))
+        return results
 
     # -- reads (producer side) -----------------------------------------------
 
@@ -683,15 +843,34 @@ class JobsTable:
             return str(row[0]) if row else None
 
     @staticmethod
+    def get_job_liveness_sync(conn: psycopg.Connection[Any], *, job_id: str) -> JobLiveness | None:
+        """The job's state and whether the overlap policies count it as live. None when the job is gone.
+
+        Sync, for callers outside the async consumer engine.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT j.latest_state, NOT j.superseded AND {_live_job_predicate("j")}
+                FROM {JOB_TABLE} j
+                WHERE j.id = %(job_id)s
+                  AND j.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
+                """,
+                {"job_id": job_id},
+            )
+            row = cur.fetchone()
+        return JobLiveness(latest_state=str(row[0]), is_live=bool(row[1])) if row else None
+
+    @staticmethod
     async def get_retry_history(
         conn: psycopg.AsyncConnection[Any],
         *,
         job_id: str,
         job_created_at: datetime,
         max_retries: int,
-        uncounted_reason: str,
+        uncounted_reasons: Collection[str],
     ) -> RetryHistory:
-        """Count the job's earlier retries, except the ones tagged with ``uncounted_reason``.
+        """Count the job's earlier retries, except the ones tagged with one of ``uncounted_reasons``.
 
         A job has at most one ``waiting_retry`` row per attempt, so ``max_retries`` (the attempts
         so far) bounds the scan. Heartbeats add only ``executing`` rows.
@@ -713,7 +892,7 @@ class JobsTable:
             )
             rows = await cur.fetchall()
         responses: list[dict[str, Any]] = [row[0] or {} for row in rows]
-        counted = [r for r in responses if r.get(RETRY_REASON_KEY) != uncounted_reason]
+        counted = [r for r in responses if r.get(RETRY_REASON_KEY) not in uncounted_reasons]
         last_error = counted[0].get("error") if counted else None
         return RetryHistory(counted_retries=len(counted), last_error=last_error)
 

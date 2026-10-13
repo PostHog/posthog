@@ -6,7 +6,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import (
+    AsyncMock,
+    MagicMock,
+    call as mock_call,
+    patch,
+)
 
 from django.db import OperationalError
 
@@ -24,12 +29,14 @@ from products.warehouse_sources.backend.queue_runs.budgets import LONG_RUN_TIMEO
 from products.warehouse_sources.backend.queue_runs.claim_gate import MemoryClaimGate
 from products.warehouse_sources.backend.queue_runs.extract_handler import (
     EXTRACTION_RESULT_SNAPSHOT_KEY,
+    LOCK_UNAVAILABLE_RETRY_TAG,
     POST_IMPORT_DONE_SNAPSHOT_KEY,
     RUN_PLAN_SNAPSHOT_KEY,
     SHUTDOWN_RETRY_TAG,
     ExtractHandlerConfig,
     SyncExtractHandler,
 )
+from products.warehouse_sources.backend.queue_runs.metrics import RUNS_SKIPPED_TOTAL, SkipReason
 from products.warehouse_sources.backend.queue_runs.payloads import (
     EXTRACT_LANE,
     SYNC_EXTRACT_KIND,
@@ -47,6 +54,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     BillingLimitsWillBeReachedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    QUEUE_RUNNER,
+    LockAcquireResult,
+)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import build_post_import_workflow_id
 from products.warehouse_sources.backend.temporal.data_imports.run_control import RunControl
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
@@ -210,10 +221,20 @@ def boundaries() -> Any:
         patch("posthoganalytics.capture"),
         patch(f"{HANDLER}.aworkload_reporting", _no_workload_reporting),
         patch(f"{POST_EXTRACTION}.create_warehouse_templates_for_source") as create_templates,
+        patch(f"{HANDLER}.try_acquire_v3_pipeline_lock", return_value=LockAcquireResult.ACQUIRED) as lock_acquire,
         patch(f"{HANDLER}.get_v3_pipeline_lock_holder", return_value=None) as lock_holder,
+        patch(f"{HANDLER}.take_over_v3_lock_if_holder_finished", return_value=False) as lock_take_over,
+        patch(f"{HANDLER}.write_v3_pipeline_lock_meta") as lock_meta,
+        patch(f"{HANDLER}.release_v3_pipeline_lock") as lock_release,
     ):
         yield MagicMock(
-            update_should_sync=update_should_sync, create_templates=create_templates, lock_holder=lock_holder
+            update_should_sync=update_should_sync,
+            create_templates=create_templates,
+            lock_acquire=lock_acquire,
+            lock_holder=lock_holder,
+            lock_take_over=lock_take_over,
+            lock_meta=lock_meta,
+            lock_release=lock_release,
         )
 
 
@@ -867,6 +888,8 @@ async def test_overlap_is_decided_by_the_sync_lock_not_by_job_rows(
     if orphaned_row:
         await sync_to_async(_orphaned_running_job)(schema)
     job = await _claim(conn, _payload(schema))
+    if lock_holder is not None:
+        boundaries.lock_acquire.return_value = LockAcquireResult.HELD
     boundaries.lock_holder.return_value = job.id if lock_holder is OWN_RUN else lock_holder
     extraction = _FakeExtraction(_returns(WITH_BATCHES))
 
@@ -876,6 +899,118 @@ async def test_overlap_is_decided_by_the_sync_lock_not_by_job_rows(
     assert len(extraction.controls) == (1 if expect_run else 0)
     own_rows = [row for row in await sync_to_async(_jobs)(schema) if row.workflow_run_id == job.id]
     assert len(own_rows) == (1 if expect_run else 0)
+
+
+def _no_setup(schema: ExternalDataSchema) -> contextlib.AbstractContextManager[Any]:
+    return contextlib.nullcontext()
+
+
+def _failing_streak(schema: ExternalDataSchema) -> contextlib.AbstractContextManager[Any]:
+    # Five failed runs in a row, the last one two minutes ago: inside the first gap.
+    failed_at = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=2)
+    schema.sync_type_config = {
+        **(schema.sync_type_config or {}),
+        "failure_streak": {"runs": 5, "last_failed_at": failed_at.isoformat()},
+    }
+    schema.save()
+    return contextlib.nullcontext()
+
+
+def _repartition_hold(schema: ExternalDataSchema) -> contextlib.AbstractContextManager[Any]:
+    _staged_repartition_swap(schema)
+    return contextlib.nullcontext()
+
+
+def _billing_limit(schema: ExternalDataSchema) -> contextlib.AbstractContextManager[Any]:
+    return patch(f"{CREATE_JOB}.billing_limit_reached", return_value=True)
+
+
+ACQUIRED, HELD, UNAVAILABLE = LockAcquireResult.ACQUIRED, LockAcquireResult.HELD, LockAcquireResult.UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "setup,reset,lock,take_over,body,expected_outcome,expect_acquire,expect_run,expect_release",
+    [
+        pytest.param(_no_setup, None, ACQUIRED, False, WITH_BATCHES, Success, True, True, False, id="loader_releases"),
+        pytest.param(
+            _no_setup, None, ACQUIRED, False, BEFORE_PIPELINE, Success, True, True, True, id="completed_here_releases"
+        ),
+        pytest.param(
+            _no_setup, None, ACQUIRED, False, _non_retryable_error(), Fail, True, True, True, id="failure_releases"
+        ),
+        pytest.param(
+            _no_setup, None, ACQUIRED, False, ValueError("hiccup"), Retry, True, True, False, id="retry_keeps_lock"
+        ),
+        pytest.param(
+            _repartition_hold, None, ACQUIRED, False, WITH_BATCHES, Success, True, False, True, id="skip_after_acquire"
+        ),
+        pytest.param(
+            _billing_limit, None, ACQUIRED, False, WITH_BATCHES, Success, True, False, True, id="billing_limit_releases"
+        ),
+        pytest.param(
+            _failing_streak, None, ACQUIRED, False, WITH_BATCHES, Success, False, False, False, id="failing_is_deferred"
+        ),
+        pytest.param(
+            _failing_streak, True, ACQUIRED, False, WITH_BATCHES, Success, True, True, False, id="reset_is_not_deferred"
+        ),
+        pytest.param(_no_setup, None, HELD, False, WITH_BATCHES, Success, True, False, False, id="live_holder_skips"),
+        pytest.param(
+            _no_setup, None, HELD, True, WITH_BATCHES, Success, True, True, False, id="dead_holder_is_taken_over"
+        ),
+        pytest.param(
+            _no_setup, None, UNAVAILABLE, False, WITH_BATCHES, Retry, True, False, False, id="lock_store_down_waits"
+        ),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_the_sync_lock_follows_the_run(
+    setup: Callable[[ExternalDataSchema], contextlib.AbstractContextManager[Any]],
+    reset: bool | None,
+    lock: LockAcquireResult,
+    take_over: bool,
+    body: PipelineResult | BaseException,
+    expected_outcome: type,
+    expect_acquire: bool,
+    expect_run: bool,
+    expect_release: bool,
+    boundaries: MagicMock,
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    payload = dataclasses.replace(_payload(schema), reset_pipeline=reset)
+    job = await _claim(conn, payload)
+    boundaries.lock_acquire.return_value = lock
+    boundaries.lock_holder.return_value = "another-run"
+    boundaries.lock_take_over.return_value = take_over
+    extraction = _FakeExtraction(_raises(body) if isinstance(body, BaseException) else _returns(body))
+    deferred_before = RUNS_SKIPPED_TOTAL.labels(reason=SkipReason.DEFERRED)._value.get()
+
+    with await sync_to_async(setup)(schema):
+        outcome = await _handle(_handler(temporal), job, _ctx(_db_url), extraction)
+
+    assert isinstance(outcome, expected_outcome)
+    assert bool(extraction.controls) is expect_run
+    assert boundaries.lock_acquire.called is expect_acquire
+    if expect_acquire:
+        assert boundaries.lock_acquire.call_args.args == (schema.team_id, str(schema.id), job.id)
+    holds_lock = lock == ACQUIRED or take_over
+    assert boundaries.lock_meta.called is (expect_acquire and holds_lock)
+    if boundaries.lock_meta.called:
+        assert boundaries.lock_meta.call_args.kwargs == {
+            "run_id": job.id,
+            "workflow_id": payload.workflow_id,
+            "runner": QUEUE_RUNNER,
+        }
+    assert boundaries.lock_release.call_args_list == (
+        [mock_call(schema.team_id, str(schema.id), job.id)] if expect_release else []
+    )
+    deferred = RUNS_SKIPPED_TOTAL.labels(reason=SkipReason.DEFERRED)._value.get() - deferred_before
+    assert deferred == (1 if not expect_acquire else 0)
+    if lock == UNAVAILABLE:
+        assert outcome == Retry(reason="sync lock unavailable", tag=LOCK_UNAVAILABLE_RETRY_TAG)
 
 
 @pytest.mark.parametrize(
@@ -1028,20 +1163,44 @@ def _fails_once_then_finalizes(error: Exception) -> Callable[..., Awaitable[None
     return update_job_status
 
 
+def _extraction_finished(row: ExternalDataJob) -> None:
+    ExternalDataJob.objects.filter(id=row.id).update(
+        schema_snapshot={**(row.schema_snapshot or {}), EXTRACTION_RESULT_SNAPSHOT_KEY: dict(WITH_BATCHES)}
+    )
+
+
 @pytest.mark.parametrize(
-    "engine_path,change_row,finalizer_error,expected_status",
+    "engine_path,change_row,finalizer_error,expected_status,expect_release",
     [
-        pytest.param(_left_executing_by_a_dead_pod, _keep_row, None, ExternalDataJob.Status.FAILED, id="sweep_at_cap"),
-        pytest.param(_left_waiting_at_the_cap, _keep_row, None, ExternalDataJob.Status.FAILED, id="claim_after_cap"),
         pytest.param(
-            _left_executing_by_a_dead_pod, _complete_row, None, ExternalDataJob.Status.COMPLETED, id="already_completed"
+            _left_executing_by_a_dead_pod, _keep_row, None, ExternalDataJob.Status.FAILED, True, id="sweep_at_cap"
         ),
-        pytest.param(_left_executing_by_a_dead_pod, _delete_row, None, None, id="no_job_row"),
+        pytest.param(
+            _left_waiting_at_the_cap, _keep_row, None, ExternalDataJob.Status.FAILED, True, id="claim_after_cap"
+        ),
+        pytest.param(
+            _left_executing_by_a_dead_pod,
+            _complete_row,
+            None,
+            ExternalDataJob.Status.COMPLETED,
+            False,
+            id="already_completed",
+        ),
+        pytest.param(_left_executing_by_a_dead_pod, _delete_row, None, None, True, id="no_job_row"),
+        pytest.param(
+            _left_executing_by_a_dead_pod,
+            _extraction_finished,
+            None,
+            ExternalDataJob.Status.FAILED,
+            False,
+            id="loader_keeps_the_lock_after_extraction",
+        ),
         pytest.param(
             _left_executing_by_a_dead_pod,
             _keep_row,
             RuntimeError("app db down"),
             ExternalDataJob.Status.FAILED,
+            True,
             id="transient_hook_failure_is_retried",
         ),
     ],
@@ -1053,9 +1212,11 @@ async def test_a_job_the_engine_fails_by_itself_fails_its_run(
     change_row: Callable[[ExternalDataJob], None],
     finalizer_error: Exception | None,
     expected_status: str | None,
+    expect_release: bool,
     schema: ExternalDataSchema,
     temporal: MagicMock,
     conn: psycopg.AsyncConnection[Any],
+    boundaries: MagicMock,
     _db_url: str,
 ) -> None:
     engine_max_attempts = 2
@@ -1104,6 +1265,12 @@ async def test_a_job_the_engine_fails_by_itself_fails_its_run(
     assert [r.status for r in rows] == ([expected_status] if expected_status is not None else [])
     if expected_status == ExternalDataJob.Status.FAILED:
         assert rows[0].latest_error == SYNC_RUN_STALLED_MESSAGE
+        # The engine gave up on its own, which says nothing about the source.
+        await sync_to_async(schema.refresh_from_db)()
+        assert schema.failed_runs_in_a_row == 0
+    assert boundaries.lock_release.call_args_list == (
+        [mock_call(schema.team_id, str(schema.id), job.id)] if expect_release else []
+    )
 
 
 class _FakePodMemory:

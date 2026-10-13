@@ -29,6 +29,8 @@ class SkipReason(enum.StrEnum):
     REPARTITION_HOLD = "repartition_hold"
     ALREADY_TERMINAL = "already_terminal"
     DISABLED = "disabled"
+    # The schema keeps failing, so its runs are spaced out (see `min_gap_between_runs`).
+    DEFERRED = "deferred"
 
 
 RUNS_FINISHED_TOTAL = Counter(

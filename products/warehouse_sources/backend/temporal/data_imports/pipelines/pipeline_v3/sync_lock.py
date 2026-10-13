@@ -3,6 +3,7 @@ import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
@@ -94,8 +95,20 @@ def _get_redis_client() -> Generator[redis.Redis | None]:
         pass
 
 
-def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
-    """Acquire an exclusive lock for a V3 pipeline run. Fail-closed on errors."""
+class LockAcquireResult(StrEnum):
+    ACQUIRED = "acquired"
+    HELD = "held"
+    # Redis could not answer, so nobody can tell whether another run holds the lock.
+    UNAVAILABLE = "unavailable"
+
+
+# The `runner` value in the lock meta of a queue run. A holder whose meta has no runner is a
+# Temporal run.
+QUEUE_RUNNER = "queue"
+
+
+def try_acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> LockAcquireResult:
+    """Acquire an exclusive lock for a V3 pipeline run, and say why when it is not acquired."""
     with _get_redis_client() as client:
         if client is None:
             logger.error(
@@ -103,11 +116,11 @@ def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
                 team_id=team_id,
                 schema_id=schema_id,
             )
-            return False
+            return LockAcquireResult.UNAVAILABLE
 
         try:
             acquired = client.set(_lock_key(team_id, schema_id), token, nx=True, ex=LOCK_TTL_SECONDS)
-            return bool(acquired)
+            return LockAcquireResult.ACQUIRED if acquired else LockAcquireResult.HELD
         except Exception as e:
             if _is_cancellation(e):
                 raise
@@ -118,23 +131,31 @@ def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
                 schema_id=schema_id,
             )
             capture_exception(e)
-            return False
+            return LockAcquireResult.UNAVAILABLE
 
 
-def write_v3_pipeline_lock_meta(team_id: int, schema_id: str, run_id: str, workflow_id: str) -> None:
+def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
+    """Acquire an exclusive lock for a V3 pipeline run. Fail-closed on errors."""
+    return try_acquire_v3_pipeline_lock(team_id, schema_id, token) == LockAcquireResult.ACQUIRED
+
+
+def write_v3_pipeline_lock_meta(
+    team_id: int, schema_id: str, run_id: str, workflow_id: str, runner: str | None = None
+) -> None:
     """Write the companion metadata for the current lock holder. Best-effort: never raises."""
     with _get_redis_client() as client:
         if client is None:
             return
 
         try:
-            payload = json.dumps(
-                {
-                    "run_id": run_id,
-                    "workflow_id": workflow_id,
-                    "acquired_at": datetime.now(UTC).isoformat(),
-                }
-            )
+            meta: dict[str, Any] = {
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "acquired_at": datetime.now(UTC).isoformat(),
+            }
+            if runner is not None:
+                meta["runner"] = runner
+            payload = json.dumps(meta)
             client.set(_lock_meta_key(team_id, schema_id), payload, ex=LOCK_TTL_SECONDS)
         except Exception as e:
             if _is_cancellation(e):

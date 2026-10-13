@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
 
+import psycopg
 from temporalio.client import WorkflowExecutionStatus
 
 from posthog.models import Organization, Team
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     release_v3_pipeline_lock_activity,
 )
 from products.warehouse_sources_queue.backend.core.jobs_db import RunActivitySummary
+from products.warehouse_sources_queue.backend.sdk import JobLiveness
 
 TEAM_ID = 1
 SCHEMA_ID = uuid.uuid4()
@@ -525,3 +527,133 @@ class TestReleaseV3PipelineLockActivity:
         release_v3_pipeline_lock_activity(inputs)
 
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
+
+
+QUEUE_HOLDER = str(uuid.uuid4())
+LOOKUP_FAILED = object()
+
+
+class TestTakeOverFromQueueHolder:
+    @pytest.mark.parametrize(
+        "meta_runner,liveness,job_status,expected,expected_path",
+        [
+            pytest.param(
+                "queue",
+                JobLiveness(latest_state="executing", is_live=True),
+                None,
+                False,
+                None,
+                id="live_queue_holder_keeps_it",
+            ),
+            pytest.param(
+                "queue",
+                JobLiveness(latest_state="waiting_retry", is_live=True),
+                None,
+                False,
+                None,
+                id="retrying_queue_holder_keeps_it",
+            ),
+            pytest.param("queue", None, None, True, "release", id="gone_queue_job_without_row_is_taken_over"),
+            pytest.param(
+                "queue",
+                JobLiveness(latest_state="failed", is_live=False),
+                "Failed",
+                True,
+                "release",
+                id="failed_queue_job_terminal_row",
+            ),
+            pytest.param(
+                "queue",
+                JobLiveness(latest_state="succeeded", is_live=False),
+                "Running",
+                "stale_check",
+                "stale_check",
+                id="handed_to_loader_asks_the_loader_queue",
+            ),
+            pytest.param(
+                None,
+                JobLiveness(latest_state="succeeded", is_live=False),
+                "Completed",
+                True,
+                "release",
+                id="queue_job_found_without_meta",
+            ),
+            pytest.param(None, None, None, False, "temporal", id="unknown_random_uuid_goes_to_temporal"),
+            pytest.param("queue", LOOKUP_FAILED, None, False, None, id="queue_lookup_error_fails_closed"),
+        ],
+    )
+    @patch(f"{MODULE}._describe_holder_workflow")
+    @patch(f"{MODULE}._take_over_stale_running_job", return_value="stale_check")
+    @patch(f"{MODULE}._queue_job_liveness")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.release_v3_pipeline_lock")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=QUEUE_HOLDER)
+    def test_queue_holder(
+        self,
+        _holder: MagicMock,
+        _close: MagicMock,
+        mock_meta: MagicMock,
+        mock_job_model: MagicMock,
+        mock_release: MagicMock,
+        _acquire: MagicMock,
+        mock_liveness: MagicMock,
+        mock_stale_check: MagicMock,
+        mock_describe: MagicMock,
+        meta_runner: str | None,
+        liveness: object,
+        job_status: str | None,
+        expected: object,
+        expected_path: str | None,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+            take_over_v3_lock_if_holder_finished,
+        )
+
+        mock_meta.return_value = (
+            {"run_id": QUEUE_HOLDER, "workflow_id": "wf", "runner": meta_runner} if meta_runner else None
+        )
+        if liveness is LOOKUP_FAILED:
+            mock_liveness.side_effect = psycopg.OperationalError("queue db down")
+        else:
+            mock_liveness.return_value = liveness
+        holder_job = None if job_status is None else MagicMock(status=job_status)
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = (
+            holder_job
+        )
+        mock_describe.return_value = HolderWorkflowDescription(
+            status=WorkflowExecutionStatus.RUNNING, job=None, status_is_assumed=False
+        )
+
+        assert take_over_v3_lock_if_holder_finished(TEAM_ID, SCHEMA_ID, WORKFLOW_RUN_ID, MagicMock()) == expected
+
+        assert mock_release.called is (expected_path == "release")
+        assert mock_stale_check.called is (expected_path == "stale_check")
+        assert mock_describe.called is (expected_path == "temporal")
+
+    @patch(f"{MODULE}._describe_holder_workflow")
+    @patch(f"{MODULE}._queue_job_liveness")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
+    def test_temporal_run_ids_skip_the_queue_lookup(
+        self,
+        mock_holder: MagicMock,
+        _close: MagicMock,
+        _meta: MagicMock,
+        mock_liveness: MagicMock,
+        mock_describe: MagicMock,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+            take_over_v3_lock_if_holder_finished,
+        )
+
+        mock_holder.return_value = _uuid7_token(age_seconds=5)
+        mock_describe.return_value = HolderWorkflowDescription(
+            status=WorkflowExecutionStatus.RUNNING, job=None, status_is_assumed=False
+        )
+
+        assert take_over_v3_lock_if_holder_finished(TEAM_ID, SCHEMA_ID, WORKFLOW_RUN_ID, MagicMock()) is False
+        mock_liveness.assert_not_called()

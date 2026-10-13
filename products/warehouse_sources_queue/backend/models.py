@@ -347,6 +347,8 @@ class QueueSchedulerDecision(models.Model):
     interval_seconds = models.BigIntegerField()
     late_seconds = models.FloatField()
     observed_at = models.DateTimeField(auto_now_add=True)
+    # The queuejob id this window enqueued. No foreign key: queuejob is partitioned and pruned.
+    job_id = models.UUIDField(null=True, blank=True)
 
     __repr__ = sane_repr("kind", "schedule_key", "window_boundary", "decision")
 

@@ -8,7 +8,14 @@ from unittest.mock import patch
 import psycopg
 
 from products.warehouse_sources_queue.backend.core.batch_consumer import BatchConsumerConfig, _group_by_key
-from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE, JOB_TABLE, Job, JobsTable
+from products.warehouse_sources_queue.backend.core.generic_jobs import (
+    JOB_LEASE_TABLE,
+    JOB_TABLE,
+    InsertRefusal,
+    InsertResult,
+    Job,
+    JobsTable,
+)
 from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
 from products.warehouse_sources_queue.backend.core.metrics import (
     GENERIC_JOBS_CLAIMABLE,
@@ -211,8 +218,13 @@ class TestOverlapPolicy:
         states = await JobsTable.get_group_job_states(conn, kind=KIND, lane=LANE, group_keys=[group_key, "1:absent"])
         assert states == {group_key: expected_state, "1:absent": IDLE}
 
+        async with conn.transaction(force_rollback=True):
+            [guarded] = await JobsTable.insert_many_guarded(conn, [JOB_DEFAULTS], overlap_policy=policy)
+        allowed = overlap_allows(policy, expected_state)
+        assert guarded.refusal is (None if allowed else InsertRefusal.OVERLAP)
+
         inserted = await _try_insert(conn, overlap_policy=policy)
-        assert (inserted is not None) is overlap_allows(policy, expected_state)
+        assert (inserted is not None) is allowed
 
     @pytest.mark.asyncio
     async def test_lookup_reads_many_groups_in_one_call(self, conn: psycopg.AsyncConnection[Any]) -> None:
@@ -253,6 +265,89 @@ class TestOverlapPolicy:
 
         assert await _try_insert(conn, dedup_key="k1", overlap_policy=policy) is None
         assert await _try_insert(conn, dedup_key="k2", overlap_policy=policy) is not None
+
+    @pytest.mark.parametrize(
+        "policy,expected",
+        [
+            pytest.param(
+                OverlapPolicy.SKIP,
+                ["dedup", "overlap", "inserted", "overlap", "inserted", "dedup"],
+                id="skip",
+            ),
+            pytest.param(
+                OverlapPolicy.BUFFER_ONE,
+                ["dedup", "inserted", "inserted", "overlap", "inserted", "dedup"],
+                id="buffer_one",
+            ),
+            pytest.param(None, ["dedup", "inserted", "inserted", "inserted", "inserted", "dedup"], id="no_policy"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_guarded_batch_reports_each_refusal_in_input_order(
+        self, conn: psycopg.AsyncConnection[Any], policy: OverlapPolicy | None, expected: list[str]
+    ) -> None:
+        await _seed_job(conn, state="executing", group_key="1:busy", dedup_key="busy-window-1")
+
+        results = await JobsTable.insert_many_guarded(
+            conn,
+            [
+                # Dedup wins over overlap when both refuse.
+                {**JOB_DEFAULTS, "group_key": "1:busy", "dedup_key": "busy-window-1"},
+                {**JOB_DEFAULTS, "group_key": "1:busy", "dedup_key": "busy-window-2"},
+                {**JOB_DEFAULTS, "group_key": "1:idle", "dedup_key": "idle-window-1"},
+                # A second job for one group waits behind the first job of the same batch.
+                {**JOB_DEFAULTS, "group_key": "1:idle", "dedup_key": "idle-window-2"},
+                {**JOB_DEFAULTS, "group_key": "1:other", "dedup_key": "other-window-1"},
+                {**JOB_DEFAULTS, "group_key": "1:third", "dedup_key": "other-window-1"},
+            ],
+            overlap_policy=policy,
+        )
+
+        def outcome(result: InsertResult) -> str:
+            return "inserted" if result.job_id is not None else str(result.refusal)
+
+        assert [outcome(result) for result in results] == expected
+        async with conn.cursor() as cur:
+            await cur.execute(f"SELECT id::text FROM {JOB_TABLE}")
+            stored = {row[0] for row in await cur.fetchall()}
+        assert {result.job_id for result in results if result.job_id is not None} < stored
+        assert len(stored) == 1 + expected.count("inserted")
+
+    @pytest.mark.asyncio
+    async def test_guarded_batch_with_no_jobs_runs_nothing(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        assert await JobsTable.insert_many_guarded(conn, [], overlap_policy=OverlapPolicy.SKIP) == []
+
+    @pytest.mark.parametrize(
+        "seed,expected",
+        [
+            pytest.param({"state": "pending"}, ("pending", True), id="pending"),
+            pytest.param({"state": "executing"}, ("executing", True), id="executing"),
+            pytest.param({"state": "waiting_retry"}, ("waiting_retry", True), id="waiting_retry"),
+            pytest.param({"state": "succeeded"}, ("succeeded", False), id="succeeded"),
+            pytest.param({"state": "failed"}, ("failed", False), id="failed"),
+            pytest.param({"state": "executing", "superseded": True}, ("executing", False), id="superseded"),
+            pytest.param({"state": "waiting_retry", "age": "7 days"}, ("waiting_retry", False), id="past_eligibility"),
+            pytest.param({"state": "executing", "age": "15 days"}, None, id="past_partition_window"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_job_liveness_matches_the_overlap_view(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        _db_url: str,
+        seed: dict[str, Any],
+        expected: tuple[str, bool] | None,
+    ) -> None:
+        await _seed_job(conn, **seed)
+        async with conn.cursor() as cur:
+            await cur.execute(f"SELECT id::text FROM {JOB_TABLE}")
+            [(job_id,)] = await cur.fetchall()
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            liveness = JobsTable.get_job_liveness_sync(sync_conn, job_id=job_id)
+            assert JobsTable.get_job_liveness_sync(sync_conn, job_id=str(uuid4())) is None
+
+        assert (None if liveness is None else (liveness.latest_state, liveness.is_live)) == expected
 
 
 @pytest.mark.django_db(transaction=True)
@@ -578,6 +673,7 @@ class TestJobConsumerEndToEnd:
     async def test_tagged_retries_are_recorded_and_left_out_of_the_retry_history(self, conn, _db_url):
         outcomes: list[Outcome] = [
             Retry(reason="worker shutdown", tag="shutdown"),
+            Retry(reason="lock store down", tag="lock"),
             Retry(reason="source said no"),
             Success(),
         ]
@@ -585,7 +681,7 @@ class TestJobConsumerEndToEnd:
 
         class _ScriptedHandler:
             async def handle(self, job: Job, ctx: JobContext) -> Outcome:
-                histories.append(await ctx.retry_history(job, uncounted_tag="shutdown"))
+                histories.append(await ctx.retry_history(job, uncounted_tags={"shutdown", "lock"}))
                 return outcomes[len(histories) - 1]
 
         job_id = await _insert(conn)
@@ -597,6 +693,7 @@ class TestJobConsumerEndToEnd:
                 recovery_interval_seconds=3600,
                 reconcile_interval_seconds=3600,
                 retry_backoff_base_seconds=0,
+                max_attempts=4,
             ),
             lane=LANE,
             handlers={KIND: _ScriptedHandler()},
@@ -613,6 +710,7 @@ class TestJobConsumerEndToEnd:
         assert histories == [
             RetryHistory(counted_retries=0, last_error=None),
             RetryHistory(counted_retries=0, last_error=None),
+            RetryHistory(counted_retries=0, last_error=None),
             RetryHistory(counted_retries=1, last_error="source said no"),
         ]
         async with conn.cursor() as cur:
@@ -621,7 +719,7 @@ class TestJobConsumerEndToEnd:
                 "ORDER BY created_at",
                 (job_id,),
             )
-            assert [row[0] for row in await cur.fetchall()] == ["shutdown", None]
+            assert [row[0] for row in await cur.fetchall()] == ["shutdown", "lock", None]
 
 
 class _EngineFailureRecordingHandler(_RecordingHandler):

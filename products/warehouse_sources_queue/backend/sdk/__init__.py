@@ -16,7 +16,10 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
 )
 from products.warehouse_sources_queue.backend.core.generic_jobs import (
     JOB_CLAIM_ELIGIBILITY,
+    InsertRefusal,
+    InsertResult,
     Job,
+    JobLiveness,
     JobsTable,
     RetryHistory,
 )
@@ -81,10 +84,13 @@ __all__ = [
     "GenericJobAdapter",
     "GroupJobState",
     "HealthState",
+    "InsertRefusal",
+    "InsertResult",
     "Job",
     "JobConsumer",
     "JobContext",
     "JobHandler",
+    "JobLiveness",
     "JobsTable",
     "Outcome",
     "OverlapPolicy",

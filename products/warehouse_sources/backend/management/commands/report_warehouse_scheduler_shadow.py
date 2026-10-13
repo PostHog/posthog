@@ -11,6 +11,7 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models import ExternalDataJob
 from products.warehouse_sources.backend.queue_runs.payloads import SYNC_EXTRACT_KIND
+from products.warehouse_sources.backend.scheduling.shadow import DECISION_FIRED
 from products.warehouse_sources_queue.backend.sdk import SchedulerStateTable
 
 TOP_OFFENDERS = 10
@@ -91,8 +92,15 @@ class Command(BaseCommand):
         started_at = time.monotonic()
         with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL) as conn:
             decisions = SchedulerStateTable.fetch_would_fires(conn, SYNC_EXTRACT_KIND, since)
+            fired = SchedulerStateTable.fetch_decisions(conn, SYNC_EXTRACT_KIND, since, (DECISION_FIRED,))
         if options["team_id"] is not None:
             decisions = [d for d in decisions if d.team_id == options["team_id"]]
+            fired = [d for d in fired if d.team_id == options["team_id"]]
+        # A schema the queue fired for runs on the queue, so its jobs say nothing about parity
+        # with Temporal. It leaves the comparison for the whole window.
+        queue_owned = {d.schedule_key for d in fired}
+        fired_job_ids = {d.job_id for d in fired if d.job_id is not None}
+        decisions = [d for d in decisions if d.schedule_key not in queue_owned]
         self.stderr.write(f"fetched {len(decisions)} decisions in {time.monotonic() - started_at:.1f}s")
 
         self.stderr.write("fetching jobs...")
@@ -101,7 +109,7 @@ class Command(BaseCommand):
         jobs_qs = ExternalDataJob.objects.filter(created_at__gte=match_start, schema_id__isnull=False)
         if options["team_id"] is not None:
             jobs_qs = jobs_qs.filter(team_id=options["team_id"])
-        jobs = list(jobs_qs.values_list("schema_id", "workflow_id", "created_at", "finished_at"))
+        jobs = list(jobs_qs.values_list("schema_id", "workflow_id", "workflow_run_id", "created_at", "finished_at"))
         self.stderr.write(f"fetched {len(jobs)} jobs in {time.monotonic() - started_at:.1f}s")
 
         # One-to-one greedy matching per schema, nearest job time to due time first.
@@ -112,10 +120,17 @@ class Command(BaseCommand):
         matched = 0
         temporal_only: list[str] = []
         adhoc = 0
+        queue_owned_jobs = 0
+        fired_with_job: set[str] = set()
         job_intervals: dict[str, list[tuple[datetime, datetime | None]]] = {}
         started_at = time.monotonic()
-        for job_index, (schema_uuid, workflow_id, created_at, finished_at) in enumerate(jobs, start=1):
+        for job_index, (schema_uuid, workflow_id, workflow_run_id, created_at, finished_at) in enumerate(jobs, start=1):
             schema_id = str(schema_uuid)
+            if schema_id in queue_owned:
+                queue_owned_jobs += 1
+                if workflow_run_id in fired_job_ids:
+                    fired_with_job.add(workflow_run_id)
+                continue
             job_intervals.setdefault(schema_id, []).append((created_at, finished_at))
             fired_at = parse_schedule_fired_at(schema_id, workflow_id)
             if fired_at is None:
@@ -175,6 +190,10 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"temporal_only (schedule-fired job, no decision): {len(temporal_only)}")
         self.stdout.write(f"adhoc (manual/backfill runs, excluded): {adhoc}")
+        self.stdout.write(
+            f"queue_fired (fired on the queue, excluded): {len(fired)} decisions, {len(queue_owned)} schemas, "
+            f"{len(fired_with_job)} with a job row, {queue_owned_jobs} jobs"
+        )
         _print_offenders(self.stdout, "shadow_only", shadow_only)
         _print_offenders(self.stdout, "temporal_overlap_skip", temporal_overlap_skip)
         _print_offenders(self.stdout, "temporal_only", temporal_only)

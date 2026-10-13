@@ -10,6 +10,7 @@ idiom); callers drive the tick loop.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -45,6 +46,8 @@ class DecisionRecord:
     decision: str
     interval_seconds: int
     late_seconds: float
+    # The job the scheduler enqueued for this window. None when it enqueued nothing.
+    job_id: str | None = None
 
 
 _UPSERT_STATE_SQL = f"""
@@ -87,10 +90,11 @@ _INSERT_DECISIONS_SQL = f"""
             %(due_times)s::timestamptz[],
             %(decisions)s::text[],
             %(intervals)s::bigint[],
-            %(lateness)s::double precision[]
+            %(lateness)s::double precision[],
+            %(job_ids)s::uuid[]
         ) WITH ORDINALITY AS rows(
             team_id, kind, schedule_key, window_boundary, due_at, decision,
-            interval_seconds, late_seconds, record_index
+            interval_seconds, late_seconds, job_id, record_index
         )
     ), deduplicated AS (
         SELECT DISTINCT ON (kind, schedule_key, due_at) *
@@ -98,9 +102,9 @@ _INSERT_DECISIONS_SQL = f"""
         ORDER BY kind, schedule_key, due_at, record_index
     ), inserted AS (
         INSERT INTO {SCHEDULER_DECISION_TABLE} (
-            team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
+            team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds, job_id
         )
-        SELECT team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
+        SELECT team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds, job_id
         FROM deduplicated
         ON CONFLICT (kind, schedule_key, due_at) DO NOTHING
         RETURNING kind, schedule_key, due_at
@@ -242,6 +246,7 @@ class SchedulerStateTable:
                     "decisions": [record.decision for record in records],
                     "intervals": [record.interval_seconds for record in records],
                     "lateness": [record.late_seconds for record in records],
+                    "job_ids": [record.job_id for record in records],
                 },
             )
             inserted_indexes = [row[0] - 1 for row in await cur.fetchall()]
@@ -266,21 +271,33 @@ class SchedulerStateTable:
             return cur.rowcount
 
     @staticmethod
+    def fetch_decisions(
+        conn: psycopg.Connection[Any],
+        kind: str,
+        since: datetime,
+        decisions: Collection[str],
+    ) -> list[DecisionRecord]:
+        """Read one kind's decisions of the given types, due at or after ``since``."""
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds,
+                    job_id::text AS job_id
+                FROM {SCHEDULER_DECISION_TABLE}
+                WHERE kind = %(kind)s AND decision = ANY(%(decisions)s) AND due_at >= %(since)s
+                ORDER BY due_at
+                """,
+                {"kind": kind, "since": since, "decisions": list(decisions)},
+            )
+            rows = cur.fetchall()
+        return [DecisionRecord(**row) for row in rows]
+
+    @staticmethod
     def fetch_would_fires(
         conn: psycopg.Connection[Any],
         kind: str,
         since: datetime,
     ) -> list[DecisionRecord]:
         """Read the would-fire decisions for one kind."""
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                f"""
-                SELECT team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
-                FROM {SCHEDULER_DECISION_TABLE}
-                WHERE kind = %(kind)s AND decision = 'would_fire' AND due_at >= %(since)s
-                ORDER BY due_at
-                """,
-                {"kind": kind, "since": since},
-            )
-            rows = cur.fetchall()
-        return [DecisionRecord(**row) for row in rows]
+        return SchedulerStateTable.fetch_decisions(conn, kind, since, ("would_fire",))

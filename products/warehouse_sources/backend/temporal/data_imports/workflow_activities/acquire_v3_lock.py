@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    QUEUE_RUNNER,
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
     get_v3_pipeline_lock_meta,
@@ -32,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     write_v3_pipeline_lock_meta,
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import min_gap_between_runs
-from products.warehouse_sources_queue.backend.sdk import BatchQueue
+from products.warehouse_sources_queue.backend.sdk import BatchQueue, JobLiveness, JobsTable
 
 LOGGER = get_logger(__name__)
 
@@ -130,6 +131,10 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
 
 
 def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+    return failing_schema_deferral(inputs.team_id, inputs.schema_id, reset_requested=False, logger=logger)
+
+
+def failing_schema_deferral(team_id: int, schema_id: uuid.UUID, *, reset_requested: bool, logger: Any) -> bool:
     """Whether this run stands down because the schema's runs keep failing.
 
     The schedule keeps its cadence and its runs are spaced out instead, so a source nothing can
@@ -139,12 +144,10 @@ def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> b
     False on any error. This decides whether a sync runs at all, and the retry cap already bounds
     what one failing run costs, so going ahead is the safe answer.
     """
+    if reset_requested:
+        return False
     try:
-        schema = (
-            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
-            .only("sync_type_config")
-            .first()
-        )
+        schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).only("sync_type_config").first()
         if schema is None or schema.reset_pipeline:
             return False
 
@@ -159,15 +162,22 @@ def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> b
 
         logger.info(
             "data_import_run_deferred",
-            schema_id=str(inputs.schema_id),
+            schema_id=str(schema_id),
             failed_runs_in_a_row=schema.failed_runs_in_a_row,
             gap_seconds=int(gap.total_seconds()),
             since_last_failure_seconds=int(since_last_failure.total_seconds()),
         )
         return True
     except Exception as e:
-        logger.warning("data_import_run_defer_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        logger.warning("data_import_run_defer_check_failed", schema_id=str(schema_id), error=str(e))
         return False
+
+
+def take_over_v3_lock_if_holder_finished(team_id: int, schema_id: uuid.UUID, token: str, logger: Any) -> bool:
+    """Take the lock from a holder that is no longer running. Shared by Temporal and queue runs."""
+    return _take_over_lock_if_holder_finished(
+        AcquireV3LockActivityInputs(team_id=team_id, schema_id=schema_id), token, logger
+    )
 
 
 def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, token: str, logger: Any) -> bool:
@@ -202,6 +212,25 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
             meta_workflow_id = raw_workflow_id
 
     holder_age_seconds = _holder_token_age_seconds(holder)
+
+    # A queue run holds the lock under its queue job id. The queue's job state decides whether it
+    # still runs, because Temporal knows nothing about it.
+    meta_says_queue = meta_found and meta is not None and meta.get("runner") == QUEUE_RUNNER
+    if meta_says_queue or (not meta_found and _could_be_queue_job_id(holder)):
+        try:
+            liveness = _queue_job_liveness(holder)
+        except Exception as e:
+            logger.warning(
+                "v3_pipeline_lock_takeover_ambiguous",
+                schema_id=str(inputs.schema_id),
+                holder_token=holder,
+                reason="queue_job_lookup_failed",
+                error=str(e),
+            )
+            capture_exception(e)
+            return False
+        if meta_says_queue or liveness is not None:
+            return _take_over_from_queue_holder(inputs, holder, token, liveness, logger)
 
     # Step 1: check if the holder's Temporal workflow is still running
     description = _describe_holder_workflow(inputs, holder, meta_workflow_id, logger)
@@ -275,6 +304,78 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 
     # Step 4: workflow terminal but job still RUNNING - consult queue DB
     return _take_over_stale_running_job(inputs, holder, token, description.job, logger)
+
+
+def _could_be_queue_job_id(token: str) -> bool:
+    """Queue job ids are random UUIDs. Temporal run ids are UUIDv7, so those skip the queue lookup."""
+    try:
+        return uuid.UUID(token).version != 7
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _queue_job_liveness(job_id: str) -> JobLiveness | None:
+    with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        return JobsTable.get_job_liveness_sync(conn, job_id=job_id)
+
+
+def _take_over_from_queue_holder(
+    inputs: AcquireV3LockActivityInputs,
+    holder: str,
+    token: str,
+    liveness: JobLiveness | None,
+    logger: Any,
+) -> bool:
+    """Decide a takeover from a queue run. Fail closed on any ambiguity.
+
+    1. Queue job live (pending, executing, or waiting for a retry) -> fail closed. Its next
+       attempt continues the run under the same token.
+    2. Queue job finished or gone, no job row -> take over.
+    3. Queue job finished or gone, job terminal -> take over.
+    4. Queue job finished or gone, job RUNNING -> the loader may still write the run's batches,
+       so the same queue DB check as a terminal Temporal holder decides.
+    """
+    if liveness is not None and liveness.is_live:
+        logger.info(
+            "v3_pipeline_lock_takeover_skipped",
+            schema_id=str(inputs.schema_id),
+            holder_token=holder,
+            reason="queue_holder_live",
+            holder_queue_state=liveness.latest_state,
+        )
+        return False
+
+    try:
+        holder_job = (
+            ExternalDataJob.objects.filter(team_id=inputs.team_id, schema_id=inputs.schema_id, workflow_run_id=holder)
+            .order_by("-created_at")
+            .only("id", "status", "created_at")
+            .first()
+        )
+    except Exception as e:
+        logger.warning(
+            "v3_pipeline_lock_takeover_ambiguous",
+            schema_id=str(inputs.schema_id),
+            holder_token=holder,
+            reason="queue_holder_job_lookup_failed",
+            error=str(e),
+        )
+        capture_exception(e)
+        return False
+
+    queue_state = liveness.latest_state if liveness is not None else None
+    if holder_job is None or holder_job.status in TERMINAL_JOB_STATUSES:
+        logger.warning(
+            "v3_pipeline_lock_taking_over",
+            schema_id=str(inputs.schema_id),
+            holder_token=holder,
+            reason="queue_holder_no_job_row" if holder_job is None else "queue_holder_job_terminal",
+            holder_queue_state=queue_state,
+            holder_job_status=holder_job.status if holder_job is not None else None,
+        )
+        return _release_and_acquire(inputs, holder, token)
+
+    return _take_over_stale_running_job(inputs, holder, token, holder_job, logger)
 
 
 def _holder_token_age_seconds(token: str) -> float | None:

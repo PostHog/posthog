@@ -14,9 +14,10 @@ from datetime import (
 )
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
+from django.test import override_settings
 
 import psycopg
 from asgiref.sync import async_to_sync
@@ -28,11 +29,20 @@ from products.warehouse_sources.backend.management.commands.report_warehouse_sch
     parse_schedule_fired_at,
 )
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.queue_runs.payloads import EXTRACT_LANE, SYNC_EXTRACT_KIND, group_key
+from products.warehouse_sources.backend.queue_runs.payloads import (
+    EXTRACT_LANE,
+    SYNC_EXTRACT_KIND,
+    SyncExtractPayload,
+    SyncTrigger,
+    group_key,
+    scheduled_workflow_id,
+)
 from products.warehouse_sources.backend.scheduling import runner as scheduler_runner
 from products.warehouse_sources.backend.scheduling.runner import ShadowScheduler, ShadowSchedulerConfig
 from products.warehouse_sources.backend.scheduling.shadow import (
+    DECISION_FIRED,
     DECISION_SKIP_CDC_HALTED,
+    DECISION_SKIP_DUPLICATE,
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_SKIP_OVERLAP,
     DECISION_WOULD_FIRE,
@@ -47,6 +57,7 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     next_due_after,
     schedule_offset,
     window_boundary,
+    window_dedup_key,
 )
 from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE
 from products.warehouse_sources_queue.backend.core.scheduler_state import (
@@ -230,15 +241,26 @@ def _reset_queue_jobs() -> str:
     return db_url
 
 
-def _evaluate(db_url: str, due: list[DueSchedule], now_epoch: int) -> EvaluationResult:
+def _evaluate(
+    db_url: str, due: list[DueSchedule], now_epoch: int, firing_team_ids: frozenset[int] = frozenset()
+) -> EvaluationResult:
     async def run() -> EvaluationResult:
         async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
-            return await evaluate_due(conn, due, now_epoch)
+            return await evaluate_due(conn, due, now_epoch, firing_team_ids=firing_team_ids)
 
     return async_to_sync(run)()
 
 
-def _seed_extract_job(db_url: str, team_id: int, schema_id: str, state: str) -> None:
+def _extract_jobs(db_url: str) -> list[dict]:
+    with psycopg.Connection.connect(db_url) as conn:
+        rows = conn.execute(
+            "SELECT id::text, kind, lane, group_key, team_id, payload, dedup_key FROM queuejob ORDER BY created_at"
+        ).fetchall()
+    keys = ("id", "kind", "lane", "group_key", "team_id", "payload", "dedup_key")
+    return [dict(zip(keys, row)) for row in rows]
+
+
+def _seed_extract_job(db_url: str, team_id: int, schema_id: str, state: str, dedup_key: str | None = None) -> None:
     async def run() -> None:
         async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
             job_id = await JobsTable.insert(
@@ -248,6 +270,7 @@ def _seed_extract_job(db_url: str, team_id: int, schema_id: str, state: str) -> 
                 group_key=group_key(team_id, schema_id),
                 team_id=team_id,
                 payload={},
+                dedup_key=dedup_key,
             )
             assert job_id is not None
             if state != "pending":
@@ -329,6 +352,110 @@ class TestEvaluateDue:
             str(busy.id): DECISION_SKIP_OVERLAP,
             str(idle.id): DECISION_WOULD_FIRE,
         }
+
+    @pytest.mark.parametrize(
+        "seed,sync_type_config,orphaned_row,team_fires,expected_decision",
+        [
+            pytest.param(None, {}, False, True, DECISION_FIRED, id="idle_group_fires"),
+            pytest.param(None, {}, True, True, DECISION_FIRED, id="orphaned_running_row_does_not_block"),
+            pytest.param({"state": "executing"}, {}, False, True, DECISION_SKIP_OVERLAP, id="running_job_skips"),
+            pytest.param({"state": "pending"}, {}, False, True, DECISION_SKIP_OVERLAP, id="pending_job_skips"),
+            pytest.param({"state": "waiting_retry"}, {}, False, True, DECISION_SKIP_OVERLAP, id="retrying_job_skips"),
+            pytest.param({"state": "succeeded"}, {}, False, True, DECISION_FIRED, id="finished_job_does_not_block"),
+            pytest.param(
+                {"state": "succeeded", "same_window": True}, {}, False, True, DECISION_SKIP_DUPLICATE, id="same_window"
+            ),
+            pytest.param(
+                {"state": "executing", "same_window": True},
+                {},
+                False,
+                True,
+                DECISION_SKIP_DUPLICATE,
+                id="same_window_still_running_is_a_duplicate",
+            ),
+            pytest.param(None, {"cdc_broken": True}, False, True, DECISION_SKIP_CDC_HALTED, id="cdc_halted_skips"),
+            pytest.param(None, {}, False, False, DECISION_WOULD_FIRE, id="team_not_firing_stays_shadow"),
+            pytest.param({"state": "executing"}, {}, False, False, DECISION_SKIP_OVERLAP, id="shadow_overlap"),
+        ],
+    )
+    def test_firing_team_decisions(self, team, seed, sync_type_config, orphaned_row, team_fires, expected_decision):
+        db_url = _reset_queue_jobs()
+        source = _create_source(team)
+        schema = _create_schema(team, source, sync_type_config=sync_type_config)
+        now_epoch = int(time.time())
+        row = _due_row(str(schema.id), team.pk, now_epoch)
+        due_at = datetime.fromtimestamp(
+            latest_fire_at(now_epoch, SchemaCadence(interval_seconds=21600, offset_seconds=0)), tz=UTC
+        )
+        if orphaned_row:
+            job = ExternalDataJob.objects.create(team=team, pipeline=source, schema=schema, status="Running")
+            ExternalDataJob.objects.filter(pk=job.pk).update(created_at=due_at - timedelta(days=120))
+        if seed is not None:
+            dedup_key = window_dedup_key(str(schema.id), due_at) if seed.get("same_window") else None
+            _seed_extract_job(db_url, team.pk, str(schema.id), seed["state"], dedup_key=dedup_key)
+        jobs_before = _extract_jobs(db_url)
+
+        result = _evaluate(db_url, [row], now_epoch, frozenset({team.pk}) if team_fires else frozenset())
+
+        [record] = result.records
+        assert record.decision == expected_decision
+        new_jobs = [job for job in _extract_jobs(db_url) if job not in jobs_before]
+        if expected_decision != DECISION_FIRED:
+            assert record.job_id is None
+            assert new_jobs == []
+            return
+        [new_job] = new_jobs
+        assert record.job_id == new_job["id"]
+        assert {key: new_job[key] for key in ("kind", "lane", "group_key", "team_id", "dedup_key")} == {
+            "kind": SYNC_EXTRACT_KIND,
+            "lane": EXTRACT_LANE,
+            "group_key": group_key(team.pk, schema.id),
+            "team_id": team.pk,
+            "dedup_key": f"{schema.id}:{int(due_at.timestamp())}",
+        }
+        assert SyncExtractPayload.from_json(new_job["payload"]) == SyncExtractPayload(
+            team_id=team.pk,
+            schema_id=schema.id,
+            source_id=source.id,
+            trigger=SyncTrigger.SCHEDULE,
+            billable=True,
+            reset_pipeline=None,
+            workflow_id=scheduled_workflow_id(schema.id, due_at),
+            due_at=due_at,
+        )
+
+    def test_same_window_evaluated_twice_enqueues_once(self, team):
+        db_url = _reset_queue_jobs()
+        source = _create_source(team)
+        schema = _create_schema(team, source)
+        now_epoch = int(time.time())
+        row = _due_row(str(schema.id), team.pk, now_epoch)
+
+        first = _evaluate(db_url, [row], now_epoch, frozenset({team.pk}))
+        second = _evaluate(db_url, [row], now_epoch + 1, frozenset({team.pk}))
+
+        assert [r.decision for r in first.records + second.records] == [DECISION_FIRED, DECISION_SKIP_DUPLICATE]
+        assert len(_extract_jobs(db_url)) == 1
+
+    def test_firing_is_decided_per_team(self, team, organization):
+        db_url = _reset_queue_jobs()
+        other_team = create_team(organization=organization)
+        firing = _create_schema(team, _create_source(team))
+        shadow = _create_schema(other_team, _create_source(other_team))
+        now_epoch = int(time.time())
+
+        result = _evaluate(
+            db_url,
+            [_due_row(str(firing.id), team.pk, now_epoch), _due_row(str(shadow.id), other_team.pk, now_epoch)],
+            now_epoch,
+            frozenset({team.pk}),
+        )
+
+        assert {r.schedule_key: r.decision for r in result.records} == {
+            str(firing.id): DECISION_FIRED,
+            str(shadow.id): DECISION_WOULD_FIRE,
+        }
+        assert [job["group_key"] for job in _extract_jobs(db_url)] == [group_key(team.pk, firing.id)]
 
     def test_unknown_schema_is_out_of_scope(self, team):
         db_url = _reset_queue_jobs()
@@ -528,6 +655,49 @@ class TestShadowSchedulerTick:
         assert self._overdue_keys(db_url) == set()
         due_per_tick.observe.assert_called_once_with(schema_count)
         assert health_reporter.call_count >= expected_batches
+
+    @pytest.mark.parametrize(
+        "kill_switch,flag,expected_decision,expected_flag_calls",
+        [
+            pytest.param(True, True, DECISION_FIRED, 1, id="flagged_team_fires"),
+            pytest.param(True, False, DECISION_WOULD_FIRE, 1, id="unflagged_team_stays_shadow"),
+            pytest.param(False, True, DECISION_WOULD_FIRE, 0, id="kill_switch_off_records_would_fire"),
+            pytest.param(True, RuntimeError("flags down"), DECISION_WOULD_FIRE, 1, id="flag_error_counts_as_unflagged"),
+        ],
+    )
+    def test_tick_fires_only_for_flagged_teams_while_the_kill_switch_is_on(
+        self, team, monkeypatch, kill_switch, flag, expected_decision, expected_flag_calls
+    ):
+        schema_ids, db_url = self._setup_due_schemas(team, 3)
+        monkeypatch.setattr(
+            scheduler_runner.JobsTable, "try_acquire_sentinel_slot", AsyncMock(side_effect=[True, False])
+        )
+        fired_total = MagicMock()
+        would_fire_total = MagicMock()
+        monkeypatch.setattr(scheduler_runner, "FIRED_TOTAL", fired_total)
+        monkeypatch.setattr(scheduler_runner, "WOULD_FIRE_TOTAL", would_fire_total)
+        flag_mock = MagicMock(side_effect=flag) if isinstance(flag, Exception) else MagicMock(return_value=flag)
+
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url))
+        with (
+            override_settings(WAREHOUSE_QUEUE_SCHEDULER_FIRING_ENABLED=kill_switch),
+            patch("products.warehouse_sources.backend.scheduling.backend.posthoganalytics.feature_enabled", flag_mock),
+        ):
+            async_to_sync(scheduler._tick)(lambda: None)
+
+        with psycopg.Connection.connect(db_url) as conn:
+            decisions = dict(conn.execute(f"SELECT schedule_key, decision FROM {SCHEDULER_DECISION_TABLE}").fetchall())
+            job_links = conn.execute(
+                f"SELECT d.job_id::text, j.payload->>'schema_id' FROM {SCHEDULER_DECISION_TABLE} d "
+                "JOIN queuejob j ON j.id = d.job_id"
+            ).fetchall()
+        assert decisions == dict.fromkeys(schema_ids, expected_decision)
+        assert flag_mock.call_count == expected_flag_calls
+        fired = expected_decision == DECISION_FIRED
+        assert {schema_id for _, schema_id in job_links} == (schema_ids if fired else set())
+        assert len(_extract_jobs(db_url)) == (len(schema_ids) if fired else 0)
+        assert fired_total.inc.call_count == (len(schema_ids) if fired else 0)
+        assert would_fire_total.inc.call_count == (0 if fired else len(schema_ids))
 
     def test_drain_budget_defers_remaining_backlog_to_next_tick(self, team, monkeypatch):
         schema_ids, db_url = self._setup_due_schemas(team, 3)
@@ -899,6 +1069,80 @@ class TestShadowReport:
         assert "shadow_only (shadow would fire, no job): 1" in output
         assert "temporal_only (schedule-fired job, no decision): 0" in output
         assert "adhoc (manual/backfill runs, excluded): 1" in output
+
+    @pytest.mark.parametrize("with_job_row", [True, False], ids=["queue_run_started", "queue_run_not_started"])
+    def test_report_excludes_queue_fired_schemas_from_parity(self, team, monkeypatch, with_job_row):
+        db_url = get_test_database_url()
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}")
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.management.commands.report_warehouse_scheduler_shadow"
+            ".WAREHOUSE_SOURCES_DATABASE_URL",
+            db_url,
+        )
+
+        source = _create_source(team)
+        shadow_schema = _create_schema(team, source)
+        queue_schema = _create_schema(team, source, name="queue_table")
+        due_at = (datetime.now(UTC) - timedelta(minutes=10)).replace(microsecond=0)
+        earlier_due_at = due_at - timedelta(minutes=60)
+        queue_job_id = str(uuid.uuid4())
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            for schema_id, decision_due_at, decision, job_id in [
+                (shadow_schema.id, due_at, "would_fire", None),
+                # The flag turned on inside the window: the earlier shadow decision leaves the comparison too.
+                (queue_schema.id, earlier_due_at, "would_fire", None),
+                (queue_schema.id, due_at, "fired", queue_job_id),
+            ]:
+                conn.execute(
+                    f"""
+                    INSERT INTO {SCHEDULER_DECISION_TABLE}
+                        (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds,
+                         late_seconds, job_id)
+                    VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, %(decision)s, 3600, 1.0,
+                            %(job_id)s)
+                    """,
+                    {
+                        "team_id": team.pk,
+                        "kind": SYNC_EXTRACT_KIND,
+                        "schedule_key": str(schema_id),
+                        "due_at": decision_due_at,
+                        "decision": decision,
+                        "job_id": job_id,
+                    },
+                )
+
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=shadow_schema,
+            status="Running",
+            workflow_id=f"{shadow_schema.id}-{due_at.isoformat()}",
+        )
+        if with_job_row:
+            ExternalDataJob.objects.create(
+                team=team,
+                pipeline=source,
+                schema=queue_schema,
+                status="Running",
+                workflow_id=scheduled_workflow_id(queue_schema.id, due_at),
+                workflow_run_id=queue_job_id,
+            )
+
+        out = io.StringIO()
+        call_command("report_warehouse_scheduler_shadow", "--team-id", str(team.pk), stdout=out)
+        output = out.getvalue()
+
+        assert "would_fire decisions: 1," in output
+        assert "matched: 1" in output
+        assert "shadow_only (shadow would fire, no job): 0" in output
+        assert "temporal_only (schedule-fired job, no decision): 0" in output
+        jobs = int(with_job_row)
+        assert (
+            f"queue_fired (fired on the queue, excluded): 1 decisions, 1 schemas, {jobs} with a job row, {jobs} jobs"
+            in output
+        )
 
     @pytest.mark.parametrize(
         "created_before_due,finished_after_due,expected_overlap_skip",

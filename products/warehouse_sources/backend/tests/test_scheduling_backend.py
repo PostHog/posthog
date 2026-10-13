@@ -4,17 +4,23 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
+
+from posthog.api.test.test_organization import create_organization
+from posthog.api.test.test_team import create_team
 
 from products.warehouse_sources.backend.scheduling import backend
 from products.warehouse_sources.backend.scheduling.backend import (
     QUEUE_SCHEDULER_FLAG,
+    TeamQueueOwnership,
     clear_queue_scheduler_cache,
     queue_scheduler_firing_enabled,
     uses_queue_scheduler,
 )
 
 HELPER = "products.warehouse_sources.backend.scheduling.backend.is_schema_flag_enabled"
+FEATURE_ENABLED = "products.warehouse_sources.backend.scheduling.backend.posthoganalytics.feature_enabled"
 
 
 @pytest.fixture(autouse=True)
@@ -85,3 +91,56 @@ def test_uses_queue_scheduler_prunes_expired_entries_when_cache_is_full() -> Non
         clock[0] = 1061.0
         uses_queue_scheduler(_schema("d"), ttl_seconds=60)
     assert set(backend._cache) == {"d"}
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.mark.django_db
+class TestTeamQueueOwnership:
+    def test_evaluates_once_per_team_until_the_ttl_expires(self) -> None:
+        organization = create_organization("ownership org")
+        flagged, unflagged = create_team(organization=organization), create_team(organization=organization)
+        clock = _Clock()
+        ownership = TeamQueueOwnership(ttl_seconds=60, clock=clock)
+        answers = {str(flagged.uuid): True, str(unflagged.uuid): False}
+
+        with patch(FEATURE_ENABLED, side_effect=lambda flag, distinct_id, **_: answers[distinct_id]) as flag:
+            # One tick asks for the team of every due schema, with repeats.
+            assert ownership.owned_teams([flagged.pk, flagged.pk, unflagged.pk]) == {flagged.pk}
+            assert ownership.owned_teams([flagged.pk, unflagged.pk]) == {flagged.pk}
+            assert flag.call_count == 2
+            assert {call.args[0] for call in flag.call_args_list} == {QUEUE_SCHEDULER_FLAG}
+
+            clock.now += 61
+            answers[str(flagged.uuid)] = False
+            assert ownership.owned_teams([flagged.pk]) == frozenset()
+            assert flag.call_count == 3
+
+    def test_a_failed_evaluation_counts_as_unflagged_and_is_asked_again(self) -> None:
+        team = create_team(organization=create_organization("ownership org"))
+        ownership = TeamQueueOwnership(clock=_Clock())
+
+        with patch(FEATURE_ENABLED, side_effect=[RuntimeError("flags down"), True]) as flag:
+            assert ownership.owned_teams([team.pk]) == frozenset()
+            assert ownership.owned_teams([team.pk]) == {team.pk}
+        assert flag.call_count == 2
+
+    def test_a_missing_team_is_not_owned(self) -> None:
+        with patch(FEATURE_ENABLED, return_value=True) as flag:
+            assert TeamQueueOwnership().owned_teams([987654321]) == frozenset()
+        flag.assert_not_called()
+
+    def test_a_team_lookup_failure_is_not_cached(self) -> None:
+        team = create_team(organization=create_organization("ownership org"))
+        ownership = TeamQueueOwnership(clock=_Clock())
+
+        with patch(FEATURE_ENABLED, return_value=True):
+            with patch.object(backend.Team.objects, "filter", side_effect=OperationalError("db down")):
+                assert ownership.owned_teams([team.pk]) == frozenset()
+            assert ownership.owned_teams([team.pk]) == {team.pk}

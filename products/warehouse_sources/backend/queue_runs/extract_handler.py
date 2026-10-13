@@ -8,6 +8,11 @@ fails the run's job row.
 
 Job row identity: `workflow_run_id` on the job row is the queue job id, so every attempt of one
 queue job finds the same job row. `workflow_id` comes from the payload.
+
+Sync lock: the run takes the V3 sync lock with the queue job id as its token, so Temporal runs and
+queue runs of one schema exclude each other. The token is the job row's `workflow_run_id`, which
+is what the loader releases when it finishes the run. The run keeps the lock across its own
+retries, and releases it itself whenever it ends without handing batches to the loader.
 """
 
 from __future__ import annotations
@@ -78,7 +83,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    QUEUE_RUNNER,
+    LockAcquireResult,
     get_v3_pipeline_lock_holder,
+    release_v3_pipeline_lock,
+    try_acquire_v3_pipeline_lock,
+    write_v3_pipeline_lock_meta,
 )
 from products.warehouse_sources.backend.temporal.data_imports.run_control import (
     EventShutdownMonitor,
@@ -86,6 +96,10 @@ from products.warehouse_sources.backend.temporal.data_imports.run_control import
     no_heartbeat,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    failing_schema_deferral,
+    take_over_v3_lock_if_holder_finished,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     CreateExternalDataJobModelActivityOutputs,
@@ -102,6 +116,9 @@ LOGGER = get_logger(__name__)
 
 # The tag on a retry that a shutdown caused. Those retries do not count against the run's cap.
 SHUTDOWN_RETRY_TAG = "shutdown"
+# The tag on a retry because the sync lock store did not answer. It says nothing about the source.
+LOCK_UNAVAILABLE_RETRY_TAG = "lock_unavailable"
+UNCOUNTED_RETRY_TAGS = frozenset({SHUTDOWN_RETRY_TAG, LOCK_UNAVAILABLE_RETRY_TAG})
 # The key in `ExternalDataJob.schema_snapshot` that keeps the pre-extraction answers, so a later
 # attempt of the same queue job reads them instead of creating another job row.
 RUN_PLAN_SNAPSHOT_KEY = "queue_run_plan"
@@ -183,7 +200,11 @@ class SyncExtractHandler:
         with _job_log_context(payload, job, job.latest_attempt):
             logger = LOGGER.bind()
             existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
-            if existing is None or existing.status in TERMINAL_JOB_STATUSES:
+            if existing is None:
+                # An attempt may have taken the lock and died before it created the row.
+                await _release_sync_lock(payload, job.id)
+                return
+            if existing.status in TERMINAL_JOB_STATUSES:
                 return
             structlog.contextvars.bind_contextvars(external_data_job_id=str(existing.id))
             await logger.awarning("The queue engine failed the run's job, so the run fails", reason=reason)
@@ -195,7 +216,12 @@ class SyncExtractHandler:
                 internal_error=f"The queue engine failed the job: {reason}"[:1000],
                 latest_error=SYNC_RUN_STALLED_MESSAGE,
                 logger=logger,
+                platform_fault=True,
             )
+            # After an extraction the loader may still write this run's batches, and it releases
+            # the lock when it finishes them.
+            if _load_extraction_result(existing) is None:
+                await _release_sync_lock(payload, job.id)
             plan = _load_run_plan(existing)
             RUNS_FINISHED_TOTAL.labels(
                 source_type=plan.source_type if plan is not None else "unknown", outcome=RunOutcome.FAILED
@@ -222,7 +248,22 @@ class SyncExtractHandler:
 
         existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
 
-        if await asyncio.to_thread(_sync_lock_held_by_another_run, payload.team_id, payload.schema_id, job.id):
+        # Only before the run starts: a later attempt continues a run that already went ahead.
+        if existing is None and await database_sync_to_async_pool(failing_schema_deferral)(
+            payload.team_id, payload.schema_id, reset_requested=payload.reset_pipeline is True, logger=logger
+        ):
+            await logger.ainfo("Skipping queue run: this sync keeps failing, so the run is deferred")
+            return _skipped(SkipReason.DEFERRED)
+
+        lock = await database_sync_to_async_pool(_acquire_sync_lock)(payload, job.id, logger)
+        if lock == LockAcquireResult.UNAVAILABLE:
+            # Without the lock store nobody can tell whether another run writes this table.
+            await logger.awarning("Queue run waits: the sync lock store is unavailable")
+            return _HandlerResult(
+                outcome=Retry(reason="sync lock unavailable", tag=LOCK_UNAVAILABLE_RETRY_TAG),
+                run_outcome=RunOutcome.RETRY,
+            )
+        if lock == LockAcquireResult.HELD:
             await logger.ainfo("Skipping queue run: another run of this schema holds its sync lock")
             if existing is not None and existing.status == ExternalDataJob.Status.RUNNING:
                 # This run's own job row is left from an earlier attempt, and the other run replaces it.
@@ -236,6 +277,25 @@ class SyncExtractHandler:
                 )
             return _skipped(SkipReason.OVERLAP)
 
+        result = await self._run_with_lock(job, ctx, payload, attempt, existing, logger)
+        # The loader releases the lock when it finishes a run it was handed. A run whose row was
+        # already terminal before this attempt has no loader left to do that.
+        loader_releases = result.run_outcome == RunOutcome.HANDED_TO_LOADER and not (
+            existing is not None and existing.status in TERMINAL_JOB_STATUSES
+        )
+        if not isinstance(result.outcome, Retry) and not loader_releases:
+            await _release_sync_lock(payload, job.id)
+        return result
+
+    async def _run_with_lock(
+        self,
+        job: Job,
+        ctx: JobContext,
+        payload: SyncExtractPayload,
+        attempt: int,
+        existing: ExternalDataJob | None,
+        logger: FilteringBoundLogger,
+    ) -> _HandlerResult:
         if existing is not None and existing.status in TERMINAL_JOB_STATUSES:
             plan = _load_run_plan(existing)
             result = _load_extraction_result(existing)
@@ -280,6 +340,7 @@ class SyncExtractHandler:
                     status=ExternalDataJob.Status.FAILED,
                     latest_error=SYNC_RUN_STALLED_MESSAGE,
                     logger=logger,
+                    platform_fault=True,
                 )
                 return _HandlerResult(outcome=Fail(reason="queue run plan missing"), run_outcome=RunOutcome.FAILED)
             plan = loaded
@@ -296,7 +357,7 @@ class SyncExtractHandler:
             schema_name=plan.schema_name,
             failed_runs_in_a_row=plan.failed_runs_in_a_row,
         )
-        history = await ctx.retry_history(job, uncounted_tag=SHUTDOWN_RETRY_TAG)
+        history = await ctx.retry_history(job, uncounted_tags=UNCOUNTED_RETRY_TAGS)
         run = _Attempt(
             job=job,
             ctx=ctx,
@@ -578,6 +639,7 @@ class SyncExtractHandler:
         logger: FilteringBoundLogger,
         internal_error: str | None = None,
         latest_error: str | None = None,
+        platform_fault: bool = False,
     ) -> None:
         """Write the run's final status through the workflow's own finalizer."""
         await _update_job_status(
@@ -594,6 +656,7 @@ class SyncExtractHandler:
             logger,
             # An automatic disable must not try to cancel this run through Temporal.
             exclude_workflow_id=payload.workflow_id,
+            platform_fault=platform_fault,
         )
 
 
@@ -663,15 +726,29 @@ def _find_run_job(team_id: int, queue_job_id: str) -> ExternalDataJob | None:
     )
 
 
-def _sync_lock_held_by_another_run(team_id: int, schema_id: Any, own_token: str) -> bool:
-    """Whether another run of the schema is still in flight, from either scheduler.
+def _acquire_sync_lock(payload: SyncExtractPayload, token: str, logger: FilteringBoundLogger) -> LockAcquireResult:
+    """Take the schema's V3 sync lock for this queue job, from either scheduler's dead holder too.
 
-    A Temporal run holds the V3 sync lock until its load step ends, and the lock expires. Job rows
-    do not answer this: a run that died can leave its row Running for good, and that row must not
-    stop the schema. When Redis is unavailable there is no holder to see, so the run goes ahead.
+    The lock, not the job rows, decides whether another run is in flight: a run that died can
+    leave its row Running for good, and that row must not stop the schema. A lock this job took on
+    an earlier attempt is still its own.
     """
-    holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
-    return holder is not None and holder != own_token
+    team_id, schema_id = payload.team_id, str(payload.schema_id)
+    result = try_acquire_v3_pipeline_lock(team_id, schema_id, token)
+    if result == LockAcquireResult.UNAVAILABLE:
+        return result
+    if result == LockAcquireResult.HELD:
+        holder = get_v3_pipeline_lock_holder(team_id, schema_id)
+        if holder != token and not take_over_v3_lock_if_holder_finished(team_id, payload.schema_id, token, logger):
+            return LockAcquireResult.HELD
+    # Lets a contender see that the holder is a queue job and ask the queue whether it still runs.
+    write_v3_pipeline_lock_meta(team_id, schema_id, run_id=token, workflow_id=payload.workflow_id, runner=QUEUE_RUNNER)
+    return LockAcquireResult.ACQUIRED
+
+
+async def _release_sync_lock(payload: SyncExtractPayload, token: str) -> None:
+    # Compare-and-delete on the token, so a lock another run took is never touched.
+    await asyncio.to_thread(release_v3_pipeline_lock, payload.team_id, str(payload.schema_id), token)
 
 
 def _held_for_repartition(payload: SyncExtractPayload, logger: FilteringBoundLogger) -> bool:
