@@ -2,8 +2,6 @@ ee/api/vercel/test/test_vercel_connect.py::TestValidateNextUrl
 ee/clickhouse/materialized_columns/test/test_analyze.py::TestMaterializedColumnsAnalyze
 ee/clickhouse/models/test/test_dead_letter_queue.py::TestDeadLetterQueue
 ee/clickhouse/models/test/test_property.py::TestPropDenormalized
-ee/hogai/utils/test/test_dispatcher.py::TestDispatcherIntegration
-ee/hogai/utils/test/test_openai.py::TestOpenAIUtils
 ee/partners/stripe/api/provisioning/test/test_services_catalog.py::TestServicesCatalog
 posthog/admin/test_admin.py::TestOAuthSidebarRegrouping
 posthog/admin/test_admin.py::TestOrganizationMemberInlineConfig
