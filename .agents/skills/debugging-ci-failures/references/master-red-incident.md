@@ -63,7 +63,7 @@ Depot posts the gate verdict of an hourly run as a check on the master commit th
 This query lists those checks, newest first:
 
 ```bash
-gh api graphql -f query='{repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:60){nodes{oid checkSuites(first:5,filterBy:{appId:219785}){nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}}}}}}}}}' \
+gh api graphql -f query='{repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checkSuites(first:5,filterBy:{appId:219785}){nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}}}}}}}}}' \
   --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + (.checkSuites.nodes[].checkRuns.nodes[])] | sort_by(.startedAt) | reverse'
 ```
 
