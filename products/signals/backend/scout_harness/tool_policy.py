@@ -29,10 +29,11 @@ from products.tasks.backend.facade import api as tasks_facade
 
 _RUN = "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/"
 
-# Endpoints the sandbox calls with the run's token outside any PostHog MCP tool: the agent server
-# and harness in `packages/agent/`, and the MCP server's calls to external gateway servers, which
-# keep their own policy. A new non-GET endpoint in that code must be added here, or a narrowed
-# run gets it refused. `test_scout_tool_policy.py` fails when an entry stops resolving to a view.
+# Endpoints the sandbox calls with the run's token outside any PostHog MCP tool, from the agent
+# server and harness in `packages/agent/`. A new non-GET endpoint in that code must be added here,
+# or a narrowed run gets it refused. The MCP Store's tool calls and tool approvals stay out: they
+# reach installations the scout's selection did not mount, and an unattended run must not approve
+# tools. `test_scout_tool_policy.py` fails when an entry stops resolving to a view.
 SANDBOX_HARNESS_OPERATIONS: tuple[McpToolApiOperation, ...] = tuple(
     McpToolApiOperation(method=method, path=path)
     for method, path in (
@@ -59,8 +60,6 @@ SANDBOX_HARNESS_OPERATIONS: tuple[McpToolApiOperation, ...] = tuple(
         ("GET", "/api/projects/{project_id}/signals/reports/"),
         ("POST", "/api/projects/{project_id}/signals/reports/{id}/artefacts/"),
         ("GET", "/api/projects/{project_id}/mcp_server_installations/{id}/tools/"),
-        ("PATCH", "/api/projects/{project_id}/mcp_server_installations/{id}/tools/{tool_name}/"),
-        ("POST", "/api/projects/{project_id}/mcp_server_installations/{id}/call_tool/"),
     )
 )
 

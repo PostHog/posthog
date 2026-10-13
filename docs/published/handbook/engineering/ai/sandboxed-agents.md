@@ -247,6 +247,7 @@ While the flag is on, a run stamps the list on its task at dispatch, and a confi
 The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
 The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
 The method counts because some actions change state behind a read scope.
+A narrowed run cannot call external MCP server tools or change tool approvals through the MCP Store endpoints.
 The refusal is a 403 with the code `scout_tool_not_granted`.
 The check reads the run from the token's task binding, never from a request header.
 GET reads stay governed by the token scopes, and the MCP server still lists every tool the scopes allow.

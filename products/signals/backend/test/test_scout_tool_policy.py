@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -105,6 +106,8 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ("read_scoped_mutation", NOTES_ONLY, True, "patch", "complete_onboarding", status.HTTP_403_FORBIDDEN),
             ("unpicked_post_read", NOTES_ONLY, True, "post", "query", status.HTTP_403_FORBIDDEN),
             ("picked_post_read", ["insight-query"], True, "post", "query", status.HTTP_200_OK),
+            ("mcp_store_tool_call", NOTES_ONLY, True, "post", "mcp_call_tool", status.HTTP_403_FORBIDDEN),
+            ("mcp_store_tool_approval", NOTES_ONLY, True, "patch", "mcp_tool_approval", status.HTTP_403_FORBIDDEN),
             ("harness_write", [], True, "patch", "run_summary", status.HTTP_200_OK),
             ("malformed_stamp_fails_closed", "conversations-tickets-notes-create", True, "post", "ticket_notes", 403),
             ("not_narrowed", None, True, "post", "ticket_reply", status.HTTP_201_CREATED),
@@ -126,6 +129,11 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             "run_summary": (f"{base}/tasks/{task.id}/runs/{run.id}/set_summary/", {"summary": "Synthetic summary"}),
             "complete_onboarding": (f"{base}/complete_product_onboarding/", {"type": "product_analytics"}),
             "query": (f"{base}/query/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
+            "mcp_call_tool": (f"{base}/mcp_server_installations/{uuid4()}/call_tool/", {"tool_name": "synthetic"}),
+            "mcp_tool_approval": (
+                f"{base}/mcp_server_installations/{uuid4()}/tools/synthetic/",
+                {"approval_state": "approved"},
+            ),
         }[target]
 
         with patch("products.conversations.backend.api.tickets.transaction.on_commit"):
