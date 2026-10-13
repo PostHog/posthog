@@ -80,6 +80,17 @@ function toCanvasMutationError(error: unknown, context: CanvasPluginErrorContext
     return new CanvasMutationError(`Canvas mutation failed in ${context.canvas_context} context: ${String(error)}`)
 }
 
+// getBoundingClientRect() includes ancestor transforms. The <img> stays under the same ancestors, so a size
+// read from it applies the transform twice. Computed and inline sizes are untransformed CSS lengths.
+function cssSize(computed: string, inline: string, fallback: number): string {
+    for (const value of [computed, inline]) {
+        if (value && (value.includes('%') || parseFloat(value) >= 10)) {
+            return value
+        }
+    }
+    return fallback + 'px'
+}
+
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
     onError: CanvasPluginErrorHandler = noOpErrorHandler
@@ -268,36 +279,17 @@ export const CanvasReplayerPlugin = (
                         return
                     }
 
-                    const canvasRect = originalCanvas.getBoundingClientRect()
                     const computedStyle = window.getComputedStyle(originalCanvas)
-
-                    const usesPercentageWidth = computedStyle.width.includes('%')
-                    const usesPercentageHeight = computedStyle.height.includes('%')
-
-                    let finalWidthStyle: string
-                    let finalHeightStyle: string
-
-                    if (usesPercentageWidth) {
-                        finalWidthStyle = computedStyle.width
-                    } else {
-                        const measuredWidth =
-                            canvasRect.width || originalCanvas.offsetWidth || originalCanvas.clientWidth
-                        finalWidthStyle =
-                            measuredWidth && measuredWidth >= 10
-                                ? measuredWidth + 'px'
-                                : (originalCanvas.width || 300) + 'px'
-                    }
-
-                    if (usesPercentageHeight) {
-                        finalHeightStyle = computedStyle.height
-                    } else {
-                        const measuredHeight =
-                            canvasRect.height || originalCanvas.offsetHeight || originalCanvas.clientHeight
-                        finalHeightStyle =
-                            measuredHeight && measuredHeight >= 10
-                                ? measuredHeight + 'px'
-                                : (originalCanvas.height || 150) + 'px'
-                    }
+                    const finalWidthStyle = cssSize(
+                        computedStyle.width,
+                        originalCanvas.style.width,
+                        originalCanvas.width || 300
+                    )
+                    const finalHeightStyle = cssSize(
+                        computedStyle.height,
+                        originalCanvas.style.height,
+                        originalCanvas.height || 150
+                    )
 
                     const url = URL.createObjectURL(blob)
 
@@ -395,7 +387,12 @@ export const CanvasReplayerPlugin = (
                 // that owns the element, and the element owns that policy from the moment `src` is
                 // assigned, which happens below while the <img> is still detached. Building it in the
                 // app's document therefore puts every replayed canvas frame under the app's policy.
-                const el = containers.get(id) || canvasElement.ownerDocument.createElement('img')
+                // A seek can rebuild an iframe. The cached <img> then belongs to the discarded document and never loads.
+                const cached = containers.get(id)
+                const el =
+                    cached?.ownerDocument === canvasElement.ownerDocument
+                        ? cached
+                        : canvasElement.ownerDocument.createElement('img')
 
                 for (let i = 0; i < canvasElement.attributes.length; i++) {
                     const attr = canvasElement.attributes[i]
