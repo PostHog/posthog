@@ -1073,6 +1073,7 @@ describe('queryDatabaseLogic', () => {
         const viewNode = { id: 'node-7', saved_query_id: VIEW_ID }
         const upstreamTableNode = { id: 'table-node', saved_query_id: null }
         const lineageUrl = urls.nodeDetail(viewNode.id, 'lineage')
+        type Settle = { resolve: (value: unknown) => void; reject: (error: Error) => void }
         let logic: ReturnType<typeof queryDatabaseLogic.build>
         let toastError: jest.SpyInstance
 
@@ -1122,6 +1123,27 @@ describe('queryDatabaseLogic', () => {
 
             expect(toastError).toHaveBeenCalledTimes(1)
             expect(router.values.location.pathname).toBe(pathnameBefore)
+            expect(newInternalTab).not.toHaveBeenCalled()
+            expect(logic.values.openingLineageViewId).toBeNull()
+        })
+
+        it.each([
+            ['succeeds', (settle: Settle) => settle.resolve({ nodes: [viewNode], edges: [] })],
+            ['fails', (settle: Settle) => settle.reject(new Error('Node not found'))],
+        ])('leaves the person on the page they went to when a late lookup %s', async (_name, finish) => {
+            const settle = {} as Settle
+            mockLineageRetrieve.mockReturnValue(
+                new Promise((resolve, reject) => Object.assign(settle, { resolve, reject }))
+            )
+
+            logic.actions.openViewLineage(VIEW_ID, false)
+            router.actions.push(urls.dashboards())
+            const pathnameAfterLeaving = router.values.location.pathname
+            finish(settle)
+            await expectLogic(logic).toDispatchActions(['finishOpeningViewLineage'])
+
+            expect(router.values.location.pathname).toBe(pathnameAfterLeaving)
+            expect(toastError).not.toHaveBeenCalled()
             expect(newInternalTab).not.toHaveBeenCalled()
             expect(logic.values.openingLineageViewId).toBeNull()
         })

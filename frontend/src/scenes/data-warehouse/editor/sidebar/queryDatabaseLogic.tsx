@@ -3782,11 +3782,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         openViewLineage: async ({ viewId, openInNewTab }) => {
             const open = (url: string): void => (openInNewTab ? newInternalTab(url) : router.actions.push(url))
+            // The lookup can end after the person went to another page. A navigation or a toast
+            // must not interrupt that page.
+            const pathnameAtClick = router.values.location.pathname
+            const leftThePage = (): boolean => router.values.location.pathname !== pathnameAtClick
             try {
                 // The lineage page is keyed by node id, and the tree holds only the view id.
                 const { nodes } = await dataModelingNodesLineageRetrieve(String(values.currentProjectId), {
                     saved_query_id: viewId,
                 })
+                if (leftThePage()) {
+                    return
+                }
                 const nodeId = nodes.find((node) => node.saved_query_id === viewId)?.id
                 if (!nodeId) {
                     throw new Error('The lineage response has no node for this view')
@@ -3794,6 +3801,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 posthog.capture('sql-editor-view-lineage-opened', { opened_in_new_tab: openInNewTab })
                 open(urls.nodeDetail(nodeId, 'lineage'))
             } catch {
+                if (leftThePage()) {
+                    return
+                }
                 posthog.capture('sql-editor-view-lineage-open-failed', { opened_in_new_tab: openInNewTab })
                 lemonToast.error("Couldn't open this view's lineage. Try again, or find the view in the full graph.", {
                     button: {
