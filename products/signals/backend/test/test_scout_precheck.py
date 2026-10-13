@@ -234,6 +234,8 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
             ("web_vitals_quiet", "signals-scout-web-vitals", "$web_vitals", 24 * 8, "skip"),
             ("web_analytics_active", "signals-scout-web-analytics", "$pageview", 24 * 6, "run"),
             ("web_analytics_quiet", "signals-scout-web-analytics", "$pageview", 24 * 8, "skip"),
+            ("error_tracking_active", "signals-scout-error-tracking", "$exception", 24 * 6, "run"),
+            ("error_tracking_quiet", "signals-scout-error-tracking", "$exception", 24 * 8, "skip"),
         ]
     )
     def test_product_presence_defaults_skip_only_on_absence(self, _name, skill, event, hours_ago, outcome) -> None:
