@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.history_tracking import report_history_toggled, schema_keeps_history
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
@@ -1821,6 +1822,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             team=self.team,
             request=request,
         )
+
+        for schema_model in active_schemas:
+            if schema_keeps_history(schema_model):
+                report_history_toggled(cast(User, request.user), schema_model, enabled=True, request=request)
 
         return Response(
             status=status.HTTP_201_CREATED,

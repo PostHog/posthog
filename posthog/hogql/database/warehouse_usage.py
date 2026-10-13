@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from posthog.hogql import ast
@@ -14,6 +14,7 @@ class WarehouseSourceUsage:
     id: str
     source_type: Optional[str]
     table_name: str
+    uses_history_table: bool = False
 
 
 def extract_warehouse_sources(
@@ -35,11 +36,17 @@ def extract_warehouse_sources(
         if not isinstance(table, (S3Table, DirectPostgresTable)):
             continue
         source_id = getattr(table, "external_data_source_id", None)
-        if not source_id or source_id in usages:
+        if not source_id:
             continue
-        usages[source_id] = WarehouseSourceUsage(
-            id=source_id,
-            source_type=getattr(table, "source_type", None),
-            table_name=getattr(table, "name", "") or "",
-        )
+        is_history_table = getattr(table, "is_history_table", False)
+        existing = usages.get(source_id)
+        if existing is None:
+            usages[source_id] = WarehouseSourceUsage(
+                id=source_id,
+                source_type=getattr(table, "source_type", None),
+                table_name=getattr(table, "name", "") or "",
+                uses_history_table=is_history_table,
+            )
+        elif is_history_table and not existing.uses_history_table:
+            usages[source_id] = replace(existing, uses_history_table=True)
     return list(usages.values())

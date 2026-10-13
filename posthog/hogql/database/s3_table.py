@@ -272,6 +272,8 @@ class S3Table(FunctionCallTable):
     source_type: Optional[str] = None
     # Set when this table backs a materialized saved query, so a query that reads the table is attributed to the view.
     saved_query_id: Optional[str] = None
+    # Set when the table keeps every version of a row, so a query that reads it counts as history usage.
+    is_history_table: bool = False
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

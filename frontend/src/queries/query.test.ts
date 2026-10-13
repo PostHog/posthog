@@ -18,9 +18,27 @@ describe('query', () => {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const data = (await request.json()) as any
                     if (data.query?.kind === 'HogQLQuery') {
+                        const tableName = data.query.query.split(' ').at(-1)
                         return [
                             200,
-                            { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string', is_cached: false },
+                            {
+                                results: [],
+                                clickhouse: 'clickhouse string',
+                                hogql: 'hogql string',
+                                is_cached: false,
+                                ...(tableName.startsWith('orders')
+                                    ? {
+                                          used_data_warehouse_sources: [
+                                              {
+                                                  id: 'src-1',
+                                                  source_type: 'Postgres',
+                                                  table_name: tableName,
+                                                  uses_history_table: tableName === 'orders_cdc' || undefined,
+                                              },
+                                          ],
+                                      }
+                                    : {}),
+                            },
                         ]
                     }
                     if (data.query?.kind === 'WebStatsTableQuery') {
@@ -129,6 +147,28 @@ describe('query', () => {
             clickhouse_sql: expect.any(String),
             is_cached: false,
         })
+    })
+
+    it.each([
+        ['orders_cdc', 1],
+        ['orders', 0],
+    ])('reports a history table read for a query on %s', async (tableName, expectedEvents) => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: HogQLQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.HogQLQuery,
+            query: `select * from ${tableName}`,
+        })
+        captureSpy.mockClear()
+        await performQuery(q)
+        const historyCalls = captureSpy.mock.calls.filter((call) => call[0] === 'data warehouse history table queried')
+        expect(historyCalls).toHaveLength(expectedEvents)
+        if (expectedEvents) {
+            expect(historyCalls[0][1]).toMatchObject({
+                query_kind: NodeKind.HogQLQuery,
+                data_warehouse_source_ids: ['src-1'],
+                data_warehouse_source_types: ['Postgres'],
+            })
+        }
     })
 
     it('captures precompute strategy and staleness from web analytics responses', async () => {
@@ -379,7 +419,7 @@ describe('query', () => {
                 controller.abort()
             }
             const promise = pollForResults('test-query-id', { signal: controller.signal })
-            const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+            const rejected = await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
             await jest.advanceTimersByTimeAsync(0)
             controller.abort()
             await rejected
