@@ -551,6 +551,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
     logger = LOGGER.bind(function="query_salesforce_accounts_chunk_async", offset=offset, limit=limit)
 
     # Try Redis cache first
+    cache_missing = False
     cache_start = time.time()
     try:
         cached_accounts = await get_accounts_from_redis(offset, limit)
@@ -559,6 +560,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         if cached_accounts is not None:
             logger.info("Redis cache hit", accounts_count=len(cached_accounts), cache_time=round(cache_time, 3))
             return cached_accounts
+        cache_missing = True
     except Exception as e:
         cache_time = time.time() - cache_start
         logger.exception("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
@@ -572,11 +574,12 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         capture_exception(e)
         return []
 
-    try:
-        await store_accounts_in_redis(all_accounts)
-    except Exception as e:
-        logger.exception("Failed to rebuild the accounts cache", error=str(e))
-        capture_exception(e)
+    if cache_missing:
+        try:
+            await store_accounts_in_redis(all_accounts)
+        except Exception as e:
+            logger.exception("Failed to rebuild the accounts cache", error=str(e))
+            capture_exception(e)
 
     return all_accounts[offset : offset + limit]
 

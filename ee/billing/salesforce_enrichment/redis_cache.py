@@ -17,10 +17,7 @@ _CHUNK_ACCOUNT_FIELDS = ("Id", "Website")
 
 
 async def _store_json_list(cache_key: str, items: list[dict[str, Any]], ttl: int) -> None:
-    """Store each item as a separate JSON entry of a Redis List.
-
-    A reader then fetches one page with LRANGE instead of loading and parsing the whole dataset.
-    """
+    """Each item is its own list entry, so a reader fetches one page with LRANGE instead of parsing the whole dataset."""
     redis_client = get_async_client()
     pipe = await redis_client.pipeline()
     pipe.delete(cache_key)
