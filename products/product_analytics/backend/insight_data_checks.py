@@ -300,23 +300,17 @@ def _count_events_in_range(checked: _CheckedQuery, team: Team, user: User) -> in
 def _count_events(checked: _CheckedQuery, team: Team, user: User, *, total: int) -> DataCheckCounts:
     insight_filters = _insight_filters(checked, team)
     sampled = min(total, MAX_CHECKED_EVENTS)
-    row = _query_counts(checked, team, user, insight_filters=insight_filters, sample=_sample(sampled, total))
-    if sampled < total and row[0] < MIN_SAMPLED_EVENTS:
-        sampled = min(total, sampled * RESAMPLED_EVENTS // max(row[0], 1))
-        row = _query_counts(checked, team, user, insight_filters=insight_filters, sample=_sample(sampled, total))
-    events, local_events, bot_events, distinct_events = row
-    return DataCheckCounts(
-        events=events,
-        local_events=local_events,
-        bot_events=bot_events,
-        distinct_events=distinct_events,
-        sample_rate=sampled / total,
-    )
+    counts = _query_counts(checked, team, user, insight_filters=insight_filters, sampled=sampled, total=total)
+    if sampled < total and counts.events < MIN_SAMPLED_EVENTS:
+        sampled = min(total, sampled * RESAMPLED_EVENTS // max(counts.events, 1))
+        counts = _query_counts(checked, team, user, insight_filters=insight_filters, sampled=sampled, total=total)
+    return counts
 
 
 def _query_counts(
-    checked: _CheckedQuery, team: Team, user: User, *, insight_filters: ast.Expr, sample: ast.RatioExpr
-) -> tuple[int, int, int, int]:
+    checked: _CheckedQuery, team: Team, user: User, *, insight_filters: ast.Expr, sampled: int, total: int
+) -> DataCheckCounts:
+    """The counts on a sample that holds `sampled` of the `total` events in the insight's date range."""
     response = execute_hogql_query(
         query=_COUNTS_QUERY,
         team=team,
@@ -328,7 +322,7 @@ def _query_counts(
             "local_host_pattern": ast.Constant(value=LOCAL_HOST_PATTERN),
             # The events table samples by distinct ID, so a sampled ID keeps all its events and no duplicate pair
             # is split.
-            "sample": sample,
+            "sample": _sample(sampled, total),
             "insight_filters": insight_filters,
             "event_condition": _event_condition(checked),
         },
@@ -336,7 +330,13 @@ def _query_counts(
     )
     row = response.results[0] if response.results else []
     events, local_events, bot_events, distinct_events = (int(value or 0) for value in row or [0] * 4)
-    return events, local_events, bot_events, distinct_events
+    return DataCheckCounts(
+        events=events,
+        local_events=local_events,
+        bot_events=bot_events,
+        distinct_events=distinct_events,
+        sample_rate=sampled / total,
+    )
 
 
 def _sample(limit: int, total: int) -> ast.RatioExpr:
