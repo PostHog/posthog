@@ -1,12 +1,9 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     PAGE_SIZE,
@@ -15,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     _redact_custom_hostname,
     _redact_healthcheck,
     _redact_logpush_destination,
-    cloudflare_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
@@ -25,174 +21,134 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     SINGLE_PAGE,
     ZONES_PARENT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source import CloudflareSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the cloudflare module.
-CLOUDFLARE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflare import (
+    CloudflareSourceConfig,
+)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(CloudflareSource(), CloudflareSourceConfig(api_token="token"))
 
 
 def _response(
     result: list[dict[str, Any]],
     total_pages: int | None = None,
-    status_code: int = 200,
-    headers: dict[str, str] | None = None,
-) -> Response:
+) -> ScriptedResponse:
     body: dict[str, Any] = {"success": True, "result": result}
     if total_pages is not None:
         body["result_info"] = {"total_pages": total_pages}
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    if headers:
-        resp.headers.update(headers)
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _raw_response(body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _raw_response(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
-def _error_response(status_code: int) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp.url = "https://api.cloudflare.com/client/v4/probe"
-    resp._content = json.dumps({"success": False, "errors": [{"code": status_code}]}).encode()
-    return resp
+def _error_response(status_code: int) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json={"success": False, "errors": [{"code": status_code}]})
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's url/params AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _rejected_response(status_code: int, message: str | None = None, code: int = 1000) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp.url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+def _rejected_response(status_code: int, message: str | None = None, code: int = 1000) -> ScriptedResponse:
     error: dict[str, Any] = {"code": code}
     if message is not None:
         error["message"] = message
-    resp._content = json.dumps({"success": False, "errors": [error]}).encode()
-    return resp
+    return ScriptedResponse(status=status_code, json={"success": False, "errors": [error]})
 
 
 class TestValidateCredentials:
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_valid_on_verify_success(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _response([], total_pages=1)
-        assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
+    def test_valid_on_verify_success(self) -> None:
+        with scripted_network([_response([], total_pages=1)]) as network:
+            assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
+        assert network.requests_log[0].path == "/client/v4/user/tokens/verify"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
     @pytest.mark.parametrize("status_code", [401, 403])
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_invalid_on_error_status(self, mock_session, status_code) -> None:
-        mock_session.return_value.get.return_value = _error_response(status_code)
+    def test_invalid_on_error_status(self, status_code: int) -> None:
         # The status flows back so the caller can tell a rejected token from a 5xx/unreachable one.
-        check = validate_credentials("token")
+        with scripted_network(always(_error_response(status_code))):
+            check = validate_credentials("token")
         assert (check.is_valid, check.status) == (False, status_code)
 
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_transient_status_skips_the_fallback_probe(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _error_response(500)
-        assert validate_credentials("token") == TokenCheck(is_valid=False, status=500)
+    def test_transient_status_skips_the_fallback_probe(self) -> None:
+        with scripted_network(always(_error_response(500))) as network:
+            assert validate_credentials("token") == TokenCheck(is_valid=False, status=500)
         # A 5xx says nothing about the token, so probing twice more only delays the retry advice.
-        assert mock_session.return_value.get.call_count == 1
+        assert {request.path for request in network.requests_log} == {"/client/v4/user/tokens/verify"}
 
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_valid_when_verify_refuses_but_a_parent_list_reads(self, mock_session) -> None:
+    def test_valid_when_verify_refuses_but_a_parent_list_reads(self) -> None:
         # An account-owned token can't be verified at /user/tokens/verify but can still sync.
-        mock_session.return_value.get.side_effect = [
-            _rejected_response(400, "Invalid API Token"),
-            _response([{"id": "z1"}], total_pages=1),
+        with scripted_network([_rejected_response(400, "Invalid API Token"), _response([{"id": "z1"}], 1)]) as network:
+            assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
+        assert [request.path for request in network.requests_log] == [
+            "/client/v4/user/tokens/verify",
+            "/client/v4/zones",
         ]
-        assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
 
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_falls_through_to_the_second_parent_list(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = [
-            _rejected_response(400, "Invalid API Token"),
-            _error_response(403),
-            _response([{"id": "a1"}], total_pages=1),
+    def test_falls_through_to_the_second_parent_list(self) -> None:
+        with scripted_network(
+            [_rejected_response(400, "Invalid API Token"), _error_response(403), _response([{"id": "a1"}], 1)]
+        ) as network:
+            assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
+        assert [request.path for request in network.requests_log] == [
+            "/client/v4/user/tokens/verify",
+            "/client/v4/zones",
+            "/client/v4/accounts",
         ]
-        assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
 
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_probe_exception_leaves_the_question_open(self, mock_session) -> None:
+    def test_probe_exception_leaves_the_question_open(self) -> None:
         # Verify's refusal decides nothing on its own, so two probes that never got an answer
         # leave the token unjudged. Reporting it rejected would send someone off to rebuild a
         # token that was fine.
-        mock_session.return_value.get.side_effect = [
-            _rejected_response(400, "Invalid API Token"),
-            Exception("boom"),
-            Exception("boom"),
-        ]
-        check = validate_credentials("token")
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/user/tokens/verify"):
+                return _rejected_response(400, "Invalid API Token")
+            raise ConnectionResetError("boom")
+
+        with scripted_network(respond):
+            check = validate_credentials("token")
         assert check == TokenCheck(is_valid=False, status=None)
         assert check.is_transient
 
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_definitive_probe_failures_are_not_transient(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = [
-            _rejected_response(400, "Invalid API Token"),
-            _error_response(403),
-            _error_response(403),
-        ]
-        check = validate_credentials("token")
+    def test_definitive_probe_failures_are_not_transient(self) -> None:
+        with scripted_network(
+            [_rejected_response(400, "Invalid API Token"), _error_response(403), _error_response(403)]
+        ):
+            check = validate_credentials("token")
         assert check.is_transient is False
         assert check.is_malformed is False
 
-    @mock.patch(CLOUDFLARE_SESSION_PATCH)
-    def test_unparseable_authorization_header_is_malformed(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = _rejected_response(400, "Invalid request headers", code=6003)
-        assert validate_credentials("token").is_malformed is True
+    def test_unparseable_authorization_header_is_malformed(self) -> None:
+        with scripted_network([_rejected_response(400, "Invalid request headers", code=6003)]) as network:
+            assert validate_credentials("token").is_malformed is True
         # The probes send the same header, so a transient probe must not hide the malformed verdict.
-        assert mock_session.return_value.get.call_count == 1
+        assert len(network.requests_log) == 1
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_without_result_info_continues(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_full_page_without_result_info_continues(self) -> None:
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        _wire(session, [_response(full_page), _response([{"id": "tail"}])])
+        result = _driver().run("accounts", [_response(full_page), _response([{"id": "tail"}])])
 
-        rows = _rows(cloudflare_source("token", "accounts", team_id=1, job_id="j"))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.params("page") == ["1", "2"]
 
 
 class TestZoneFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_dns_records_fan_out_over_zones_and_inject_zone_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_dns_records_fan_out_over_zones_and_inject_zone_id(self) -> None:
+        result = _driver().run(
+            "dns_records",
             [
                 _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
                 _response([{"id": "r1"}], total_pages=1),
@@ -200,64 +156,62 @@ class TestZoneFanout:
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "dns_records", team_id=1, job_id="j"))
+        assert result.raised is None
+        assert [(r["id"], r["_zone_id"]) for r in result.rows] == [("r1", "z1"), ("r2", "z2")]
+        assert result.paths == [
+            "/client/v4/zones",
+            "/client/v4/zones/z1/dns_records",
+            "/client/v4/zones/z2/dns_records",
+        ]
 
-        assert [(r["id"], r["_zone_id"]) for r in rows] == [("r1", "z1"), ("r2", "z2")]
-        assert snapshots[0]["url"] == "https://api.cloudflare.com/client/v4/zones"
-        assert snapshots[1]["url"] == "https://api.cloudflare.com/client/v4/zones/z1/dns_records"
-        assert snapshots[2]["url"] == "https://api.cloudflare.com/client/v4/zones/z2/dns_records"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_dns_records_reraises_unexpected_zone_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_dns_records_reraises_unexpected_zone_error(self) -> None:
+        result = _driver().run(
+            "dns_records",
             [
                 _response([{"id": "z1"}], total_pages=1),
                 _error_response(400),
             ],
         )
 
-        with pytest.raises(requests.HTTPError):
-            _rows(cloudflare_source("token", "dns_records", team_id=1, job_id="j"))
+        assert isinstance(result.raised, requests.HTTPError)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_forbidden_zone_listing_propagates(self, MockSession) -> None:
+    def test_forbidden_zone_listing_propagates(self) -> None:
         # No zone access at all (the top-level listing) must still fail loudly
         # so the schema is flagged non-retryable rather than silently emptied.
-        session = MockSession.return_value
-        _wire(session, [_error_response(403)])
+        result = _driver().run("dns_records", [_error_response(403)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(cloudflare_source("token", "dns_records", team_id=1, job_id="j"))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestRetry:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_429_honors_retry_after_and_exhausts_attempts(self, MockSession) -> None:
+    def test_429_honors_retry_after_and_exhausts_attempts(self) -> None:
         # Retry-After of 0 keeps the test fast while still exercising the honored-wait path.
-        session = MockSession.return_value
-        responses = [_error_response(429) for _ in range(5)]
-        for resp in responses:
-            resp.headers["Retry-After"] = "0"
-        _wire(session, responses)
+        result = _driver().run(
+            "zones",
+            always(
+                ScriptedResponse(
+                    status=429,
+                    json={"success": False, "errors": [{"code": 429}]},
+                    headers={"Retry-After": "0"},
+                )
+            ),
+        )
 
-        with pytest.raises(RESTClientRetryableError) as exc_info:
-            _rows(cloudflare_source("token", "zones", team_id=1, job_id="j"))
-
-        assert exc_info.value.retry_after == 0.0
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert result.raised.retry_after == 0.0
         # Exhausts all attempts since every page stays rate-limited.
-        assert session.send.call_count == 5
+        assert len(result.requests) == 5
 
 
 class TestCloudflareSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint) -> None:
-        MockSession.return_value.headers = {}
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = CLOUDFLARE_ENDPOINTS[endpoint]
-        response = cloudflare_source("token", endpoint, team_id=1, job_id="j")
+        result = _driver().run(endpoint, [_response([], total_pages=1)])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == list(config.primary_keys)
         assert response.sort_mode == "asc"
@@ -279,11 +233,9 @@ class TestEndpointConfigConsistency:
 
 class TestAccountFanout:
     @pytest.mark.parametrize("status_code", [403, 404])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_account_the_token_cannot_read(self, MockSession, status_code) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_skips_account_the_token_cannot_read(self, status_code: int) -> None:
+        result = _driver().run(
+            "kv_namespaces",
             [
                 _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
                 _error_response(status_code),
@@ -291,9 +243,8 @@ class TestAccountFanout:
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "kv_namespaces", team_id=1, job_id="j"))
-
-        assert [(r["id"], r["_account_id"]) for r in rows] == [("n2", "a2")]
+        assert result.raised is None
+        assert [(r["id"], r["_account_id"]) for r in result.rows] == [("n2", "a2")]
 
 
 class TestSinglePageEndpoints:
@@ -301,27 +252,27 @@ class TestSinglePageEndpoints:
         "endpoint",
         [name for name, config in CLOUDFLARE_ENDPOINTS.items() if config.pagination == SINGLE_PAGE],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_never_requests_a_second_page(self, MockSession, endpoint) -> None:
+    def test_never_requests_a_second_page(self, endpoint: str) -> None:
         # These endpoints document no page params, so Cloudflare ignores `page` and would
         # return the same rows forever if the page-number paginator were used.
-        session = MockSession.return_value
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        snapshots = _wire(session, [_response([{"id": "z1"}], total_pages=1), _response(full_page)])
+        child = (
+            _raw_response({"success": True, "result": {"data": full_page}})
+            if endpoint == "dns_analytics_report"
+            else _response(full_page)
+        )
+        result = _driver().run(endpoint, [_response([{"id": "z1"}], total_pages=1), child])
 
-        _rows(cloudflare_source("token", endpoint, team_id=1, job_id="j"))
-
-        assert session.send.call_count == 2
-        assert "page" not in snapshots[1]["params"]
-        assert "per_page" not in snapshots[1]["params"]
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert result.requests[1].param("page") is None
+        assert result.requests[1].param("per_page") is None
 
 
 class TestDnsAnalyticsReport:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_positional_report_arrays_become_named_columns(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_positional_report_arrays_become_named_columns(self) -> None:
+        result = _driver().run(
+            "dns_analytics_report",
             [
                 _response([{"id": "z1"}], total_pages=1),
                 _raw_response(
@@ -336,9 +287,8 @@ class TestDnsAnalyticsReport:
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "dns_analytics_report", team_id=1, job_id="j"))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "queryType": "A",
                 "responseCode": "NOERROR",
@@ -347,8 +297,8 @@ class TestDnsAnalyticsReport:
                 "_zone_id": "z1",
             }
         ]
-        assert snapshots[1]["params"]["metrics"] == "queryCount,uncachedCount"
-        assert snapshots[1]["params"]["dimensions"] == "queryType,responseCode"
+        assert result.requests[1].param("metrics") == "queryCount,uncachedCount"
+        assert result.requests[1].param("dimensions") == "queryType,responseCode"
 
 
 class TestLogpushDestinationRedaction:
@@ -375,22 +325,19 @@ class TestLogpushDestinationRedaction:
         row = {"destination_conf": None, "id": "j1"}
         assert _redact_logpush_destination(row) == row
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_secret_is_stripped_when_synced(self, MockSession) -> None:
+    def test_secret_is_stripped_when_synced(self) -> None:
         # Guards that the redaction data_map is actually wired to the logpush_jobs resource.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "logpush_jobs",
             [
                 _response([{"id": "z1"}], total_pages=1),
                 _response([{"id": "j1", "destination_conf": "s3://b/logs?secret-access-key=SUPERSECRET"}]),
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "logpush_jobs", team_id=1, job_id="j"))
-
-        assert "SUPERSECRET" not in rows[0]["destination_conf"]
-        assert rows[0]["destination_conf"] == "s3://b/logs?secret-access-key=REDACTED"
+        assert result.raised is None
+        assert "SUPERSECRET" not in result.rows[0]["destination_conf"]
+        assert result.rows[0]["destination_conf"] == "s3://b/logs?secret-access-key=REDACTED"
 
 
 class TestAccessAppRedaction:
@@ -427,12 +374,10 @@ class TestAccessAppRedaction:
         row = {"id": "app1", "name": "My app"}
         assert _redact_access_app(row) == row
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_secrets_are_stripped_when_synced(self, MockSession) -> None:
+    def test_secrets_are_stripped_when_synced(self) -> None:
         # Guards that the redaction data_map is actually wired to the access_apps resource.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "access_apps",
             [
                 _response([{"id": "a1"}], total_pages=1),
                 _response(
@@ -447,9 +392,11 @@ class TestAccessAppRedaction:
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "access_apps", team_id=1, job_id="j"))
-
-        assert rows[0]["scim_config"]["authentication"] == {"scheme": "oauthbearertoken", "token": "REDACTED"}
+        assert result.raised is None
+        assert result.rows[0]["scim_config"]["authentication"] == {
+            "scheme": "oauthbearertoken",
+            "token": "REDACTED",
+        }
 
 
 class TestHealthcheckRedaction:
@@ -470,12 +417,10 @@ class TestHealthcheckRedaction:
         row = {"id": "hc1", "http_config": {"method": "GET"}}
         assert _redact_healthcheck(row) == row
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_header_is_stripped_when_synced(self, MockSession) -> None:
+    def test_auth_header_is_stripped_when_synced(self) -> None:
         # Guards that the redaction data_map is actually wired to the healthchecks resource.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "healthchecks",
             [
                 _response([{"id": "z1"}], total_pages=1),
                 _response(
@@ -484,9 +429,8 @@ class TestHealthcheckRedaction:
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "healthchecks", team_id=1, job_id="j"))
-
-        assert rows[0]["http_config"]["header"] == {"Authorization": ["REDACTED"]}
+        assert result.raised is None
+        assert result.rows[0]["http_config"]["header"] == {"Authorization": ["REDACTED"]}
 
 
 class TestCustomHostnameRedaction:
@@ -500,21 +444,18 @@ class TestCustomHostnameRedaction:
 
         assert result["ssl"] == {"status": "active", "custom_certificate": "-----CERT-----"}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_private_key_is_dropped_when_synced(self, MockSession) -> None:
+    def test_private_key_is_dropped_when_synced(self) -> None:
         # Guards that the redaction data_map is actually wired to the custom_hostnames resource.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "custom_hostnames",
             [
                 _response([{"id": "z1"}], total_pages=1),
                 _response([{"id": "h1", "ssl": {"status": "active", "custom_key": "SUPERSECRET"}}], total_pages=1),
             ],
         )
 
-        rows = _rows(cloudflare_source("token", "custom_hostnames", team_id=1, job_id="j"))
-
-        assert "custom_key" not in rows[0]["ssl"]
+        assert result.raised is None
+        assert "custom_key" not in result.rows[0]["ssl"]
 
 
 class TestAuditLogsIncremental:
@@ -527,23 +468,13 @@ class TestAuditLogsIncremental:
             ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_filters_server_side_from_the_watermark(self, MockSession, last_value, expected_since) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_filters_server_side_from_the_watermark(self, last_value: Any, expected_since: str) -> None:
+        result = _driver().run(
+            "audit_logs",
             [_response([{"id": "a1"}], total_pages=1), _response([{"id": "l1"}], total_pages=1)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
         )
 
-        _rows(
-            cloudflare_source(
-                "token",
-                "audit_logs",
-                team_id=1,
-                job_id="j",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=last_value,
-            )
-        )
-
-        assert snapshots[1]["params"]["since"] == expected_since
+        assert result.raised is None
+        assert result.requests[1].param("since") == expected_since

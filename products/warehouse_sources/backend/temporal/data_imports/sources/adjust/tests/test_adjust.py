@@ -85,11 +85,6 @@ class _FakeResumeManager(ResumableSourceManager[AdjustResumeConfig]):
         self.saved.append(data)
 
 
-def _page(rows: list[dict[str, Any]], next_url: str | None = None) -> _FakeResponse:
-    pagination = {"next": next_url} if next_url else None
-    return _FakeResponse(json_data={"rows": rows, "totals": {}, "pagination": pagination})
-
-
 def _scripted_page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
     pagination = {"next": next_url} if next_url else None
     return ScriptedResponse(json={"rows": rows, "totals": {}, "pagination": pagination})
@@ -317,11 +312,18 @@ class TestGetRows:
     def test_pagination_stops_at_the_page_cap(self) -> None:
         # A next link that never clears would otherwise loop forever.
         looping = "https://automate.adjust.com/reports-service/report?page=next"
-        session = _FakeSession([_page([{"day": "2024-06-30"}], next_url=looping)] * (MAX_PAGES_PER_WINDOW + 5))
-        batches = _run_get_rows(
-            session, should_use_incremental_field=True, db_incremental_field_last_value="2024-06-30"
-        )
-        assert len(batches) == MAX_PAGES_PER_WINDOW
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                always(_scripted_page([{"day": "2024-06-30"}], next_url=looping)),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert result.raised is None
+        assert len(result.items) == MAX_PAGES_PER_WINDOW
+        assert len(result.requests) == MAX_PAGES_PER_WINDOW
+        assert result.params("page") == [None, *["next"] * (MAX_PAGES_PER_WINDOW - 1)]
 
     def test_resume_skips_windows_already_completed(self) -> None:
         with mock.patch.object(adjust, "_today", return_value=TODAY):

@@ -12,6 +12,7 @@ import requests
 import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 
 from .commands import PullRequestFacts
@@ -67,7 +68,7 @@ class InstallationGitHub:
         )
         if integration is None:
             return None
-        return cls(GitHubIntegration(integration, source=_SOURCE))
+        return cls(GitHubIntegration(integration, source=_SOURCE, priority=Priority.CRITICAL))
 
     def collaborator_permission(self, repository: str, login: str, github_user_id: int) -> str:
         try:

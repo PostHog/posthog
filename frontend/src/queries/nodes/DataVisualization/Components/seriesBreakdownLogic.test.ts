@@ -280,10 +280,19 @@ describe('seriesBreakdownLogic', () => {
 
         builtDataVizLogic.actions.clearAxis()
         builtDataVizLogic.actions.updateXSeries('event')
-        builtDataVizLogic.actions.addYSeries('total_count')
+        // The y-axis settings form saves a color by default; breakdown series must not inherit it.
+        builtDataVizLogic.actions.addYSeries('total_count', {
+            formatting: { prefix: '', suffix: '' },
+            display: { color: '#1d4aff' },
+        })
 
         logic.actions.addSeriesBreakdown('browser')
 
+        expect(logic.values.seriesBreakdownData.seriesData.map((series) => series.settings?.display?.color)).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ])
         await expectLogic(logic).toMatchValues({
             breakdownColumnValues: ['Safari', 'Firefox', 'Chrome'],
             seriesBreakdownData: {
