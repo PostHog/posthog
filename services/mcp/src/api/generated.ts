@@ -75880,6 +75880,16 @@ export namespace Schemas {
       readonly content_type: string | null;
       /** @nullable */
       readonly size_bytes: number | null;
+      /**
+         * Width in pixels. Null for images uploaded before it was recorded.
+         * @nullable
+         */
+      readonly width: number | null;
+      /**
+         * Height in pixels. Null for images uploaded before it was recorded.
+         * @nullable
+         */
+      readonly height: number | null;
       /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
       readonly url: string;
       readonly created_at: string;
@@ -111718,6 +111728,19 @@ export namespace Schemas {
       file: string;
     }
 
+    export interface UploadedMediaCreated {
+      /** Id of the uploaded image. */
+      readonly id: string;
+      /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+      readonly image_location: string;
+      /** The file's original name. */
+      readonly name: string;
+      /** Width in pixels. */
+      readonly width: number;
+      /** Height in pixels. */
+      readonly height: number;
+    }
+
     export interface UploadedMediaStartUpload {
       /**
          * The file's display name, e.g. 'logo.png'.
@@ -129880,6 +129903,10 @@ export namespace Schemas {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose;
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string;
     };
 
     export type UploadedMediaListPurpose = typeof UploadedMediaListPurpose[keyof typeof UploadedMediaListPurpose];
@@ -129907,8 +129934,6 @@ export namespace Schemas {
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
     };
-
-    export type UploadedMediaCreate201 = { [key: string]: unknown };
 
     export type UserProductListListParams = {
     /**

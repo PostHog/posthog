@@ -544,6 +544,7 @@ const mediaImagesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 purpose: params.purpose,
+                search: params.search,
             },
         })
         return withInformationalResponse(
