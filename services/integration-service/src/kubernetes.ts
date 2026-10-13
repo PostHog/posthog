@@ -163,7 +163,8 @@ export class KubernetesSecretSource implements SecretSource {
             }
 
             quietRestarts = sawEvents ? 0 : quietRestarts + 1
-            const delayMs = reason !== 'error' && quietRestarts <= 1 ? 0 : this.backoffMs(Math.max(quietRestarts - 1, 0))
+            const delayMs =
+                reason !== 'error' && quietRestarts <= 1 ? 0 : this.backoffMs(Math.max(quietRestarts - 1, 0))
             secretWatchRestartsTotal.labels({ reason }).inc()
             logger.info('source:watch_restart', {
                 source: this.description,

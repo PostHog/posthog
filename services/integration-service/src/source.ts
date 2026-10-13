@@ -2,8 +2,8 @@
 // version, and the server applies that one snapshot to both the signing keys and the secrets.
 // So a revocation and a rotation made in one edit of the secret land together.
 
-import type { Config } from './lib/config'
 import { KubernetesSecretSource } from './kubernetes'
+import type { Config, SecretSourceKind } from './lib/config'
 import { readMount } from './mount'
 
 /** Every entry in the secret, as one version of it held them. */
@@ -17,7 +17,7 @@ export interface SecretSnapshot {
 export type SnapshotListener = (snapshot: SecretSnapshot | null) => void
 
 export interface SecretSource {
-    readonly kind: 'directory' | 'kubernetes'
+    readonly kind: SecretSourceKind
     /** Names the secret in logs and error messages. Never a value. */
     readonly description: string
     /** Read the whole secret once. Null when it cannot be read. */
@@ -48,5 +48,7 @@ export class DirectorySecretSource implements SecretSource {
 }
 
 export function createSecretSource(config: Config): SecretSource {
-    return config.kubernetes ? new KubernetesSecretSource(config.kubernetes) : new DirectorySecretSource(config.mountDir)
+    return config.kubernetes
+        ? new KubernetesSecretSource(config.kubernetes)
+        : new DirectorySecretSource(config.mountDir)
 }

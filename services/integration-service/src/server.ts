@@ -35,6 +35,7 @@ type ServeFn = (
 export interface IntegrationServerOverrides {
     serve?: ServeFn
     exit?: (code: number) => void
+    source?: SecretSource
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -116,7 +117,7 @@ export class IntegrationServer {
     async start(): Promise<void> {
         const config = this.config
 
-        const source = createSecretSource(config)
+        const source = this.overrides.source ?? createSecretSource(config)
         this.source = source
         const signingKeys = new SigningKeyLoader(source.description)
         this.signingKeys = signingKeys
