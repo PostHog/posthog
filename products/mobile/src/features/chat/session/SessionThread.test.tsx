@@ -22,10 +22,12 @@ function session(overrides: Partial<Session> = {}): Session {
         history: { status: 'idle', error: null },
         isSending: false,
         isStopping: false,
+        start: async () => undefined,
         send: async () => undefined,
         answer: async () => undefined,
         stop: () => undefined,
         reloadHistory: async () => undefined,
+        reset: () => undefined,
         dismissNotice: () => undefined,
         ...overrides,
     }

@@ -1,6 +1,8 @@
 import type { DecisionAnswerInput, DecisionQuestion, PullRequestView, TaskRunStatus } from '@/model/types'
 
+import type { ChatRunOptions } from '../chatRunOptions'
 import type { ChatContext, ChatError } from '../types'
+import type { SessionRunConfig } from './sessionRun'
 
 // A session is a sandbox task run shown in the chat sheet. The web equivalent is the `TaskRunChat`
 // surface in `products/posthog_ai/frontend`; its folded thread shapes are `types/streamTypes.ts` there.
@@ -121,7 +123,8 @@ export interface SessionDecision {
 }
 
 export interface Session {
-    taskId: string
+    /** Null for a new chat until `start` creates its task. */
+    taskId: string | null
     /** The run the sheet follows. Null until the task loads. */
     runId: string | null
     title: string | null
@@ -142,11 +145,18 @@ export interface Session {
     isStopping: boolean
     /** One transient line above the composer, such as an answer that did not reach the agent. */
     notice?: string
-    /** Sends to the live run, or starts a run that continues this task when the run has ended. */
-    send: (text: string, context: ChatContext) => Promise<void>
+    unsentText?: string
+    runConfig?: SessionRunConfig
+    start: (text: string, context: ChatContext, options: ChatRunOptions) => Promise<void>
+    /**
+     * Sends to the live run after it applies the changed options, or starts a run that continues this task when the
+     * run has ended. Without a task it starts one, as `start` does.
+     */
+    send: (text: string, context: ChatContext, options?: ChatRunOptions) => Promise<void>
     answer: (input: DecisionAnswerInput) => Promise<void>
     /** Asks the agent to stop the current turn. Only while `phase` is not `idle`. */
     stop: () => void
     reloadHistory: () => Promise<void>
+    reset: () => void
     dismissNotice: () => void
 }

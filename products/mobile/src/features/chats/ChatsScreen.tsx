@@ -3,7 +3,6 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native'
 
-import { chatKeys } from '@/api/conversations'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
@@ -18,10 +17,9 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ChatRow } from './ChatRow'
 import { CHATS_HEADER_BOTTOM, ChatsHeader } from './ChatsHeader'
-import { ChatsPartialNotice } from './ChatsPartialNotice'
 import { ChatsSearchField } from './ChatsSearchField'
 import { filterChats, groupChats } from './chatGroups'
-import { useChatList } from './hooks'
+import { sessionListKeys, useChatList } from './hooks'
 
 interface ChatSection {
     label: string
@@ -51,7 +49,7 @@ export function ChatsScreen(): ReactElement {
                 return
             }
             if (scope) {
-                void queryClient.invalidateQueries({ queryKey: chatKeys.all(scope) })
+                void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
             }
         }, [queryClient, scope])
     )
@@ -59,9 +57,8 @@ export function ChatsScreen(): ReactElement {
     const newChat = useCallback(() => router.push('/chat'), [router])
     const openChat = useCallback(
         (item: ChatListItem) => {
-            track('mobile_chat_opened', { kind: item.kind })
-            const params = item.kind === 'session' ? { taskId: item.sourceId } : { conversationId: item.sourceId }
-            router.push({ pathname: '/chat', params })
+            track('mobile_chat_opened', { origin: item.origin })
+            router.push({ pathname: '/chat', params: { taskId: item.sourceId } })
         },
         [router]
     )
@@ -127,12 +124,7 @@ export function ChatsScreen(): ReactElement {
     )
 
     // An element, not a component, so typing does not remount the field and drop the keyboard.
-    const listHeader = hasItems ? (
-        <View style={styles.listHeader}>
-            {query.partialError ? <ChatsPartialNotice onRetry={refresh} /> : null}
-            <ChatsSearchField value={search} onChangeText={setSearch} />
-        </View>
-    ) : null
+    const listHeader = hasItems ? <ChatsSearchField value={search} onChangeText={setSearch} /> : null
 
     return (
         <View style={styles.screen} testID="chats-screen">
@@ -172,9 +164,6 @@ const styles = StyleSheet.create({
     content: {
         flexGrow: 1,
         paddingHorizontal: layout.inboxGutter,
-    },
-    listHeader: {
-        gap: 8,
     },
     sectionHeader: {
         paddingTop: 20,

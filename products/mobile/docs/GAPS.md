@@ -38,19 +38,27 @@ Known gaps and behavior that stays on the device.
 - **No AI consent notice.** The web client checks `organization.is_ai_data_processing_approved`
   before chat; the server does not. The auth store does not keep that flag from `/api/users/@me/`,
   so the app shows no notice. Add the flag to the auth store, then a one-line notice in the sheet.
-- **Instructions name tools the agent lacks.** `REPORT_DISCUSSION_STATE_INSTRUCTIONS` and
-  `NO_CHECKOUT_INSTRUCTIONS` refer to inbox MCP tools and a sandbox checkout. The LangGraph agent has
-  neither unless the team installed the PostHog MCP server from the MCP store. They stay verbatim for
-  parity with the web until chat moves to the sandbox runtime.
-- **No server cancel.** Stop only stops reading; the run finishes on the server.
-- **Approvals, forms, charts and notebooks** show as a link to the web app.
-- **Reconnect in the first seconds.** `GET conversations/:id/` returns 404 until the server titles the
-  conversation, so a reply that finished while the app was offline in that window cannot be loaded.
-- **Markdown now renders** in replies; the Product line above about plain text predates it.
-  Attach and Expand stay disabled.
-- **Sessions in the chat sheet are v1.**
-  - No send while the agent is mid-turn: Stop replaces Send until the turn ends.
-  - No model or effort picker. A follow-up run keeps the ended run's model.
+- **Legacy conversations are not listed.** The Chats list shows task sessions only.
+  LangGraph chats made before the move stay in the web app's legacy view and `/ai?chat=<id>` links.
+- **No message queueing while the agent works.** Stop replaces Send until the turn ends.
+  The web queues messages typed meanwhile and joins them into one `user_message` after `turn_complete`.
+- **No PostHog Desktop access pre-check.** A refused user learns it from the 403 on the first send.
+  `GET /api/code/invites/check-access/` evaluates the server-side current team, which can differ from the app's project,
+  and the project-scoped `desktop/access/` needs `llm_gateway:read`, which the app does not request.
+- **Context items are re-sent with every message** while a chip stays attached. The web sends a report item once per task resume chain.
+- **Report discussion limit.** A chat with exactly one attached report is an Inbox discussion task and counts toward the report's task limit.
+  At the limit, `POST tasks/` or `run/` answers 429 `signal_report_task_cap`; the app shows the server copy and takes the message back. Attach a second report, or none, to chat without the limit.
+- **One-report chats show as "Report" in Chats.** The `basic=true` list carries `origin_product` but not `signal_report_task_relationship`,
+  so a discussion started on mobile gets the Report label and branch icon of a Create PR hand-off.
+- **A push for a chat opens the Inbox.** Task push routing (`src/features/notifications/notificationRouting.ts`) opens the task's report, and a `posthog_ai` task has none, so it falls back to the Inbox instead of the chat sheet.
+- **A replayed mode change does not replace a mode the app set.** Only a live `current_mode_update` does. If the agent changed mode while the stream was replaying after a lost cursor, the Mode chip keeps the app's mode until the agent reports one live.
+- **No harness switch on a live run.** A chat started on Claude Code stays on it, and one on Codex stays on Codex. Start a new chat to switch.
+- **`set_config_option` result shape is unverified.** The app treats a 2xx without a JSON-RPC `error` as applied.
+  The agent server source is not in this repo; its built dist answers `{ configOptions }`.
+- **In-progress reopen relies on the server backlog.** A live run is followed without a cursor and without reading `logs/`,
+  which shows the whole thread only on thin-tail runs. The web reads `logs/` and reconciles on every connect.
+- **Approvals, forms, charts and notebooks** the agent links show as links to the web app.
+- **Sessions in the chat sheet.**
   - No attachments.
   - No artifacts or diff view. Only the PR card shows what the agent changed.
   - No undo of an answer.

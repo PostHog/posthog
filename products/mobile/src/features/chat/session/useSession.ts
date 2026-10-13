@@ -4,17 +4,21 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ApiError } from '@/api/client'
 import { readSse } from '@/api/sse'
 import {
+    createTask,
+    deleteTask,
     getTask,
     getTaskRun,
     getTaskRunLogs,
     openTaskRunStream,
+    type PermissionModeApi,
+    type SetConfigOptionParams,
     sendTaskRunCommand,
     startTaskRun,
     type TaskRunApi,
     type TaskRunCreateRequestApi,
 } from '@/api/tasks'
 import { useDemoMode } from '@/demo/demoMode'
-import { DEMO_ANSWER_REPLY, demoSessionLog, demoSessionRunId } from '@/demo/sessionThreads'
+import { DEMO_ANSWER_REPLY, DEMO_REPLY, demoSessionLog, demoSessionRunId } from '@/demo/sessionThreads'
 import {
     CommandFailedError,
     deliverPermissionResponse,
@@ -25,7 +29,6 @@ import { answerErrorMessage } from '@/features/handoff/hooks'
 import { RunNotStartedError, withWarmRetry } from '@/features/handoff/kickoff'
 import { pullRequestFromUrl } from '@/features/handoff/liveReport'
 import { decisionQuestionFor, planAnswer, requestKind } from '@/features/handoff/permissionRequest'
-import { HANDOFF_FALLBACK_RUNTIME } from '@/features/handoff/runOptions'
 import {
     applyRunSnapshot,
     displayStage,
@@ -46,12 +49,26 @@ import { track } from '@/lib/analytics'
 import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 import type { DecisionAnswerInput } from '@/model/types'
-
 import { toChatError } from '../chatErrors'
-import { chatPrompt } from '../contextPrompt'
-import { DEMO_REPLY } from '../hooks'
+import { type ChatRunOptions, DEFAULT_CHAT_RUN_OPTIONS } from '../chatRunOptions'
+import { bareQuestion, chatPrompt } from '../contextPrompt'
 import type { ChatContext } from '../types'
 import { historyFrames, initialSessionThread, sessionThreadReducer } from './sessionReducer'
+import {
+    applyConfigChange,
+    chatRunFields,
+    chatStartRequests,
+    configSyncPlan,
+    currentPermissionMode,
+    harnessMismatchMessage,
+    type RunSourceFieldsApi,
+    runConfigAfterStart,
+    runConfigFromRun,
+    runSourceFields,
+    sentOptionProperties,
+    type TrackedRunConfig,
+    withStreamModeReport,
+} from './sessionRun'
 import type { Session, SessionDecision, SessionHistory, SessionPhase } from './types'
 
 // Drives a sandbox task run in the chat sheet through the tasks API. Stream handling follows `docs/HANDOFF.md`.
@@ -63,15 +80,42 @@ export interface SessionOptions {
 }
 
 const STOP_TIMEOUT_MS = 10_000
+const CONFIG_STARTUP_WAIT_MS = 10_000
+const CONFIG_RETRY_DELAY_MS = 500
 
 const NOT_STARTED = "The agent hasn't started yet."
 const STOP_FAILED = "Couldn't stop this run. Try again."
 const ANSWERED_ELSEWHERE = 'Someone else answered this already.'
 const ANSWER_RUN_ENDED = "Your answer wasn't sent. The run ended."
 const CONNECTION_LOST = 'The connection to the agent dropped. Close this chat and open it again.'
+const CONFIG_NOT_APPLIED = "Your model or mode change didn't reach the agent. Try again."
 
 const LOADING: SessionHistory = { status: 'loading', error: null }
 const IDLE: SessionHistory = { status: 'idle', error: null }
+
+const UNKNOWN_RUN_CONFIG: TrackedRunConfig = {
+    runtimeAdapter: null,
+    model: null,
+    reasoningEffort: null,
+    permissionMode: null,
+    modeSetHere: false,
+}
+
+/** A `set_config_option` the agent did not apply. The send stops before its `user_message`. */
+class ConfigSyncError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ConfigSyncError'
+    }
+}
+
+/** The run ended before its config changed, so the message starts a resume run that carries the options instead. */
+class RunEndedError extends Error {
+    constructor() {
+        super('The run ended.')
+        this.name = 'RunEndedError'
+    }
+}
 
 interface PartialAnswer {
     requestId: string
@@ -98,12 +142,19 @@ function isResumeRun(run: TaskRunApi): boolean {
     return typeof resumeFrom === 'string' && resumeFrom !== ''
 }
 
-function isSessionUpdate(frame: unknown): boolean {
+function sessionUpdate(frame: unknown): Record<string, unknown> | undefined {
     const record = asRecord(frame)
-    return record?.type === 'notification' && asRecord(record.notification)?.method === 'session/update'
+    const notification = asRecord(record?.notification)
+    if (record?.type !== 'notification' || notification?.method !== 'session/update') {
+        return undefined
+    }
+    return asRecord(asRecord(notification.params)?.update) ?? {}
 }
 
 function sendErrorMessage(error: unknown): string {
+    if (error instanceof ConfigSyncError) {
+        return error.message
+    }
     if (error instanceof CommandFailedError) {
         return "The agent didn't take your message. Try again."
     }
@@ -121,17 +172,54 @@ function sendErrorMessage(error: unknown): string {
     return toChatError(error).message
 }
 
-/** A follow-up keeps the ended run's model, so the conversation does not switch agents halfway. */
-function successorRuntime(
-    previous: TaskRunApi | null
-): Pick<TaskRunCreateRequestApi, 'runtime_adapter' | 'model' | 'reasoning_effort'> {
-    if (!previous?.model) {
-        return { ...HANDOFF_FALLBACK_RUNTIME }
-    }
-    return {
-        model: previous.model,
-        ...(previous.runtime_adapter ? { runtime_adapter: previous.runtime_adapter } : {}),
-        ...(previous.reasoning_effort ? { reasoning_effort: previous.reasoning_effort } : {}),
+/**
+ * A run the server definitely did not start, so the task a new chat just created can go. A 5xx other than 503, or
+ * a lost connection, may still have started one, and deleting the task would hide a run that keeps going.
+ */
+function isRunRefused(error: unknown): boolean {
+    return error instanceof ApiError && ((error.status >= 400 && error.status < 500) || error.status === 503)
+}
+
+/** Retries while the sandbox's command channel comes up, as `deliverPermissionResponse` does. */
+async function sendConfigOption(run: RunRef, params: SetConfigOptionParams, signal: AbortSignal): Promise<void> {
+    const deadline = Date.now() + CONFIG_STARTUP_WAIT_MS
+    for (;;) {
+        try {
+            const response = await sendTaskRunCommand(
+                run.taskId,
+                run.runId,
+                { method: 'set_config_option', params },
+                { id: `config-${randomUUID()}`, signal }
+            )
+            if (response.error) {
+                throw new ConfigSyncError(CONFIG_NOT_APPLIED)
+            }
+            return
+        } catch (error) {
+            if (!(error instanceof ApiError)) {
+                throw error
+            }
+            if (error.status === 409) {
+                throw new RunEndedError()
+            }
+            if (
+                error.status === 503 &&
+                error.code === 'sandbox_not_ready' &&
+                !signal.aborted &&
+                Date.now() < deadline
+            ) {
+                await sleep((error.retryAfterSeconds ?? 0) * 1000 || CONFIG_RETRY_DELAY_MS, signal)
+                continue
+            }
+            if (error.status === 400) {
+                // Such as a model outside the run's gateway pin. The server copy says which.
+                throw new ConfigSyncError(error.detail ?? CONFIG_NOT_APPLIED)
+            }
+            if (error.status === 502) {
+                throw new ConfigSyncError(CONFIG_NOT_APPLIED)
+            }
+            throw error
+        }
     }
 }
 
@@ -302,14 +390,14 @@ async function followSessionRun(
     return 'aborted'
 }
 
-export function useSession(options: SessionOptions): Session | null {
+export function useSession(options: SessionOptions): Session {
     const { taskId, runId: requestedRunId } = options
     const demo = useDemoMode((state) => state.enabled)
     const active = useAppActive()
     const [thread, dispatchThread] = useReducer(sessionThreadReducer, false, initialSessionThread)
     const [live, setLiveState] = useState<RunStreamState | null>(null)
     const [title, setTitle] = useState<string | null>(null)
-    const [history, setHistory] = useState<SessionHistory>(LOADING)
+    const [history, setHistory] = useState<SessionHistory>(taskId ? LOADING : IDLE)
     const [notice, setNotice] = useState<string | undefined>(undefined)
     const [isSending, setSending] = useState(false)
     const [isStopping, setStopping] = useState(false)
@@ -318,9 +406,12 @@ export function useSession(options: SessionOptions): Session | null {
     const [follow, setFollow] = useState<Follow | null>(null)
     const [followEnded, setFollowEnded] = useState(false)
     const [demoPlaying, setDemoPlaying] = useState(false)
+    const [createdTaskId, setCreatedTaskId] = useState<string | null>(null)
+    const [unsentText, setUnsentText] = useState<string | undefined>(undefined)
+    const activeTaskId = taskId ?? createdTaskId
 
-    const taskIdRef = useRef(taskId)
-    taskIdRef.current = taskId
+    const taskIdRef = useRef<string | null>(activeTaskId)
+    taskIdRef.current = activeTaskId
     const liveRef = useRef<RunStreamState | null>(null)
     const partialRef = useRef<PartialAnswer | null>(null)
     /** The latest run detail, whose model a follow-up run keeps. */
@@ -335,6 +426,8 @@ export function useSession(options: SessionOptions): Session | null {
     const sendingRef = useRef(false)
     const stoppingRef = useRef(false)
     const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const runConfigs = useRef(new Map<string, TrackedRunConfig>())
+    const runSource = useRef<RunSourceFieldsApi>({})
 
     const setLive = useCallback((next: RunStreamState | null): void => {
         liveRef.current = next
@@ -453,8 +546,13 @@ export function useSession(options: SessionOptions): Session | null {
                 // An earlier run in the resume chain: its turn ends and requests say nothing about this run.
                 return
             }
-            if (isSessionUpdate(data)) {
+            const update = sessionUpdate(data)
+            if (update) {
                 generating.current.add(runId)
+            }
+            const tracked = runConfigs.current.get(runId)
+            if (tracked && context.source === 'live' && update?.sessionUpdate === 'current_mode_update') {
+                runConfigs.current.set(runId, withStreamModeReport(tracked))
             }
             const result = reduceFrame(current, data, context)
             if (result.state !== current) {
@@ -478,6 +576,7 @@ export function useSession(options: SessionOptions): Session | null {
         bootController.current = null
         cursors.current.clear()
         generating.current.clear()
+        runConfigs.current.clear()
         runDetail.current = null
         sendingRef.current = false
         endStopping()
@@ -487,6 +586,7 @@ export function useSession(options: SessionOptions): Session | null {
         setDemoPlaying(false)
         setSending(false)
         setNotice(undefined)
+        setUnsentText(undefined)
         setPartial(null)
         setLive(null)
         dispatchThread({ type: 'reset' })
@@ -496,7 +596,12 @@ export function useSession(options: SessionOptions): Session | null {
         epoch.current += 1
         const mine = epoch.current
         resetState()
+        setCreatedTaskId(null)
+        runSource.current = {}
         if (!taskId) {
+            taskIdRef.current = null
+            setTitle(null)
+            setHistory(IDLE)
             return
         }
         setHistory(LOADING)
@@ -531,6 +636,7 @@ export function useSession(options: SessionOptions): Session | null {
                 return
             }
             setTitle(task.title || null)
+            runSource.current = runSourceFields(task.signal_report)
             const run =
                 requestedRunId && requestedRunId !== task.latest_run?.id
                     ? await getTaskRun(taskId, requestedRunId, signal)
@@ -596,7 +702,7 @@ export function useSession(options: SessionOptions): Session | null {
     )
 
     useEffect(() => {
-        if (!follow || !taskId || !active || demo) {
+        if (!follow || !activeTaskId || !active || demo) {
             return
         }
         const controller = new AbortController()
@@ -621,9 +727,9 @@ export function useSession(options: SessionOptions): Session | null {
             onResync: () => dispatchThread({ type: 'resuming' }),
             onReconnecting: setReconnecting,
             onSnapshot: applySnapshot,
-            getState: () => liveRef.current ?? initialRunState(taskId, runId),
+            getState: () => liveRef.current ?? initialRunState(activeTaskId, runId),
         }
-        void followSessionRun(taskId, runId, entry.cursor, signal, handlers).then((outcome) => {
+        void followSessionRun(activeTaskId, runId, entry.cursor, signal, handlers).then((outcome) => {
             if (outcome === 'aborted' || signal.aborted) {
                 return
             }
@@ -638,7 +744,7 @@ export function useSession(options: SessionOptions): Session | null {
             }
         })
         return () => controller.abort()
-    }, [active, applyFrame, applySnapshot, demo, follow, taskId])
+    }, [active, activeTaskId, applyFrame, applySnapshot, demo, follow])
 
     const liveStatus = live?.status
     const liveTurnEnded = live?.turnEnded
@@ -672,22 +778,33 @@ export function useSession(options: SessionOptions): Session | null {
         [applyFrame]
     )
 
+    const configFor = useCallback((runId: string): TrackedRunConfig => {
+        const tracked = runConfigs.current.get(runId)
+        if (tracked) {
+            return tracked
+        }
+        const detail = runDetail.current
+        return detail?.id === runId ? runConfigFromRun(detail) : UNKNOWN_RUN_CONFIG
+    }, [])
+
     const startRun = useCallback(
         async (
             content: string,
             previousRunId: string | undefined,
+            options: ChatRunOptions,
             signal: AbortSignal,
             mine: number
-        ): Promise<void> => {
+        ): Promise<PermissionModeApi> => {
             const id = taskIdRef.current
             if (!id) {
-                return
+                throw new RunNotStartedError()
             }
+            const fields = chatRunFields(options, previousRunId ? configFor(previousRunId) : null)
             const body: TaskRunCreateRequestApi = {
                 mode: 'interactive',
                 pending_user_message: content,
-                ...(previousRunId ? { resume_from_run_id: previousRunId } : {}),
-                ...successorRuntime(runDetail.current),
+                ...(previousRunId ? { resume_from_run_id: previousRunId } : runSource.current),
+                ...fields,
             }
             const response = await withWarmRetry((headers) => startTaskRun(id, body, { headers, signal }), { signal })
             const run = response.run ?? response.latest_run ?? null
@@ -695,9 +812,10 @@ export function useSession(options: SessionOptions): Session | null {
                 throw new RunNotStartedError()
             }
             if (epoch.current !== mine) {
-                return
+                return fields.initial_permission_mode
             }
             runDetail.current = run
+            runConfigs.current.set(run.id, runConfigAfterStart(run, fields))
             if (previousRunId) {
                 // A thin-tail run's first replay is the whole resume chain, which then draws the thread again.
                 dispatchThread({ type: 'resuming', resumeRun: true })
@@ -705,12 +823,60 @@ export function useSession(options: SessionOptions): Session | null {
             setPartial(null)
             setLive(applyRunSnapshot(initialRunState(id, run.id, run.status), run))
             setFollow({ runId: run.id, key: 0 })
+            return fields.initial_permission_mode
         },
-        [setLive, setPartial]
+        [configFor, setLive, setPartial]
     )
 
-    const send = useCallback(
-        async (text: string, context: ChatContext): Promise<void> => {
+    const syncConfig = useCallback(
+        async (run: RunRef, options: ChatRunOptions, signal: AbortSignal, mine: number): Promise<PermissionModeApi> => {
+            const live = liveRef.current
+            const plan = configSyncPlan(
+                options,
+                configFor(run.runId),
+                live?.runId === run.runId ? live.mode : undefined
+            )
+            if (plan.type === 'harness_mismatch') {
+                throw new ConfigSyncError(harnessMismatchMessage(plan.runtimeAdapter))
+            }
+            for (const change of plan.changes) {
+                await sendConfigOption(run, change, signal)
+                if (epoch.current !== mine) {
+                    break
+                }
+                // Recorded per change, so a later failure resends only what did not go out.
+                runConfigs.current.set(run.runId, applyConfigChange(configFor(run.runId), change))
+            }
+            return plan.permissionMode
+        },
+        [configFor]
+    )
+
+    /**
+     * The task's latest run, followed when it is live. A first run that failed with a 5xx or a lost connection may
+     * still have started, and a fresh run beside it would make two agents answer.
+     */
+    const adoptLatestRun = useCallback(
+        async (id: string, signal: AbortSignal, mine: number): Promise<RunStreamState | null> => {
+            const task = await getTask(id, signal)
+            const run = task.latest_run
+            if (!run || epoch.current !== mine) {
+                return null
+            }
+            runDetail.current = run
+            const state = applyRunSnapshot(initialRunState(id, run.id, run.status), run)
+            setLive(state)
+            if (!isTerminalRunStatus(run.status)) {
+                setFollow({ runId: run.id, key: 0 })
+            }
+            return state
+        },
+        [setLive]
+    )
+
+    const followUp = useCallback(
+        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<void> => {
+            const taskId = taskIdRef.current
             const trimmed = text.trim()
             if (!taskId || !trimmed || sendingRef.current) {
                 return
@@ -723,7 +889,8 @@ export function useSession(options: SessionOptions): Session | null {
             actionController.current?.abort()
             actionController.current = controller
             setNotice(undefined)
-            dispatchThread({ type: 'local_user', id: localId, text: trimmed })
+            setUnsentText(undefined)
+            dispatchThread({ type: 'local_user', id: localId, text: bareQuestion(trimmed) })
             if (demo) {
                 const runId = liveRef.current?.runId
                 if (runId) {
@@ -733,7 +900,12 @@ export function useSession(options: SessionOptions): Session | null {
                     })
                     applyFrame(echo, { source: 'live', sourceRunId: runId }, runId, controller.signal)
                 }
-                track('mobile_session_sent', { resumed_run: false, report_count: reportCount })
+                track('mobile_session_sent', {
+                    new_task: false,
+                    resumed_run: false,
+                    report_count: reportCount,
+                    ...sentOptionProperties(options, options.permissionMode),
+                })
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), controller.signal)
                 return
             }
@@ -741,25 +913,46 @@ export function useSession(options: SessionOptions): Session | null {
             setSending(true)
             let resumed = false
             try {
-                const current = liveRef.current
+                const current = liveRef.current ?? (await adoptLatestRun(taskId, controller.signal, mine))
+                if (epoch.current !== mine) {
+                    return
+                }
                 let delivered = false
+                let permissionMode: PermissionModeApi = options.permissionMode
                 if (current && !isTerminalRunStatus(current.status)) {
-                    const outcome = await sendUserMessage({ taskId, runId: current.runId }, content, {
-                        id: randomUUID(),
-                        signal: controller.signal,
-                    })
-                    delivered = outcome === 'queued'
-                    if (delivered && epoch.current === mine) {
-                        // The agent works on the message now; the stream confirms it when the turn starts.
-                        updateLive(current.runId, (state) => ({ ...state, turnEnded: false }))
+                    const run = { taskId, runId: current.runId }
+                    let ended = false
+                    try {
+                        permissionMode = await syncConfig(run, options, controller.signal, mine)
+                    } catch (error) {
+                        if (!(error instanceof RunEndedError)) {
+                            throw error
+                        }
+                        ended = true
+                    }
+                    if (!ended) {
+                        const outcome = await sendUserMessage(run, content, {
+                            id: randomUUID(),
+                            signal: controller.signal,
+                        })
+                        delivered = outcome === 'queued'
+                        if (delivered && epoch.current === mine) {
+                            // The agent works on the message now; the stream confirms it when the turn starts.
+                            updateLive(current.runId, (state) => ({ ...state, turnEnded: false }))
+                        }
                     }
                 }
                 if (!delivered) {
                     resumed = current !== null
-                    await startRun(content, current?.runId, controller.signal, mine)
+                    permissionMode = await startRun(content, current?.runId, options, controller.signal, mine)
                 }
                 if (epoch.current === mine) {
-                    track('mobile_session_sent', { resumed_run: resumed, report_count: reportCount })
+                    track('mobile_session_sent', {
+                        new_task: false,
+                        resumed_run: resumed,
+                        report_count: reportCount,
+                        ...sentOptionProperties(options, permissionMode),
+                    })
                 }
             } catch (error) {
                 if (epoch.current !== mine || controller.signal.aborted) {
@@ -767,6 +960,7 @@ export function useSession(options: SessionOptions): Session | null {
                 }
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
+                setUnsentText(trimmed)
             } finally {
                 if (epoch.current === mine) {
                     sendingRef.current = false
@@ -774,11 +968,120 @@ export function useSession(options: SessionOptions): Session | null {
                 }
             }
         },
-        [applyFrame, demo, playDemoFrames, startRun, taskId, updateLive]
+        [adoptLatestRun, applyFrame, demo, playDemoFrames, startRun, syncConfig, updateLive]
+    )
+
+    const startNew = useCallback(
+        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<void> => {
+            const trimmed = text.trim()
+            if (taskIdRef.current || !trimmed || sendingRef.current) {
+                return
+            }
+            const requests = chatStartRequests(trimmed, context, options)
+            const sentProperties = {
+                new_task: true,
+                resumed_run: false,
+                report_count: context.kind === 'reports' ? context.reports.length : 0,
+                ...sentOptionProperties(options, requests.fields.initial_permission_mode),
+            }
+            const localId = `local-${randomUUID()}`
+            const mine = epoch.current
+            const controller = new AbortController()
+            actionController.current?.abort()
+            actionController.current = controller
+            const { signal } = controller
+            setNotice(undefined)
+            setUnsentText(undefined)
+            dispatchThread({ type: 'local_user', id: localId, text: bareQuestion(trimmed) })
+            if (demo) {
+                const demoTaskId = `demo-new-${randomUUID()}`
+                const runId = `demo-run-${randomUUID()}`
+                taskIdRef.current = demoTaskId
+                setCreatedTaskId(demoTaskId)
+                setLive(initialRunState(demoTaskId, runId, 'in_progress'))
+                const echo = demoFrame({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: requests.run.pending_user_message },
+                })
+                applyFrame(echo, { source: 'live', sourceRunId: runId }, runId, signal)
+                track('mobile_session_sent', sentProperties)
+                await playDemoFrames(demoReplyFrames(DEMO_REPLY), signal)
+                return
+            }
+            sendingRef.current = true
+            setSending(true)
+            try {
+                // No abort signal, so the app always learns the task id and whether its run started.
+                const task = await withWarmRetry((headers) => createTask(requests.task, { headers }))
+                if (epoch.current !== mine) {
+                    // The sheet closed or New chat dropped this chat, so no run would ever start on the new task.
+                    if (!task.latest_run) {
+                        await deleteTask(task.id).catch(() => undefined)
+                    }
+                    return
+                }
+                taskIdRef.current = task.id
+                runSource.current = requests.runSource
+                setCreatedTaskId(task.id)
+                setTitle(task.title || null)
+                let run = task.latest_run ?? null
+                if (!run) {
+                    try {
+                        const response = await withWarmRetry((headers) =>
+                            startTaskRun(task.id, requests.run, { headers })
+                        )
+                        run = response.run ?? response.latest_run ?? null
+                    } catch (error) {
+                        if (isRunRefused(error)) {
+                            // No run started, so the task would only sit empty in the Chats list.
+                            deleteTask(task.id).catch(() => undefined)
+                            if (epoch.current === mine) {
+                                taskIdRef.current = null
+                                runSource.current = {}
+                                setCreatedTaskId(null)
+                                setTitle(null)
+                            }
+                        }
+                        throw error
+                    }
+                }
+                if (!run) {
+                    throw new RunNotStartedError()
+                }
+                if (epoch.current !== mine) {
+                    return
+                }
+                runDetail.current = run
+                runConfigs.current.set(run.id, runConfigAfterStart(run, requests.fields))
+                setLive(applyRunSnapshot(initialRunState(task.id, run.id, run.status), run))
+                setFollow({ runId: run.id, key: 0 })
+                track('mobile_session_sent', sentProperties)
+            } catch (error) {
+                if (epoch.current !== mine || signal.aborted) {
+                    return
+                }
+                dispatchThread({ type: 'withdraw', id: localId })
+                setNotice(sendErrorMessage(error))
+                setUnsentText(trimmed)
+            } finally {
+                if (epoch.current === mine) {
+                    sendingRef.current = false
+                    setSending(false)
+                }
+            }
+        },
+        [applyFrame, demo, playDemoFrames, setLive]
+    )
+
+    const submit = useCallback(
+        (text: string, context: ChatContext, options: ChatRunOptions = DEFAULT_CHAT_RUN_OPTIONS): Promise<void> =>
+            taskIdRef.current ? followUp(text, context, options) : startNew(text, context, options),
+        [followUp, startNew]
     )
 
     const answer = useCallback(
         async (input: DecisionAnswerInput): Promise<void> => {
+            const taskId = taskIdRef.current
             const current = liveRef.current
             if (!taskId || !current || sendingRef.current) {
                 return
@@ -855,7 +1158,7 @@ export function useSession(options: SessionOptions): Session | null {
                 }
             }
         },
-        [demo, playDemoFrames, refreshRun, setPartial, taskId, updateLive]
+        [demo, playDemoFrames, refreshRun, setPartial, updateLive]
     )
 
     const stop = useCallback((): void => {
@@ -869,6 +1172,7 @@ export function useSession(options: SessionOptions): Session | null {
             }
             return
         }
+        const taskId = taskIdRef.current
         const current = liveRef.current
         if (!taskId || !current || stoppingRef.current) {
             return
@@ -894,9 +1198,13 @@ export function useSession(options: SessionOptions): Session | null {
                     setNotice(STOP_FAILED)
                 }
             })
-    }, [demo, endStopping, taskId])
+    }, [demo, endStopping])
 
     const dismissNotice = useCallback((): void => setNotice(undefined), [])
+
+    const reset = useCallback((): void => {
+        reloadHistory().catch(() => undefined)
+    }, [reloadHistory])
 
     const decision = useMemo((): SessionDecision | undefined => {
         const pending = live?.pending
@@ -920,12 +1228,10 @@ export function useSession(options: SessionOptions): Session | null {
         phase = 'working'
     }
 
-    if (!taskId) {
-        return null
-    }
     const stage = live ? displayStage(live) : undefined
+    const config = live ? configFor(live.runId) : undefined
     return {
-        taskId,
+        taskId: activeTaskId,
         runId: live?.runId ?? null,
         title,
         runStatus: live?.status ?? null,
@@ -940,10 +1246,23 @@ export function useSession(options: SessionOptions): Session | null {
         isSending,
         isStopping,
         ...(notice ? { notice } : {}),
-        send,
+        ...(unsentText ? { unsentText } : {}),
+        ...(config && live
+            ? {
+                  runConfig: {
+                      runtimeAdapter: config.runtimeAdapter,
+                      model: config.model,
+                      reasoningEffort: config.reasoningEffort,
+                      permissionMode: currentPermissionMode(config, live.mode),
+                  },
+              }
+            : {}),
+        start: submit,
+        send: submit,
         answer,
         stop,
         reloadHistory,
+        reset,
         dismissNotice,
     }
 }

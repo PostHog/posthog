@@ -56,7 +56,9 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag. An optional `scrollGesture` makes a drag that starts on an inner list scroll it instead |
 | `HandoffOptionRows` | `features/handoff/HandoffOptionRows.tsx` | White bordered group of 48pt rows in the hand-off sheet: muted label, right-aligned bold value with an optional tertiary second line, chevron |
 | `SheetPageHeader` | `features/handoff/SheetPageHeader.tsx` | 44pt round back button and sheet title for a page that replaces the sheet's content |
-| `ModelPage`, `ModePage`, `BranchPage` | `features/handoff/` | Hand-off option pages. Model: "Reasoning" effort pills (ink fill when picked, ink border for the default's effort when the default names one), then models under "Claude Code" and "Codex" eyebrows with the cost multiplier and a check, in a list capped at 42% of the window that scrolls without closing the sheet, and "Reset to default". Mode: label and description rows. Branch: bordered text field that lifts with the keyboard, one note and a Done button |
+| `ModelPage`, `ModePage`, `BranchPage` | `features/handoff/` | Hand-off option pages; the chat's options sheet hosts Model and Mode too, so they take the options and pick callbacks as props. Model: "Reasoning" effort pills (ink fill when picked, ink border for the default's effort when the default names one), then models under "Claude Code" and "Codex" eyebrows with the cost multiplier and a check, in a list capped at 42% of the window that scrolls without closing the sheet, and "Reset to default". Mode: label and description rows. Branch: bordered text field that lifts with the keyboard, one note and a Done button |
+| `Composer` chips | `features/chat/Composer.tsx` | After `@`: a Model chip ("Default", or the pinned model without its "Claude" prefix and the effort, such as "Opus 5.5 · High") and a Mode chip ("Auto" by default). 32pt bordered pills with a chevron that reach 44pt through the hit slop, shrink and truncate to one line on a narrow phone, and dim while the agent works, the history loads, a send is in flight or a decision waits. On an open chat they start from the run's own model and mode, and the Model page lists only the run's harness |
+| `ChatOptionsSheet` | `features/chat/ChatOptionsSheet.tsx` | `BottomSheet` over the chat that hosts `ModelPage` or `ModePage` for the chat's own options. The back button closes it, and a mode pick closes it. It draws inline, because the chat route is a native modal outside the overlay host |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
 | `MetricChart` | `ui/chart/MetricChart.tsx` | Line or bar chart on Skia (victory-native). The y axis floats for lines and starts at zero for bars. Hairline gridlines, 11pt mono ticks. Tap or drag to scrub, with a selection haptic and a tooltip that stays after release. 144pt high by default |
 | `ObservationCard` | `features/report/metrics/ObservationCard.tsx` | White card: "Observation" eyebrow, title, caption, 28pt mono value, chart, then the window and filter count with Open insight |
@@ -85,11 +87,10 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - **Chats**: the mobile port of the web app's Chats pane. Header with the logomark, "Chats" and a
   New chat button. A search field above the list filters titles on the device. Rows are grouped
   under day labels (Today, Yesterday, a weekday, a date, Earlier) and use the inbox row geometry:
-  a chat bubble tile for a PostHog AI chat, a branch tile with a status dot for a sandbox session.
-  A chat row opens the chat sheet on that conversation. A session row opens the session in the chat
-  sheet: the agent's thread, its PR card, and a pending decision above the composer. The nav pill shows Chats selected. Loading, error, empty and
-  "No matches" are separate screens; when one of the two sources fails, a line above the list
-  says so and offers Try again.
+  a chat bubble tile for a PostHog AI chat, a branch tile for a report hand-off or another session,
+  and an origin label, a status dot and the time under the title. A row opens the chat sheet on that
+  task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
+  shows Chats selected. Loading, error, empty and "No matches" are separate screens.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
@@ -101,7 +102,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   shows in every state.
 - **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card, Priority sheet (P0 to P4),
   Project card (search field, projects grouped by organization, check on the current one),
-  chat sheet with @-mention popover and a simple thread. The chat sheet shares the sheets' grabber
+  chat sheet with @-mention popover, the Model and Mode chips, and the session thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
 - **Sign-in** and **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
   large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).

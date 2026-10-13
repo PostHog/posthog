@@ -17,15 +17,6 @@ import type {
 // Mirrors `foldLogToThread` in `products/posthog_ai/frontend/logics/runStreamLogic.ts`, without timestamps, debug rows
 // and attachments, which the phone does not draw.
 
-/** Leading context blocks a send can carry. Same list as `CONTEXT_BLOCK_TAGS` on the web. */
-const CONTEXT_BLOCK_TAGS = [
-    'posthog_trusted_context',
-    'posthog_untrusted_context',
-    'posthog_context',
-    'slack_thread_context',
-    'slack_thread_context_update',
-]
-
 /** The agent server writes this prompt into a resume run's log before the real message. It is not the person's. */
 const RESUME_CONTEXT_PREFIX = 'You are resuming a previous conversation.'
 
@@ -108,22 +99,8 @@ export function initialSessionThread(resumeRun = false): SessionThreadState {
     }
 }
 
-/** The person's own text: leading context blocks and the app's trailing `<posthog_context>` block removed. */
 export function visibleUserText(raw: string): string {
-    let rest = raw
-    for (;;) {
-        const tag = CONTEXT_BLOCK_TAGS.find((candidate) => rest.startsWith(`<${candidate}>`))
-        if (!tag) {
-            break
-        }
-        const closeTag = `</${tag}>`
-        const closeIndex = rest.indexOf(closeTag)
-        if (closeIndex === -1) {
-            break
-        }
-        rest = rest.slice(closeIndex + closeTag.length).replace(/^\n+/, '')
-    }
-    return stripInjectedContext(rest)
+    return stripInjectedContext(raw)
 }
 
 function isHiddenUserContent(content: unknown): boolean {

@@ -9,6 +9,7 @@ import {
     type PermissionModeApi,
     type ReasoningEffortApi,
     type ResolvedAiRunDefaultsApi,
+    type RuntimeAdapterApi,
 } from '@/api/tasks'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
@@ -20,7 +21,9 @@ import {
     defaultModelSelection,
     effectiveRuntimeAdapter,
     offeredModels,
+    type PinnedModel,
     pinModel,
+    type RunOptions,
     STATIC_CATALOGUE,
 } from './runOptions'
 import { useRunOptionsStore } from './runOptionsStore'
@@ -109,6 +112,40 @@ function trackOptionChanged(option: RunOption): void {
     track('mobile_handoff_option_changed', { option })
 }
 
+type ModelSelection = RunOptions['model']
+
+export function modelAfterPick(
+    catalogue: readonly ModelChoiceApi[],
+    defaults: ResolvedAiRunDefaultsApi | undefined,
+    current: ModelSelection,
+    option: ModelChoiceApi
+): PinnedModel {
+    const previousEffort =
+        current === 'default' ? defaultModelSelection(defaults)?.reasoningEffort : current.reasoningEffort
+    return pinModel(catalogue, option, previousEffort)
+}
+
+/**
+ * The model an effort pick pins. With an untouched model this pins the default model at the picked effort, so it is
+ * undefined when the catalogue does not list the default model.
+ */
+export function modelAfterEffort(
+    catalogue: readonly ModelChoiceApi[],
+    defaults: ResolvedAiRunDefaultsApi | undefined,
+    current: ModelSelection,
+    reasoningEffort: ReasoningEffortApi
+): PinnedModel | undefined {
+    if (current !== 'default') {
+        return { ...current, reasoningEffort }
+    }
+    const entry = catalogueEntry(catalogue, defaultModelSelection(defaults)?.model)
+    return entry ? { runtimeAdapter: entry.runtime_adapter, model: entry.model, reasoningEffort } : undefined
+}
+
+export function defaultRuntimeAdapter(defaults: ResolvedAiRunDefaultsApi | undefined): RuntimeAdapterApi {
+    return effectiveRuntimeAdapter(DEFAULT_RUN_OPTIONS, defaults)
+}
+
 export interface RunOptionActions {
     pickModel: (option: ModelChoiceApi) => void
     /** With an untouched model this pins the default model at the picked effort. */
@@ -127,27 +164,16 @@ export function useRunOptionActions(
 ): RunOptionActions {
     const pickModel = (option: ModelChoiceApi): void => {
         const { options, setModel } = useRunOptionsStore.getState()
-        const previousEffort =
-            options.model === 'default'
-                ? defaultModelSelection(defaults)?.reasoningEffort
-                : options.model.reasoningEffort
-        setModel(pinModel(catalogue, option, previousEffort), option.runtime_adapter)
+        setModel(modelAfterPick(catalogue, defaults, options.model, option), option.runtime_adapter)
         trackOptionChanged('model')
     }
     const pickEffort = (reasoningEffort: ReasoningEffortApi): void => {
         const { options, setModel } = useRunOptionsStore.getState()
-        if (options.model !== 'default') {
-            setModel({ ...options.model, reasoningEffort }, options.model.runtimeAdapter)
-        } else {
-            const entry = catalogueEntry(catalogue, defaultModelSelection(defaults)?.model)
-            if (!entry) {
-                return
-            }
-            setModel(
-                { runtimeAdapter: entry.runtime_adapter, model: entry.model, reasoningEffort },
-                entry.runtime_adapter
-            )
+        const model = modelAfterEffort(catalogue, defaults, options.model, reasoningEffort)
+        if (!model) {
+            return
         }
+        setModel(model, model.runtimeAdapter)
         trackOptionChanged('effort')
     }
     const resetModel = (): void => {
@@ -155,7 +181,7 @@ export function useRunOptionActions(
         if (options.model === 'default') {
             return
         }
-        setModel('default', effectiveRuntimeAdapter(DEFAULT_RUN_OPTIONS, defaults))
+        setModel('default', defaultRuntimeAdapter(defaults))
         trackOptionChanged('model')
     }
     const pickMode = (mode: PermissionModeApi): void => {

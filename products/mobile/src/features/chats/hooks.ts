@@ -1,82 +1,98 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { NotSignedInError } from '@/api/client'
-import { chatKeys, listConversations } from '@/api/conversations'
-import { isMissingFeature, retryUnlessMissing } from '@/api/reports'
+import { isMissingFeature, type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
 import { listMySessions } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useDemoChatsQuery } from '@/demo/hooks'
 import { toError } from '@/lib/errors'
-import { chatListFromSources } from '@/model/adapters/chats'
-import { errorQuery, loadingQuery } from '@/model/queryStates'
+import { chatListFromSessions } from '@/model/adapters/chats'
+import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { ChatListItem, QueryState } from '@/model/types'
 
 const CHAT_LIST_STALE_MS = 30_000
 
-export interface ChatListQuery extends QueryState<ChatListItem[]> {
-    /** One source loaded and the other failed. The list shows what loaded plus a retry line. */
-    partialError: boolean
+/** Query keys for the chats list. Every key carries the host and project so a project switch never shows stale data. */
+export const sessionListKeys = {
+    all: (scope: ProjectScope | null) => ['chat-sessions', ...scopeKey(scope)] as const,
+    mine: (scope: ProjectScope | null, userId: number | undefined) =>
+        [...sessionListKeys.all(scope), userId ?? null] as const,
 }
 
-function useLiveChatList(enabled: boolean): ChatListQuery {
+function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
     const scope = useProjectScope()
     const userId = useAuthStore((state) => state.user?.id)
-    const active = enabled && scope !== null
+    const accountLoading = useAuthStore((state) => state.accountLoading)
+    const accountError = useAuthStore((state) => state.accountError)
+    const reloadAccount = useAuthStore((state) => state.reloadAccount)
     // A session restored from before the app stored the numeric id has none until the account reloads.
-    const sessionsEnabled = active && typeof userId === 'number'
+    const missingUserId = enabled && scope !== null && typeof userId !== 'number'
+    const active = enabled && scope !== null && typeof userId === 'number'
     const [pulling, setPulling] = useState(false)
+    const [accountChecked, setAccountChecked] = useState(false)
 
-    const conversations = useQuery({
-        queryKey: chatKeys.conversations(scope),
-        queryFn: ({ signal }) => listConversations(signal),
+    useEffect(() => {
+        if (!missingUserId || accountChecked) {
+            return undefined
+        }
+        let current = true
+        reloadAccount().finally(() => {
+            if (current) {
+                setAccountChecked(true)
+            }
+        })
+        return () => {
+            current = false
+        }
+    }, [missingUserId, accountChecked, reloadAccount])
+
+    const sessions = useQuery({
+        queryKey: sessionListKeys.mine(scope, userId),
+        queryFn: ({ signal }) => (typeof userId === 'number' ? listMySessions(userId, signal) : Promise.resolve([])),
         enabled: active,
         retry: retryUnlessMissing,
         staleTime: CHAT_LIST_STALE_MS,
     })
-    const sessions = useQuery({
-        queryKey: chatKeys.sessions(scope, userId),
-        queryFn: ({ signal }) => (typeof userId === 'number' ? listMySessions(userId, signal) : Promise.resolve([])),
-        enabled: sessionsEnabled,
-        retry: retryUnlessMissing,
-        staleTime: CHAT_LIST_STALE_MS,
-    })
 
-    const conversationsFailed = conversations.isError && conversations.data === undefined
-    const sessionsErrored = sessionsEnabled && sessions.isError && sessions.data === undefined
+    const failed = sessions.isError && sessions.data === undefined
     // A 403 or 404 from tasks means this user has no sandbox sessions to show, not a load that a retry can fix.
-    const sessionsUnavailable = sessionsErrored && isMissingFeature(sessions.error)
-    const sessionsFailed = sessionsErrored && !sessionsUnavailable
-    const conversationsSettled = conversations.data !== undefined || conversationsFailed
-    const sessionsSettled = !sessionsEnabled || sessions.data !== undefined || sessionsErrored
-    const sessionData = sessionsEnabled ? sessions.data : undefined
+    const unavailable = failed && isMissingFeature(sessions.error)
 
     const items = useMemo(
-        () => chatListFromSources({ conversations: conversations.data, sessions: sessionData, scope }),
-        [conversations.data, sessionData, scope]
+        () => (unavailable ? [] : chatListFromSessions(sessions.data, scope)),
+        [unavailable, sessions.data, scope]
     )
 
-    const { refetch: refetchConversations } = conversations
     const { refetch: refetchSessions } = sessions
     const refetch = useCallback(async (): Promise<void> => {
         setPulling(true)
         try {
-            await Promise.all([refetchConversations(), sessionsEnabled ? refetchSessions() : Promise.resolve()])
+            await refetchSessions()
         } finally {
             setPulling(false)
         }
-    }, [refetchConversations, refetchSessions, sessionsEnabled])
+    }, [refetchSessions])
 
     if (!scope) {
-        return { ...errorQuery(new NotSignedInError()), partialError: false }
+        return errorQuery(new NotSignedInError())
     }
-    if (conversationsFailed && (sessionsErrored || !sessionsEnabled)) {
-        return { ...errorQuery(toError(conversations.error), refetch), partialError: false }
+    if (missingUserId) {
+        if (!accountChecked || accountLoading) {
+            return { ...loadingQuery<ChatListItem[]>(), refetch: reloadAccount }
+        }
+        if (accountError) {
+            return errorQuery(new Error(accountError), reloadAccount)
+        }
+        return successQuery<ChatListItem[]>([], { refetch: reloadAccount })
     }
-    if (!conversationsSettled || !sessionsSettled) {
-        return { ...loadingQuery<ChatListItem[]>(), refetch, partialError: false }
+    if (failed && !unavailable) {
+        return errorQuery(toError(sessions.error), refetch)
+    }
+    if (sessions.data === undefined && !unavailable) {
+        return { ...loadingQuery<ChatListItem[]>(), refetch }
     }
     return {
         data: items,
@@ -85,19 +101,18 @@ function useLiveChatList(enabled: boolean): ChatListQuery {
         error: null,
         isRefetching: pulling,
         refetch,
-        partialError: conversationsFailed || sessionsFailed,
     }
 }
 
-export function useChatList(): ChatListQuery {
+export function useChatList(): QueryState<ChatListItem[]> {
     const mode = useDataMode()
     const demoQuery = useDemoChatsQuery()
     const liveQuery = useLiveChatList(mode === 'live')
     if (mode === 'loading') {
-        return { ...loadingQuery<ChatListItem[]>(), partialError: false }
+        return loadingQuery<ChatListItem[]>()
     }
     if (mode === 'demo') {
-        return { ...demoQuery, partialError: false }
+        return demoQuery
     }
     return liveQuery
 }

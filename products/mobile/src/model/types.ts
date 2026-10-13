@@ -337,29 +337,25 @@ export interface QueryState<T> {
     refetch: () => unknown
 }
 
-export interface ChatMessage {
-    id: string
-    role: 'user' | 'assistant'
-    text: string
-    at: string
-}
-
 export type ChatSessionStatus = 'working' | 'queued' | 'starting' | 'completed' | 'failed' | 'stopped' | 'idle'
 
+/** Where a session started: a PostHog AI chat, a report hand-off, or anything else. */
+export type ChatOrigin = 'chat' | 'report' | 'session'
+
 export interface ChatListItem {
-    /** Stable list key: `conversation:<id>` or `session:<id>`. */
+    /** Stable list key: `session:<task id>`. */
     id: string
-    kind: 'conversation' | 'session'
-    /** The conversation id, or the task id for a session. */
+    kind: 'session'
+    /** The task id. */
     sourceId: string
-    /** Never empty: "Untitled chat" or "Untitled session" when the server has no title. */
+    origin: ChatOrigin
+    /** Never empty: "Untitled session" when the server has no title. */
     title: string
     /** ISO time of the last activity. The list sorts and groups by it. */
     updatedAt: string
-    /** Sessions only; null for conversations. */
-    status: ChatSessionStatus | null
+    status: ChatSessionStatus
     pullRequestUrl: string | null
-    /** The chat in the web app (`ai?chat=` or `ai?task=`). Undefined without a project scope, as in demo mode. */
+    /** The session in the web app (`ai?task=`). Undefined without a project scope, as in demo mode. */
     webUrl?: string
 }
 

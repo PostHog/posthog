@@ -1,10 +1,7 @@
-import type { ConversationSummaryApi } from '@/api/conversations'
 import type { ProjectScope } from '@/api/reports'
 import type { TaskRunStatusApi, TaskSummaryApi } from '@/api/tasks'
 
-import type { ChatListItem, ChatSessionStatus } from '../types'
-
-export const CHAT_LIST_LIMIT = 30
+import type { ChatListItem, ChatOrigin, ChatSessionStatus } from '../types'
 
 const SESSION_STATUS: Record<TaskRunStatusApi, ChatSessionStatus> = {
     failed: 'failed',
@@ -15,17 +12,26 @@ const SESSION_STATUS: Record<TaskRunStatusApi, ChatSessionStatus> = {
     completed: 'completed',
 }
 
+const SESSION_ORIGIN: Partial<Record<string, ChatOrigin>> = {
+    posthog_ai: 'chat',
+    signal_report: 'report',
+}
+
 function titleOr(title: string | null | undefined, fallback: string): string {
     return title?.trim() || fallback
 }
 
-function aiWebUrl(scope: ProjectScope | null, param: 'chat' | 'task', id: string): string | undefined {
-    return scope ? `${scope.host}/project/${scope.projectId}/ai?${param}=${encodeURIComponent(id)}` : undefined
+function taskWebUrl(scope: ProjectScope | null, taskId: string): string | undefined {
+    return scope ? `${scope.host}/project/${scope.projectId}/ai?task=${encodeURIComponent(taskId)}` : undefined
 }
 
 function sessionStatus(session: TaskSummaryApi): ChatSessionStatus {
     const status = session.latest_run?.status
     return status ? (SESSION_STATUS[status] ?? 'idle') : 'idle'
+}
+
+function sessionOrigin(session: TaskSummaryApi): ChatOrigin {
+    return SESSION_ORIGIN[session.origin_product] ?? 'session'
 }
 
 function sessionItem(session: TaskSummaryApi, scope: ProjectScope | null): ChatListItem {
@@ -34,37 +40,12 @@ function sessionItem(session: TaskSummaryApi, scope: ProjectScope | null): ChatL
         id: `session:${session.id}`,
         kind: 'session',
         sourceId: session.id,
+        origin: sessionOrigin(session),
         title: titleOr(session.title, 'Untitled session'),
         updatedAt: session.last_activity_at ?? session.updated_at ?? session.created_at ?? '',
         status: sessionStatus(session),
         pullRequestUrl: output?.pr_url ?? output?.pr_urls?.[0] ?? null,
-        webUrl: aiWebUrl(scope, 'task', session.id),
-    }
-}
-
-function conversationItem(conversation: ConversationSummaryApi, scope: ProjectScope | null): ChatListItem {
-    if (conversation.task) {
-        // Its work lives in the task run, so opening it as a conversation would show an empty thread.
-        return {
-            id: `session:${conversation.task.id}`,
-            kind: 'session',
-            sourceId: conversation.task.id,
-            title: titleOr(conversation.title, 'Untitled session'),
-            updatedAt: conversation.updated_at ?? conversation.created_at ?? '',
-            status: 'idle',
-            pullRequestUrl: null,
-            webUrl: aiWebUrl(scope, 'task', conversation.task.id),
-        }
-    }
-    return {
-        id: `conversation:${conversation.id}`,
-        kind: 'conversation',
-        sourceId: conversation.id,
-        title: titleOr(conversation.title, 'Untitled chat'),
-        updatedAt: conversation.updated_at ?? conversation.created_at ?? '',
-        status: null,
-        pullRequestUrl: null,
-        webUrl: aiWebUrl(scope, 'chat', conversation.id),
+        webUrl: taskWebUrl(scope, session.id),
     }
 }
 
@@ -75,23 +56,13 @@ function sortTime(item: ChatListItem): number {
 }
 
 /**
- * Merges PostHog AI chats and sandbox sessions into one list, newest first. A chat that handed off to a fetched
- * session is left out, because the session row already stands for that work, or the person archived it. A chat that
- * handed off to a session outside the fetched page becomes a session row of its own.
+ * The person's sandbox sessions as chat rows, newest activity first. The server already leaves out archived tasks and
+ * caps the page at `SESSION_LIST_LIMIT`.
  */
-export function chatListFromSources(input: {
-    conversations: ConversationSummaryApi[] | undefined
-    sessions: TaskSummaryApi[] | undefined
+export function chatListFromSessions(
+    sessions: TaskSummaryApi[] | undefined,
     scope: ProjectScope | null
-}): ChatListItem[] {
-    const sessionIds = new Set((input.sessions ?? []).map((session) => session.id))
-    const sessions = (input.sessions ?? []).filter((session) => !session.archived)
-    const conversations = (input.conversations ?? []).filter(
-        (conversation) => !conversation.task || !sessionIds.has(conversation.task.id)
-    )
-    const items = [
-        ...sessions.map((session) => sessionItem(session, input.scope)),
-        ...conversations.map((conversation) => conversationItem(conversation, input.scope)),
-    ]
-    return items.sort((a, b) => sortTime(b) - sortTime(a)).slice(0, CHAT_LIST_LIMIT)
+): ChatListItem[] {
+    const items = (sessions ?? []).map((session) => sessionItem(session, scope))
+    return items.sort((a, b) => sortTime(b) - sortTime(a))
 }

@@ -3,7 +3,6 @@ import { StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
-import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { PaperclipIcon } from '@/ui/icons/PaperclipIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, inputReset, radii, shadows } from '@/ui/tokens'
@@ -14,14 +13,61 @@ interface ComposerProps {
     chips?: ReactNode
     mentionOpen: boolean
     onToggleMention: () => void
+    modelLabel: string
     modeLabel: string
-    modeOpen: boolean
-    modeDisabled: boolean
-    onToggleMode: () => void
+    openOption: 'model' | 'mode' | null
+    optionsDisabled: boolean
+    onOpenModel: () => void
+    onOpenMode: () => void
     onSend: () => void
     canSend: boolean
     isStreaming: boolean
     onStop: () => void
+}
+
+interface OptionChipProps {
+    label: string
+    accessibilityLabel: string
+    open: boolean
+    disabled: boolean
+    onPress: () => void
+    /** False keeps the whole label, so a short label never truncates to one letter beside a long one. */
+    shrinks: boolean
+    testID: string
+}
+
+function OptionChip({
+    label,
+    accessibilityLabel,
+    open,
+    disabled,
+    onPress,
+    shrinks,
+    testID,
+}: OptionChipProps): ReactElement {
+    return (
+        <Pressable44
+            onPress={onPress}
+            disabled={disabled}
+            accessibilityLabel={accessibilityLabel}
+            accessibilityState={{ expanded: open, disabled }}
+            pressedBackground={colors.background}
+            style={[
+                styles.chip,
+                !shrinks && styles.chipFixed,
+                open && styles.toolActive,
+                disabled && styles.toolDisabled,
+            ]}
+            testID={testID}
+        >
+            <Text style={styles.chipLabel} numberOfLines={1}>
+                {label}
+            </Text>
+            <View style={styles.chevron}>
+                <ChevronDownIcon size={12} color={colors.muted} />
+            </View>
+        </Pressable44>
+    )
 }
 
 export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
@@ -31,10 +77,12 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
         chips,
         mentionOpen,
         onToggleMention,
+        modelLabel,
         modeLabel,
-        modeOpen,
-        modeDisabled,
-        onToggleMode,
+        openOption,
+        optionsDisabled,
+        onOpenModel,
+        onOpenMode,
         onSend,
         canSend,
         isStreaming,
@@ -79,27 +127,24 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 >
                     <Text style={styles.at}>@</Text>
                 </Pressable44>
-                <Pressable44
-                    onPress={onToggleMode}
-                    disabled={modeDisabled}
+                <OptionChip
+                    label={modelLabel}
+                    accessibilityLabel={`Model: ${modelLabel}`}
+                    open={openOption === 'model'}
+                    disabled={optionsDisabled}
+                    onPress={onOpenModel}
+                    shrinks
+                    testID="chat-model"
+                />
+                <OptionChip
+                    label={modeLabel}
                     accessibilityLabel={`Mode: ${modeLabel}`}
-                    accessibilityState={{ expanded: modeOpen, disabled: modeDisabled }}
-                    pressedBackground={colors.background}
-                    style={[styles.mode, modeOpen && styles.toolActive, modeDisabled && styles.toolDisabled]}
+                    open={openOption === 'mode'}
+                    disabled={optionsDisabled}
+                    onPress={onOpenMode}
+                    shrinks={false}
                     testID="chat-mode"
-                >
-                    <Text style={styles.modeLabel} numberOfLines={1}>
-                        {modeLabel}
-                    </Text>
-                    <ChevronDownIcon size={12} color={colors.muted} />
-                </Pressable44>
-                <Pressable44
-                    disabled
-                    accessibilityLabel="Expand"
-                    style={[styles.tool, styles.placeholder, styles.toolDisabled]}
-                >
-                    <ExpandIcon size={18} />
-                </Pressable44>
+                />
                 <View style={styles.spacer} />
                 {isStreaming ? (
                     <Pressable44
@@ -167,11 +212,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    // The default 6pt hit slop keeps the disabled placeholders at a 44pt target, so they can give the mode chip room.
+    // The default 6pt hit slop keeps the disabled placeholder at a 44pt target, so it can give the chips room.
     placeholder: {
         width: 32,
     },
-    mode: {
+    chip: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
@@ -184,7 +229,13 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.hairline,
     },
-    modeLabel: {
+    chevron: {
+        flexShrink: 0,
+    },
+    chipFixed: {
+        flexShrink: 0,
+    },
+    chipLabel: {
         flexShrink: 1,
         fontSize: 14,
         lineHeight: 18,

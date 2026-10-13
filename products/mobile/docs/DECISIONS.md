@@ -131,7 +131,11 @@ Choices the build contract left open, with the reason for each.
 
 ## Chat
 
-- **LangGraph endpoint.** Chat posts to `conversations/`, the LangGraph runtime. The sandbox runtime
+- **One runtime: tasks.** Every chat is a task with interactive runs, as on the web's side panel.
+  The tasks endpoints accept `task:read` and `task:write`, so the LangGraph path below is gone from the app,
+  and the bullets about `conversations/`, its context block, reattach and reconnect describe the removed path.
+  [CHAT.md](CHAT.md) has the current behavior.
+- **LangGraph endpoint (superseded).** Chat posts to `conversations/`, the LangGraph runtime. The sandbox runtime
   opens through `conversations/:id/open/`, which declares no OAuth scopes, so an app token gets 403.
   `frontend/src/scenes/max/AGENTS.md` freezes the LangGraph path; the app only consumes it.
   Move to the sandbox runtime once its endpoints accept `conversation:write`.

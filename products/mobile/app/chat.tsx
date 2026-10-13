@@ -5,9 +5,8 @@ import { ChatSheet } from '@/features/chat/ChatSheet'
 
 export default function ChatRoute(): ReactElement {
     const router = useRouter()
-    const { reportId, conversationId, taskId, runId } = useLocalSearchParams<{
+    const { reportId, taskId, runId } = useLocalSearchParams<{
         reportId?: string
-        conversationId?: string
         taskId?: string
         runId?: string
     }>()
@@ -18,13 +17,5 @@ export default function ChatRoute(): ReactElement {
             router.replace('/inbox')
         }
     }, [router])
-    return (
-        <ChatSheet
-            initialReportId={reportId}
-            initialConversationId={conversationId}
-            initialTaskId={taskId}
-            initialRunId={runId}
-            onClosed={close}
-        />
-    )
+    return <ChatSheet initialReportId={reportId} initialTaskId={taskId} initialRunId={runId} onClosed={close} />
 }

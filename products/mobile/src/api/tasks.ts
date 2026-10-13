@@ -13,6 +13,7 @@ export interface TaskRunOutputApi {
 /** The part of `TaskRun.state` the app reads. The server stores more keys there. */
 export interface TaskRunStateApi {
     resume_from_run_id?: string | null
+    initial_permission_mode?: string | null
 }
 
 export interface TaskRunApi {
@@ -47,13 +48,41 @@ export interface TaskRunResponseApi extends TaskCreateResponseApi {
     run?: TaskRunApi | null
 }
 
-export interface TaskCreateRequestApi {
+/** The Inbox "Create PR" task. The server resolves the repository and rejects one the client sets. */
+interface ReportImplementationTaskCreateApi {
     title: string
     description: string
     origin_product: 'signal_report'
     signal_report: string
     signal_report_task_relationship: 'implementation'
 }
+
+/**
+ * A PostHog AI chat, as the web side panel creates it. A blank title makes the server name the task from
+ * `description`. It sends no `branch`: that key would let the create claim a warm run a web composer booted.
+ */
+export interface ChatTaskCreateApi extends Partial<RunRuntimeSelectionApi> {
+    title: ''
+    description: string
+    origin_product: 'posthog_ai'
+    initial_permission_mode: PermissionModeApi
+    pending_user_message: string
+}
+
+/** The Inbox "Discuss" task. Repo-less report discussions are exempt from the PostHog Desktop gate. */
+export interface ReportDiscussionTaskCreateApi extends Partial<RunRuntimeSelectionApi> {
+    title: string
+    description: string
+    origin_product: 'signal_report'
+    signal_report: string
+    signal_report_task_relationship: 'discussion'
+    /** Forwarded to the report's scout. At most 4000 characters. */
+    signal_report_discussion_question?: string
+    pending_user_message: string
+}
+
+/** `TaskCreateSerializer`, in the three shapes the app sends. */
+export type TaskCreateRequestApi = ReportImplementationTaskCreateApi | ChatTaskCreateApi | ReportDiscussionTaskCreateApi
 
 export type RuntimeAdapterApi = 'claude' | 'codex'
 
@@ -85,7 +114,10 @@ export interface HandoffRunFieldsApi extends Partial<RunRuntimeSelectionApi> {
     branch?: string
 }
 
-/** `TaskRunCreateRequestSerializer`. A follow-up on an ended run sets `resume_from_run_id` and no run source. */
+/**
+ * `TaskRunCreateRequestSerializer`. A follow-up on an ended run sets `resume_from_run_id` and no run source; without
+ * a runtime it keeps the ended run's selection.
+ */
 export interface TaskRunCreateRequestApi extends HandoffRunFieldsApi {
     run_source?: 'signal_report'
     signal_report_id?: string
@@ -129,9 +161,17 @@ export interface UserMessageParams {
     content: string
 }
 
+type SessionConfigId = 'model' | 'effort' | 'mode'
+
+export interface SetConfigOptionParams {
+    configId: SessionConfigId
+    value: string
+}
+
 export type TaskRunCommand =
     | { method: 'permission_response'; params: PermissionResponseParams }
     | { method: 'user_message'; params: UserMessageParams }
+    | { method: 'set_config_option'; params: SetConfigOptionParams }
     | { method: 'cancel' }
 
 /** JSON-RPC reply from `command/`. HTTP 200 can still carry an `error`. */
@@ -164,6 +204,11 @@ export function startTaskRun(
         json: body,
         ...options,
     })
+}
+
+/** Soft-deletes the task. It does not stop a run that already started. */
+export async function deleteTask(taskId: string, signal?: AbortSignal): Promise<void> {
+    await apiJson<unknown>(projectPath(`tasks/${encodeURIComponent(taskId)}/`), { method: 'DELETE', signal })
 }
 
 /** Every model a run may use, from the live gateway catalogue. Empty when the gateway is unreachable. */
@@ -260,6 +305,8 @@ export function sendTaskRunCommand(
 export interface TaskSummaryApi {
     id: string
     title: string
+    /** `TaskOriginProduct`, such as `posthog_ai` for a chat or `signal_report` for a report hand-off. */
+    origin_product: string
     archived: boolean
     latest_run: Pick<TaskRunApi, 'status' | 'output'> | null
     created_at: string | null

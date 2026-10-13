@@ -2,7 +2,7 @@ import { memo, type ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { formatRelativeAgo } from '@/lib/dates'
-import type { ChatListItem } from '@/model/types'
+import type { ChatListItem, ChatOrigin } from '@/model/types'
 import { Dot } from '@/ui/Dot'
 import { IconTile } from '@/ui/IconTile'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
@@ -19,10 +19,17 @@ interface ChatRowProps {
     onOpen: (item: ChatListItem) => void
 }
 
+const ORIGIN_LABEL: Record<ChatOrigin, string> = {
+    chat: 'Chat',
+    report: 'Report',
+    session: 'Session',
+}
+
 export const ChatRow = memo(function ChatRow({ item, now, onOpen }: ChatRowProps): ReactElement {
     const when = formatRelativeAgo(item.updatedAt, now)
-    const status = item.kind === 'session' && item.status ? sessionStatusDisplay(item.status) : null
-    const metaText = status ? `${status.label}, ${when}` : when
+    const status = sessionStatusDisplay(item.status)
+    const origin = ORIGIN_LABEL[item.origin]
+    const metaText = `${origin}, ${status.label}, ${when}`
     return (
         <Pressable44
             onPress={() => onOpen(item)}
@@ -31,21 +38,21 @@ export const ChatRow = memo(function ChatRow({ item, now, onOpen }: ChatRowProps
             accessibilityLabel={`${item.title}, ${metaText}${item.pullRequestUrl ? ', has a pull request' : ''}`}
             testID={`chat-row-${item.id.replace(':', '-')}`}
         >
-            <IconTile>{item.kind === 'session' ? <GitBranchIcon size={18} /> : <ChatBubbleIcon size={18} />}</IconTile>
+            <IconTile>{item.origin === 'chat' ? <ChatBubbleIcon size={18} /> : <GitBranchIcon size={18} />}</IconTile>
             <View style={styles.body}>
                 <Text style={styles.title} numberOfLines={1}>
                     {item.title}
                 </Text>
                 <View style={styles.meta}>
-                    {status ? (
-                        <>
-                            <Dot color={status.dotColor} />
-                            <Text style={styles.metaText} numberOfLines={1}>
-                                {status.label}
-                            </Text>
-                            <View style={styles.separator} />
-                        </>
-                    ) : null}
+                    <Text style={styles.metaText} numberOfLines={1}>
+                        {origin}
+                    </Text>
+                    <View style={styles.separator} />
+                    <Dot color={status.dotColor} />
+                    <Text style={styles.metaText} numberOfLines={1}>
+                        {status.label}
+                    </Text>
+                    <View style={styles.separator} />
                     <Text style={styles.metaText} numberOfLines={1}>
                         {when}
                     </Text>

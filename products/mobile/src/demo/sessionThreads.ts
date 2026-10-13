@@ -172,5 +172,17 @@ export function demoSessionRunId(taskId: string): string {
     return `demo-run-${taskId.replace(/^demo-session-/, '')}`
 }
 
+export const DEMO_REPLY = [
+    "This is the demo, so I can't look at your data.",
+    '',
+    'When you sign in, PostHog AI can:',
+    '',
+    '- explain what **caused** a report',
+    '- check **who is affected** with a quick query',
+    '- draft a **status update** you can paste anywhere',
+    '',
+    'Turn off the demo in Settings, then sign in to ask about your own reports.',
+].join('\n')
+
 /** What the demo agent says after an answered decision. */
 export const DEMO_ANSWER_REPLY = 'Thanks. I will continue with that choice.'

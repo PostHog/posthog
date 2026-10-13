@@ -135,8 +135,10 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                 <ModelPage
                     catalogue={catalogue}
                     defaults={defaults}
-                    options={options}
-                    actions={actions}
+                    model={options.model}
+                    onPickModel={actions.pickModel}
+                    onPickEffort={actions.pickEffort}
+                    onResetModel={actions.resetModel}
                     listGesture={modelListGesture}
                     onBack={back}
                 />

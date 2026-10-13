@@ -11,12 +11,13 @@ function at(year: number, month: number, day: number, hours = 12): string {
 
 function item(id: string, title: string, updatedAt: string): ChatListItem {
     return {
-        id: `conversation:${id}`,
-        kind: 'conversation',
+        id: `session:${id}`,
+        kind: 'session',
         sourceId: id,
+        origin: 'session',
         title,
         updatedAt,
-        status: null,
+        status: 'idle',
         pullRequestUrl: null,
     }
 }

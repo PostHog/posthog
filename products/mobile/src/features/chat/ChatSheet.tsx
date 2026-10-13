@@ -1,94 +1,74 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
+import { Keyboard, StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
 import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
-import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
-import type { ChatAgentMode } from '@/api/conversations'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
-import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
 import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
-import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { Scrim } from '@/ui/Scrim'
-import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, motion, radii, shadows, type } from '@/ui/tokens'
 import { usePresence } from '@/ui/usePresence'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 import { useSheetDrag } from '@/ui/useSheetDrag'
 
+import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
+import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
-import { agentModeKey, agentModeLabel } from './agentModes'
 import { ChatEmptyState } from './ChatEmptyState'
+import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
 import { Composer } from './Composer'
 import { ContextChip } from './ContextChip'
+import {
+    type ChatRunOptions,
+    type ChatRunOptionsAction,
+    chatPermissionMode,
+    chatRunOptionsFromConfig,
+    chatRunOptionsReducer,
+    chipModelLabel,
+    DEFAULT_CHAT_RUN_OPTIONS,
+} from './chatRunOptions'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
-import { useConversation } from './hooks'
 import { MentionPopover } from './MentionPopover'
-import { ModePopover, modePopoverMaxHeight } from './ModePopover'
-import { initialModeChoice, modeChoiceReducer } from './modeChoice'
 import { SessionDecisionPanel } from './session/SessionDecisionPanel'
 import { SessionThread } from './session/SessionThread'
-import { useSession } from './session/useSession'
-import { Thread } from './Thread'
-import type { ChatContext, ChatLinkTarget } from './types'
-import { chatLinkUrl } from './webLinks'
+import { type SessionOptions, useSession } from './session/useSession'
+import type { ChatContext } from './types'
 
-/** Each attached report adds up to its summary limit to every prompt, so the list stays short. */
+/** The Discuss shape and the context block name each attached report, so the list stays short. */
 const MAX_ATTACHED_REPORTS = 5
 
 interface ChatSheetProps {
     initialReportId?: string
-    /** Opens a stored conversation, as the Chats list does. */
-    initialConversationId?: string
-    /** Opens a sandbox session (a task run) instead of a conversation. */
     initialTaskId?: string
-    /** Follows this run of the session instead of its latest one. */
     initialRunId?: string
     onClosed: () => void
 }
 
-type SheetMode = { kind: 'conversation' } | { kind: 'session'; taskId: string; runId?: string }
-
-function initialMode(taskId: string | undefined, runId: string | undefined): SheetMode {
+function sessionTarget(taskId: string | undefined, runId: string | undefined): SessionOptions {
     if (!taskId) {
-        return { kind: 'conversation' }
-    }
-    return runId ? { kind: 'session', taskId, runId } : { kind: 'session', taskId }
-}
-
-function sessionOptions(mode: SheetMode): { taskId?: string; runId?: string } {
-    if (mode.kind === 'conversation') {
         return {}
     }
-    return mode.runId ? { taskId: mode.taskId, runId: mode.runId } : { taskId: mode.taskId }
+    return runId ? { taskId, runId } : { taskId }
 }
 
-export function ChatSheet({
-    initialReportId,
-    initialConversationId,
-    initialTaskId,
-    initialRunId,
-    onClosed,
-}: ChatSheetProps): ReactElement {
+export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClosed }: ChatSheetProps): ReactElement {
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const now = useNow()
     const inbox = useInboxItems()
-    const conversation = useConversation({ initialConversationId })
-    const [mode, setMode] = useState<SheetMode>(() => initialMode(initialTaskId, initialRunId))
-    // Null in conversation mode, because the hook needs a task id.
-    const session = useSession(sessionOptions(mode))
+    const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
+    const session = useSession(target)
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
-    const keyboardHeight = useKeyboardState((state) => state.height)
     const [visible, setVisible] = useState(true)
     const { progress } = usePresence(visible, motion.sheet)
     const close = useCallback((): void => setVisible(false), [])
@@ -99,28 +79,29 @@ export function ChatSheet({
     )
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
-    const [modeChoice, dispatchModeChoice] = useReducer(modeChoiceReducer, initialModeChoice)
-    const [modeOpen, setModeOpen] = useState(false)
-    const [sheetHeight, setSheetHeight] = useState(0)
-    const [headerHeight, setHeaderHeight] = useState(0)
-    const [composerHeight, setComposerHeight] = useState(0)
+    const [runOptions, dispatchRunOptions] = useReducer(chatRunOptionsReducer, DEFAULT_CHAT_RUN_OPTIONS)
+    const pickedOptions = useRef(false)
+    const restoredDraft = useRef(false)
+    const [optionsOpen, setOptionsOpen] = useState(false)
+    const [optionsPage, setOptionsPage] = useState<ChatOptionsPage>('model')
     const input = useRef<TextInput>(null)
-    const storedAgentMode = conversation.storedAgentMode
-    const historyStatus = conversation.history.status
-    // The chip waits for a stored chat, so the person picks against the mode the chat really has. A session has no agent mode.
-    const modeDisabled = session !== null || conversation.isStreaming || historyStatus !== 'idle'
+    const historyStatus = session.history.status
+    const optionsDisabled =
+        session.phase !== 'idle' || historyStatus !== 'idle' || session.isSending || session.decision !== undefined
+    const runDefaults = useRunDefaults(true)
+    const modelCatalogue = useModelCatalogue(
+        true,
+        runOptions.model === 'default' ? defaultModelSelection(runDefaults)?.model : runOptions.model.model
+    )
+    // A live run cannot switch harness, so an open chat stays on the harness its run uses.
+    const runAdapter = session.taskId ? (session.runConfig?.runtimeAdapter ?? null) : null
+    const permissionMode = chatPermissionMode(runOptions, runDefaults, runAdapter)
 
-    // A resumed chat shows the mode it last ran in, as the web's `syncAgentModeFromConversation` does.
     useEffect(() => {
-        dispatchModeChoice({ type: 'seeded', mode: storedAgentMode })
-    }, [storedAgentMode])
-
-    // Without this the popover comes back when the reply ends.
-    useEffect(() => {
-        if (modeDisabled) {
-            setModeOpen(false)
+        if (optionsDisabled) {
+            setOptionsOpen(false)
         }
-    }, [modeDisabled])
+    }, [optionsDisabled])
 
     useEffect(() => {
         if (visible) {
@@ -129,6 +110,47 @@ export function ChatSheet({
         const timer = setTimeout(onClosed, motion.sheet)
         return () => clearTimeout(timer)
     }, [visible, onClosed])
+
+    const hasRunConfig = session.runConfig !== undefined
+    const seedAdapter = session.runConfig?.runtimeAdapter ?? null
+    const seedModel = session.runConfig?.model ?? null
+    const seedEffort = session.runConfig?.reasoningEffort ?? null
+    const seedMode = session.runConfig?.permissionMode ?? null
+    useEffect(() => {
+        if (!hasRunConfig || pickedOptions.current) {
+            return
+        }
+        dispatchRunOptions({
+            type: 'seed',
+            options: chatRunOptionsFromConfig({
+                runtimeAdapter: seedAdapter,
+                model: seedModel,
+                reasoningEffort: seedEffort,
+                permissionMode: seedMode,
+            }),
+        })
+    }, [hasRunConfig, seedAdapter, seedModel, seedEffort, seedMode])
+
+    // The agent can change mode on its own, such as out of Plan when a plan is approved. Its new mode replaces an
+    // earlier pick, as the web drops its mode override on `current_mode_update`.
+    useEffect(() => {
+        if (pickedOptions.current && seedMode && isPermissionMode(seedMode)) {
+            dispatchRunOptions({ type: 'mode', mode: seedMode })
+        }
+    }, [seedMode])
+
+    const unsentText = session.unsentText
+    useEffect(() => {
+        if (!unsentText) {
+            restoredDraft.current = false
+            return
+        }
+        if (restoredDraft.current) {
+            return
+        }
+        restoredDraft.current = true
+        setText((current) => (current.trim() ? current : unsentText))
+    }, [unsentText])
 
     const items = inbox.data ?? []
     const itemsById = useMemo(() => new Map(items.map((item) => [item.reportId, item])), [items])
@@ -142,13 +164,9 @@ export function ChatSheet({
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
-    const ready = session
-        ? session.history.status === 'idle' && !session.isSending
-        : !conversation.isStreaming && historyStatus === 'idle'
+    const ready = historyStatus === 'idle' && !session.isSending
     const canSend = text.trim().length > 0 && ready
-    const hasThread = session
-        ? session.items.length > 0 || session.decision !== undefined || session.history.status === 'error'
-        : conversation.messages.length > 0 || historyStatus === 'error'
+    const showEmptyState = session.taskId === null && session.items.length === 0 && historyStatus === 'idle'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
 
     const rememberReport = useCallback((report: ReportView): void => {
@@ -175,8 +193,9 @@ export function ChatSheet({
                 }),
             }
         }
-        if (items.length > 0) {
-            return { kind: 'inbox', items: items.map((item) => inboxContextItem(item, webUrl(item.reportId))) }
+        // The inbox list frames the first message of a new chat only. The agent has it in the thread after that.
+        if (session.taskId === null && items.length > 0) {
+            return { kind: 'inbox', items: items.map(inboxContextItem) }
         }
         return { kind: 'none' }
     }
@@ -184,24 +203,27 @@ export function ChatSheet({
     const changeText = (value: string): void => {
         setText(value)
         setMentionOpen((open) => (value.endsWith('@') ? canMention : open && value.includes('@')))
-        if (value.endsWith('@') && canMention) {
-            setModeOpen(false)
-        }
     }
     const toggleMention = (): void => {
-        setModeOpen(false)
         setMentionOpen((open) => !open && canMention)
     }
-    const toggleMode = (): void => {
-        setMentionOpen(false)
-        setModeOpen((open) => !open && !modeDisabled)
-    }
-    const pickMode = (mode: ChatAgentMode | null): void => {
-        setModeOpen(false)
-        if (mode !== modeChoice.shown) {
-            track('mobile_chat_mode_changed', { mode: agentModeKey(mode) })
+    const openOptions = (page: ChatOptionsPage): void => {
+        if (optionsDisabled) {
+            return
         }
-        dispatchModeChoice({ type: 'picked', mode })
+        // The keyboard would cover the sheet.
+        Keyboard.dismiss()
+        setMentionOpen(false)
+        setOptionsPage(page)
+        setOptionsOpen(true)
+    }
+    const closeOptions = (): void => {
+        setOptionsOpen(false)
+        input.current?.focus()
+    }
+    const changeOptions = (action: ChatRunOptionsAction): void => {
+        pickedOptions.current = true
+        dispatchRunOptions(action)
     }
     const pickMention = (item: InboxItem): void => {
         setAttached((previous) =>
@@ -221,25 +243,25 @@ export function ChatSheet({
         }
         setText('')
         setMentionOpen(false)
-        setModeOpen(false)
-        const context = buildContext()
-        if (session) {
-            session.send(message, context).catch(() => undefined)
-            return
-        }
-        conversation.send(message, context, modeChoice.pending).catch(() => undefined)
-        dispatchModeChoice({ type: 'sent' })
+        // The mode the chip shows, already mapped onto the harness the message runs on.
+        const options: ChatRunOptions = { ...runOptions, permissionMode }
+        session.send(message, buildContext(), options).catch(() => undefined)
     }
     const startNewChat = (): void => {
-        setMode({ kind: 'conversation' })
-        conversation.reset()
+        if (target.taskId) {
+            // The session reloads as an empty new chat when its task option goes.
+            setTarget({})
+        } else {
+            session.reset()
+        }
         setText('')
+        setAttached([])
         setMentionOpen(false)
-        setModeOpen(false)
-        dispatchModeChoice({ type: 'reset' })
+        setOptionsOpen(false)
+        pickedOptions.current = false
+        dispatchRunOptions({ type: 'reset' })
         input.current?.focus()
     }
-    const linkUrl = (target: ChatLinkTarget): string | undefined => chatLinkUrl(target, conversation.conversationId)
 
     const chips =
         attached.length > 0
@@ -258,15 +280,11 @@ export function ChatSheet({
     return (
         <GestureHandlerRootView style={styles.overlay} testID="chat-sheet">
             <Scrim color={colors.scrimChat} progress={progress} />
-            <Animated.View
-                style={[styles.sheet, shadows.bottomSheet, sheetStyle]}
-                onLayout={measure(setSheetHeight)}
-                accessibilityViewIsModal
-            >
+            <Animated.View style={[styles.sheet, shadows.bottomSheet, sheetStyle]} accessibilityViewIsModal>
                 <Animated.View style={[styles.keyboard, keyboardStyle]}>
                     {/* The thread scrolls, so only the header takes the drag; a drag there never competes with a scroll. */}
                     <GestureDetector gesture={pan}>
-                        <View style={styles.header} onLayout={measure(setHeaderHeight)} testID="chat-header">
+                        <View style={styles.header} testID="chat-header">
                             <View style={styles.grabber} />
                             <View style={styles.headerRow}>
                                 <Pressable44
@@ -279,9 +297,11 @@ export function ChatSheet({
                                     <CloseIcon size={16} />
                                 </Pressable44>
                                 <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
-                                    {session ? (session.title ?? 'Session') : (conversation.title ?? 'New chat')}
+                                    {session.title ?? 'New chat'}
                                 </Text>
-                                {hasThread ? (
+                                {showEmptyState ? (
+                                    <View style={styles.headerSpacer} />
+                                ) : (
                                     <Pressable44
                                         onPress={startNewChat}
                                         accessibilityLabel="New chat"
@@ -291,75 +311,37 @@ export function ChatSheet({
                                     >
                                         <ComposeIcon size={18} />
                                     </Pressable44>
-                                ) : (
-                                    <View style={styles.headerSpacer} />
                                 )}
                             </View>
                         </View>
                     </GestureDetector>
-                    {session ? (
-                        <SessionThread
-                            session={session}
-                            onRetryHistory={() => {
-                                session.reloadHistory().catch(() => undefined)
-                            }}
-                        />
-                    ) : historyStatus === 'loading' ? (
-                        <LoadingView label="Loading chat" />
-                    ) : historyStatus === 'error' ? (
-                        <StateView
-                            icon={<WarningIcon size={28} color={colors.tertiary} />}
-                            title="Couldn't load this chat"
-                            message={conversation.history.error?.message}
-                            actionLabel="Try again"
-                            onAction={() => {
-                                conversation.reloadHistory().catch(() => undefined)
-                            }}
-                            testID="chat-history-error"
-                        />
-                    ) : conversation.messages.length === 0 ? (
+                    {showEmptyState ? (
                         <ChatEmptyState
                             reportCount={attached.length}
                             suggestedPrompts={suggestedPrompts}
                             onPrompt={setText}
                         />
                     ) : (
-                        <Thread
-                            messages={conversation.messages}
-                            phase={conversation.phase}
-                            onRetry={() => {
-                                conversation.retry().catch(() => undefined)
+                        <SessionThread
+                            session={session}
+                            onRetryHistory={() => {
+                                session.reloadHistory().catch(() => undefined)
                             }}
-                            linkUrl={linkUrl}
                         />
                     )}
-                    <View style={styles.composerArea} onLayout={measure(setComposerHeight)}>
-                        {session ? (
-                            <SessionDecisionPanel
-                                decision={session.decision}
-                                notice={session.notice}
-                                pending={session.isSending}
-                                onAnswer={(answerInput) => void session.answer(answerInput)}
-                                onDismissNotice={session.dismissNotice}
-                            />
-                        ) : null}
+                    <View style={styles.composerArea}>
+                        <SessionDecisionPanel
+                            decision={session.decision}
+                            notice={session.notice}
+                            pending={session.isSending}
+                            onAnswer={(answerInput) => void session.answer(answerInput)}
+                            onDismissNotice={session.dismissNotice}
+                        />
                         {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
-                        {session?.decision ? null : (
+                        {session.decision ? null : (
                             <>
                                 {mentionOpen ? (
                                     <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
-                                ) : null}
-                                {modeOpen && !modeDisabled ? (
-                                    <ModePopover
-                                        selected={modeChoice.shown}
-                                        onPick={pickMode}
-                                        maxHeight={modePopoverMaxHeight({
-                                            sheetHeight,
-                                            headerHeight,
-                                            composerHeight,
-                                            bottomInset: Math.max(keyboardHeight, insets.bottom),
-                                        })}
-                                    />
                                 ) : null}
                                 <Composer
                                     ref={input}
@@ -368,26 +350,34 @@ export function ChatSheet({
                                     chips={chips}
                                     mentionOpen={mentionOpen}
                                     onToggleMention={toggleMention}
-                                    modeLabel={agentModeLabel(modeChoice.shown)}
-                                    modeOpen={modeOpen}
-                                    modeDisabled={modeDisabled}
-                                    onToggleMode={toggleMode}
+                                    modelLabel={chipModelLabel(modelCatalogue.catalogue, runOptions.model)}
+                                    modeLabel={modeLabel(permissionMode)}
+                                    openOption={optionsOpen ? optionsPage : null}
+                                    optionsDisabled={optionsDisabled}
+                                    onOpenModel={() => openOptions('model')}
+                                    onOpenMode={() => openOptions('mode')}
                                     onSend={send}
                                     canSend={canSend}
-                                    isStreaming={session ? session.phase !== 'idle' : conversation.isStreaming}
-                                    onStop={session ? session.stop : conversation.stop}
+                                    isStreaming={session.phase !== 'idle'}
+                                    onStop={session.stop}
                                 />
                             </>
                         )}
                     </View>
                 </Animated.View>
             </Animated.View>
+            <ChatOptionsSheet
+                visible={optionsOpen}
+                page={optionsPage}
+                catalogue={modelCatalogue}
+                defaults={runDefaults}
+                options={runOptions}
+                runAdapter={runAdapter}
+                onChange={changeOptions}
+                onClose={closeOptions}
+            />
         </GestureHandlerRootView>
     )
-}
-
-function measure(set: (height: number) => void): (event: LayoutChangeEvent) => void {
-    return (event) => set(event.nativeEvent.layout.height)
 }
 
 const styles = StyleSheet.create({

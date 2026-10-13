@@ -19,13 +19,15 @@ import {
     runtimeAdapters,
 } from './runOptions'
 import { SheetPageHeader } from './SheetPageHeader'
-import type { ModelCatalogueState, RunOptionActions } from './useRunOptions'
+import type { ModelCatalogueState } from './useRunOptions'
 
 interface ModelPageProps {
     catalogue: ModelCatalogueState
     defaults: ResolvedAiRunDefaultsApi | undefined
-    options: RunOptions
-    actions: RunOptionActions
+    model: RunOptions['model']
+    onPickModel: (option: ModelChoiceApi) => void
+    onPickEffort: (effort: ReasoningEffortApi) => void
+    onResetModel: () => void
     /** Also passed to the sheet, whose drag-to-close pan waits for it, so a drag on the list scrolls it. */
     listGesture: NativeGesture
     onBack: () => void
@@ -62,14 +64,16 @@ function ModelRow({ option, selected, isDefault, onPress }: ModelRowProps): Reac
 export function ModelPage({
     catalogue,
     defaults,
-    options,
-    actions,
+    model,
+    onPickModel,
+    onPickEffort,
+    onResetModel,
     listGesture,
     onBack,
 }: ModelPageProps): ReactElement {
     const { height: windowHeight } = useWindowDimensions()
     const models = catalogue.catalogue
-    const pinned = options.model === 'default' ? undefined : options.model
+    const pinned = model === 'default' ? undefined : model
     const fallback = defaultModelSelection(defaults)
     const defaultEntry = catalogueEntry(models, fallback?.model)
     const effortModel = pinned ? catalogueEntry(models, pinned.model) : defaultEntry
@@ -100,7 +104,7 @@ export function ModelPage({
                                     return (
                                         <Pressable44
                                             key={effort}
-                                            onPress={() => actions.pickEffort(effort)}
+                                            onPress={() => onPickEffort(effort)}
                                             accessibilityRole="radio"
                                             accessibilityState={{ checked: effort === selectedEffort }}
                                             pressedBackground={selected ? colors.inkHover : colors.background}
@@ -140,7 +144,7 @@ export function ModelPage({
                                                 isDefault={
                                                     !pinned && Boolean(fallback) && option.model === defaultEntry?.model
                                                 }
-                                                onPress={() => actions.pickModel(option)}
+                                                onPress={() => onPickModel(option)}
                                             />
                                         ))}
                                 </View>
@@ -154,7 +158,7 @@ export function ModelPage({
             )}
             {pinned ? (
                 <Pressable44
-                    onPress={actions.resetModel}
+                    onPress={onResetModel}
                     pressedBackground={colors.background}
                     style={styles.reset}
                     testID="handoff-model-reset"

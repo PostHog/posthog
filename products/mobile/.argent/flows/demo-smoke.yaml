@@ -77,23 +77,13 @@ steps:
     - tap: { id: inbox-nav-chat }
     - await: { visible: { id: chats-screen } }
     - await: { idle: true }
-    - assert: { text: { in: { id: chat-row-conversation-demo-chat-signup-drop }, contains: Why did signups drop } }
+    - assert: { text: { in: { id: chat-row-session-demo-session-flaky-test }, contains: Fix the flaky checkout test } }
 
-    - echo: On Chats. Open Why did signups drop on Tuesday. Expect the chat sheet with that chat
-    - tap: { id: chat-row-conversation-demo-chat-signup-drop }
-    - await: { visible: { id: chat-header } }
-    - await: { idle: true }
-    - assert: { text: { in: { id: chat-header }, contains: Why did signups drop } }
-
-    - echo: Chat open. Close it. Expect the chats list again
-    - tap: { id: chat-close }
-    - await: { visible: { id: chats-screen } }
-    - await: { idle: true }
-
-    - echo: On Chats. Open the session Fix the flaky checkout test. Expect the session thread
+    - echo: On Chats. Open the session Fix the flaky checkout test. Expect the chat sheet with its title and thread
     - tap: { id: chat-row-session-demo-session-flaky-test }
     - await: { visible: { id: session-thread } }
     - await: { idle: true }
+    - assert: { text: { in: { id: chat-header }, contains: Fix the flaky checkout test } }
     - assert: { visible: { id: session-assistant } }
 
     - echo: Session open. Close it. Expect the chats list again

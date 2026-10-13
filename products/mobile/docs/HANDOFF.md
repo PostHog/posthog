@@ -80,7 +80,7 @@ The run body (`buildHandoffRunRequest`):
   never the value. `mobile_report_handed_off` adds `model` (`default` when untouched),
   `reasoning_effort` (when pinned), `permission_mode` and `has_branch`.
 
-The chat sheet's session view (`src/features/chat/session/useSession.ts`, see [CHAT.md](CHAT.md#sessions)) reuses `runStream`, `permissionRequest`, `commands` and `toolPolicy` from this feature.
+The chat sheet (`src/features/chat/session/useSession.ts`, see [CHAT.md](CHAT.md)) reuses `runStream`, `permissionRequest`, `commands` and `toolPolicy` from this feature.
 
 ## Which run a report follows
 
@@ -192,4 +192,4 @@ A failed run shows "PostHog couldn't finish" with the run's `error_message`, and
   request clears when its tool finishes, the turn ends, or the run ends.
 - **Continuing an ended run.** A message to a run whose workflow ended needs a resume run
   (`POST tasks/{id}/run/` with `resume_from_run_id`); the report screen asks the user to hand off again instead.
-  The chat sheet's session view does start that resume run, see [CHAT.md](CHAT.md#sessions).
+  The chat sheet does start that resume run, see [CHAT.md](CHAT.md#follow-ups-and-resume).

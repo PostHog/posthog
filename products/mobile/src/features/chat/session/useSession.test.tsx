@@ -1,7 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
-import type { TaskApi, TaskRunApi } from '@/api/tasks'
+import { ApiError } from '@/api/client'
+import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
 
+import type { ChatRunOptions } from '../chatRunOptions'
+import { chatPrompt } from '../contextPrompt'
+import type { ChatContext } from '../types'
 import { useSession } from './useSession'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -14,6 +18,8 @@ jest.mock('@/auth/useProjectScope', () => {
 })
 jest.mock('@/api/tasks', () => ({
     ...jest.requireActual<typeof import('@/api/tasks')>('@/api/tasks'),
+    createTask: jest.fn(),
+    deleteTask: jest.fn(() => Promise.resolve()),
     getTask: jest.fn(),
     getTaskRun: jest.fn(),
     getTaskRunLogs: jest.fn(),
@@ -49,8 +55,56 @@ function task(latest: TaskRunApi): TaskApi {
     return { id: TASK_ID, title: 'Fix the flaky checkout test', signal_report: null, latest_run: latest }
 }
 
+const DEFAULT_PLAN: ChatRunOptions = { model: 'default', permissionMode: 'plan' }
+const DEFAULT_AUTO: ChatRunOptions = { model: 'default', permissionMode: 'auto' }
+
+const OPUS_PLAN: ChatRunOptions = {
+    model: { runtimeAdapter: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'high' },
+    permissionMode: 'plan',
+}
+
+const REPORT_CONTEXT: ChatContext = {
+    kind: 'reports',
+    reports: [{ reportId: 'rep-1', title: 'Checkout errors spike', canAct: false }],
+}
+
 function logLine(update: Record<string, unknown>): Record<string, unknown> {
     return { type: 'notification', notification: { method: 'session/update', params: { update } } }
+}
+
+/** A stream that stays open until the hook aborts it, and delivers the frames a test pushes as live events. */
+function liveStream(): { response: Response; push: (frame: unknown) => void } {
+    const queue: Uint8Array[] = []
+    let waiting: ((result: { value: Uint8Array | undefined; done: boolean }) => void) | null = null
+    const reader = {
+        read: () =>
+            new Promise<{ value: Uint8Array | undefined; done: boolean }>((resolve) => {
+                const next = queue.shift()
+                if (next) {
+                    resolve({ value: next, done: false })
+                } else {
+                    waiting = resolve
+                }
+            }),
+        cancel: async (): Promise<void> => {
+            waiting?.({ value: undefined, done: true })
+        },
+    }
+    const push = (frame: unknown): void => {
+        const chunk = new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`)
+        if (waiting) {
+            const resolve = waiting
+            waiting = null
+            resolve({ value: chunk, done: false })
+        } else {
+            queue.push(chunk)
+        }
+    }
+    return { response: { ok: true, body: { getReader: () => reader } } as unknown as Response, push }
+}
+
+function sentCommands(): unknown[] {
+    return mocked.sendTaskRunCommand.mock.calls.map(([, , command]) => command)
 }
 
 describe('useSession', () => {
@@ -58,39 +112,295 @@ describe('useSession', () => {
         jest.clearAllMocks()
     })
 
-    test('a message to an ended run starts a resume run with the same model instead of a command', async () => {
-        const ended = run({ status: 'completed', model: 'claude-sonnet-5', runtime_adapter: 'claude' })
-        mocked.getTask.mockResolvedValue(task(ended))
-        mocked.getTaskRunLogs.mockResolvedValue([
-            logLine({ sessionUpdate: 'user_message_chunk', content: { text: 'Fix the flaky checkout test' } }),
-            logLine({ sessionUpdate: 'agent_message', content: { text: 'Done. The PR is open.' } }),
-        ])
-        const successor = run({ id: 'run-2', status: 'queued' })
-        mocked.startTaskRun.mockResolvedValue({ ...task(successor), run: successor })
+    test.each<[string, TaskRunApi, ChatRunOptions, Record<string, unknown>]>([
+        [
+            'the picked model',
+            run({ status: 'completed', model: 'claude-sonnet-5', runtime_adapter: 'claude' }),
+            OPUS_PLAN,
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5-5',
+                reasoning_effort: 'high',
+                initial_permission_mode: 'plan',
+            },
+        ],
+        [
+            'an untouched model, keeping the ended run on its harness with the mode mapped onto it',
+            run({ status: 'completed', model: 'gpt-5.5', runtime_adapter: 'codex' }),
+            { model: 'default', permissionMode: 'acceptEdits' },
+            { initial_permission_mode: 'auto' },
+        ],
+    ])(
+        'a message to an ended run starts a resume run with %s instead of a command',
+        async (_label, ended, options, fields) => {
+            mocked.getTask.mockResolvedValue(task(ended))
+            mocked.getTaskRunLogs.mockResolvedValue([
+                logLine({ sessionUpdate: 'user_message_chunk', content: { text: 'Fix the flaky checkout test' } }),
+                logLine({ sessionUpdate: 'agent_message', content: { text: 'Done. The PR is open.' } }),
+            ])
+            const successor = run({ id: 'run-2', status: 'queued' })
+            mocked.startTaskRun.mockResolvedValue({ ...task(successor), run: successor })
 
-        const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
-        await waitFor(() => expect(result.current?.history.status).toBe('idle'))
-        expect(result.current?.items.map((item) => item.kind)).toEqual(['user', 'assistant'])
+            const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+            await waitFor(() => expect(result.current?.history.status).toBe('idle'))
+            expect(result.current?.items.map((item) => item.kind)).toEqual(['user', 'assistant'])
 
+            await act(async () => {
+                await result.current?.send('Rename the helper too', { kind: 'none' }, options)
+            })
+
+            expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+            expect(mocked.startTaskRun).toHaveBeenCalledWith(
+                TASK_ID,
+                {
+                    mode: 'interactive',
+                    pending_user_message: 'Rename the helper too',
+                    resume_from_run_id: 'run-1',
+                    ...fields,
+                },
+                expect.anything()
+            )
+            expect(result.current?.runId).toBe('run-2')
+            expect(result.current?.items.at(-1)).toMatchObject({ kind: 'user', text: 'Rename the helper too' })
+            expect(mocked.openTaskRunStream).toHaveBeenCalledWith(TASK_ID, 'run-2', expect.anything())
+        }
+    )
+
+    const OPUS_PLAN_FIELDS = {
+        runtime_adapter: 'claude',
+        model: 'claude-opus-5-5',
+        reasoning_effort: 'high',
+        initial_permission_mode: 'plan',
+    }
+
+    test.each<[string, ChatContext, ChatRunOptions, Record<string, unknown>, Record<string, unknown>]>([
+        [
+            'a plain question creates a PostHog AI chat named from the question',
+            { kind: 'none' },
+            OPUS_PLAN,
+            {
+                title: '',
+                description: 'Why did signups drop?',
+                origin_product: 'posthog_ai',
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5-5',
+                reasoning_effort: 'high',
+                initial_permission_mode: 'plan',
+                pending_user_message: 'Why did signups drop?',
+            },
+            OPUS_PLAN_FIELDS,
+        ],
+        [
+            'an untouched model sends only the mode, so the server applies the stored default',
+            { kind: 'none' },
+            DEFAULT_PLAN,
+            {
+                title: '',
+                description: 'Why did signups drop?',
+                origin_product: 'posthog_ai',
+                initial_permission_mode: 'plan',
+                pending_user_message: 'Why did signups drop?',
+            },
+            { initial_permission_mode: 'plan' },
+        ],
+        [
+            'one attached report creates an Inbox discussion task',
+            REPORT_CONTEXT,
+            OPUS_PLAN,
+            {
+                title: 'Checkout errors spike',
+                description: chatPrompt('Why did signups drop?', REPORT_CONTEXT),
+                origin_product: 'signal_report',
+                signal_report: 'rep-1',
+                signal_report_task_relationship: 'discussion',
+                signal_report_discussion_question: 'Why did signups drop?',
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5-5',
+                reasoning_effort: 'high',
+                pending_user_message: chatPrompt('Why did signups drop?', REPORT_CONTEXT),
+            },
+            { run_source: 'signal_report', signal_report_id: 'rep-1', ...OPUS_PLAN_FIELDS },
+        ],
+    ])('%s, then starts its interactive run', async (_label, context, options, createBody, runFields) => {
+        const created = { ...task(run({})), title: 'Signups drop', latest_run: null }
+        mocked.createTask.mockResolvedValue(created)
+        const first = run({ status: 'queued' })
+        mocked.startTaskRun.mockResolvedValue({ ...created, run: first })
+
+        const { result } = renderHook(() => useSession({}))
+        expect(result.current.taskId).toBeNull()
         await act(async () => {
-            await result.current?.send('Rename the helper too', { kind: 'none' })
+            await result.current.start('Why did signups drop?', context, options)
         })
 
-        expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+        expect(mocked.createTask).toHaveBeenCalledWith(createBody, expect.anything())
         expect(mocked.startTaskRun).toHaveBeenCalledWith(
             TASK_ID,
             {
                 mode: 'interactive',
-                pending_user_message: 'Rename the helper too',
-                resume_from_run_id: 'run-1',
-                model: 'claude-sonnet-5',
-                runtime_adapter: 'claude',
+                pending_user_message: chatPrompt('Why did signups drop?', context),
+                ...runFields,
             },
             expect.anything()
         )
-        expect(result.current?.runId).toBe('run-2')
-        expect(result.current?.items.at(-1)).toMatchObject({ kind: 'user', text: 'Rename the helper too' })
-        expect(mocked.openTaskRunStream).toHaveBeenCalledWith(TASK_ID, 'run-2', expect.anything())
+        expect(result.current.taskId).toBe(TASK_ID)
+        expect(result.current.title).toBe('Signups drop')
+        expect(result.current.items).toMatchObject([{ kind: 'user', text: 'Why did signups drop?' }])
+        expect(mocked.openTaskRunStream).toHaveBeenCalledWith(TASK_ID, 'run-1', expect.anything())
+    })
+
+    test('a refused first run deletes the new task and hands back the message', async () => {
+        mocked.createTask.mockResolvedValue({ ...task(run({})), latest_run: null })
+        mocked.startTaskRun.mockRejectedValue(
+            new ApiError(403, {
+                code: 'code_access_required',
+                error: 'PostHog Desktop access is required to run tasks in the cloud.',
+            })
+        )
+
+        const { result } = renderHook(() => useSession({}))
+        await act(async () => {
+            await result.current.start('Why did signups drop?', { kind: 'none' }, OPUS_PLAN)
+        })
+
+        expect(mocked.deleteTask).toHaveBeenCalledWith(TASK_ID)
+        expect(result.current.taskId).toBeNull()
+        expect(result.current.items).toEqual([])
+        expect(result.current.notice).toBe('PostHog Desktop access is required to run tasks in the cloud.')
+        expect(result.current.unsentText).toBe('Why did signups drop?')
+    })
+
+    test('a new chat dropped while its task is being created deletes the task and starts no run', async () => {
+        let finishCreate: (created: TaskCreateResponseApi) => void = () => undefined
+        mocked.createTask.mockReturnValue(
+            new Promise<TaskCreateResponseApi>((resolve) => {
+                finishCreate = resolve
+            })
+        )
+
+        const { result, unmount } = renderHook(() => useSession({}))
+        let sending: Promise<void> = Promise.resolve()
+        act(() => {
+            sending = result.current.start('Why did signups drop?', { kind: 'none' }, OPUS_PLAN)
+        })
+        unmount()
+        finishCreate({ ...task(run({})), latest_run: null })
+        await sending
+
+        expect(mocked.deleteTask).toHaveBeenCalledWith(TASK_ID)
+        expect(mocked.startTaskRun).not.toHaveBeenCalled()
+    })
+
+    test('after a first run fails with a 5xx, the next message goes to the run the server did start', async () => {
+        mocked.createTask.mockResolvedValue({ ...task(run({})), latest_run: null })
+        mocked.startTaskRun.mockRejectedValue(new ApiError(500, undefined))
+
+        const { result } = renderHook(() => useSession({}))
+        await act(async () => {
+            await result.current.start('Why did signups drop?', { kind: 'none' }, DEFAULT_AUTO)
+        })
+        expect(mocked.deleteTask).not.toHaveBeenCalled()
+        expect(result.current.taskId).toBe(TASK_ID)
+        expect(result.current.unsentText).toBe('Why did signups drop?')
+
+        mocked.getTask.mockResolvedValue(
+            task(run({ status: 'in_progress', state: { initial_permission_mode: 'auto' } }))
+        )
+        mocked.sendTaskRunCommand.mockResolvedValue({ jsonrpc: '2.0', result: {} })
+        await act(async () => {
+            await result.current.send('Why did signups drop?', { kind: 'none' }, DEFAULT_AUTO)
+        })
+
+        expect(mocked.startTaskRun).toHaveBeenCalledTimes(1)
+        expect(sentCommands()).toEqual([{ method: 'user_message', params: { content: 'Why did signups drop?' } }])
+        expect(result.current.runId).toBe('run-1')
+    })
+
+    test('a fresh run of an opened Inbox discussion task keeps its report as the run source', async () => {
+        mocked.getTask.mockResolvedValue({ ...task(run({})), signal_report: 'rep-1', latest_run: null })
+        const first = run({ status: 'queued' })
+        mocked.startTaskRun.mockResolvedValue({ ...task(first), run: first })
+
+        const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+        await waitFor(() => expect(result.current.history.status).toBe('idle'))
+        await act(async () => {
+            await result.current.send('Is this still happening?', { kind: 'none' }, DEFAULT_AUTO)
+        })
+
+        expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            TASK_ID,
+            {
+                mode: 'interactive',
+                pending_user_message: 'Is this still happening?',
+                run_source: 'signal_report',
+                signal_report_id: 'rep-1',
+                initial_permission_mode: 'auto',
+            },
+            expect.anything()
+        )
+    })
+
+    test('a mode the agent reports after the app set one wins, so the next message sets the mode again', async () => {
+        const stream = liveStream()
+        mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+        mocked.getTask.mockResolvedValue(
+            task(run({ status: 'in_progress', runtime_adapter: 'claude', state: { initial_permission_mode: 'auto' } }))
+        )
+        mocked.sendTaskRunCommand.mockResolvedValue({ jsonrpc: '2.0', result: {} })
+
+        const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+        await waitFor(() => expect(result.current.runStatus).toBe('in_progress'))
+        await act(async () => {
+            await result.current.send('Plan the fix', { kind: 'none' }, DEFAULT_PLAN)
+        })
+        expect(result.current.runConfig?.permissionMode).toBe('plan')
+
+        // Approving the plan with the auto option moves the agent out of Plan.
+        act(() => {
+            stream.push(logLine({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+        })
+        await waitFor(() => expect(result.current.runConfig?.permissionMode).toBe('auto'))
+        await act(async () => {
+            await result.current.send('Plan the next one', { kind: 'none' }, DEFAULT_PLAN)
+        })
+
+        expect(sentCommands()).toEqual([
+            { method: 'set_config_option', params: { configId: 'mode', value: 'plan' } },
+            { method: 'user_message', params: { content: 'Plan the fix' } },
+            { method: 'set_config_option', params: { configId: 'mode', value: 'plan' } },
+            { method: 'user_message', params: { content: 'Plan the next one' } },
+        ])
+    })
+
+    test('a message to a live run first sets only the options that changed', async () => {
+        mocked.getTask.mockResolvedValue(
+            task(
+                run({
+                    status: 'in_progress',
+                    runtime_adapter: 'claude',
+                    model: 'claude-sonnet-5-5',
+                    reasoning_effort: 'high',
+                    state: { initial_permission_mode: 'auto' },
+                })
+            )
+        )
+        mocked.sendTaskRunCommand.mockResolvedValue({ jsonrpc: '2.0', result: {} })
+
+        const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+        await waitFor(() => expect(result.current.runStatus).toBe('in_progress'))
+        await act(async () => {
+            await result.current.send('Now plan the fix', { kind: 'none' }, OPUS_PLAN)
+        })
+        await act(async () => {
+            await result.current.send('Go on', { kind: 'none' }, OPUS_PLAN)
+        })
+
+        expect(sentCommands()).toEqual([
+            { method: 'set_config_option', params: { configId: 'model', value: 'claude-opus-5-5' } },
+            { method: 'set_config_option', params: { configId: 'mode', value: 'plan' } },
+            { method: 'user_message', params: { content: 'Now plan the fix' } },
+            { method: 'user_message', params: { content: 'Go on' } },
+        ])
     })
 
     test('stop before the agent generated anything asks to wait and sends no cancel', async () => {

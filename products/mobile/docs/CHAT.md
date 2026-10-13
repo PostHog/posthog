@@ -1,279 +1,226 @@
 # Chat
 
-The chat sheet talks to PostHog AI about one or more inbox reports, or about the inbox as a whole.
-It also opens a sandbox session (a PostHog AI task run) from the Chats list. See [Sessions](#sessions).
+The chat sheet talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
+Every chat is a task with interactive runs in a sandbox.
+A new chat creates the task on its first message; the Chats list reopens one by its task id.
+The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
 ## Files
 
 | File | Role |
 | --- | --- |
-| `src/api/conversations.ts` | Transport: request, SSE event parsing, typed message union, `fetchConversation`, `listConversations`, `chatKeys` |
-| `src/features/chat/conversation.ts` | Pure reducer that folds stream events into the thread |
-| `src/features/chat/contextPrompt.ts` | The prompt template, a port of the web's Today Ask prompt |
-| `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to thread copy |
-| `src/features/chat/agentModes.ts` | The mode picker's options: labels and descriptions copied from the web |
-| `src/features/chat/modeChoice.ts` | Pure reducer for the chip label and the pick still to send |
-| `src/features/chat/hooks.ts` | `useConversation({ initialConversationId? })`: send, stream, reconnect, stop, retry, reset, resume a stored chat, demo replies |
-| `src/demo/chatThreads.ts` | Stored demo conversations, keyed by the ids in `src/demo/chats.ts` |
-| `src/features/chat/session/` | Sessions: `useSession`, `sessionReducer`, `sessionDisplay`, `SessionThread`, its rows and `SessionDecisionPanel` |
-| `src/demo/sessionThreads.ts` | Demo session run logs, keyed by the session ids in `src/demo/chats.ts` |
-| `src/features/chats/` | The Chats screen: list, search, day groups and the `useChatList()` hook (see [DESIGN.md](DESIGN.md)) |
-| `src/features/chat/webLinks.ts` | Web app URLs for reports, the conversation, insights and reply links |
-| `src/features/chat/*.tsx` | `ChatSheet`, `Composer`, `ContextChip`, `MentionPopover`, `ModePopover`, `Thread`, `ChatMarkdown`, `ChatErrorBubble`, `ChatLinkCard`, `ChatProgressLine`, `ChatEmptyState` |
+| `src/features/chat/ChatSheet.tsx` | The sheet: header, thread or empty state, composer, the options reducer, draft restore |
+| `src/features/chat/session/useSession.ts` | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies |
+| `src/features/chat/session/sessionRun.ts` | Pure request bodies: the create shapes, run fields, the `set_config_option` plan, the tracked run config |
+| `src/features/chat/session/sessionReducer.ts` | Folds run log lines and stream frames into the thread, as the web's `foldLogFromCheckpoint` does |
+| `src/features/chat/session/sessionDisplay.ts` | Groups thoughts and tool calls into activity rows, error copy |
+| `src/features/chat/session/SessionThread.tsx` | The thread, its rows, the PR card and the status line |
+| `src/features/chat/session/SessionDecisionPanel.tsx` | The notice line and a pending question, plan approval or permission |
+| `src/features/chat/chatRunOptions.ts` | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run |
+| `src/features/chat/ChatOptionsSheet.tsx` | The Model and Mode pages in a sheet over the chat |
+| `src/features/chat/contextPrompt.ts` | The leading context blocks, `bareQuestion`, `stripInjectedContext` |
+| `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to copy, including the PostHog Desktop gate |
+| `src/features/chat/*.tsx` | `Composer`, `ContextChip`, `MentionPopover`, `ChatEmptyState`, `ChatMarkdown`, `ChatErrorBubble`, `ChatProgressLine`, `UserBubble` |
+| `src/features/chats/` | The Chats screen: list, search, day groups and `useChatList()` (see [DESIGN.md](DESIGN.md)) |
+| `src/demo/sessionThreads.ts` | Demo run logs keyed by the demo task ids in `src/demo/chats.ts`, and the demo replies |
 
-## Endpoint
+The transport is `src/api/tasks.ts`, shared with the hand-off (see [HANDOFF.md](HANDOFF.md)).
+Every request carries `X-PostHog-Client-Platform: mobile`, so `run/` never reuses a warm run a web composer booted.
 
-`POST /api/projects/:project_id/conversations/` (`ee/api/conversation.py`, `ConversationViewSet.create`).
+## Starting a chat
 
-- Scope `conversation:write`. The sign-in scope list in `src/auth/oauth.ts` includes it.
-- This is the LangGraph runtime. The sandbox runtime opens through `/conversations/:id/open/`,
-  which declares no OAuth scopes, so an app token gets 403 there.
-- Body: `{ conversation, trace_id, content, agent_mode? }`.
-  - `conversation` is a UUID the app generates once per sheet session. The server creates the row on the first message.
-  - `trace_id` is a new UUID per request. The server echoes it on the human message.
-  - `content` is the prompt (the typed question plus a context block), or `null` to reattach to a running turn.
-  - `agent_mode` goes only with the first prompt after the person picks a mode (see [Modes](#modes)).
-    Auto leaves the key out. `MessageSerializer.agent_mode` is a choice field that does not allow null, so sending null gets a 400.
-  - The app sends no `ui_context`: `MaxUIContext` has no report key and rejects unknown keys.
+The first send creates a task, then starts an interactive run on it.
+Both calls go through `withWarmRetry`, which retries a 503 `warm_run_activation_unavailable` with the server's retry token.
+The bubble shows at once and is taken back if the start fails.
 
-## Framing
+Two create shapes (`chatStartRequests` in `sessionRun.ts`):
 
-`text/event-stream` with `event:` and `data:` lines (parsed by `src/api/sse.ts`).
-`: keepalive` comments arrive every 15 seconds and are ignored.
-There is no terminal event: the turn ends when the server closes the body.
+- **PostHog AI chat** (no report, or more than one report attached). `POST tasks/`:
 
-| Event | Data | Thread effect |
-| --- | --- | --- |
-| `conversation` | Conversation metadata | Sets the header title once the server generates one |
-| `message` | One message, by `type` (below) | See the next table |
-| `update` | `{ id, tool_call_id, content }` | Progress line on the assistant message `id`; creates a placeholder when the update arrives first. Object `content` (subagent updates) is ignored |
-| `status` | `{ type: 'generation_error' }` | Ends the turn with an error entry and Try again |
-| `approval` | Pending dangerous-operation card | A link entry: "PostHog AI needs your approval to continue. Approve or reject it in PostHog." |
-| `notebook`, `sandbox`, other | | Ignored |
+  ```json
+  { "title": "", "description": "<bare question>", "origin_product": "posthog_ai",
+    "initial_permission_mode": "auto", "pending_user_message": "<context blocks>\n\n<question>" }
+  ```
 
-| `message.type` | Thread effect |
-| --- | --- |
-| `human` | Replaces the bubble with the same `trace_id` (falls back to the same text) and keeps the typed text; the echo carries the full prompt |
-| `ai`, id `temp-N` | Streaming full-text snapshot: replaced in place by id, within the current turn, status `loading` |
-| `ai`, UUID id | Final message: replaces the same id, else the oldest loading snapshot of the turn, else appends. Status `completed` |
-| `ai` with empty text | A tool-call step. Not drawn; its progress shows in the status line |
-| `ai/failure` | Error entry with the server copy (or "Something went wrong. Try again.") and Try again |
-| `ai/artifact` | Link entry, "Chart: {name}" or "Notebook: {title}", with Open in PostHog (the insight for `source: insight`, else the conversation in the web app) |
-| `tool` | Ignored. `ui_payload` only drives web tools the app does not have |
-| `ai/reasoning`, `ai/viz`, `ai/planning`, others | Ignored |
+  The server generates the title from `description` in the create request, so the response already carries it.
+  The app sends no `branch` and no `repository`, so the create never claims a warm run.
+- **Inbox "Discuss"** (exactly one attached report). `POST tasks/`:
 
-When the body closes, loading entries complete and progress lines clear.
-A turn that produced no reply at all ends with "No reply came back. Try again."
+  ```json
+  { "title": "<report title>", "description": "<prompt>", "origin_product": "signal_report",
+    "signal_report": "<report id>", "signal_report_task_relationship": "discussion",
+    "signal_report_discussion_question": "<question as typed, at most 4000 characters>",
+    "pending_user_message": "<prompt>" }
+  ```
 
-## Turn control
+  The server exempts a repo-less report discussion from the PostHog Desktop gate.
+  `signal_report_discussion_question` is the trimmed question as typed, without the prompt's tag escaping, cut at 4000 code points.
+  Every later fresh run of a task with a `signal_report` carries `run_source: "signal_report"` and `signal_report_id`, also when the Chats list opens it.
+  It counts toward the report's discussion task limit (see [Errors](#errors)).
 
-- **One turn at a time.** Send is disabled while a reply streams; the send button becomes Stop.
-- **Stop** aborts the fetch. App tokens cannot call `PATCH .../cancel/`, so the run finishes on the server.
-- **409 on send** means a stopped turn is still running. The app takes the new bubble back,
-  reattaches with `content: null` to show the end of that turn, then sends the message again.
-- **Reconnect.** When the connection drops after the stream opened, the app reattaches with
-  `content: null` and a new `trace_id`, waiting one more second per attempt, up to 15 attempts.
-  The server replays the turn from its start, so the first replayed event cuts the thread back to
-  the user's message and the replay rebuilds it.
-  A 400 on reattach means the turn ended while the app was away: the app loads
-  `GET conversations/:id/` and rebuilds the thread from it.
-  A drop before the stream opens is not retried on its own, because the server may never have
-  seen the message; the error entry offers Try again.
-- **Try again** removes the error entry and resends the last prompt with a new `trace_id`.
-  After a mid-stream failure the stored conversation then holds the message twice, as on the web.
-- **New chat** (the compose button in the header) aborts any stream and starts a new conversation id.
-- `mobile_chat_sent` is captured on each send with `report_count` and `mode`: the `agent_mode` that message sent,
-  or `auto` when it sent none. A later message in the same mode reports `auto`.
+Then `POST tasks/{t}/run/`, unless the create answered with a `latest_run`:
 
-## Modes
-
-The mode chip sits in the composer toolbar next to `@`. It shows the current mode's label, "Auto" by default.
-Tapping it opens `ModePopover` above the composer, the same anchored shape as `MentionPopover`,
-because the chat route is a transparent native modal and a root-level overlay cannot reach it on Android.
-The chip is disabled while a reply streams and while a stored chat loads, and an open popover closes when either starts.
-Picking a mode captures `mobile_chat_mode_changed` with `mode`.
-The keyboard stays up while the popover is open, as with `MentionPopover`.
-So the popover's height is capped to the space between the sheet header and the composer:
-sheet height minus header height minus composer height minus the keyboard height (or the home indicator inset
-when the keyboard is down) minus 16pt of gaps, at most 340pt and at least 160pt. All of these are measured.
-
-| Label | `agent_mode` |
-| --- | --- |
-| Auto | left out |
-| Product analytics | `product_analytics` |
-| SQL | `sql` |
-| Session replay | `session_replay` |
-| Error tracking | `error_tracking` |
-| Surveys | `survey` |
-| Flags | `flags` |
-| AI observability | `llm_analytics` |
-
-- **Auto** lets the agent pick. With no mode on a new conversation the server starts in product analytics;
-  on a later message it keeps the mode the last turn ended in. In every mode the agent can switch modes on its own.
-- **Sent once.** A pick goes out with the next message only. Later messages leave `agent_mode` out,
-  so the server keeps the mode the last turn ended in.
-  The server overwrites the checkpointed mode whenever a message carries `agent_mode`
-  (`get_initial_state` in `ee/hogai/chat_agent/runner.py`), so sending it every time would undo a switch the agent made
-  on its own, and the server would record `is_initial_mode: true` on every message. The web gets the same effect differently:
-  it refetches `agent_mode` after each turn and sends that.
-  Picking Auto sends nothing, so the agent goes on in the mode the last turn ended in.
-- **State.** `modeChoiceReducer` (`src/features/chat/modeChoice.ts`) in `ChatSheet` keeps two values:
-  `shown`, the chip label (the stored chat's mode or the last pick), and `pending`, the pick still to send.
-  Sending clears `pending` and keeps `shown`. Both last for that sheet only, as on the web. New chat resets both to Auto.
-- **The chip can lag.** The chip does not follow a mode the agent switched to mid-chat,
-  because the streaming `conversation` event carries no `agent_mode`. It shows the stored mode or the last pick
-  until the chat is opened again.
-- **Resume.** `GET conversations/:id/` returns `agent_mode`, the mode the last turn ran in (`agent_mode_or_default`,
-  so a stored chat always reports a mode, product analytics when none was picked). The chip starts from it,
-  as the web's `syncAgentModeFromConversation` does, but the stored mode is never sent.
-  The stored mode does not replace a pick made in this sheet, also when Try again loads the chat again.
-  The retired `user_interview` reads as product analytics; a mode the app does not offer reads as Auto.
-- **Retries keep the mode.** Try again and the resend after a 409 reattach reuse the mode the message was first sent with
-  (`lastPrompt.agentMode`). A reattach (`content: null`) sends no mode, because it starts no turn.
-- **Left out.** The app has no feature flag plumbing, so it offers only the modes the chat agent accepts without a flag
-  (`DEFAULT_CHAT_AGENT_MODE_REGISTRY` in `ee/hogai/chat_agent/mode_manager.py`):
-  - Plan: the web gates it on `phai-plan-mode`, and its plan approval flow has no mobile UI.
-  - Research: the web gates it on `max-deep-research`. It runs the deep research workflow, which has its own throttle,
-    and its planning and notebook events are ignored by the app.
-  - Customer analytics: the server drops it to product analytics unless `customer-analytics-csp` is on.
-  - Sandbox: this endpoint answers 400.
-- **Copy.** Labels and descriptions come from `MODE_DEFINITIONS` and `SPECIAL_MODES` in
-  `frontend/src/scenes/max/max-constants.tsx`. Auto drops the web's second sentence, which points at a tool list the app does not show.
-
-## Context template
-
-`chatPrompt(question, context)` ports `todayAskPrompt` from
-`frontend/src/scenes/project-homepage/today/todayAskPrompt.ts` and copies
-`REPORT_DISCUSSION_STATE_INSTRUCTIONS` and `NO_CHECKOUT_INSTRUCTIONS` verbatim from
-`products/signals/frontend/inbox/inboxTaskKickoffLogic.ts`.
-
-```text
-{question}
-
-<posthog_context>
-#### Context from the Inbox report I am reading      (reports, plural, for several)
-
-- Report: [{title}]({web url})                        (or "{title} (id `{id}`)" without a URL)
-- Priority: {priority}                                (when set)
-- Status: {status}                                    (when known)
-- Pull request: {url}                                 (when set)
-- Summary:
-  {summary, first 1500 characters, indented}         (when known)
-
-  ...one group per attached report...
-
-The report link ends with the report id. Use that id with the inbox MCP tools.
-
-If my message is a question, answer it. If it asks for action, carry the action out and summarize what you did.
-
-{REPORT_DISCUSSION_STATE_INSTRUCTIONS}
-    or, when any attached report cannot be acted on:
-Answer my message as a question about this report.   (these reports, for several)
-
-{NO_CHECKOUT_INSTRUCTIONS}
-</posthog_context>
+```json
+{ "mode": "interactive", "pending_user_message": "<context blocks>\n\n<question>", "initial_permission_mode": "auto" }
 ```
 
-- `canAct` comes from `ReportView.canAct` (the web's `isActionCapableReport`). A report that has not loaded counts as not actionable.
-- Server `suggested_prompts` replace the default chips only for one attached report the agent may act on, as on the web.
-- Each attached report's chip loads the report with `useReport`, so the prompt has its summary and status.
-- With no report attached, the prompt lists up to 20 inbox rows under `#### Context from my PostHog inbox`
-  (`N. [title](url) (source; state: open; an agent is waiting for my answer)`), so "What needs me today?" has something to answer from.
-- Escaping: `[` and `]` in titles are backslash-escaped. `<posthog_context`, `<posthog_trusted_context` and
-  `<posthog_untrusted_context` (and their closing tags) in titles, summaries and the question become `<\posthog_…`.
-- The bubble shows only the typed text. `stripInjectedContext` removes the block from server echoes and stored conversations.
-- The context goes with every message while the chip stays attached, because the chip says it is attached.
+- `mode: "interactive"` is required: only interactive runs relay approvals and questions to the client.
+- A picked model adds `runtime_adapter`, `model` and `reasoning_effort` (left out for a model without effort control), and maps the mode onto that harness.
+  An untouched model sends only the mode, so the server applies the stored default.
+- The app follows `run.id` from the response (`latest_run` on older servers).
+- A refused run (any 4xx, or a 503) deletes the task it just created with `DELETE tasks/{t}/`, so no empty row stays in the Chats list.
+  A 5xx other than 503 or a lost connection may still have started a run, so the task stays, and the next message first looks for that run (see [Follow-ups and resume](#follow-ups-and-resume)).
+- Closing the sheet or tapping New chat does not abort the create or the run start, so the app always learns the task id and whether a run started.
+  When the create finishes after the chat was dropped, the app deletes the new task and starts no run.
+
+## Options
+
+The composer has a Model chip and a Mode chip after `@`.
+They open `ChatOptionsSheet` with the hand-off's `ModelPage` and `ModePage`.
+`mobile_chat_option_changed` is captured with `option` (`model`, `effort` or `mode`) only.
+
+- **Seeding.** When a chat opens, or the run's config becomes known, the sheet seeds the options from `session.runConfig`:
+  the run's model and effort as a pinned model, and its permission mode.
+  A run with no known harness or model seeds "Default"; an unknown mode seeds Auto.
+  Seeding stops once the person picks anything in this sheet, and New chat starts seeding again.
+  While seeding, the Mode chip follows the mode the stream reports (`current_mode_update`), also for a run the app started.
+  After a pick, a new mode from the stream still replaces the picked mode, as the web drops its mode override: the agent can leave Plan on its own when a plan is approved.
+- **Enabled** while the agent is idle, the history has loaded, no send is in flight and no decision waits, also on an open chat.
+- **One harness per run.** A live run cannot switch between Claude Code and Codex.
+  On an open chat the Model page lists only the models of the run's harness, and an untouched model keeps that harness.
+  The hook still refuses a cross-harness pick with a notice.
+- **The mode that is sent.** The Mode chip shows the mode mapped onto the harness the next message runs on (`chatPermissionMode`), and the sheet sends that mode.
+
+### Live changes: `set_config_option`
+
+A pick alone sends nothing.
+On the next message to a live run, `useSession` first sends one command per changed value, in the web's order (model, effort, mode):
+
+```json
+{ "jsonrpc": "2.0", "method": "set_config_option", "params": { "configId": "model", "value": "claude-opus-5-5" } }
+```
+
+- "Changed" means different from what the run last had: what it started with, then each change the app applied (`TrackedRunConfig`).
+  A mode the app set wins over the mode the stream reported before it, until the stream reports a mode again; then the stream's mode wins, as the web clears `sentMode` on `setCurrentMode`.
+- The starting mode is the run's `state.initial_permission_mode` from the `run/` response, which can differ from the mode sent.
+- Each change is recorded as it succeeds, so a later failure resends only what did not go out.
+- 503 `sandbox_not_ready` retries for up to 10 seconds, honoring `Retry-After`.
+- 409 means the run ended. The message then starts a resume run that carries the options.
+- A 400 (such as a model outside the run's gateway pin), a 502, or a JSON-RPC `error` in the body stops the send before its `user_message`, shows the notice and restores the draft.
+
+## Follow-ups and resume
+
+- **Live run.** `POST tasks/{t}/runs/{r}/command/` with `user_message` and the context-wrapped text.
+  Success is `result.queued`. The bubble moves to where the turn starts when the agent echoes it.
+- **No run known.** After a first run that failed with a 5xx or a lost connection, or on a task opened without a run, `GET tasks/{t}/` comes first.
+  A live `latest_run` gets the message and is followed; an ended one is resumed. Only a task with no run gets a fresh run.
+- **Ended run, or a 409 on `user_message`.** `POST tasks/{t}/run/` with `mode: "interactive"`, `resume_from_run_id`, `pending_user_message`, and the run fields.
+  An untouched model sends no triple, so the server keeps the previous run's selection; the mode maps onto the previous run's harness.
+  No `branch`: a resumed run keeps its base branch.
+- One send at a time. While the agent works, Stop replaces Send.
+- `mobile_session_sent` is captured with `new_task`, `resumed_run`, `report_count`, `model`, `reasoning_effort` and `permission_mode`.
+
+## Reading a run
+
+- `GET tasks/{t}/` gives the title and the latest run. With a `runId` the sheet follows that run through `GET tasks/{t}/runs/{r}/`.
+- **Ended run.** `GET tasks/{t}/runs/{r}/logs/` returns the whole resume chain as JSON lines, folded into the thread.
+- **Live run.** `GET tasks/{t}/runs/{r}/stream/` without a cursor replays the stored log, then streams.
+  Reconnects follow the hand-off rules (see [HANDOFF.md](HANDOFF.md)); a replay after a lost cursor rebuilds the thread.
+- `mobile_session_resumed` is captured with the run status.
+
+## Stop
+
+Stop sends the `cancel` command (`{ "jsonrpc": "2.0", "method": "cancel" }`), which interrupts the turn and keeps the run alive.
+The app sends it only after the stream showed the agent generating, because a cancel before that drops the run's first message; until then the notice says "The agent hasn't started yet."
+A JSON-RPC `error` in the answer shows "Couldn't stop this run. Try again."
+`mobile_session_stopped` is captured.
+
+## Decisions
+
+Permission requests go through the hand-off tool policy (`toolPolicy.ts`, see [HANDOFF.md](HANDOFF.md#tool-policy)):
+the app allows built-in tools and PostHog `exec` calls on the person's behalf and asks about the rest.
+A question, plan approval or permission shows in `SessionDecisionPanel` and replaces the composer while it waits.
+The answer goes as a `permission_response` command and shows in the thread as the person's bubble.
+
+## Errors
+
+- A send, answer or stop that fails shows one notice line above the composer.
+  A failed send also sets `unsentText`; the sheet puts it back into an empty input once.
+- **PostHog Desktop gate.** `run/` and `user_message` answer 403 `code_access_required` for a user the gate refuses.
+  The message is under `error`, and the app shows it as is, because it names the reason (Startup plan, prepaid credits).
+  A 503 `desktop_access_unavailable` says "We couldn't verify PostHog Desktop access. Try again."
+  A 429 `usage_limit_exceeded` or `billing_limit` shows the server copy.
+  `cancel` and `set_config_option` are not gated. Only the Inbox "Discuss" shape is exempt.
+- **Report discussion limit.** A one-report chat counts toward the report's discussion task limit.
+  `POST tasks/` and `run/` answer 429 `signal_report_task_cap` with the copy under `error`; the app shows it, else "This report has reached its chat limit. Try again later."
+- A 400 shows the server copy (`detail` or `error`, such as "Invalid resume_from_run_id" or a model the account cannot use), else a generic line.
+- A 502 "Failed to queue" says the message did not reach the agent.
+- The run's own failure (`error_message`, `_posthog/error`) shows inline in the thread.
+
+## Context block
+
+`chatPrompt(question, context)` ports the web's `wrapWithPosthogContext`.
+The web thread strips only leading blocks, so the blocks lead and the question follows.
+
+```text
+<posthog_trusted_context>
+- A user sent the message after this block about the PostHog Inbox report at {report url}. If it is a question, answer it; if it asks for action, carry the action out and summarize what you did.
+- {REPORT_DISCUSSION_STATE_INSTRUCTIONS}
+- {NO_CHECKOUT_INSTRUCTIONS}
+</posthog_trusted_context>
+<posthog_untrusted_context>
+{the web's hardening header}
+- signal_report {report id} ("Report: {title}")
+{the web's reminder}
+</posthog_untrusted_context>
+
+{question}
+```
+
+- The trusted block goes only with attached reports. Its first line names the report by the web URL the app builds from the signed-in host, as the web's `discussReportInstructions` does.
+  When the report cannot be acted on, the first line becomes "Answer this question about the PostHog Inbox report at {report url}. The question is the message after this block." and the state instructions drop out.
+- The web has no framing for several reports. The app names them all ("these PostHog Inbox reports: {url}, {url}") and adds "The instructions below speak of one report. Apply them to each of these reports on its own."
+- With no report attached, the first message of a new chat lists up to 20 inbox rows as `signal_report` lines in the untrusted block.
+  Follow-ups and opened chats send no inbox list.
+- The agent reads report details through the inbox MCP tools, so the prompt carries no summaries.
+- `defang` escapes context tags and line breaks in every item field; `bareQuestion` escapes context tags in the question.
+- `description` and the bubble get the bare question. `stripInjectedContext` removes leading blocks from echoes and logs.
+- The blocks go with every message while a chip stays attached, because the chip says it is attached.
 
 ## Rendering
 
-- Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`:
-  inline code in the mono font on `sunken`, fenced code in a bordered block, links in ink and underlined.
-- `html: false`, so raw HTML in a reply shows as text. Images are dropped.
-- Relative links such as `/project/2/insights/abc` open on the signed-in host. Only http(s) links open.
-- The status line under the thread shows the latest tool progress, "Thinking…", or "Reconnecting…".
+- Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
+  `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
+- The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- The PR card shows when the run has a PR and the agent is idle.
 
-## Limits
+## New chat
 
-- **No server cancel.** Stop only stops reading.
-- **404 until titled.** `GET conversations/:id/` returns 404 until the server generates a title, so a
-  reconnect that finds the turn already over in the first seconds of a new conversation cannot load the reply
-  and shows "The connection dropped before the reply finished. Try again."
-- **AI consent is not checked.** PostHog enforces `organization.is_ai_data_processing_approved` only in the web client.
-  The auth store does not expose the flag, so the app shows no consent notice. See GAPS.md.
-- **No report tools.** The LangGraph agent has no inbox MCP tools, so the prompt inlines each summary.
-  The ported instructions still name those tools. See GAPS.md.
-- **Approvals, forms and charts** open in the web app.
-- **Sessions have their own limits.** See [Sessions](#sessions) and GAPS.md.
-
-## Resuming a chat
-
-The Chats screen opens the sheet with `conversationId`.
-The hook loads `GET conversations/:id/` (or the demo thread), dispatches `hydrated`, and captures `mobile_chat_resumed`.
-While it loads, the sheet shows "Loading chat" and send is disabled.
-A failed load shows "Couldn't load this chat" with Try again; a 404 says the chat no longer exists.
-A stored conversation whose status is `in_progress` reattaches with `content: null` after loading, so the running turn plays to its end.
-New messages keep the stored id, so they append to that conversation on the server.
-New chat (the compose button) drops the stored id and starts a fresh conversation, as before.
+The compose button in the header shows once a chat has a task or a message.
+It drops the open task (or the one the first send created), clears the text and attached reports, and resets the options to Default and Auto.
+The header shows the task title, else "New chat".
+The empty state with suggested prompts shows while there is no task and no message.
 
 ## Chats list
 
-`useChatList()` (`src/features/chats/hooks.ts`) merges two sources, like the web app's Chats pane:
+`useChatList()` (`src/features/chats/hooks.ts`) lists the person's sandbox sessions:
+`GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30`.
 
-- `GET conversations/?limit=30`: the caller's own titled LangGraph conversations, newest first.
-- `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30`: the caller's sandbox sessions.
-  `created_by` takes the numeric user id, which `GET /api/users/@me/` returns as `id`; a session restored from before the app stored it skips this source until the account reloads.
-
-`chatListFromSources` (`src/model/adapters/chats.ts`) drops archived sessions, drops a conversation whose `task.id` is a fetched session (archived ones too), sorts by last activity and keeps 30 rows.
-A conversation whose task is not in the fetched page becomes a session row with status `idle`, because its work lives in the task run and the conversation alone would open as an empty thread.
-A chat row opens the sheet with `conversationId`; a session row opens it with `taskId`.
-`mobile_chat_opened` is captured with `kind` for both.
-`chatGroups.ts` labels rows by local calendar day (Today, Yesterday, a weekday, "Oct 3", "Oct 3, 2025", Earlier) and filters titles on the device.
-When one source fails and the other loads, the list shows what loaded and a "Some chats didn't load." line; a 403 or 404 from tasks means the user has no sessions and shows no line.
-Regaining focus (closing the sheet) invalidates the list, so a chat that got its title while the sheet was open appears.
-
-## Sessions
-
-The Chats screen opens a session row in the chat sheet with `taskId` (and an optional `runId`).
-The sheet keeps one `mode` state, `conversation` or `session`, and mounts both `useConversation` and `useSession`.
-In session mode the header shows the task title, else "Session", and the body is `SessionThread`.
-New chat (the compose button) switches the sheet to conversation mode and starts a fresh chat.
-
-The session reads the task through the tasks API (`src/api/tasks.ts`), as the hand-off does (see [HANDOFF.md](HANDOFF.md)):
-
-- `GET tasks/{t}/` gives the title and the latest run. With `runId`, the sheet follows that run through `GET tasks/{t}/runs/{r}/`.
-- **Ended run.** `GET tasks/{t}/runs/{r}/logs/` returns the stored run log as JSON lines.
-  `sessionReducer` folds it into the thread, as the web's `foldLogToThread` does.
-- **Live run.** `GET tasks/{t}/runs/{r}/stream/` without a cursor replays the stored log first, then streams.
-  Reconnects follow the hand-off rules, and a replay after a lost cursor rebuilds the thread.
-
-Sending:
-
-- **Live run.** The message goes as a `user_message` command (`POST tasks/{t}/runs/{r}/command/`).
-  The bubble shows at once and moves to where the turn starts when the agent echoes it.
-- **Ended run, or a 409 on `user_message`** (the run's workflow ended). The app starts a successor run:
-  `POST tasks/{t}/run/` with `mode: 'interactive'`, `resume_from_run_id`, `pending_user_message` and the ended run's model.
-  The new run's stream replays the whole resume chain, so the thread rebuilds on its first replayed frame.
-- The message carries the same `<posthog_context>` block as a chat, so @-mentioned reports attach to a session message too.
-- `mobile_session_sent` is captured with `resumed_run` and `report_count`.
-
-Turn control and decisions:
-
-- **Stop** sends the `cancel` command once the stream showed the agent generating.
-  Before that the sheet says "The agent hasn't started yet.", because a cancel then would drop the run's first message.
-- **Decisions.** Permission requests go through the hand-off tool policy (`toolPolicy.ts`, see [HANDOFF.md](HANDOFF.md#tool-policy)):
-  the app allows built-in tools and PostHog `exec` calls on the person's behalf and asks about the rest.
-  A question, plan approval or permission shows in `SessionDecisionPanel` above the composer, and replaces the composer while it waits.
-  The answer goes as a `permission_response` command and shows in the thread as the person's bubble.
-- A notice line above the composer says when a send, an answer or a stop did not go through.
-- The thread shows the PR card when the run has a PR and the agent is idle.
+- `created_by` takes the numeric user id from `GET /api/users/@me/`. A session restored from before the app stored it has none:
+  the hook calls `reloadAccount()` once and shows loading until it settles, then the list, the account error with Try again, or an empty list.
+- `chatListFromSessions` (`src/model/adapters/chats.ts`) maps `origin_product` to the row's origin: `posthog_ai` is a chat, `signal_report` a report, anything else a session.
+  The server already leaves out archived tasks.
+- A row opens the sheet with `{ taskId }`; `mobile_chat_opened` is captured with `origin`.
+- A 403 or 404 from tasks means the user has no sessions and shows the empty state.
+- `chatGroups.ts` labels rows by local calendar day and filters titles on the device.
+- Regaining focus (closing the sheet) invalidates the list, so a new chat appears with its title.
+- Legacy LangGraph conversations are not listed. The web's new side panel does not list them either.
 
 ## Demo mode
 
-The demo plays a scripted reply through the same reducer: a tool step with a progress line,
-streamed snapshots, then the final message. Stop and New chat work the same way.
-The reply is the same whatever mode is picked, and no request goes out.
-Stored demo chats report `product_analytics`, as the server does for a chat that never picked a mode.
-
-Demo sessions replay the run logs in `src/demo/sessionThreads.ts` through the session reducer:
+No request goes out.
+A new chat gets a demo task id, echoes the message and plays `DEMO_REPLY` through the session reducer: streamed chunks, the final message, then a turn end.
+Demo sessions replay the run logs in `src/demo/sessionThreads.ts`:
 "Fix the flaky checkout test" ended with a PR, "Add dark mode to settings" waits on a question,
-and "Migrate billing webhooks" failed. A send or an answer plays a scripted reply.
+and "Migrate billing webhooks" failed. A send plays `DEMO_REPLY`, an answer plays `DEMO_ANSWER_REPLY`, and Stop cuts the reply short.
+The model list is the static catalogue, and the options change nothing about the reply.

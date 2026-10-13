@@ -16,12 +16,12 @@ products/mobile/
       chats.tsx           -> src/features/chats/ChatsScreen
     report/[id].tsx       -> src/features/report/ReportScreen
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
-                          `conversationId` resumes a stored chat, `taskId` and `runId` open a session)
+                          no params starts a new chat, `taskId` and `runId` open one, `reportId` attaches a report)
     settings.tsx          -> src/features/settings/SettingsScreen
   src/
     api/                  client.ts (fetch wrapper: base URL, bearer, refresh on 401, mobile header),
                           sse.ts (event-stream parser and reader), queryClient.ts, and one typed
-                          module per backend domain: users, reports, today, tasks, conversations,
+                          module per backend domain: users, reports, today, tasks,
                           pushTokens. Each module declares the response fields it reads and names
                           the serializer it mirrors.
     auth/                 oauth.ts (PKCE flow, refresh, revoke), tokens.ts (secure store),
@@ -46,11 +46,13 @@ products/mobile/
                           snoozeStore, snoozeEntries, reminders, hooks
       reviewers/          AssigneeSheet, hooks
       priority/           PrioritySheet, hooks
-      chat/               ChatSheet, Composer, MentionPopover, Thread, ChatEmptyState, ChatMarkdown,
-                          conversation (reducer), contextPrompt, chatErrors, webLinks, hooks
-        session/          useSession, sessionReducer, sessionDisplay, SessionThread and its rows,
-                          SessionDecisionPanel
-      chats/              ChatsScreen, ChatsHeader, ChatsSearchField, ChatsPartialNotice, ChatRow,
+      chat/               ChatSheet, Composer, ContextChip, MentionPopover, ChatEmptyState, ChatOptionsSheet,
+                          chatRunOptions (model and mode), ChatMarkdown, ChatErrorBubble, ChatProgressLine,
+                          UserBubble, contextPrompt, chatErrors, webLinks (reply links)
+        session/          useSession (create, follow, send, resume, stop, answer), sessionRun (request bodies
+                          and the set_config_option plan), sessionReducer, sessionDisplay, SessionThread and its
+                          rows, SessionDecisionPanel
+      chats/              ChatsScreen, ChatsHeader, ChatsSearchField, ChatRow,
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
@@ -94,10 +96,10 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Inbox rows | `GET today/briefing/?timezone=` | `GET signals/reports/?scope=for_me&status=ready,pending_input,failed&sort=priority` when Today returns 403 or 404 |
 | Report page | `GET signals/reports/{id}/`, `/signals/`, `/artefacts/`, `GET today/reports/{id}/page/` | Signals only when the Today page is unavailable |
 | Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Polling the run on stream errors |
-| Chat | `POST conversations/` (SSE) | none |
-| Stored chat | `GET conversations/{id}/` | none |
-| Chats list | `GET conversations/?limit=30` and `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30` | The list shows whichever source loaded; a 403 or 404 from tasks means no sessions |
-| Session thread | `GET tasks/{id}/` then `GET tasks/{id}/runs/{run}/logs/` for an ended run, or `GET tasks/{id}/runs/{run}/stream/` for a live one | A failed load shows Try again; demo sessions come from `src/demo/sessionThreads.ts` |
+| New chat | `POST tasks/` then `POST tasks/{id}/run/` (`mode: interactive`) | A refused run deletes the new task |
+| Follow-up | `POST tasks/{id}/runs/{run}/command/` (`set_config_option` for changed options, then `user_message`) | `POST tasks/{id}/run/` with `resume_from_run_id` when the run ended |
+| Chats list | `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30` | A 403 or 404 means no sessions |
+| Chat thread | `GET tasks/{id}/` then `GET tasks/{id}/runs/{run}/logs/` for an ended run, or `GET tasks/{id}/runs/{run}/stream/` for a live one | A failed load shows Try again; demo sessions come from `src/demo/sessionThreads.ts` |
 | Reviewers | `GET signals/reports/available_reviewers/`, `PUT signals/reports/{id}/reviewers/` | none |
 | Priority | `POST signals/reports/{id}/artefacts/` (`priority_judgment`) | none |
 | Snooze | `POST signals/reports/{id}/state/` for "until more signals"; on-device store for times | none |
@@ -127,8 +129,8 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | `useAvailableReviewers(query)` | `features/reviewers/hooks.ts` | `QueryState<Person[]>` |
 | `useSetReviewersAction(id)` | `features/reviewers/hooks.ts` | `AsyncAction<[string[]]>` (full replace) |
 | `useSetPriorityAction(id)` | `features/priority/hooks.ts` | `AsyncAction<[ReportPriority]>` |
-| `useConversation({ initialConversationId? })` | `features/chat/hooks.ts` | `{ messages, phase, error, title, conversationId, history, send(text, context), retry, stop, reset, reloadHistory }` |
-| `useChatList()` | `features/chats/hooks.ts` | `QueryState<ChatListItem[]>` plus `partialError` |
+| `useSession({ taskId?, runId? })` | `features/chat/session/useSession.ts` | `Session`: `taskId`, `runId`, `title`, `items`, `invocations`, `phase`, `history`, `decision`, `runConfig`, `notice`, `unsentText`, `isSending`, `isStopping`, `start(text, context, options?)`, `send(text, context, options?)`, `stop`, `answer`, `reset`, `reloadHistory` |
+| `useChatList()` | `features/chats/hooks.ts` | `QueryState<ChatListItem[]>` |
 | `usePushRegistration()`, `useNotificationRouting()` | `features/notifications/` | registers the device, routes taps |
 | `useViewer()` | `auth/useViewer.ts` | `{ name, projectName }` |
 

@@ -254,6 +254,14 @@ export function resolveModeForRuntimeAdapter(
     return CLAUDE_MODES.includes(mode) ? mode : (CLAUDE_FALLBACKS[mode] ?? 'default')
 }
 
+export function isPermissionMode(value: string): value is PermissionModeApi {
+    return Object.hasOwn(MODE_OPTIONS, value)
+}
+
+export function isReasoningEffort(value: string): value is ReasoningEffortApi {
+    return Object.hasOwn(EFFORT_LABELS, value)
+}
+
 export function modeLabel(mode: PermissionModeApi): string {
     return MODE_OPTIONS[mode].label
 }

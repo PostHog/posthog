@@ -180,8 +180,7 @@ export async function apiStream(path: string, init: ApiInit = {}): Promise<Respo
         (url, options) => streamingFetch(url, options as Parameters<typeof streamingFetch>[1]) as Promise<Response>,
         path,
         init,
-        // The conversations endpoint has no event-stream renderer, so DRF answers 406 unless
-        // JSON is acceptable too. It streams regardless of the header.
+        // JSON too, so content negotiation never answers 406 when the server replies in JSON, such as with an error.
         'text/event-stream, application/json'
     )
     if (!response.ok) {

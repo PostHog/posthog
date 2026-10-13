@@ -17,8 +17,7 @@ serializer name.
 | OAuth | `src/auth/oauth.ts` | `/oauth/authorize`, `/oauth/token`, `/oauth/revoke` | PKCE public client |
 | Inbox and reports | `src/api/reports.ts` | `signals/reports/`, `.../{id}/`, `.../signals/`, `.../artefacts/`, `read_state/`, `.../state/`, `.../reviewers/`, `available_reviewers/` | [DATA.md](DATA.md) |
 | Today | `src/api/today.ts` | `today/briefing/`, `today/reports/{id}/page/` | 403 or 404 means the project lacks Today; the app falls back |
-| Tasks | `src/api/tasks.ts` | `tasks/`, `tasks/{id}/`, `tasks/{id}/run/` (a session's follow-up adds `resume_from_run_id` and `pending_user_message`), `.../runs/{runId}/`, `.../logs/`, `.../stream/`, `.../command/` (`user_message`, `permission_response`, `cancel`) | [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md#sessions) |
-| Chat | `src/api/conversations.ts` | `conversations/`, `conversations/{id}/` | [CHAT.md](CHAT.md) |
+| Tasks | `src/api/tasks.ts` | `tasks/`, `tasks/{id}/`, `tasks/{id}/run/` (a chat's resume adds `resume_from_run_id` and `pending_user_message`), `.../runs/{runId}/`, `.../logs/`, `.../stream/`, `.../command/` (`user_message`, `set_config_option`, `permission_response`, `cancel`) | [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md) |
 | Push | `src/api/pushTokens.ts` | `/api/users/@me/push_tokens/`, `.../unregister/` | [PUSH.md](PUSH.md) |
 
 OAuth scopes the app requests: `openid profile email user:read user:write organization:read
