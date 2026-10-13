@@ -1698,7 +1698,7 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Any cadence other than 'never' means the view is materialized: on a create, or on an update of a view that is not materialized yet, it materializes the view at that cadence and starts its first run. On a view that is already materialized it only changes the cadence. A cadence the view's lineage cannot support fails the request with a 400 and saves nothing. Read back after a write, this reflects the cadence stored on the view's DAG node.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -1827,7 +1827,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Any cadence other than 'never' means the view is materialized: on a create, or on an update of a view that is not materialized yet, it materializes the view at that cadence and starts its first run. On a view that is already materialized it only changes the cadence. A cadence the view's lineage cannot support fails the request with a 400 and saves nothing. Read back after a write, this reflects the cadence stored on the view's DAG node.
      *
      * * `never` - never
      * * `15min` - 15min

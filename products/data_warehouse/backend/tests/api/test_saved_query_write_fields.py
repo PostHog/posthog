@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
@@ -13,6 +13,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
     Edge,
     Node,
 )
@@ -34,10 +35,15 @@ class TestSavedQueryWriteFields(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
 
     def test_create_frequency_failure_rolls_back_the_view(self) -> None:
-        with patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError):
+        temporal = AsyncMock()
+        with (
+            patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError),
+            patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal),
+        ):
             response = self._create_view(sync_frequency="6hour")
-        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.status_code, 500, response.content)
         self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists())
+        temporal.list_schedules.assert_not_called()
 
     @parameterized.expand([("supplied", True, 400), ("omitted", False, 201)])
     def test_create_reports_a_discarded_dag_placement_only_when_asked_for(
@@ -56,11 +62,59 @@ class TestSavedQueryWriteFields(APIBaseTest):
 
     def test_create_applies_the_requested_dag_and_cadence(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Other")
-        response = self._create_view(dag_id=str(dag.id), sync_frequency="6hour")
+        with patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value={str(dag.id)}):
+            response = self._create_view(dag_id=str(dag.id), sync_frequency="6hour")
         self.assertEqual(response.status_code, 201, response.content)
         node = Node.objects.get(saved_query_id=response.json()["id"])
         self.assertEqual(node.dag_id, dag.id)
         self.assertEqual(get_declared_target(node), timedelta(hours=6))
+
+    @parameterized.expand([("patch", True), ("upsert", True), ("patch", False)])
+    def test_materializing_an_update_rolls_back_when_its_dependencies_cannot_sync(
+        self, operation: str, edit_query: bool
+    ) -> None:
+        other = DAG.objects.create(team=self.team, name="Other")
+        parent = self._create_view(name="other_view", dag_id=str(other.id))
+        self.assertEqual(parent.status_code, 201, parent.content)
+        created = self._create_view().json()
+        node = Node.objects.get(saved_query_id=created["id"])
+        parents = set(Edge.objects.filter(target=node).values_list("id", flat=True))
+        temporal = AsyncMock()
+        temporal.list_schedules.return_value.__aiter__.return_value = []
+        fields = {
+            "query": {"kind": "HogQLQuery", "query": "select event from other_view"},
+            "edited_history_id": created["latest_history_id"],
+            "sync_frequency": "6hour",
+            "description": "Events from another view",
+        }
+        if not edit_query:
+            query = fields.pop("query")
+            revision = fields.pop("edited_history_id")
+            edited = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+                {"query": query, "edited_history_id": revision},
+            )
+            self.assertEqual(edited.status_code, 200, edited.content)
+            created = edited.json()
+        with patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal):
+            if operation == "patch":
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}", fields
+                )
+            else:
+                response = self._create_view(**fields)
+
+        self.assertEqual(response.status_code, 500, response.content)
+        unchanged = DataWarehouseSavedQuery.objects.get(id=created["id"])
+        self.assertEqual(unchanged.query, created["query"])
+        self.assertEqual(str(unchanged.query_revision), created["latest_history_id"])
+        self.assertFalse(unchanged.is_materialized)
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=unchanged)
+            .exists()
+        )
+        self.assertEqual(set(Edge.objects.filter(target=node).values_list("id", flat=True)), parents)
 
     @parameterized.expand([("create",), ("update",)])
     def test_managed_dag_is_rejected(self, operation: str) -> None:

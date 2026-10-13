@@ -69,7 +69,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.schedule import (
     DATA_MODELING_EXECUTE_DAG_WORKFLOW,
     build_schedule_spec,
@@ -133,8 +133,12 @@ def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery 
             # A bootstrap that fails creates no schedule, so nothing will ever run the query that
             # asked for one. Retract the claim here rather than re-raise: this runs after the
             # caller's transaction committed, so there is no longer a caller to catch it.
-            requested_by.is_materialized = False
-            requested_by.save(update_fields=["is_materialized"])
+            with transaction.atomic():
+                requested_by.is_materialized = False
+                requested_by.save(update_fields=["is_materialized"])
+                Node.objects.filter(
+                    team_id=requested_by.team_id, saved_query=requested_by, type=NodeType.MAT_VIEW
+                ).update(type=NodeType.VIEW)
 
 
 def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:
