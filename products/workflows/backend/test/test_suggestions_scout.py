@@ -178,8 +178,10 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
         with patch(f"{SERVICE}.sync_execute", wraps=sync_execute) as query:
             assert self._reason() == "sends_matured"
 
-        query.assert_called_once()
-        assert query.call_args.kwargs["settings"] == {
-            "max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S,
-            "timeout_overflow_mode": "throw",
-        }
+        assert sorted(call.kwargs["team_id"] for call in query.call_args_list) == sorted([self.team.pk, environment.pk])
+        for call in query.call_args_list:
+            assert call.args[1]["team_id"] == call.kwargs["team_id"]
+            assert call.kwargs["settings"] == {
+                "max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S,
+                "timeout_overflow_mode": "throw",
+            }

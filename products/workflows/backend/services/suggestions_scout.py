@@ -168,6 +168,23 @@ def suggestions_scout_run_reason(
 def _email_metrics_reason(
     opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime
 ) -> SuggestionsScoutRunReason | None:
+    # One read per environment, because an environment can have its own ClickHouse host.
+    by_team: dict[int, list[_OptedInWorkflow]] = {}
+    for workflow in opted_in:
+        by_team.setdefault(workflow.team_id, []).append(workflow)
+    reasons = {
+        _environment_email_metrics_reason(team_id, workflows, last_run_at=last_run_at, now=now)
+        for team_id, workflows in by_team.items()
+    }
+    for reason in ("sends_matured", "first_opens"):
+        if reason in reasons:
+            return reason
+    return None
+
+
+def _environment_email_metrics_reason(
+    team_id: int, opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime
+) -> SuggestionsScoutRunReason | None:
     """`sends_matured` when a send of a live version reached `SEND_MATURITY` after `last_run_at`, and
     `first_opens` when a live version recorded its first opens since then.
 
@@ -179,7 +196,7 @@ def _email_metrics_reason(
     """
     tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutEmailMetrics")
     params = {
-        "team_ids": sorted({workflow.team_id for workflow in opted_in}),
+        "team_id": team_id,
         "app_source": HOG_FLOW_VERSION_APP_SOURCE,
         "version_source_ids": [workflow.version_source_id for workflow in opted_in],
         "sent": TARGET_SEND_METRIC,
@@ -195,7 +212,7 @@ def _email_metrics_reason(
             sumIf(count, metric_name = %(sent)s AND timestamp < toDateTime64(%(matured_before)s, 6)) AS matured_sends,
             sumIf(count, metric_name = %(opened)s AND timestamp >= toDateTime64(%(last_run_at)s, 6)) AS new_opens
         FROM app_metrics2
-        WHERE team_id IN %(team_ids)s
+        WHERE team_id = %(team_id)s
           AND app_source = %(app_source)s
           AND app_source_id IN %(version_source_ids)s
           AND metric_name IN (%(sent)s, %(opened)s)
@@ -203,6 +220,7 @@ def _email_metrics_reason(
         GROUP BY app_source_id
         """,
         params,
+        team_id=team_id,
     )
     if any(matured_sends > 0 for _, matured_sends, _ in recent):
         return "sends_matured"
@@ -214,7 +232,7 @@ def _email_metrics_reason(
         """
         SELECT DISTINCT app_source_id
         FROM app_metrics2
-        WHERE team_id IN %(team_ids)s
+        WHERE team_id = %(team_id)s
           AND app_source = %(app_source)s
           AND app_source_id IN %(version_source_ids)s
           AND metric_name = %(opened)s
@@ -222,15 +240,17 @@ def _email_metrics_reason(
           AND count > 0
         """,
         {**params, "version_source_ids": opened_versions},
+        team_id=team_id,
     )
     return "first_opens" if len(opened_before) < len(opened_versions) else None
 
 
-def _bounded_metrics_read(query: str, params: Mapping[str, object]) -> list:
+def _bounded_metrics_read(query: str, params: Mapping[str, object], *, team_id: int) -> list:
     return sync_execute(
         query,
         params,
         workload=Workload.OFFLINE,
+        team_id=team_id,
         # The pre-check activity gives up after its own timeout and runs the scout, so a longer read
         # would only hold a worker thread and a connection for an answer nobody uses.
         settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
