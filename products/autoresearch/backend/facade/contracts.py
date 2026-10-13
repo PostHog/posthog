@@ -466,6 +466,7 @@ class PredictionSegmentThresholds:
     likely_lift: float
     base_rate: float | None
     base_rate_dates: int
+    base_rate_source: str
     champion_mean_p_y: float | None
     champion_base_rate: float | None
     scores_miscalibrated: bool

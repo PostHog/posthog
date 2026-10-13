@@ -17,7 +17,11 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 import { SearchSourceSuggestions } from './SearchSourceSuggestions'
 
-export function SearchPerformanceTab(): JSX.Element {
+export function SearchPerformanceTab({
+    showSourceSuggestions = true,
+}: {
+    showSourceSuggestions?: boolean
+}): JSX.Element {
     const {
         dataWarehouseSources,
         dataWarehouseSourcesLoading,
@@ -36,7 +40,7 @@ export function SearchPerformanceTab(): JSX.Element {
     } = useValues(searchPerformanceLogic)
     const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, clearFilters } =
         useActions(searchPerformanceLogic)
-    const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
+    const loading = !sourcesError && !dataWarehouseSources
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -69,13 +73,16 @@ export function SearchPerformanceTab(): JSX.Element {
             </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
-            ) : sourcesError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSources, loading }}>
+            ) : sourcesError && !dataWarehouseSources ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSources, loading: dataWarehouseSourcesLoading }}
+                >
                     Could not load your search sources. Try again to view search performance.
                 </LemonBanner>
             ) : (
                 <>
-                    {!hasActiveFilters && <SearchSourceSuggestions />}
+                    {showSourceSuggestions && !hasActiveFilters && <SearchSourceSuggestions />}
                     {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
                             key={sourceId}

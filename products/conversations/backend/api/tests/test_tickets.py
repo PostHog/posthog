@@ -2295,6 +2295,22 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Ticket.objects.filter(team=self.team).exists()
 
+    @parameterized.expand([("with_default_channel", True), ("without_default_channel", False)])
+    def test_compose_without_channel_id_uses_the_default_support_channel(
+        self, mock_on_commit, _name, has_default
+    ) -> None:
+        self.email_config.is_default = has_default
+        self.email_config.save()
+
+        response = self._compose({"recipient_email": "someone@test.com", "message": "Hello!"})
+
+        if has_default:
+            assert response.status_code == status.HTTP_201_CREATED
+            assert Ticket.objects.get(team=self.team).email_config_id == self.email_config.id
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert not Ticket.objects.filter(team=self.team).exists()
+
     def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
         # The team typed the recipient address; the recipient never proved they control it,
         # so an outbound ticket must start with unknown identity (None) — never verified.

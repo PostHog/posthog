@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { loadConfig } from '@/lib/config'
@@ -45,5 +48,100 @@ describe('loadConfig production guards', () => {
         process.env.NODE_ENV = 'production'
         process.env.INTEGRATION_SERVICE_ENV = 'prod-us'
         expect(loadConfig().env).toBe('prod-us')
+    })
+})
+
+describe('loadConfig secret source', () => {
+    const SOURCE_VARS = [
+        'INTEGRATION_SERVICE_SECRET_SOURCE',
+        'INTEGRATION_SERVICE_SECRET_NAME',
+        'INTEGRATION_SERVICE_SECRET_NAMESPACE',
+        'KUBERNETES_SERVICE_HOST',
+        'KUBERNETES_SERVICE_PORT',
+    ]
+    const dirs: string[] = []
+
+    afterEach(async () => {
+        for (const key of SOURCE_VARS) {
+            delete process.env[key]
+        }
+        await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+    })
+
+    async function serviceAccountDir(namespace: string | null): Promise<string> {
+        const dir = await mkdtemp(join(tmpdir(), 'integration-sa-'))
+        dirs.push(dir)
+        if (namespace !== null) {
+            await writeFile(join(dir, 'namespace'), `${namespace}\n`)
+        }
+        return dir
+    }
+
+    it.each([
+        ['unset reads the mount directory', {}, undefined],
+        ['directory reads the mount directory', { INTEGRATION_SERVICE_SECRET_SOURCE: 'directory' }, undefined],
+        [
+            'kubernetes reads the service account namespace and the default secret name',
+            { INTEGRATION_SERVICE_SECRET_SOURCE: 'kubernetes' },
+            { apiUrl: 'https://10.0.0.1:443', namespace: 'from-file', secretName: 'integration-service-secrets' },
+        ],
+        [
+            'kubernetes prefers an explicit namespace and secret name',
+            {
+                INTEGRATION_SERVICE_SECRET_SOURCE: 'kubernetes',
+                INTEGRATION_SERVICE_SECRET_NAMESPACE: 'explicit',
+                INTEGRATION_SERVICE_SECRET_NAME: 'other-secret',
+            },
+            { namespace: 'explicit', secretName: 'other-secret' },
+        ],
+        [
+            'kubernetes brackets an IPv6 service host',
+            { INTEGRATION_SERVICE_SECRET_SOURCE: 'kubernetes', KUBERNETES_SERVICE_HOST: 'fd00::1' },
+            { apiUrl: 'https://[fd00::1]:443' },
+        ],
+    ])('%s', async (_label, env: Record<string, string>, expected) => {
+        process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1'
+        process.env.KUBERNETES_SERVICE_PORT = '443'
+        Object.assign(process.env, env)
+        const dir = await serviceAccountDir('from-file')
+
+        const config = loadConfig(dir)
+
+        if (expected === undefined) {
+            expect(config.kubernetes).toBeUndefined()
+        } else {
+            expect(config.kubernetes).toMatchObject(expected)
+            // The token rotates, so the source must know the file, not a value read at boot.
+            expect(config.kubernetes).toMatchObject({ tokenFile: join(dir, 'token'), caFile: join(dir, 'ca.crt') })
+        }
+    })
+
+    it.each([
+        ['an unknown source', { INTEGRATION_SERVICE_SECRET_SOURCE: 'kube' }, 'INTEGRATION_SERVICE_SECRET_SOURCE', true],
+        [
+            'kubernetes outside a cluster',
+            { INTEGRATION_SERVICE_SECRET_SOURCE: 'kubernetes', KUBERNETES_SERVICE_HOST: '' },
+            'KUBERNETES_SERVICE_HOST',
+            true,
+        ],
+        [
+            'kubernetes with no namespace anywhere',
+            { INTEGRATION_SERVICE_SECRET_SOURCE: 'kubernetes' },
+            'INTEGRATION_SERVICE_SECRET_NAMESPACE',
+            false,
+        ],
+        [
+            'a secret name the API path cannot carry',
+            { INTEGRATION_SERVICE_SECRET_SOURCE: 'kubernetes', INTEGRATION_SERVICE_SECRET_NAME: '../configmaps/x' },
+            'INTEGRATION_SERVICE_SECRET_NAME',
+            true,
+        ],
+    ])('refuses to boot with %s', async (_label, env: Record<string, string>, message, namespaceFile) => {
+        process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1'
+        process.env.KUBERNETES_SERVICE_PORT = '443'
+        Object.assign(process.env, env)
+        const dir = await serviceAccountDir(namespaceFile ? 'posthog' : null)
+
+        expect(() => loadConfig(dir)).toThrow(message)
     })
 })

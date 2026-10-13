@@ -11,6 +11,7 @@ from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.github.transport import GitHubClient, github_request
+from posthog.egress.limiter.policies import Priority
 
 
 def _response(status: int = 200) -> requests.Response:
@@ -50,6 +51,7 @@ class TestGitHubTransport(SimpleTestCase):
                 source="integration",
                 installation_id="42",
                 endpoint="/repos/{owner}/{repo}/branches",
+                priority=Priority.CRITICAL,
             )
 
         span = exporter.get_finished_spans()[0]
@@ -90,7 +92,13 @@ class TestGitHubTransport(SimpleTestCase):
             patch("posthog.egress.github.transport.consume_github_installation_sync") as consume,
             patch("requests.request", return_value=_response()),
         ):
-            github_request("GET", "https://api.github.com/search/code?q=x", source="test", installation_id=None)
+            github_request(
+                "GET",
+                "https://api.github.com/search/code?q=x",
+                source="test",
+                installation_id=None,
+                priority=Priority.CRITICAL,
+            )
         consume.assert_not_called()
 
     def test_span_marks_a_gate_error(self) -> None:
@@ -104,7 +112,13 @@ class TestGitHubTransport(SimpleTestCase):
             patch("requests.request") as send,
             self.assertRaises(RuntimeError),
         ):
-            github_request("GET", "https://api.github.com/repos/example/repo", source="test", installation_id="42")
+            github_request(
+                "GET",
+                "https://api.github.com/repos/example/repo",
+                source="test",
+                installation_id="42",
+                priority=Priority.CRITICAL,
+            )
 
         send.assert_not_called()
         span = exporter.get_finished_spans()[0]
@@ -121,7 +135,12 @@ class TestGitHubTransport(SimpleTestCase):
             patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("requests.request", return_value=_response()),
         ):
-            github_request("GET", "https://raw.githubusercontent.com/PostHog/posthog/main/README.md", source="test")
+            github_request(
+                "GET",
+                "https://raw.githubusercontent.com/PostHog/posthog/main/README.md",
+                source="test",
+                priority=Priority.CRITICAL,
+            )
 
         attributes = exporter.get_finished_spans()[0].attributes
         assert attributes is not None
@@ -138,7 +157,9 @@ class TestGitHubTransport(SimpleTestCase):
             patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("requests.request", return_value=response),
         ):
-            github_request("GET", "https://api.github.com/repos/example/repo/archive", source="test")
+            github_request(
+                "GET", "https://api.github.com/repos/example/repo/archive", source="test", priority=Priority.CRITICAL
+            )
 
         attributes = exporter.get_finished_spans()[0].attributes
         assert attributes is not None
@@ -156,7 +177,12 @@ class TestGitHubTransport(SimpleTestCase):
             patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
             patch("requests.request", return_value=response),
         ):
-            assert github_request("GET", "https://api.github.com/repos/example/repo", source="test") is response
+            assert (
+                github_request(
+                    "GET", "https://api.github.com/repos/example/repo", source="test", priority=Priority.CRITICAL
+                )
+                is response
+            )
 
         attributes = exporter.get_finished_spans()[0].attributes
         assert attributes is not None
@@ -176,6 +202,7 @@ class TestGitHubTransport(SimpleTestCase):
                 "https://api.github.com/repos/example/repo/branches?page=1",
                 source="test",
                 installation_id="",
+                priority=Priority.CRITICAL,
             )
 
         attributes = exporter.get_finished_spans()[0].attributes
