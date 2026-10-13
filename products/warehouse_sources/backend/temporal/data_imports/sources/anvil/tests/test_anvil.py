@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.anvi
     _build_organization_page_query,
     _build_weld_datas_query,
     _execute,
+    _nest_selection,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.settings import ANVIL_ENDPOINTS, ENDPOINTS
@@ -182,6 +183,68 @@ class TestWeldDatasFanOut:
         assert [(state.next_offset, state.parent_eid) for state in result.saved_states] == [(2, "w1"), (None, "w2")]
 
 
+class TestNestedListEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint,parent_item",
+        [
+            ("submissions", {"submissions": [{"eid": "s1"}]}),
+            ("workflow_signers", {"documentGroup": {"signers": [{"eid": "s1"}]}}),
+            ("weld_data_log_events", {"weldDataLogEvents": [{"eid": "s1"}]}),
+        ],
+    )
+    def test_flattens_children_of_weld_datas_and_skips_parents_without_any(
+        self, endpoint: str, parent_item: dict[str, Any]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _org_eids("o1"),
+                _org_page("welds", [{"eid": "w1"}]),
+                _weld_datas_page(
+                    [
+                        {"eid": "d1", **parent_item},
+                        {"eid": "d2", "submissions": None, "documentGroup": None, "weldDataLogEvents": []},
+                    ],
+                    page=1,
+                    page_count=2,
+                ),
+                _weld_datas_page([{"eid": "d3", "documentGroup": None}], page=2, page_count=2),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"eid": "s1", "weldDataEid": "d1", "weldEid": "w1"}]
+        assert [request.json()["variables"].get("offset") for request in result.requests[2:]] == [None, 2]
+
+    @pytest.mark.parametrize(
+        "resume_state,expected_parents",
+        [
+            (None, ["o1", "w1"]),
+            # A bookmark in the weld walk means the packet walk already finished.
+            (AnvilResumeConfig(next_offset=None, parent_eid="w1"), ["w1"]),
+        ],
+    )
+    def test_etch_log_events_walk_packets_then_weld_datas(
+        self, resume_state: AnvilResumeConfig | None, expected_parents: list[str]
+    ) -> None:
+        packet_rows = [{"eid": "e1", "etchPacketEid": "p1", "organizationEid": "o1"}]
+        weld_rows = [{"eid": "e2", "weldDataEid": "d1", "weldEid": "w1"}]
+        responses = [_org_eids("o1"), _org_page("welds", [{"eid": "w1"}])]
+        if resume_state is None:
+            responses.append(_org_page("etchPackets", [{"eid": "p1", "etchLogEvents": [{"eid": "e1"}]}]))
+        responses.append(_weld_datas_page([{"eid": "d1", "etchLogEvents": [{"eid": "e2"}]}]))
+
+        result = _driver().run("etch_log_events", responses, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.rows == (packet_rows if resume_state is None else []) + weld_rows
+        walked = [
+            request.json()["variables"].get("weldEid") or request.json()["variables"]["organizationEid"]
+            for request in result.requests[2:]
+        ]
+        assert walked == expected_parents
+
+
 class TestQueryDocuments:
     @pytest.mark.parametrize(
         "endpoint",
@@ -195,6 +258,16 @@ class TestQueryDocuments:
         for declaration in ("$organizationEid: String!", "$limit: Int", "$offset: Int"):
             assert declaration in query
         assert f"{config.organization_page_field}(limit: $limit, offset: $offset)" in query
+
+    @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if ANVIL_ENDPOINTS[name].nested_lists])
+    def test_nested_list_selection_is_balanced_and_reaches_the_child_list(self, endpoint):
+        config = ANVIL_ENDPOINTS[endpoint]
+        for nested in config.nested_lists:
+            selection = _nest_selection(nested.path, config.item_fields)
+            query = _build_weld_datas_query(selection)
+
+            assert query.count("{") == query.count("}")
+            assert " {\n".join(nested.path) + " {\n" in selection
 
     def test_weld_datas_query_declares_its_variables(self):
         query = _build_weld_datas_query(ANVIL_ENDPOINTS["weld_datas"].item_fields)
