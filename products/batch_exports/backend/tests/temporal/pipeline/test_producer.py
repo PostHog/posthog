@@ -343,7 +343,6 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
