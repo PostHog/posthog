@@ -139,7 +139,6 @@ export class HogFunctionHandler implements ActionHandler {
 
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
-        // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
             result.logs.push({
                 level: log.level,
@@ -148,9 +147,7 @@ export class HogFunctionHandler implements ActionHandler {
             })
         })
 
-        // Collect captured PostHog events and metrics from the function execution
         result.capturedPostHogEvents = [...result.capturedPostHogEvents, ...functionResult.capturedPostHogEvents]
-        // Collect warehouse webhook payloads
         result.warehouseWebhookPayloads = [
             ...result.warehouseWebhookPayloads,
             ...functionResult.warehouseWebhookPayloads,
@@ -159,9 +156,7 @@ export class HogFunctionHandler implements ActionHandler {
         result.messageAssets = [...result.messageAssets, ...functionResult.messageAssets]
 
         if (!functionResult.finished) {
-            // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
-            // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queuePriority = functionResult.invocation.queuePriority
             result.invocation.queueParameters = functionResult.invocation.queueParameters
@@ -185,9 +180,7 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            // A step that does not send leaves this undefined and bills as before.
             if (functionResult.deliveredToRecipient !== false) {
                 trackHogFlowBillableInvocation(result, {
                     invocation: functionResult.invocation,

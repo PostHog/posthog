@@ -35,9 +35,6 @@ import {
 import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 
-/**
- * Sets templating value of 'hog' or 'liquid' on hog inputs based on the template used.
- */
 export function propagateTemplatingFromSchema(template: any, input: any): any {
     const templatedInputs = { ...input }
 
@@ -51,7 +48,6 @@ export function propagateTemplatingFromSchema(template: any, input: any): any {
                     }
                     templatedInputs[field.key]['templating'] = 'hog'
                 }
-                // If False, do not set templating field
             } else {
                 if (!templatedInputs[field.key] || typeof templatedInputs[field.key] !== 'object') {
                     templatedInputs[field.key] = { value: templatedInputs[field.key] }
@@ -85,7 +81,6 @@ const compileObject = async (
         }
         return res
     } else if (typeof obj === 'string') {
-        // If the string looks like a Liquid template, render it first
         if (templating_engine === 'liquid') {
             const rendered = formatLiquidInput(obj, globals || createGlobals())
             return await compileHog(`return f'${rendered}'`)
@@ -113,7 +108,6 @@ export const compileInputs = async (
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
-    // Don't compile inputs that don't support templating
     const compiledEntries = await Promise.all(
         Object.entries(allInputs).map(async ([key, value]) => {
             const schema = template.inputs_schema.find((input) => input.key === key)
@@ -205,8 +199,8 @@ export class TemplateTester {
         const config = this.mockHub
         const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         const hogInputsService = new HogInputsService(undefined as any, recipientTokensService, undefined as any)
-        const emailService = new EmailService(
-            {
+        const emailService = new EmailService({
+            sesConfig: {
                 sesAccessKeyId: config.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
@@ -214,14 +208,14 @@ export class TemplateTester {
                 sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
             },
-            undefined as any,
-            undefined as any,
-            config.ENCRYPTION_SALT_KEYS,
-            config.SITE_URL,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            undefined as any,
-            undefined as any
-        )
+            integrationManager: undefined as any,
+            teamWorkflowsConfigService: undefined as any,
+            encryptionSaltKeys: config.ENCRYPTION_SALT_KEYS,
+            siteUrl: config.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: undefined as any,
+            recipientsManager: undefined as any,
+        })
         return new HogExecutorAsyncService(
             new HogExecutorService(
                 { executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
@@ -257,10 +251,6 @@ export class TemplateTester {
         return isNativeHogFunction({ template_id: this.template.id }) ? this.nativeExecutor : this.hogExecutor
     }
 
-    /*
-    we need transformResult to be able to test the geoip template
-    the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
-    */
     async beforeEach() {
         Settings.defaultZone = 'UTC'
         const requestModule = require('~/common/utils/request')
@@ -529,7 +519,6 @@ export const generateTestData = (
                 val = chance.integer()
                 break
             default:
-                // covers string
                 switch (getFormat(input)) {
                     case 'date': {
                         const d = chance.date()

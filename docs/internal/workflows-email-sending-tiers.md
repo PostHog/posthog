@@ -10,7 +10,7 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 - Tier state: `email_sending_tier`, `email_sending_tier_updated_at` (dwell anchor), `email_sending_tier_demoted_at` (demotion cooldown anchor), and `email_sending_tier_pinned` on `TeamWorkflowsConfig`.
 - Tier movement: a daily Celery sweep (07:15 UTC, after the SES tenant-state reconcile at 07:00) in `products/workflows/backend/services/email_sending_tier.py`.
 - Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
-- Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
+- Send-time caps: two Valkey token buckets per team in the CDP email worker (`TeamSendingCap.claim` in `nodejs/src/cdp/services/messaging/email-pacing.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
 - Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
 
@@ -57,6 +57,7 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 
 - The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time buckets still cap every email at execution. This is why enforcement requires the worker caps to be deployed (see the rollout order).
 - Test-panel sends bypass the team buckets on purpose, matching the per-workflow rate limit.
+- Rescheduled emails keep their email queue priority while waiting. After a team-cap, workflow-pacing, or SES-throttle retry, the workflow restores its origin queue and priority when it next leaves the email queue.
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.
 - A denied send parks until every short bucket has refilled enough to cover it, instead of retrying on a fixed few-minute cadence.
   The computed wait is capped at one hour and then jittered 1x to 2x, so a parked send can wait just under two hours between attempts.
