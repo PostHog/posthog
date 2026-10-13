@@ -255,7 +255,7 @@ class Command(BaseCommand):
         if dry_run:
             # The keys here are the ones the chunk read, not ones this run will write.
             return findings
-        return self._write_repairs(team.pk, findings)
+        return self._write_repairs(team.pk, findings, scanned_trigger_groups=team.session_recording_trigger_groups)
 
     def _blocked_by(self, *, flag_id: int, project_id: int, flags: _FlagIndex) -> Outcome | None:
         """What stops a stored id resolving to a flag this team can adopt a key from, or None."""
@@ -377,7 +377,7 @@ class Command(BaseCommand):
         # old_key and new_key fields below make the move visible in the report.
         return Outcome.REPAIRED, {**resolved, "old_key": ref.key, "new_key": new_key}
 
-    def _write_repairs(self, team_id: int, findings: list[_Finding]) -> list[_Finding]:
+    def _write_repairs(self, team_id: int, findings: list[_Finding], *, scanned_trigger_groups: Any) -> list[_Finding]:
         """Rewrite the references the scan classed as repairable, and report what the write did.
 
         The write reads both the stored reference and the key it should adopt again inside the
@@ -413,6 +413,7 @@ class Command(BaseCommand):
             locked_refs = {
                 ref.group_index: ref for ref in trigger_group_flag_refs(locked.session_recording_trigger_groups)
             }
+            column_changed = locked.session_recording_trigger_groups != scanned_trigger_groups
             linked_flag: dict[str, Any] | None = None
             renames: dict[int, str] = {}
 
@@ -440,9 +441,10 @@ class Command(BaseCommand):
                     ref = locked_refs.get(finding.group_index) if isinstance(finding.group_index, int) else None
                     # The match checks the group id and the stored reference as well as the index,
                     # so a group added, removed or reordered since the scan cannot shift a rewrite
-                    # onto its neighbour. That holds even for a neighbour with a byte-identical
-                    # reference. Neither field is enough alone, because a group can store no id
-                    # and two groups can hold the same reference.
+                    # onto its neighbour. Neither field is enough alone, because a group can store
+                    # no id and two groups can hold the same reference. A group with no id and an
+                    # identical copy beside it passes both checks, so the write repairs a group with
+                    # no id only while the whole column still matches the scan.
                     if ref is None or ref.group_id != finding.group_id or ref.flag_id != flag_id:
                         written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
                         continue
@@ -451,6 +453,9 @@ class Command(BaseCommand):
                         written[index] = finding.written(Outcome.ALREADY_CORRECT)
                         continue
                     if ref.stored_flag != finding.stored_flag:
+                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
+                        continue
+                    if ref.group_id is None and column_changed:
                         written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
                         continue
                     renames[ref.group_index] = current_key

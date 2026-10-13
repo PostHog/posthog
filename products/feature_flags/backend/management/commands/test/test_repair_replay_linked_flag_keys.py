@@ -222,7 +222,9 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         command = repair_command.Command()
         findings = command._scan_linked_flag(self.team, command._load_flags([self.team]))
 
-        written = command._write_repairs(self.team.pk + 10_000_000, findings)
+        written = command._write_repairs(
+            self.team.pk + 10_000_000, findings, scanned_trigger_groups=self.team.session_recording_trigger_groups
+        )
 
         assert [finding.outcome for finding in written] == [repair_command.Outcome.TEAM_MISSING]
         # A key it never wrote has no place in the report.
@@ -484,9 +486,15 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         self.team.refresh_from_db()
         assert self.team.session_recording_trigger_groups == stored_before
 
-    @parameterized.expand([("gates_on_events", False), ("holds_the_same_reference", True)])
+    @parameterized.expand(
+        [
+            ("gates_on_events", False, True),
+            ("holds_the_same_reference", True, True),
+            ("holds_the_same_reference_with_null_group_ids", True, False),
+        ]
+    )
     def test_a_group_added_mid_scan_does_not_shift_the_repair_onto_its_neighbour(
-        self, _name: str, inserted_group_duplicates_the_reference: bool
+        self, _name: str, inserted_group_duplicates_the_reference: bool, groups_store_ids: bool
     ) -> None:
         # The command rewrites groups by index. An admin can add a group ahead of the repaired one
         # between the chunk read and the lock. Writing the scanned index then would move the gate
@@ -495,6 +503,10 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
         stored_flag = {"id": flag.id, "key": "replay-gate"}
         set_trigger_groups(self.team, {"flag": stored_flag})
+        if not groups_store_ids:
+            for group in self.team.session_recording_trigger_groups["groups"]:
+                group["id"] = None
+            self.team.save()
         scanned_groups = self.team.session_recording_trigger_groups["groups"]
         inserted_conditions: dict[str, Any] = (
             {"flag": stored_flag} if inserted_group_duplicates_the_reference else {"events": ["$pageview"]}
@@ -502,7 +514,11 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         # This builds the groups by hand rather than through the fixture, because an admin who
         # inserts a group does not renumber the ids of the groups after it.
         after_insert = [
-            {"id": "group-inserted", "sampleRate": 1, "conditions": {"matchType": "any", **inserted_conditions}},
+            {
+                "id": "group-inserted" if groups_store_ids else None,
+                "sampleRate": 1,
+                "conditions": {"matchType": "any", **inserted_conditions},
+            },
             *scanned_groups,
         ]
 
