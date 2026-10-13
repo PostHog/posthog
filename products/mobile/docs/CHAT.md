@@ -1,6 +1,7 @@
 # Chat
 
 The chat sheet talks to PostHog AI about one or more inbox reports, or about the inbox as a whole.
+It also opens a sandbox session (a PostHog AI task run) from the Chats list. See [Sessions](#sessions).
 
 ## Files
 
@@ -12,6 +13,8 @@ The chat sheet talks to PostHog AI about one or more inbox reports, or about the
 | `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to thread copy |
 | `src/features/chat/hooks.ts` | `useConversation({ initialConversationId? })`: send, stream, reconnect, stop, retry, reset, resume a stored chat, demo replies |
 | `src/demo/chatThreads.ts` | Stored demo conversations, keyed by the ids in `src/demo/chats.ts` |
+| `src/features/chat/session/` | Sessions: `useSession`, `sessionReducer`, `sessionDisplay`, `SessionThread`, its rows and `SessionDecisionPanel` |
+| `src/demo/sessionThreads.ts` | Demo session run logs, keyed by the session ids in `src/demo/chats.ts` |
 | `src/features/chats/` | The Chats screen: list, search, day groups and the `useChatList()` hook (see [DESIGN.md](DESIGN.md)) |
 | `src/features/chat/webLinks.ts` | Web app URLs for reports, the conversation, insights and reply links |
 | `src/features/chat/*.tsx` | `ChatSheet`, `Composer`, `ContextChip`, `MentionPopover`, `Thread`, `ChatMarkdown`, `ChatErrorBubble`, `ChatLinkCard`, `ChatProgressLine`, `ChatEmptyState` |
@@ -140,7 +143,7 @@ Answer my message as a question about this report.   (these reports, for several
 - **No report tools.** The LangGraph agent has no inbox MCP tools, so the prompt inlines each summary.
   The ported instructions still name those tools. See GAPS.md.
 - **Approvals, forms and charts** open in the web app.
-- **Sandbox sessions open in the web app.** The Chats list shows them, but the sheet only resumes LangGraph conversations.
+- **Sessions have their own limits.** See [Sessions](#sessions) and GAPS.md.
 
 ## Resuming a chat
 
@@ -160,12 +163,55 @@ New chat (the compose button) drops the stored id and starts a fresh conversatio
 - `GET tasks/?created_by={user id}&ordering=-last_activity_at&basic=true&limit=30`: the caller's sandbox sessions.
   `created_by` takes the numeric user id, which `GET /api/users/@me/` returns as `id`; a session restored from before the app stored it skips this source until the account reloads.
 
-`chatListFromSources` (`src/model/adapters/chats.ts`) drops archived sessions, drops a conversation whose `task.id` is a listed session, sorts by last activity and keeps 30 rows.
+`chatListFromSources` (`src/model/adapters/chats.ts`) drops archived sessions, drops a conversation whose `task.id` is a fetched session (archived ones too), sorts by last activity and keeps 30 rows.
+A conversation whose task is not in the fetched page becomes a session row with status `idle`, because its work lives in the task run and the conversation alone would open as an empty thread.
+A chat row opens the sheet with `conversationId`; a session row opens it with `taskId`.
+`mobile_chat_opened` is captured with `kind` for both.
 `chatGroups.ts` labels rows by local calendar day (Today, Yesterday, a weekday, "Oct 3", "Oct 3, 2025", Earlier) and filters titles on the device.
 When one source fails and the other loads, the list shows what loaded and a "Some chats didn't load." line; a 403 or 404 from tasks means the user has no sessions and shows no line.
 Regaining focus (closing the sheet) invalidates the list, so a chat that got its title while the sheet was open appears.
+
+## Sessions
+
+The Chats screen opens a session row in the chat sheet with `taskId` (and an optional `runId`).
+The sheet keeps one `mode` state, `conversation` or `session`, and mounts both `useConversation` and `useSession`.
+In session mode the header shows the task title, else "Session", and the body is `SessionThread`.
+New chat (the compose button) switches the sheet to conversation mode and starts a fresh chat.
+
+The session reads the task through the tasks API (`src/api/tasks.ts`), as the hand-off does (see [HANDOFF.md](HANDOFF.md)):
+
+- `GET tasks/{t}/` gives the title and the latest run. With `runId`, the sheet follows that run through `GET tasks/{t}/runs/{r}/`.
+- **Ended run.** `GET tasks/{t}/runs/{r}/logs/` returns the stored run log as JSON lines.
+  `sessionReducer` folds it into the thread, as the web's `foldLogToThread` does.
+- **Live run.** `GET tasks/{t}/runs/{r}/stream/` without a cursor replays the stored log first, then streams.
+  Reconnects follow the hand-off rules, and a replay after a lost cursor rebuilds the thread.
+
+Sending:
+
+- **Live run.** The message goes as a `user_message` command (`POST tasks/{t}/runs/{r}/command/`).
+  The bubble shows at once and moves to where the turn starts when the agent echoes it.
+- **Ended run, or a 409 on `user_message`** (the run's workflow ended). The app starts a successor run:
+  `POST tasks/{t}/run/` with `mode: 'interactive'`, `resume_from_run_id`, `pending_user_message` and the ended run's model.
+  The new run's stream replays the whole resume chain, so the thread rebuilds on its first replayed frame.
+- The message carries the same `<posthog_context>` block as a chat, so @-mentioned reports attach to a session message too.
+- `mobile_session_sent` is captured with `resumed_run` and `report_count`.
+
+Turn control and decisions:
+
+- **Stop** sends the `cancel` command once the stream showed the agent generating.
+  Before that the sheet says "The agent hasn't started yet.", because a cancel then would drop the run's first message.
+- **Decisions.** Permission requests go through the hand-off tool policy (`toolPolicy.ts`, see [HANDOFF.md](HANDOFF.md#tool-policy)):
+  the app allows built-in tools and PostHog `exec` calls on the person's behalf and asks about the rest.
+  A question, plan approval or permission shows in `SessionDecisionPanel` above the composer, and replaces the composer while it waits.
+  The answer goes as a `permission_response` command and shows in the thread as the person's bubble.
+- A notice line above the composer says when a send, an answer or a stop did not go through.
+- The thread shows the PR card when the run has a PR and the agent is idle.
 
 ## Demo mode
 
 The demo plays a scripted reply through the same reducer: a tool step with a progress line,
 streamed snapshots, then the final message. Stop and New chat work the same way.
+
+Demo sessions replay the run logs in `src/demo/sessionThreads.ts` through the session reducer:
+"Fix the flaky checkout test" ended with a PR, "Add dark mode to settings" waits on a question,
+and "Migrate billing webhooks" failed. A send or an answer plays a scripted reply.

@@ -53,7 +53,7 @@ export function visibleAnswer(
     return entry.live.activity === answer.activity ? answer : undefined
 }
 
-function pullRequestFromUrl(url: string): PullRequestView {
+export function pullRequestFromUrl(url: string): PullRequestView {
     const number = pullRequestNumber(url)
     return { url, state: 'open', ...(number ? { number } : {}) }
 }

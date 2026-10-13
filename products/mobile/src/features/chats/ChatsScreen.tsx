@@ -66,13 +66,8 @@ export function ChatsScreen(): ReactElement {
     const openChat = useCallback(
         (item: ChatListItem) => {
             track('mobile_chat_opened', { kind: item.kind })
-            if (item.kind === 'conversation') {
-                router.push({ pathname: '/chat', params: { conversationId: item.sourceId } })
-                return
-            }
-            if (item.webUrl) {
-                Linking.openURL(item.webUrl).catch(() => undefined)
-            }
+            const params = item.kind === 'session' ? { taskId: item.sourceId } : { conversationId: item.sourceId }
+            router.push({ pathname: '/chat', params })
         },
         [router]
     )

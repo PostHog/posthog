@@ -90,6 +90,27 @@ steps:
     - await: { visible: { id: chats-screen } }
     - await: { idle: true }
 
+    - echo: On Chats. Open the session Fix the flaky checkout test. Expect the session thread
+    - tap: { id: chat-row-session-demo-session-flaky-test }
+    - await: { visible: { id: session-thread } }
+    - await: { idle: true }
+    - assert: { visible: { id: session-assistant } }
+
+    - echo: Session open. Close it. Expect the chats list again
+    - tap: { id: chat-close }
+    - await: { visible: { id: chats-screen } }
+    - await: { idle: true }
+
+    - echo: On Chats. Open the session Add dark mode to settings. Expect its decision card
+    - tap: { id: chat-row-session-demo-session-dark-mode }
+    - await: { visible: { id: session-decision } }
+    - await: { idle: true }
+
+    - echo: Decision card open. Close the session. Expect the chats list again
+    - tap: { id: chat-close }
+    - await: { visible: { id: chats-screen } }
+    - await: { idle: true }
+
     - echo: On Chats. Go to Home from the bottom bar. Expect the inbox
     - tap: { id: inbox-nav-home }
     - await: { visible: { id: inbox-refresh } }

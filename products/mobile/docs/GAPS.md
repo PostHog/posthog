@@ -43,12 +43,19 @@ Known gaps and behavior that stays on the device.
   neither unless the team installed the PostHog MCP server from the MCP store. They stay verbatim for
   parity with the web until chat moves to the sandbox runtime.
 - **No server cancel.** Stop only stops reading; the run finishes on the server.
-- **No history.** Closing the sheet drops the conversation. There is no list of past chats.
 - **Approvals, forms, charts and notebooks** show as a link to the web app.
 - **Reconnect in the first seconds.** `GET conversations/:id/` returns 404 until the server titles the
   conversation, so a reply that finished while the app was offline in that window cannot be loaded.
 - **Markdown now renders** in replies; the Product line above about plain text predates it.
   Attach and Expand stay disabled.
+- **Sessions in the chat sheet are v1.**
+  - No send while the agent is mid-turn: Stop replaces Send until the turn ends.
+  - No model or effort picker. A follow-up run keeps the ended run's model.
+  - No attachments.
+  - No artifacts or diff view. Only the PR card shows what the agent changed.
+  - No undo of an answer.
+  - Stop needs a started agent. Before the stream shows it generating, the sheet says the agent hasn't started yet.
+  - The connection loop in `useSession.ts` is a copy of `useTaskRun`'s `followRun`. A fix to one needs the same fix in the other.
 
 ## Inbox and report data
 
@@ -77,7 +84,7 @@ Known gaps and behavior that stays on the device.
 
 - **No following in the background.** The run streams only while its report is open and the app is in the foreground. A tool approval that arrives otherwise waits until a client connects.
 - **Undo is best effort.** It aborts the answer in flight; a request the server already received still reaches the agent.
-- **No resume of an ended run.** A reply to a run whose workflow ended asks the user to hand off again instead of starting a resume run (`resume_from_run_id`).
+- **No resume of an ended run from the report screen.** A reply there to a run whose workflow ended asks the user to hand off again. The chat sheet starts a resume run (`resume_from_run_id`) instead; see CHAT.md.
 - **No feedback on hand-off.** The web's Create PR takes optional feedback; the phone sends the prompt without it.
 - **Inbox rows do not know about live questions.** The yellow "needs input" badge comes from the report data; the live pending request is only known while the report is open.
 - **No presence ping.** The app does not call `POST tasks/{id}/presence/`, so task pushes still arrive while the user watches the run.

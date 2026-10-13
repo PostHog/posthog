@@ -1,4 +1,4 @@
-import { apiJson, apiStream, projectPath } from './client'
+import { ApiError, apiFetch, apiJson, apiStream, projectPath } from './client'
 
 // Shapes follow `products/tasks/backend/presentation/serializers.py`, keeping the fields the app reads.
 
@@ -8,6 +8,13 @@ export interface TaskRunOutputApi {
     pr_url?: string | null
     pr_urls?: string[] | null
     head_branches?: string[] | null
+}
+
+export type TaskRuntimeAdapterApi = 'claude' | 'codex'
+
+/** The part of `TaskRun.state` the app reads. The server stores more keys there. */
+export interface TaskRunStateApi {
+    resume_from_run_id?: string | null
 }
 
 export interface TaskRunApi {
@@ -20,6 +27,10 @@ export interface TaskRunApi {
     output: TaskRunOutputApi | null
     completed_at: string | null
     updated_at?: string
+    runtime_adapter?: TaskRuntimeAdapterApi | null
+    model?: string | null
+    reasoning_effort?: string | null
+    state?: TaskRunStateApi | null
 }
 
 export interface TaskApi {
@@ -46,14 +57,17 @@ export interface TaskCreateRequestApi {
     signal_report_task_relationship: 'implementation'
 }
 
+/** `TaskRunCreateRequestSerializer`. A follow-up on an ended run sets `resume_from_run_id` and no run source. */
 export interface TaskRunCreateRequestApi {
-    run_source: 'signal_report'
-    signal_report_id: string
+    run_source?: 'signal_report'
+    signal_report_id?: string
+    resume_from_run_id?: string
     mode: 'interactive'
     pending_user_message: string
-    runtime_adapter: 'claude'
+    /** The server derives it from `model` when it is left out. */
+    runtime_adapter?: TaskRuntimeAdapterApi
     model: string
-    reasoning_effort: 'high'
+    reasoning_effort?: string
 }
 
 export interface PermissionResponseParams {
@@ -70,6 +84,7 @@ export interface UserMessageParams {
 export type TaskRunCommand =
     | { method: 'permission_response'; params: PermissionResponseParams }
     | { method: 'user_message'; params: UserMessageParams }
+    | { method: 'cancel' }
 
 /** JSON-RPC reply from `command/`. HTTP 200 can still carry an `error`. */
 export interface TaskRunCommandResponseApi {
@@ -113,6 +128,42 @@ export function getTaskRun(taskId: string, runId: string, signal?: AbortSignal):
     })
 }
 
+/** The stored run log, one JSON record per line. A resumed run's log starts with its ancestors' logs, oldest first. */
+export async function getTaskRunLogs(taskId: string, runId: string, signal?: AbortSignal): Promise<unknown[]> {
+    const response = await apiFetch(
+        projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/logs/`),
+        { signal }
+    )
+    const text = await response.text()
+    if (!response.ok) {
+        throw new ApiError(response.status, parseJsonLine(text), response.headers)
+    }
+    return parseJsonLines(text)
+}
+
+function parseJsonLine(line: string): unknown {
+    try {
+        return JSON.parse(line) as unknown
+    } catch {
+        return undefined
+    }
+}
+
+export function parseJsonLines(text: string): unknown[] {
+    const records: unknown[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        const record = parseJsonLine(trimmed)
+        if (record !== undefined) {
+            records.push(record)
+        }
+    }
+    return records
+}
+
 // Without `lastEventId` the server replays the durable run log first, which is how a question asked before the app
 // connected reaches the decision card.
 export function openTaskRunStream(
@@ -136,7 +187,12 @@ export function sendTaskRunCommand(
         projectPath(`tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/command/`),
         {
             method: 'POST',
-            json: { jsonrpc: '2.0', id: options.id, method: command.method, params: command.params },
+            json: {
+                jsonrpc: '2.0',
+                id: options.id,
+                method: command.method,
+                ...('params' in command ? { params: command.params } : {}),
+            },
             signal: options.signal,
         }
     )

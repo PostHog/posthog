@@ -1,7 +1,5 @@
 import { type ReactElement, type ReactNode, useRef } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
-
-import { colors, radii, type } from '@/ui/tokens'
+import { ScrollView, StyleSheet, View } from 'react-native'
 
 import { ChatErrorBubble } from './ChatErrorBubble'
 import { ChatLinkCard } from './ChatLinkCard'
@@ -9,6 +7,7 @@ import { ChatMarkdown } from './ChatMarkdown'
 import { ChatProgressLine } from './ChatProgressLine'
 import type { ChatPhase } from './hooks'
 import type { ChatEntry, ChatLinkTarget } from './types'
+import { UserBubble } from './UserBubble'
 
 interface ThreadProps {
     messages: ChatEntry[]
@@ -42,11 +41,7 @@ export function Thread({ messages, phase, onRetry, linkUrl }: ThreadProps): Reac
     const renderEntry = (entry: ChatEntry, index: number): ReactNode => {
         switch (entry.kind) {
             case 'user':
-                return (
-                    <View key={entry.key} style={styles.userBubble}>
-                        <Text style={styles.userText}>{entry.text}</Text>
-                    </View>
-                )
+                return <UserBubble key={entry.key} text={entry.text} />
             case 'assistant':
                 // A tool-call step has no text of its own; its progress shows in the status line.
                 return entry.text ? (
@@ -91,18 +86,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 12,
         gap: 14,
-    },
-    userBubble: {
-        alignSelf: 'flex-end',
-        maxWidth: '82%',
-        backgroundColor: colors.sunken,
-        borderRadius: radii.menuRow,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-    },
-    userText: {
-        ...type.body,
-        color: colors.ink,
     },
     assistant: {
         // Markdown blocks end with a 10pt bottom margin; this keeps the thread gap even.

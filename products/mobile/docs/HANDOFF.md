@@ -36,6 +36,8 @@ Hand off ──► kickOffReportTask ──► store.started ──► useTaskRu
 
 Demo mode skips all of this: the demo store drives the same cards.
 
+The chat sheet's session view (`src/features/chat/session/useSession.ts`, see [CHAT.md](CHAT.md#sessions)) reuses `runStream`, `permissionRequest`, `commands` and `toolPolicy` from this feature.
+
 ## Which run a report follows
 
 The run this device started (kept in memory until the app restarts), else `report.task` from the
@@ -145,4 +147,5 @@ A failed run shows "PostHog couldn't finish" with the run's `error_message`, and
 - **Answers from other clients, live.** Resolutions appear only in the replayed log. Live, a
   request clears when its tool finishes, the turn ends, or the run ends.
 - **Continuing an ended run.** A message to a run whose workflow ended needs a resume run
-  (`POST tasks/{id}/run/` with `resume_from_run_id`); the app asks the user to hand off again instead.
+  (`POST tasks/{id}/run/` with `resume_from_run_id`); the report screen asks the user to hand off again instead.
+  The chat sheet's session view does start that resume run, see [CHAT.md](CHAT.md#sessions).

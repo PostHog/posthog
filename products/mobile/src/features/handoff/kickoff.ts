@@ -7,7 +7,11 @@ import { type Clock, realClock } from './clock'
 import { buildCreatePrReportPrompt } from './prompt'
 
 /** The model a hand-off runs on. The app has no model picker, so it sends what the web falls back to. */
-const HANDOFF_RUNTIME = { runtime_adapter: 'claude', model: 'claude-opus-5-5', reasoning_effort: 'high' } as const
+export const HANDOFF_RUNTIME = {
+    runtime_adapter: 'claude',
+    model: 'claude-opus-5-5',
+    reasoning_effort: 'high',
+} as const
 
 const WARM_RETRY_HEADER = 'X-PostHog-Warm-Retry'
 const WARM_RETRY_WINDOW_MS = 20_000

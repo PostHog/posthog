@@ -23,7 +23,7 @@ const RECONNECT_STEP_MS = 1000
 const MAX_RECONNECT_ATTEMPTS = 15
 const RECONNECT_GAVE_UP = 'The connection dropped before the reply finished. Try again.'
 
-const DEMO_REPLY = [
+export const DEMO_REPLY = [
     "This is the demo, so I can't look at your data.",
     '',
     'When you sign in, PostHog AI can:',

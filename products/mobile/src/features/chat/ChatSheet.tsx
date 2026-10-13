@@ -28,6 +28,9 @@ import { ContextChip } from './ContextChip'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
 import { useConversation } from './hooks'
 import { MentionPopover } from './MentionPopover'
+import { SessionDecisionPanel } from './session/SessionDecisionPanel'
+import { SessionThread } from './session/SessionThread'
+import { useSession } from './session/useSession'
 import { Thread } from './Thread'
 import type { ChatContext, ChatLinkTarget } from './types'
 import { chatLinkUrl } from './webLinks'
@@ -39,15 +42,44 @@ interface ChatSheetProps {
     initialReportId?: string
     /** Opens a stored conversation, as the Chats list does. */
     initialConversationId?: string
+    /** Opens a sandbox session (a task run) instead of a conversation. */
+    initialTaskId?: string
+    /** Follows this run of the session instead of its latest one. */
+    initialRunId?: string
     onClosed: () => void
 }
 
-export function ChatSheet({ initialReportId, initialConversationId, onClosed }: ChatSheetProps): ReactElement {
+type SheetMode = { kind: 'conversation' } | { kind: 'session'; taskId: string; runId?: string }
+
+function initialMode(taskId: string | undefined, runId: string | undefined): SheetMode {
+    if (!taskId) {
+        return { kind: 'conversation' }
+    }
+    return runId ? { kind: 'session', taskId, runId } : { kind: 'session', taskId }
+}
+
+function sessionOptions(mode: SheetMode): { taskId?: string; runId?: string } {
+    if (mode.kind === 'conversation') {
+        return {}
+    }
+    return mode.runId ? { taskId: mode.taskId, runId: mode.runId } : { taskId: mode.taskId }
+}
+
+export function ChatSheet({
+    initialReportId,
+    initialConversationId,
+    initialTaskId,
+    initialRunId,
+    onClosed,
+}: ChatSheetProps): ReactElement {
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const now = useNow()
     const inbox = useInboxItems()
     const conversation = useConversation({ initialConversationId })
+    const [mode, setMode] = useState<SheetMode>(() => initialMode(initialTaskId, initialRunId))
+    // Null in conversation mode, because the hook needs a task id.
+    const session = useSession(sessionOptions(mode))
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
@@ -83,8 +115,14 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
     const historyStatus = conversation.history.status
-    // A message sent before the stored conversation loads would land in a thread the person cannot see yet.
-    const canSend = text.trim().length > 0 && !conversation.isStreaming && historyStatus === 'idle'
+    // A message sent before the stored history loads would land in a thread the person cannot see yet.
+    const ready = session
+        ? session.history.status === 'idle' && !session.isSending
+        : !conversation.isStreaming && historyStatus === 'idle'
+    const canSend = text.trim().length > 0 && ready
+    const hasThread = session
+        ? session.items.length > 0 || session.decision !== undefined || session.history.status === 'error'
+        : conversation.messages.length > 0 || historyStatus === 'error'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
 
     const rememberReport = useCallback((report: ReportView): void => {
@@ -134,14 +172,17 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
     }
     const send = (): void => {
         const message = text.trim()
-        if (!message || conversation.isStreaming || historyStatus !== 'idle') {
+        if (!message || !ready) {
             return
         }
         setText('')
         setMentionOpen(false)
-        conversation.send(message, buildContext()).catch(() => undefined)
+        const context = buildContext()
+        const sending = session ? session.send(message, context) : conversation.send(message, context)
+        sending.catch(() => undefined)
     }
     const startNewChat = (): void => {
+        setMode({ kind: 'conversation' })
         conversation.reset()
         setText('')
         setMentionOpen(false)
@@ -183,9 +224,9 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
                                     <CloseIcon size={16} />
                                 </Pressable44>
                                 <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
-                                    {conversation.title ?? 'New chat'}
+                                    {session ? (session.title ?? 'Session') : (conversation.title ?? 'New chat')}
                                 </Text>
-                                {conversation.messages.length > 0 || historyStatus === 'error' ? (
+                                {hasThread ? (
                                     <Pressable44
                                         onPress={startNewChat}
                                         accessibilityLabel="New chat"
@@ -201,7 +242,14 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
                             </View>
                         </View>
                     </GestureDetector>
-                    {historyStatus === 'loading' ? (
+                    {session ? (
+                        <SessionThread
+                            session={session}
+                            onRetryHistory={() => {
+                                session.reloadHistory().catch(() => undefined)
+                            }}
+                        />
+                    ) : historyStatus === 'loading' ? (
                         <LoadingView label="Loading chat" />
                     ) : historyStatus === 'error' ? (
                         <StateView
@@ -231,19 +279,35 @@ export function ChatSheet({ initialReportId, initialConversationId, onClosed }: 
                         />
                     )}
                     <View style={styles.composerArea}>
-                        {mentionOpen ? <MentionPopover items={mentionItems} now={now} onPick={pickMention} /> : null}
-                        <Composer
-                            ref={input}
-                            text={text}
-                            onChangeText={changeText}
-                            chips={chips}
-                            mentionOpen={mentionOpen}
-                            onToggleMention={() => setMentionOpen((open) => !open && canMention)}
-                            onSend={send}
-                            canSend={canSend}
-                            isStreaming={conversation.isStreaming}
-                            onStop={conversation.stop}
-                        />
+                        {session ? (
+                            <SessionDecisionPanel
+                                decision={session.decision}
+                                notice={session.notice}
+                                pending={session.isSending}
+                                onAnswer={(answerInput) => void session.answer(answerInput)}
+                                onDismissNotice={session.dismissNotice}
+                            />
+                        ) : null}
+                        {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
+                        {session?.decision ? null : (
+                            <>
+                                {mentionOpen ? (
+                                    <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
+                                ) : null}
+                                <Composer
+                                    ref={input}
+                                    text={text}
+                                    onChangeText={changeText}
+                                    chips={chips}
+                                    mentionOpen={mentionOpen}
+                                    onToggleMention={() => setMentionOpen((open) => !open && canMention)}
+                                    onSend={send}
+                                    canSend={canSend}
+                                    isStreaming={session ? session.phase !== 'idle' : conversation.isStreaming}
+                                    onStop={session ? session.stop : conversation.stop}
+                                />
+                            </>
+                        )}
                     </View>
                 </Animated.View>
             </Animated.View>

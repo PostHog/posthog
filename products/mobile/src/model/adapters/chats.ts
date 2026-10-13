@@ -43,6 +43,19 @@ function sessionItem(session: TaskSummaryApi, scope: ProjectScope | null): ChatL
 }
 
 function conversationItem(conversation: ConversationSummaryApi, scope: ProjectScope | null): ChatListItem {
+    if (conversation.task) {
+        // Its work lives in the task run, so opening it as a conversation would show an empty thread.
+        return {
+            id: `session:${conversation.task.id}`,
+            kind: 'session',
+            sourceId: conversation.task.id,
+            title: titleOr(conversation.title, 'Untitled session'),
+            updatedAt: conversation.updated_at ?? conversation.created_at ?? '',
+            status: 'idle',
+            pullRequestUrl: null,
+            webUrl: aiWebUrl(scope, 'task', conversation.task.id),
+        }
+    }
     return {
         id: `conversation:${conversation.id}`,
         kind: 'conversation',
@@ -62,16 +75,17 @@ function sortTime(item: ChatListItem): number {
 }
 
 /**
- * Merges PostHog AI chats and sandbox sessions into one list, newest first. A chat that handed off to a listed
- * session is left out, because the session row already stands for that work.
+ * Merges PostHog AI chats and sandbox sessions into one list, newest first. A chat that handed off to a fetched
+ * session is left out, because the session row already stands for that work, or the person archived it. A chat that
+ * handed off to a session outside the fetched page becomes a session row of its own.
  */
 export function chatListFromSources(input: {
     conversations: ConversationSummaryApi[] | undefined
     sessions: TaskSummaryApi[] | undefined
     scope: ProjectScope | null
 }): ChatListItem[] {
+    const sessionIds = new Set((input.sessions ?? []).map((session) => session.id))
     const sessions = (input.sessions ?? []).filter((session) => !session.archived)
-    const sessionIds = new Set(sessions.map((session) => session.id))
     const conversations = (input.conversations ?? []).filter(
         (conversation) => !conversation.task || !sessionIds.has(conversation.task.id)
     )
