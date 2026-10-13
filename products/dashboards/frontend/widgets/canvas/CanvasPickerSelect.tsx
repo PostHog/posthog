@@ -66,14 +66,22 @@ export function CanvasPickerSelect({
             disableFiltering
             value={value ? [value] : []}
             options={options}
-            emptyStateComponent={
+            // A failed request must stay visible even when a resolved selection or earlier results fill the list,
+            // so the error and retry live in the always-rendered title rather than the empty state.
+            title={
                 canvasOptionsFailed ? (
-                    <div className="flex items-center justify-between gap-2 p-1">
+                    <span className="flex items-center justify-between gap-2 font-normal">
                         <span className="text-danger">Couldn't load canvases.</span>
                         <LemonButton size="xsmall" type="secondary" onClick={() => retryLoadOptions()}>
                             Try again
                         </LemonButton>
-                    </div>
+                    </span>
+                ) : undefined
+            }
+            emptyStateComponent={
+                canvasOptionsFailed ? (
+                    // The title already explains the failure; an empty message here would claim there are no canvases.
+                    <></>
                 ) : (
                     <p className="text-secondary italic p-1">
                         {search ? `No canvases matching "${search}"` : 'No canvases yet'}

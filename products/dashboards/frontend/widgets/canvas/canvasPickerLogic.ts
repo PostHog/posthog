@@ -159,7 +159,8 @@ export const canvasPickerLogic = kea<canvasPickerLogicType>([
             actions.loadOptions({ debounce: true })
         },
         ensureOptionsLoaded: () => {
-            if (!values.hasLoadedOptions && !values.canvasOptionsLoading) {
+            // Refocusing after a failed request retries it, even if an earlier request succeeded.
+            if ((!values.hasLoadedOptions || values.canvasOptionsFailed) && !values.canvasOptionsLoading) {
                 actions.loadOptions({ debounce: false })
             }
         },
