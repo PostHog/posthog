@@ -12,7 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
-import { type MetricsAggregateRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 import { SampleAttributes } from './SampleAttributes'
@@ -107,19 +107,22 @@ function SamplesTab(): JSX.Element {
     )
 }
 
-function AggregatesTab(): JSX.Element {
-    const { aggregateRows } = useValues(metricsSamplesLogic)
+function SeriesTab(): JSX.Element {
+    const { seriesRows } = useValues(metricsSamplesLogic)
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
+    const { seriesRowExpanded } = useActions(metricsUsageTrackingLogic)
 
     return (
         <LemonTable
-            dataSource={aggregateRows}
+            dataSource={seriesRows}
             loading={queryLoading}
             size="small"
-            rowKey={(row: MetricsAggregateRow) => row.name}
-            emptyState={
-                hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see per-series aggregates.'
-            }
+            rowKey={(row: MetricsSeriesRow) => row.name}
+            emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
+            expandable={{
+                expandedRowRender: (row) => <div className="p-2 text-xs font-mono break-words">{row.name}</div>,
+                onRowExpand: () => seriesRowExpanded(),
+            }}
             columns={[
                 {
                     title: 'Series',
@@ -154,7 +157,7 @@ function AggregatesTab(): JSX.Element {
     )
 }
 
-/** Side panel next to the chart: per-series aggregates, or the raw emissions
+/** Side panel next to the chart: per-series totals, or the raw emissions
  * behind the chart with a link to the trace each one was recorded in. */
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
@@ -169,7 +172,7 @@ export function MetricsSamplesPanel(): JSX.Element {
     return (
         <div className="border rounded p-2 overflow-y-auto">
             {/* Samples and the anomaly badge describe one series at a time; with several
-                clauses this picks which one they follow. Aggregates always cover all series. */}
+                clauses this picks which one they follow. The Series tab always covers all series. */}
             {viewerClauses.length > 1 && (
                 <div className="flex flex-wrap items-center gap-2 pb-1">
                     <span className="text-xs text-secondary">Samples follow series</span>
@@ -201,8 +204,8 @@ export function MetricsSamplesPanel(): JSX.Element {
                 tabs={[
                     {
                         key: 'aggregates',
-                        label: 'Aggregates',
-                        content: <AggregatesTab />,
+                        label: 'Series',
+                        content: <SeriesTab />,
                         'data-attr': 'metrics-samples-panel-tab-aggregates',
                         disabledReason: metricsViewerDisabledReason ?? undefined,
                     },
