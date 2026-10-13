@@ -1,7 +1,16 @@
+from datetime import UTC, datetime
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitguardian import (
+    GitguardianSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
 
@@ -116,38 +125,32 @@ class TestGetEndpointPermissions:
 
 class TestSourceForPipeline:
     def test_plumbs_resolved_base_url_and_incremental_inputs(self) -> None:
-        config = MagicMock(api_key="gg_sat_x", base_url="https://gitguardian.acme.dev/")
-        inputs = MagicMock(
-            schema_name="secret_incidents",
-            team_id=1,
+        result = SourceDriver(
+            GitguardianSource(),
+            GitguardianSourceConfig(api_key="gg_sat_x", base_url="https://gitguardian.acme.dev/"),
+        ).run(
+            "secret_incidents",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
             incremental_field="date",
         )
-        with (
-            patch.object(source_module, "_is_host_safe", return_value=(True, None)),
-            patch.object(source_module, "gitguardian_source") as build,
-        ):
-            result = GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
-        assert result is build.return_value
-        kwargs = build.call_args.kwargs
-        assert kwargs["base_url"] == "https://gitguardian.acme.dev"
-        assert kwargs["endpoint"] == "secret_incidents"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "secret_incidents"
+        assert result.requests[0].origin == "https://gitguardian.acme.dev"
+        assert result.requests[0].path == "/v1/incidents/secrets"
+        assert result.requests[0].param("date_after") == "2025-12-25T00:00:00Z"
 
     def test_does_not_pass_watermark_when_not_incremental(self) -> None:
-        config = MagicMock(api_key="gg_sat_x", base_url=None)
-        inputs = MagicMock(
-            schema_name="sources",
-            team_id=1,
+        result = SourceDriver(
+            GitguardianSource(),
+            GitguardianSourceConfig(api_key="gg_sat_x", base_url=None),
+        ).run(
+            "sources",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=False,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
-            incremental_field=None,
         )
-        with (
-            patch.object(source_module, "_is_host_safe", return_value=(True, None)),
-            patch.object(source_module, "gitguardian_source") as build,
-        ):
-            GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
-        assert build.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("date_after") is None

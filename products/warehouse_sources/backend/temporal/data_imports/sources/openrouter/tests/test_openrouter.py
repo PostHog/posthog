@@ -5,14 +5,21 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
+    OpenRouterSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import openrouter
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
     OpenRouterResumeConfig,
     _to_date,
-    get_rows,
-    openrouter_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import ACTIVITY_RETENTION_DAYS
+from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
 
 
 def _response(status_code: int, body: dict | None = None, text: str = "") -> mock.Mock:
@@ -29,11 +36,8 @@ def _response(status_code: int, body: dict | None = None, text: str = "") -> moc
     return response
 
 
-def _no_resume() -> mock.Mock:
-    manager = mock.Mock()
-    manager.can_resume.return_value = False
-    manager.load_state.return_value = None
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(OpenRouterSource(), OpenRouterSourceConfig(api_key="sk-or-x"))
 
 
 class TestFetch:
@@ -64,17 +68,16 @@ class TestFetch:
 
 class TestGetKeyInfo:
     def test_returns_data_on_200(self):
-        session = mock.Mock()
-        session.get.return_value = _response(200, {"data": {"is_management_key": True}})
-        with mock.patch.object(openrouter, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"data": {"is_management_key": True}})]) as network:
             assert openrouter.get_key_info("sk-or-x") == {"is_management_key": True}
+        assert network.requests_log[0].path == "/api/v1/key"
+        assert network.requests_log[0].headers["authorization"] == "Bearer sk-or-x"
 
     @pytest.mark.parametrize("status_code", [401, 403, 500])
     def test_returns_none_on_non_200(self, status_code):
-        session = mock.Mock()
-        session.get.return_value = _response(status_code)
-        with mock.patch.object(openrouter, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert openrouter.get_key_info("sk-or-x") is None
+        assert network.requests_log[0].path == "/api/v1/key"
 
     def test_validate_credentials_wraps_get_key_info(self):
         with mock.patch.object(openrouter, "get_key_info", return_value={"is_management_key": False}):
@@ -101,108 +104,79 @@ class TestToDate:
 
 class TestActivityRows:
     def test_pulls_each_day_and_saves_state_after_yield(self):
-        manager = _no_resume()
-        calls: list[str] = []
+        row = {"date": "2026-06-01", "endpoint_id": "e1"}
+        result = _driver().run("activity", [ScriptedResponse(json={"data": [row]})] * ACTIVITY_RETENTION_DAYS)
 
-        def fake_fetch(session, url, headers, logger):
-            calls.append(url)
-            return {"data": [{"date": "2026-06-01", "endpoint_id": "e1"}]}
-
-        with mock.patch.object(openrouter, "_fetch", side_effect=fake_fetch):
-            batches = list(
-                get_rows(
-                    "sk-or-x",
-                    "activity",
-                    mock.Mock(),
-                    manager,
-                    should_use_incremental_field=False,
-                    db_incremental_field_last_value=None,
-                )
-            )
-
-        assert len(batches) == ACTIVITY_RETENTION_DAYS
-        assert all("date=" in url for url in calls)
+        assert result.raised is None
+        assert result.items == [[row]] * ACTIVITY_RETENTION_DAYS
+        assert len(result.requests) == ACTIVITY_RETENTION_DAYS
+        assert all(request.param("date") is not None for request in result.requests)
         # State saved once per day, after each yield.
-        assert manager.save_state.call_count == ACTIVITY_RETENTION_DAYS
-        assert isinstance(manager.save_state.call_args.args[0], OpenRouterResumeConfig)
+        assert result.saved_states == [OpenRouterResumeConfig(date=day) for day in result.params("date")]
 
     def test_resume_skips_already_completed_days(self):
         yesterday = datetime.now(UTC).date() - timedelta(days=1)
         already_done = yesterday - timedelta(days=1)
 
-        manager = mock.Mock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = OpenRouterResumeConfig(date=already_done.isoformat())
-
-        fetched_dates: list[str] = []
-
-        def fake_fetch(session, url, headers, logger):
-            fetched_dates.append(url.split("date=")[1])
-            return {"data": []}
-
-        with mock.patch.object(openrouter, "_fetch", side_effect=fake_fetch):
-            list(
-                get_rows(
-                    "sk-or-x",
-                    "activity",
-                    mock.Mock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=(yesterday - timedelta(days=10)).isoformat(),
-                )
-            )
+        result = _driver().run(
+            "activity",
+            [ScriptedResponse(json={"data": []})],
+            resume_state=OpenRouterResumeConfig(date=already_done.isoformat()),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=(yesterday - timedelta(days=10)).isoformat(),
+        )
 
         # Only the day after the completed bookmark (yesterday) is fetched.
-        assert fetched_dates == [yesterday.isoformat()]
+        assert result.raised is None
+        assert result.params("date") == [yesterday.isoformat()]
 
 
 class TestOffsetPagination:
     def test_offset_limit_stops_on_short_page(self):
         # organization_members sends `limit`, so a page shorter than the limit is the last page.
-        manager = _no_resume()
-        page1 = {"data": [{"id": f"m{i}"} for i in range(100)]}
-        page2 = {"data": [{"id": "m100"}]}
+        page1 = [{"id": f"m{i}"} for i in range(100)]
+        page2 = [{"id": "m100"}]
+        result = _driver().run(
+            "organization_members", [ScriptedResponse(json={"data": page1}), ScriptedResponse(json={"data": page2})]
+        )
 
-        def fake_fetch(session, url, headers, logger):
-            return page1 if "offset=0" in url else page2
-
-        with mock.patch.object(openrouter, "_fetch", side_effect=fake_fetch):
-            batches = list(get_rows("sk-or-x", "organization_members", mock.Mock(), manager))
-
-        assert [len(b) for b in batches] == [100, 1]
+        assert result.raised is None
+        assert result.items == [page1, page2]
+        assert result.params("offset") == ["0", "100"]
         # State saved after the first full page, not after the short page.
-        assert manager.save_state.call_count == 1
+        assert result.saved_states == [OpenRouterResumeConfig(offset=100)]
 
     def test_offset_limit_endpoints_send_limit(self):
-        manager = _no_resume()
-        urls: list[str] = []
+        result = _driver().run("organization_members", [ScriptedResponse(json={"data": []})])
 
-        def fake_fetch(session, url, headers, logger):
-            urls.append(url)
-            return {"data": []}
-
-        with mock.patch.object(openrouter, "_fetch", side_effect=fake_fetch):
-            list(get_rows("sk-or-x", "organization_members", mock.Mock(), manager))
-
-        assert "limit=" in urls[0]
+        assert result.raised is None
+        assert result.params("limit") == ["100"]
 
 
 class TestSingleAndSingleton:
     def test_models_yields_list(self):
-        manager = _no_resume()
-        with mock.patch.object(openrouter, "_fetch", return_value={"data": [{"id": "a"}, {"id": "b"}]}):
-            batches = list(get_rows("sk-or-x", "models", mock.Mock(), manager))
-        assert batches == [[{"id": "a"}, {"id": "b"}]]
+        rows = [{"id": "a"}, {"id": "b"}]
+        result = _driver().run("models", [ScriptedResponse(json={"data": rows})])
+        assert result.raised is None
+        assert result.items == [rows]
 
     def test_credits_singleton_wrapped_in_list(self):
-        manager = _no_resume()
-        with mock.patch.object(openrouter, "_fetch", return_value={"data": {"total_credits": 10, "total_usage": 3}}):
-            batches = list(get_rows("sk-or-x", "credits", mock.Mock(), manager))
-        assert batches == [[{"total_credits": 10, "total_usage": 3}]]
+        row = {"total_credits": 10, "total_usage": 3}
+        result = _driver().run("credits", [ScriptedResponse(json={"data": row})])
+        assert result.raised is None
+        assert result.items == [[row]]
 
 
 class TestSourceResponse:
     def test_activity_partitions_on_date(self):
-        response = openrouter_source("sk-or-x", "activity", mock.Mock(), _no_resume())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
+        yesterday = datetime.now(UTC).date() - timedelta(days=1)
+        result = _driver().run(
+            "activity",
+            [ScriptedResponse(json={"data": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=yesterday.isoformat(),
+        )
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["date"]

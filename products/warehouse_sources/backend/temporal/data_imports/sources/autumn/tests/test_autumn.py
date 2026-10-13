@@ -1,31 +1,23 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn import (
     AutumnResumeConfig,
     _build_request_body,
-    autumn_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import AUTUMN_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source import AutumnSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.autumn import AutumnSourceConfig
 
 WATERMARK_MS = 1704067200000
-
-
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
 
 
 class TestBuildRequestBody:
@@ -96,102 +88,57 @@ class TestBuildRequestBody:
 
 
 class TestAutumnSourceBehavior:
-    """End-to-end behavior of ``autumn_source`` via ``rest_api_resource`` with a mocked session."""
-
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Optional[Any] = None,
-        incremental_field: Optional[str] = None,
-        api_version: str = "2.3.0",
-    ) -> tuple[MagicMock, list[dict[str, Any]], list[dict[str, Any]]]:
-        """Returns ``(mock_session, sent_bodies, rows)``. ``sent_bodies`` are shallow copies of
-        ``request.json`` captured at send-time — the Request object is mutated in place by the
-        paginator between pages."""
-        sent_bodies: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_bodies.append(dict(request.json or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = autumn_source(
-                api_key="am_sk_test",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                api_version=api_version,
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                incremental_field=incremental_field,
-            )
-            rows = [row for page in cast(Iterable[Any], source_response.items()) for row in page]
-            return mock_session, sent_bodies, rows
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(AutumnSource(), AutumnSourceConfig(api_key="am_sk_test"))
 
     def test_fresh_run_pages_with_body_cursor_and_saves_state_after_each_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         responses = [
-            _make_http_response({"list": [{"id": "cus_1"}], "next_cursor": "cursor-1"}),
-            _make_http_response({"list": [{"id": "cus_2"}], "next_cursor": "cursor-2"}),
-            _make_http_response({"list": [{"id": "cus_3"}], "next_cursor": None}),
+            ScriptedResponse(json={"list": [{"id": "cus_1"}], "next_cursor": "cursor-1"}),
+            ScriptedResponse(json={"list": [{"id": "cus_2"}], "next_cursor": "cursor-2"}),
+            ScriptedResponse(json={"list": [{"id": "cus_3"}], "next_cursor": None}),
         ]
-        _, sent_bodies, rows = self._drive("Customers", manager, responses)
+        result = self._driver().run("Customers", responses, api_version="2.3.0")
+        sent_bodies = [request.json() for request in result.requests]
 
         assert [body.get("start_cursor") for body in sent_bodies] == [None, "cursor-1", "cursor-2"]
         assert all(body["limit"] == 100 for body in sent_bodies)
-        assert [row["id"] for row in rows] == ["cus_1", "cus_2", "cus_3"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert [row["id"] for row in result.rows] == ["cus_1", "cus_2", "cus_3"]
+        assert result.saved_states == [
             AutumnResumeConfig(next_cursor="cursor-1"),
             AutumnResumeConfig(next_cursor="cursor-2"),
         ]
+        assert result.raised is None
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = AutumnResumeConfig(next_cursor="cursor-resumed")
+        result = self._driver().run(
+            "Customers",
+            [ScriptedResponse(json={"list": [{"id": "cus_4"}], "next_cursor": None})],
+            resume_state=AutumnResumeConfig(next_cursor="cursor-resumed"),
+            api_version="2.3.0",
+        )
 
-        responses = [
-            _make_http_response({"list": [{"id": "cus_4"}], "next_cursor": None}),
-        ]
-        _, sent_bodies, _ = self._drive("Customers", manager, responses)
-
-        assert [body.get("start_cursor") for body in sent_bodies] == ["cursor-resumed"]
-        manager.load_state.assert_called_once()
+        assert [request.json().get("start_cursor") for request in result.requests] == ["cursor-resumed"]
+        assert [row["id"] for row in result.rows] == ["cus_4"]
+        assert result.raised is None
 
     def test_incremental_events_run_carries_custom_range_on_every_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         responses = [
-            _make_http_response({"list": [{"id": "evt_1", "timestamp": 1}], "next_cursor": "cursor-1"}),
-            _make_http_response({"list": [{"id": "evt_2", "timestamp": 2}], "next_cursor": None}),
+            ScriptedResponse(json={"list": [{"id": "evt_1", "timestamp": 1}], "next_cursor": "cursor-1"}),
+            ScriptedResponse(json={"list": [{"id": "evt_2", "timestamp": 2}], "next_cursor": None}),
         ]
-        _, sent_bodies, _ = self._drive(
+        result = self._driver().run(
             "Events",
-            manager,
             responses,
             should_use_incremental_field=True,
             db_incremental_field_last_value=WATERMARK_MS,
             incremental_field="timestamp",
+            api_version="2.3.0",
         )
 
-        assert all(body["custom_range"] == {"start": WATERMARK_MS} for body in sent_bodies)
+        assert len(result.requests) == 2
+        assert all(request.json()["custom_range"] == {"start": WATERMARK_MS} for request in result.requests)
+        assert result.raised is None
 
     @pytest.mark.parametrize(
         ("endpoint", "selector", "row_id"),
@@ -203,18 +150,19 @@ class TestAutumnSourceBehavior:
     def test_single_page_endpoints_issue_one_request_and_select_their_root_array(
         self, endpoint: str, selector: str, row_id: str
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        payload = {"coupons": [{"id": "coupon_1"}], "feature_grants": [{"id": "grant_1"}]}
+        result = self._driver().run(
+            endpoint,
+            [ScriptedResponse(json=payload)],
+            api_version="2.3.0",
+        )
 
-        responses = [
-            _make_http_response({"coupons": [{"id": "coupon_1"}], "feature_grants": [{"id": "grant_1"}]}),
-        ]
-        _, sent_bodies, rows = self._drive(endpoint, manager, responses)
-
-        assert len(sent_bodies) == 1
-        assert [row["id"] for row in rows] == [row_id]
-        manager.save_state.assert_not_called()
-        manager.load_state.assert_not_called()
+        assert len(result.requests) == 1
+        assert result.requests[0].json() == {}
+        assert result.rows == payload[selector]
+        assert [row["id"] for row in result.rows] == [row_id]
+        assert result.saved_states == []
+        assert result.raised is None
 
     @pytest.mark.parametrize(
         ("api_version", "expected_limit"),
@@ -224,16 +172,13 @@ class TestAutumnSourceBehavior:
         ],
     )
     def test_pinned_version_reaches_the_request(self, api_version: str, expected_limit: int) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Events", [ScriptedResponse(json={"list": [], "next_cursor": None})], api_version=api_version
+        )
 
-        responses = [
-            _make_http_response({"list": [], "next_cursor": None}),
-        ]
-        mock_session, sent_bodies, _ = self._drive("Events", manager, responses, api_version=api_version)
-
-        assert mock_session.headers.get("x-api-version") == api_version
-        assert [body["limit"] for body in sent_bodies] == [expected_limit]
+        assert [request.headers["x-api-version"] for request in result.requests] == [api_version]
+        assert [request.json()["limit"] for request in result.requests] == [expected_limit]
+        assert result.raised is None
 
     @pytest.mark.parametrize(
         ("endpoint", "expected_primary_keys", "expected_sort_mode"),
@@ -247,21 +192,12 @@ class TestAutumnSourceBehavior:
     def test_source_response_keys_and_sort_mode(
         self, endpoint: str, expected_primary_keys: list[str], expected_sort_mode: str
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(endpoint, [ScriptedResponse(json={"list": [], "next_cursor": None})])
 
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn.rest_api_resource"):
-            source_response = autumn_source(
-                api_key="am_sk_test",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                api_version="2.3.0",
-                resumable_source_manager=manager,
-            )
-
-        assert source_response.primary_keys == expected_primary_keys
-        assert source_response.sort_mode == expected_sort_mode
+        assert result.response is not None
+        assert result.response.primary_keys == expected_primary_keys
+        assert result.response.sort_mode == expected_sort_mode
+        assert result.raised is None
 
 
 class TestValidateCredentials:
@@ -276,17 +212,15 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool, api_version: str) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.post.return_value = _make_http_response({}, status_code=status_code)
-
+        with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
             valid, error = validate_credentials("am_sk_test", api_version)
 
         assert valid is expected_valid
         assert (error is None) is expected_valid
-
-        _, kwargs = mock_session.post.call_args
-        assert kwargs["headers"]["Authorization"] == "Bearer am_sk_test"
-        assert kwargs["headers"]["x-api-version"] == api_version
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.method == "POST"
+        assert request.path == "/v1/customers.list"
+        assert request.headers["authorization"] == "Bearer am_sk_test"
+        assert request.headers["x-api-version"] == api_version
+        assert request.json() == {"limit": 1}

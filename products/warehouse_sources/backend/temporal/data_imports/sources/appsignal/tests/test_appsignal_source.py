@@ -1,7 +1,10 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.source import AppsignalSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsignal import (
     AppsignalSourceConfig,
 )
@@ -23,20 +26,17 @@ class TestAppsignalSource:
         assert [schema.name for schema in schemas] == ["error_samples"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status_code, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid AppSignal personal API token or app ID"),
+            (200, True, None),
+            (401, False, "Invalid AppSignal personal API token or app ID"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.source.validate_appsignal_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_token, self.config.app_id)
+        assert network.requests_log[0].path == "/api/app-id/markers.json"
+        assert network.requests_log[0].param("token") == self.config.api_token

@@ -45,6 +45,7 @@ import {
 import { SourceAlerts } from 'products/data_warehouse/frontend/shared/sourceAlerts/SourceAlerts'
 import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
+import { FailingDestinationsBanner } from './FailingDestinationsBanner'
 import { ConfigurationTab } from './tabs/ConfigurationTab'
 import { DestinationsTab } from './tabs/DestinationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
@@ -385,6 +386,7 @@ function ManagedSourceTabs({
                     deprecation={source.api_version_deprecation}
                 />
             )}
+            {showDestinationsTab && <FailingDestinationsBanner sourceId={sourceId} />}
             <LemonTabs
                 activeKey={currentTab}
                 tabs={tabs}

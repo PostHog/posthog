@@ -150,7 +150,11 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         # so Temporal's activity retry recovers once it clears rather than surfacing it as tracked
         # exception noise. `requests.Response.raise_for_status` derives these prefixes from the
         # status code alone, not the vendor's reason text, so they're stable to match on.
-        return {"Server Error", "429 Client Error", "Convex full resync requested"}
+        # A read timeout or dropped connection retries the same way, at both the urllib3 adapter
+        # (POST is in `_CONVEX_RETRY.allowed_methods`) and the `_convex_get`/`_convex_post` tenacity
+        # decorator. The deployment host is customer-specific, so match urllib3's stable wrapper
+        # text instead of a fixed host (see adjust/app_store_connect for the fixed-host equivalent).
+        return {"Server Error", "429 Client Error", "Convex full resync requested", "Max retries exceeded with url:"}
 
     def validate_credentials(
         self,

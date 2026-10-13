@@ -1,89 +1,31 @@
-import json
 from datetime import UTC, date, datetime
-from types import SimpleNamespace
 from typing import Any
 
-import pytest
 import time_machine
-from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.deno_deploy import (
     DENO_DEPLOY_ENDPOINTS,
     DenoDeployResumeConfig,
     _as_utc_datetime,
     _format_rfc3339,
     _time_window_params,
-    deno_deploy_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the deno_deploy module.
-DENO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.deno_deploy.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.source import DenoDeploySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.denodeploy import (
+    DenoDeploySourceConfig,
 )
 
 
-def _response(
-    body: Any,
-    *,
-    status: int = 200,
-    link: str | None = None,
-    location: str | None = None,
-) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    if link:
-        resp.headers["Link"] = link
-    if location:
-        resp.headers["Location"] = location
-    return resp
-
-
-def _make_manager(resume_state: DenoDeployResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so a copy is snapshotted when
-    each request is prepared. The prepared stand-in carries the request URL so the SSRF host check
-    (which reads ``prepared.url``) sees the real target host.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> SimpleNamespace:
-        param_snapshots.append(dict(request.params or {}))
-        return SimpleNamespace(url=request.url)
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return deno_deploy_source(
-        access_token="ddo_test",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(DenoDeploySource(), DenoDeploySourceConfig(access_token="ddo_test"))
 
 
 class TestPureHelpers:
@@ -114,151 +56,152 @@ class TestPureHelpers:
 
 
 class TestListEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_apps_follows_link_header_and_checkpoints(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_apps_follows_link_header_and_checkpoints(self) -> None:
+        result = _driver().run(
+            "apps",
             [
-                _response(
-                    [{"id": "a1", "slug": "one"}],
-                    link='<https://api.deno.com/v2/apps?cursor=p2&limit=100>; rel="next"',
+                ScriptedResponse(
+                    json=[{"id": "a1", "slug": "one"}],
+                    headers={"Link": '<https://api.deno.com/v2/apps?cursor=p2&limit=100>; rel="next"'},
                 ),
-                _response([{"id": "a2", "slug": "two"}]),
+                ScriptedResponse(json=[{"id": "a2", "slug": "two"}]),
             ],
         )
-        manager = _make_manager()
-        rows = _rows(_source("apps", manager))
 
-        assert [r["id"] for r in rows] == ["a1", "a2"]  # rows used as-is, both pages
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a1", "a2"]  # rows used as-is, both pages
+        assert result.params("cursor") == [None, "p2"]
         # Checkpoint saved after the first page points at the not-yet-fetched next URL.
-        manager.save_state.assert_called_once_with(
+        assert result.saved_states == [
             DenoDeployResumeConfig(next_url="https://api.deno.com/v2/apps?cursor=p2&limit=100")
+        ]
+
+    def test_apps_resumes_from_saved_url(self) -> None:
+        result = _driver().run(
+            "apps",
+            [ScriptedResponse(json=[{"id": "a2", "slug": "two"}])],
+            resume_state=DenoDeployResumeConfig(next_url="https://api.deno.com/v2/apps?cursor=p2"),
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_apps_resumes_from_saved_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "a2", "slug": "two"}])])
-        manager = _make_manager(DenoDeployResumeConfig(next_url="https://api.deno.com/v2/apps?cursor=p2"))
-
-        rows = _rows(_source("apps", manager))
-        assert [r["id"] for r in rows] == ["a2"]
-        assert params[0] == {}  # resumed via the seeded next URL, not the default first page params
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a2"]
+        assert result.queries == [{"cursor": ("p2",)}]  # resumed URL has no default first-page limit
 
 
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_revisions_inject_parent_app_context(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_revisions_inject_parent_app_context(self) -> None:
+        result = _driver().run(
+            "revisions",
             [
-                _response([{"id": "a1", "slug": "one"}, {"id": "a2", "slug": "two"}]),  # /v2/apps
-                _response([{"id": "r1", "status": "success"}]),  # a1 revisions
-                _response([{"id": "r2", "status": "failed"}]),  # a2 revisions
+                ScriptedResponse(json=[{"id": "a1", "slug": "one"}, {"id": "a2", "slug": "two"}]),  # /v2/apps
+                ScriptedResponse(json=[{"id": "r1", "status": "success"}]),  # a1 revisions
+                ScriptedResponse(json=[{"id": "r2", "status": "failed"}]),  # a2 revisions
             ],
         )
-        rows = _rows(_source("revisions", _make_manager()))
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "r1", "status": "success", "app_id": "a1", "app_slug": "one"},
             {"id": "r2", "status": "failed", "app_id": "a2", "app_slug": "two"},
         ]
-        assert params[1]["limit"] == 100  # child list uses the default page size
+        assert result.params("limit")[1:] == ["100", "100"]  # child list uses the default page size
 
     @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_logs_paginate_via_next_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_logs_paginate_via_next_cursor(self) -> None:
+        result = _driver().run(
+            "logs",
             [
-                _response([{"id": "a1", "slug": "one"}]),  # /v2/apps
-                _response({"logs": [{"timestamp": "2026-06-01T10:00:00Z", "message": "m1"}], "next_cursor": "c2"}),
-                _response({"logs": [{"timestamp": "2026-06-01T11:00:00Z", "message": "m2"}], "next_cursor": None}),
+                ScriptedResponse(json=[{"id": "a1", "slug": "one"}]),  # /v2/apps
+                ScriptedResponse(
+                    json={"logs": [{"timestamp": "2026-06-01T10:00:00Z", "message": "m1"}], "next_cursor": "c2"}
+                ),
+                ScriptedResponse(
+                    json={"logs": [{"timestamp": "2026-06-01T11:00:00Z", "message": "m2"}], "next_cursor": None}
+                ),
             ],
+            should_use_incremental_field=True,
         )
-        manager = _make_manager()
-        rows = _rows(_source("logs", manager, should_use_incremental_field=True, db_incremental_field_last_value=None))
 
-        assert [r["message"] for r in rows] == ["m1", "m2"]
-        assert all(len(r["id"]) == 64 and r["app_id"] == "a1" and r["app_slug"] == "one" for r in rows)
+        assert result.raised is None
+        assert [row["message"] for row in result.rows] == ["m1", "m2"]
+        assert all(len(row["id"]) == 64 and row["app_id"] == "a1" and row["app_slug"] == "one" for row in result.rows)
         # First logs page carries the bounded window; the second follows the body cursor.
-        assert params[1]["start"] and params[1]["end"] and params[1]["limit"] == 1000 and "cursor" not in params[1]
-        assert params[2]["cursor"] == "c2"
+        assert result.requests[1].param("start")
+        assert result.requests[1].param("end")
+        assert result.requests[1].param("limit") == "1000"
+        assert result.requests[1].param("cursor") is None
+        assert result.requests[2].param("cursor") == "c2"
         # Checkpoint persists the fan-out resume snapshot carrying the cursor.
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert any(s.fanout_state and s.fanout_state.get("child_state") == {"cursor": "c2"} for s in saved)
+        assert any(
+            state.fanout_state and state.fanout_state.get("child_state") == {"cursor": "c2"}
+            for state in result.saved_states
+        )
 
     @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_analytics_columnar_explode_with_window(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_analytics_columnar_explode_with_window(self) -> None:
+        result = _driver().run(
+            "analytics",
             [
-                _response([{"id": "a1", "slug": "one"}]),  # /v2/apps
-                _response(
-                    {
+                ScriptedResponse(json=[{"id": "a1", "slug": "one"}]),  # /v2/apps
+                ScriptedResponse(
+                    json={
                         "fields": [{"name": "time"}, {"name": "request_count"}],
                         "values": [["2026-06-01T00:00:00Z", 5], ["2026-06-01T00:15:00Z", 9]],
                     }
                 ),
             ],
+            should_use_incremental_field=True,
         )
-        rows = _rows(_source("analytics", _make_manager(), should_use_incremental_field=True))
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"time": "2026-06-01T00:00:00Z", "request_count": 5, "app_id": "a1", "app_slug": "one"},
             {"time": "2026-06-01T00:15:00Z", "request_count": 9, "app_id": "a1", "app_slug": "one"},
         ]
-        assert params[1]["since"] and params[1]["until"]  # server-side time filters present
+        # Server-side time filters are present.
+        assert result.requests[1].param("since") and result.requests[1].param("until")
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fanout_resumes_and_skips_completed_app(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_fanout_resumes_and_skips_completed_app(self) -> None:
+        result = _driver().run(
+            "revisions",
             [
-                _response([{"id": "a1", "slug": "one"}, {"id": "a2", "slug": "two"}]),  # /v2/apps
-                _response([{"id": "r2", "status": "success"}]),  # a2 revisions only
+                ScriptedResponse(json=[{"id": "a1", "slug": "one"}, {"id": "a2", "slug": "two"}]),  # /v2/apps
+                ScriptedResponse(json=[{"id": "r2", "status": "success"}]),  # a2 revisions only
             ],
-        )
-        manager = _make_manager(
-            DenoDeployResumeConfig(
+            resume_state=DenoDeployResumeConfig(
                 fanout_state={"completed": ["/v2/apps/a1/revisions"], "current": None, "child_state": None}
-            )
+            ),
         )
-        rows = _rows(_source("revisions", manager))
 
-        assert [r["id"] for r in rows] == ["r2"]  # a1 skipped, resumed at a2
-        assert rows[0]["app_id"] == "a2"
-        assert session.send.call_count == 2  # apps list + a2 only
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r2"]  # a1 skipped, resumed at a2
+        assert result.rows[0]["app_id"] == "a2"
+        assert result.paths == ["/v2/apps", "/v2/apps/a2/revisions"]  # apps list + a2 only
 
 
 class TestSsrfGuards:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_link_is_rejected(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_off_host_link_is_rejected(self) -> None:
+        result = _driver().run(
+            "apps",
             [
-                _response(
-                    [{"id": "a1", "slug": "one"}], link='<https://evil.example.com/v2/apps?cursor=p2>; rel="next"'
+                ScriptedResponse(
+                    json=[{"id": "a1", "slug": "one"}],
+                    headers={"Link": '<https://evil.example.com/v2/apps?cursor=p2>; rel="next"'},
                 ),
-                _response([{"id": "a2", "slug": "two"}]),
+                ScriptedResponse(json=[{"id": "a2", "slug": "two"}]),
             ],
         )
-        with pytest.raises(ValueError, match="disallowed host"):
-            _rows(_source("apps", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
+        assert result.paths == ["/v2/apps"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redirect_is_rejected(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=302, location="https://evil.example.com")])
-        with pytest.raises(ValueError, match="[Rr]edirect"):
-            _rows(_source("apps", _make_manager()))
+    def test_redirect_is_rejected(self) -> None:
+        result = _driver().run(
+            "apps", [ScriptedResponse(status=302, json={}, headers={"Location": "https://evil.example.com"})]
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "redirect" in str(result.raised).lower()
+        assert result.paths == ["/v2/apps"]
 
 
 class TestSourceResponse:
@@ -272,7 +215,10 @@ class TestSourceResponse:
         ]
     )
     def test_response_shape(self, endpoint: str, pk: list[str], partition: str, incremental: bool) -> None:
-        response = _source(endpoint, _make_manager(), should_use_incremental_field=incremental)
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])], should_use_incremental_field=incremental)
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == pk
         assert response.partition_keys == [partition]
@@ -283,16 +229,18 @@ class TestSourceResponse:
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(DENO_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected_ok: bool, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        ok, error = validate_credentials("ddo_test")
+    def test_status_mapping(self, _name: str, status: int, expected_ok: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            ok, error = validate_credentials("ddo_test")
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert network.requests_log[0].path == "/v2/apps"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer ddo_test"
 
-    @mock.patch(DENO_SESSION_PATCH)
-    def test_network_error_is_swallowed(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        ok, error = validate_credentials("ddo_test")
+    def test_network_error_is_swallowed(self) -> None:
+        with scripted_network([ConnectionResetError("reset")]) as network:
+            ok, error = validate_credentials("ddo_test")
         assert ok is False
         assert error is not None
+        assert network.requests_log[0].path == "/v2/apps"
