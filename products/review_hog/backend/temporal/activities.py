@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.label_reviews import comment_commands_enabled, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -2024,6 +2025,9 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    footer = ""
+    if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
+        footer = label_commands_hint(input.review_mode)
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2036,6 +2040,7 @@ def _publish(input: PublishInput) -> PublishResult:
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
         review_mode=input.review_mode,
+        footer=footer,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
