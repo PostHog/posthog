@@ -14130,6 +14130,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       output_person_property?: string;
+      /** Whether live scoring writes the champion's score to output_person_property on each scored person. Feature flags, cohorts, workflows and insights that target people by score need it on. */
+      readonly write_person_property: boolean;
       /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
        *
        * * `draft` - Draft
@@ -14286,6 +14288,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       output_person_property?: string;
+      /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+      write_person_property?: boolean;
     }
 
     /**
@@ -14296,6 +14300,7 @@ export namespace Schemas {
     /**
      * * `inference` - Inference
      * * `validation` - Validation
+     * * `property_cleanup` - Property cleanup
      */
     export type AutoresearchRunRunTypeEnum = typeof AutoresearchRunRunTypeEnum[keyof typeof AutoresearchRunRunTypeEnum];
 
@@ -14303,6 +14308,7 @@ export namespace Schemas {
     export const AutoresearchRunRunTypeEnum = {
       Inference: 'inference',
       Validation: 'validation',
+      PropertyCleanup: 'property_cleanup',
     } as const;
 
     /**
@@ -14334,7 +14340,8 @@ export namespace Schemas {
       /** Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).
        *
        * * `inference` - Inference
-       * * `validation` - Validation */
+       * * `validation` - Validation
+       * * `property_cleanup` - Property cleanup */
       run_type: AutoresearchRunRunTypeEnum;
       /** Run status: pending, running, completed, or failed.
        *
@@ -78334,6 +78341,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       output_person_property?: string;
+      /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+      write_person_property?: boolean;
     }
 
     /**
@@ -101009,18 +101018,6 @@ export namespace Schemas {
       channel_id: string;
     }
 
-    /**
-     * * `positive` - positive
-     * * `negative` - negative
-     */
-    export type SentimentEnum = typeof SentimentEnum[keyof typeof SentimentEnum];
-
-
-    export const SentimentEnum = {
-      Positive: 'positive',
-      Negative: 'negative',
-    } as const;
-
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
@@ -101486,12 +101483,24 @@ export namespace Schemas {
       report_id: string;
     }
 
+    /**
+     * * `positive` - positive
+     * * `negative` - negative
+     */
+    export type SignalReportFeedbackSentimentEnum = typeof SignalReportFeedbackSentimentEnum[keyof typeof SignalReportFeedbackSentimentEnum];
+
+
+    export const SignalReportFeedbackSentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
+
     export interface SignalReportFeedbackRequest {
-      /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+      /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
        *
        * * `positive` - positive
        * * `negative` - negative */
-      sentiment: SentimentEnum;
+      sentiment: SignalReportFeedbackSentimentEnum | null;
       /**
          * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
          * @maxLength 4000
@@ -101502,6 +101511,16 @@ export namespace Schemas {
     export interface SignalReportFeedbackResponse {
       /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
       forwarded: boolean;
+    }
+
+    export interface SignalReportFeedbackState {
+      /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
+       *
+       * * `positive` - positive
+       * * `negative` - negative */
+      sentiment: SignalReportFeedbackSentimentEnum | null;
+      /** The current user's saved note, or an empty string. */
+      note: string;
     }
 
     export interface SignalReportMergeRequest {

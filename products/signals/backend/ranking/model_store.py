@@ -38,8 +38,11 @@ from products.signals.backend.ranking.model_contract import (
 from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.serving_manifest import (
     DEFAULT_MODEL_KIND,
+    HEAD_FILE_SUFFIX,
     MANIFEST_SERVED_ROLE,
     METADATA_FILE,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -49,7 +52,15 @@ from products.signals.backend.ranking.serving_manifest import (
 
 logger = structlog.get_logger(__name__)
 
-HEAD_FILE_SUFFIX = ".ubj"
+# The ONNX output that holds one probability column per head, in the order of `ONNX_OUTPUT_HEADS_KEY`
+# in the model's `metadata.json`.
+ONNX_OUTPUT = "probabilities"
+ONNX_OUTPUT_HEADS_KEY = "output_heads"
+# The input that takes the feature set's matrix, the report vector.
+ONNX_REPORT_INPUT = "report"
+# Threads one ONNX session may use for one operator. The sweep shares the worker with other
+# activities, so a model must not take every core.
+ONNX_INTRA_OP_THREADS = 2
 
 
 class ModelLoadError(Exception):
@@ -81,26 +92,33 @@ class ServingSet:
 
 class ModelKindHandler(Protocol):
     def load(
-        self, entry: ServingManifestEntry, metadata: Mapping[str, Any], head_files: Mapping[str, bytes]
-    ) -> LoadedModel: ...
+        self,
+        entry: ServingManifestEntry,
+        metadata: Mapping[str, Any],
+        feature_set: FeatureSet,
+        files: Mapping[str, bytes],
+    ) -> LoadedModel:
+        """`feature_set` is the set `metadata` declares, and `files` holds the body of each name in `entry.files`."""
+        ...
 
 
 class XGBoostHandler:
     """One binary XGBoost booster per head, all fit on the same feature set."""
 
     def load(
-        self, entry: ServingManifestEntry, metadata: Mapping[str, Any], head_files: Mapping[str, bytes]
+        self,
+        entry: ServingManifestEntry,
+        metadata: Mapping[str, Any],
+        feature_set: FeatureSet,
+        files: Mapping[str, bytes],
     ) -> LoadedModel:
         import xgboost as xgb  # noqa: PLC0415 — keeps xgboost's native OpenMP runtime off the Temporal worker import path
 
-        feature_set = model_feature_set(metadata)
-        if feature_set is None:
-            raise ModelLoadError(f"{entry.key} declares a feature set this build cannot produce")
         boosters: dict[str, xgb.Booster] = {}
-        for head, raw in head_files.items():
+        for head in entry.heads:
             booster = xgb.Booster()
             try:
-                booster.load_model(bytearray(raw))
+                booster.load_model(bytearray(files[f"{head}{HEAD_FILE_SUFFIX}"]))
             except xgb.core.XGBoostError as error:
                 raise ModelLoadError(f"{entry.key} {head} booster does not load: {error}") from error
             mismatch = booster_mismatch(head, booster.feature_names, feature_set)
@@ -116,8 +134,87 @@ class XGBoostHandler:
         return LoadedModel(entry=entry, feature_set=feature_set, metadata=metadata, predict=predict)
 
 
-# The place a new learner plugs in, e.g. a torch model with its own `predict`.
-MODEL_KIND_HANDLERS: Mapping[str, ModelKindHandler] = {DEFAULT_MODEL_KIND: XGBoostHandler()}
+class ONNXHandler:
+    """One ONNX graph that scores every head, from the inputs the feature set builds."""
+
+    def load(
+        self,
+        entry: ServingManifestEntry,
+        metadata: Mapping[str, Any],
+        feature_set: FeatureSet,
+        files: Mapping[str, bytes],
+    ) -> LoadedModel:
+        import onnxruntime as ort  # noqa: PLC0415 — keeps onnxruntime's native runtime off the Temporal worker import path
+
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = ONNX_INTRA_OP_THREADS
+        options.inter_op_num_threads = 1
+        try:
+            session = ort.InferenceSession(
+                files[ONNX_MODEL_FILE], sess_options=options, providers=["CPUExecutionProvider"]
+            )
+        # onnxruntime's errors share no base class below Exception.
+        except Exception as error:
+            raise ModelLoadError(f"{entry.key} {ONNX_MODEL_FILE} does not load: {error}") from error
+        mismatch = _onnx_input_mismatch(session.get_inputs(), _onnx_input_widths(feature_set))
+        if mismatch is not None:
+            raise ModelLoadError(f"{entry.key} {mismatch}")
+        output_heads = list(metadata.get(ONNX_OUTPUT_HEADS_KEY) or ())
+        mismatch = _onnx_output_mismatch(session.get_outputs(), output_heads, entry.heads)
+        if mismatch is not None:
+            raise ModelLoadError(f"{entry.key} {mismatch}")
+        columns = {head: output_heads.index(head) for head in entry.heads}
+
+        def predict(matrix: np.ndarray) -> dict[str, np.ndarray]:
+            (probabilities,) = session.run(
+                [ONNX_OUTPUT], {ONNX_REPORT_INPUT: np.ascontiguousarray(matrix, dtype=np.float32)}
+            )
+            return {head: probabilities[:, column] for head, column in columns.items()}
+
+        return LoadedModel(entry=entry, feature_set=feature_set, metadata=metadata, predict=predict)
+
+
+def _onnx_input_widths(feature_set: FeatureSet) -> dict[str, int]:
+    """The width of each ONNX input the scorer can feed for `feature_set`.
+
+    Only the report vector today. The project-vector inputs join here when the sweep can read
+    project vectors, and `predict` then feeds them too.
+    """
+    return {ONNX_REPORT_INPUT: len(feature_set.feature_names)}
+
+
+def _onnx_input_mismatch(inputs: Sequence[Any], widths: Mapping[str, int]) -> str | None:
+    """Why the graph's inputs differ from what the scorer feeds, or None when they agree.
+
+    Each input must be float32 with shape `(batch, width)`.
+    """
+    names = sorted(node.name for node in inputs)
+    if names != sorted(widths):
+        return f"{ONNX_MODEL_FILE} inputs {names} are not {sorted(widths)}"
+    for node in inputs:
+        if node.type != "tensor(float)" or len(node.shape) != 2 or node.shape[1] != widths[node.name]:
+            return f"{ONNX_MODEL_FILE} input {node.name} is {node.type} {node.shape}, not float (batch, {widths[node.name]})"
+    return None
+
+
+def _onnx_output_mismatch(outputs: Sequence[Any], output_heads: Sequence[str], heads: Sequence[str]) -> str | None:
+    """Why the graph's output cannot give a probability for each of `heads`, or None when it can."""
+    output = next((node for node in outputs if node.name == ONNX_OUTPUT), None)
+    if output is None:
+        return f"{ONNX_MODEL_FILE} has no {ONNX_OUTPUT} output"
+    if len(output.shape) != 2 or output.shape[1] != len(output_heads):
+        return f"{ONNX_MODEL_FILE} {ONNX_OUTPUT} is {output.shape}, not (batch, {len(output_heads)}) for {ONNX_OUTPUT_HEADS_KEY}"
+    missing = sorted(set(heads) - set(output_heads))
+    if missing:
+        return f"{METADATA_FILE} {ONNX_OUTPUT_HEADS_KEY} has no column for {missing}"
+    return None
+
+
+# The place a new learner plugs in, with its own `predict`.
+MODEL_KIND_HANDLERS: Mapping[str, ModelKindHandler] = {
+    DEFAULT_MODEL_KIND: XGBoostHandler(),
+    ONNX_MODEL_KIND: ONNXHandler(),
+}
 
 _cache: OrderedDict[str, LoadedModel] = OrderedDict()
 _cache_lock = threading.Lock()
@@ -133,19 +230,20 @@ def _read_entry(entry: ServingManifestEntry) -> LoadedModel:
     metadata = json.loads(raw_metadata)
     if (metadata.get("model_name"), metadata.get("model_version")) != (entry.model_name, entry.model_version):
         raise ModelLoadError(f"{entry.key} {METADATA_FILE} describes another model")
+    feature_set = model_feature_set(metadata)
     mismatch = model_mismatch(metadata)
-    if mismatch is not None:
+    if feature_set is None or mismatch is not None:
         raise ModelLoadError(f"{entry.key} {mismatch}")
     untrained = sorted(set(entry.heads) - set(trained_head_files(metadata, entry.heads)))
     if untrained:
-        raise ModelLoadError(f"{entry.key} {METADATA_FILE} has no trained booster for {untrained}")
-    head_files: dict[str, bytes] = {}
-    for head in entry.heads:
-        body = object_storage.read_bytes(f"{entry.prefix}/{head}{HEAD_FILE_SUFFIX}", missing_ok=True)
+        raise ModelLoadError(f"{entry.key} {METADATA_FILE} has no trained model file for {untrained}")
+    files: dict[str, bytes] = {}
+    for name in entry.files:
+        body = object_storage.read_bytes(f"{entry.prefix}/{name}", missing_ok=True)
         if body is None:
-            raise ModelLoadError(f"{entry.key} has no {head}{HEAD_FILE_SUFFIX} under {entry.prefix}")
-        head_files[head] = body
-    return handler.load(entry, metadata, head_files)
+            raise ModelLoadError(f"{entry.key} has no {name} under {entry.prefix}")
+        files[name] = body
+    return handler.load(entry, metadata, feature_set, files)
 
 
 def load_model(entry: ServingManifestEntry) -> LoadedModel:
