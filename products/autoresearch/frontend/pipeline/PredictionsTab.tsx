@@ -12,6 +12,7 @@ import { CoverageHistoryChart, CoverageSummaryBanner } from './PredictionCoverag
 import { PredictionSegmentCards } from './PredictionSegmentCards'
 import { ProbabilityUsersTable } from './ProbabilityUsersTable'
 import { ScoreNowButton } from './ScoreNowButton'
+import { SectionCard } from './SectionCard'
 
 function DailyVolumePanel(): JSX.Element {
     const { dailyVolume, dailyVolumeError } = useValues(autoresearchPipelineLogic)
@@ -74,19 +75,25 @@ export function PredictionsTab(): JSX.Element {
 
     return (
         <div className="space-y-6">
-            <p className="text-sm text-muted">
-                Each scoring run writes the champion's predicted probability to the{' '}
-                <code>{pipeline.output_person_property}</code> person property and emits an{' '}
-                <code>autoresearch_prediction</code> event. These views read straight from those events.
-            </p>
-
             <CoverageSummaryBanner />
 
-            <PredictionSegmentCards />
+            <SectionCard
+                title="Likelihood segments"
+                description={
+                    <>
+                        Each scoring run writes the champion's predicted probability to the{' '}
+                        <code>{pipeline.output_person_property}</code> person property and emits an{' '}
+                        <code>autoresearch_prediction</code> event. These views read straight from those events.
+                    </>
+                }
+            >
+                <PredictionSegmentCards />
+            </SectionCard>
 
             <PredictionActionsPanel />
 
             <LemonCollapse
+                className="bg-surface-primary"
                 multiple
                 defaultActiveKeys={['distribution', 'people']}
                 panels={[

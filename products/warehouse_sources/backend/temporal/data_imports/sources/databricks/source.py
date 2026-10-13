@@ -201,6 +201,13 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             "[FAILED_JDBC.CONNECTION]": "Databricks couldn't connect to a federated database backing a table you're syncing (a Lakehouse Federation connection). Check that the underlying database is reachable and its connection details in Databricks are still correct, then resync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Raised when the SQL warehouse auto-suspended (or was manually stopped) while a
+        # command was in flight. Databricks auto-starts a stopped warehouse on the next query
+        # by default, so the fresh connection Temporal opens on its next retry attempt usually
+        # finds the warehouse running again.
+        return {"was stopped."}
+
     def get_schemas(
         self,
         config: DatabricksSourceConfig,

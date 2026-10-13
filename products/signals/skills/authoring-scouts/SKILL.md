@@ -22,8 +22,9 @@ A **scout** is a scheduled agent that wakes on its own interval, looks at one Po
 PostHog ships a fleet of **canonical scouts** (a cross-product generalist plus per-surface specialists).
 This skill helps you and your agent **adapt those canonical scouts to a specific project**, or **author new scouts from scratch** for a use case the fleet doesn't cover.
 
-A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
-The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
+A report-producing scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
+Most of the canonical fleet runs this way, and **every new report-producing scout should too** — include the `allowed_tools` opt-in when you author one.
+A scout whose output is a product surface (for example, suggestions on a workflow page) omits both tools; see [Scouts with a product-specific output](references/report-contract.md#scouts-with-a-product-specific-output).
 Where that output _lands_ is a separate, per-scout config decision: the report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (`output_destinations` under Run posture) — so don't rule a scout out of a job because the user wants the result in Slack.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
@@ -84,7 +85,7 @@ And where a built-in signals source already covers the surface (GitHub and Linea
 A scout does not have to stop at describing a fix: the **maintainer / steward** pattern is how a scout holding `write_scopes` keeps a family of dashboards, alerts, warehouse views, or scanner prompts healthy itself, with a write ladder that says which changes it applies, which it verifies and reports, and which it hands to a human.
 Find the closest pattern, then write the body.
 
-Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
+Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every report-producing scout needs; a scout with a [product-specific output](references/report-contract.md#scouts-with-a-product-specific-output) omits it), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
 
 **Write the body feature-forward.** The body is a prompt a run reads in full, every run, for as long as the scout lives — so it states what the scout watches and how it decides, and nothing else. Four things do not belong in it:
 
@@ -128,6 +129,7 @@ A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate f
 For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create` call, including creating it disabled or in dry-run **before it ever runs**.
 When creating a scout to test an idea, set `config.enabled=false` so scheduled runs cannot interfere with the trial.
 The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
+A scout with a product-specific output must stay off the report channel, so create it with `skill-create` and `scout-config-create` instead; see [Scouts with a product-specific output](references/report-contract.md#scouts-with-a-product-specific-output).
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
 
@@ -139,6 +141,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A new or edited schedule anchors on the edit time and waits for its next slot rather than catching up on a past one.
   Reach for it when the run should land at a wall-clock time: a digest before standup, a weekday-only watch.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
+- `precheck_query` — defaults to null: a HogQL `SELECT` that a scheduled run evaluates before it starts, with `{since}`, `{now}`, and `{interval_minutes}` placeholders.
+  No rows, or one row with one false value (such as a zero `count()`), skips the run before it creates a run row or a sandbox. Any other result starts the run, and the rows enter the run prompt. A query error also starts the run.
+  Only scheduled runs evaluate it: a manual, workflow, or report-check run always starts.
+  Set it for a scout that has nothing to do on most ticks. Test the query with `posthog:scout-config-precheck-test` before you save it, because a scheduled check runs as the scout's acting user and the dry run runs as you.
+  A canonical scout can ship a default in its `scout-precheck-query` frontmatter. `precheck_query` overrides that default, null restores it, and `precheck_disabled: true` turns off both.
+  The full recipe, the placeholder semantics, and how to diagnose a tick with no run row are in [`references/scheduled-precheck.md`](references/scheduled-precheck.md).
 - `emit` — defaults to **`true`**: the scout writes its reports straight to the inbox.
   Set **`emit=false` (dry-run)** to inspect an ordinary run's reasoning without publishing reports to the inbox.
   Private trials capture reports and memory separately and work while the source scout is paused or has `emit=false`.
