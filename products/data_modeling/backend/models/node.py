@@ -94,6 +94,10 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.properties.pop("system", None)
 
     @property
+    def belongs_to_managed_viewset(self) -> bool:
+        return self.saved_query is not None and self.saved_query.managed_viewset_id is not None
+
+    @property
     def lineage_issue(self) -> dict[str, Any] | None:
         system = (self.properties or {}).get("system") or {}
         degraded = system.get(DEGRADED_SYNC_KEY)

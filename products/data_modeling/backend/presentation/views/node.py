@@ -237,8 +237,8 @@ class NodeSerializer(serializers.ModelSerializer):
         # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
         # editing managed nodes or moving any node into a managed DAG via the API.
-        if self.instance is not None and self.instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
+        if self.instance is not None and self.instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be modified.")
         if self.instance is not None and self.instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         node_type = attrs.get("type")
@@ -357,8 +357,8 @@ class NodeViewSet(
 
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
-        if instance.dag.is_managed:
-            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
+        if instance.belongs_to_managed_viewset:
+            raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
         if instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
         delete_node(instance.team_id, instance.pk)
