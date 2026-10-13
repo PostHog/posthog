@@ -14,7 +14,7 @@ from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
-from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW, FREE_PERIOD_END, FREE_PERIOD_START
+from products.warehouse_sources.backend.billing import FREE_PERIOD_END, FREE_PERIOD_START, is_in_free_historical_window
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
@@ -62,7 +62,7 @@ def billing_limit_reached(
         logger.info("Skipping billing limits check for non-billable job")
         return False
 
-    if source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW:
+    if is_in_free_historical_window(source.created_at):
         logger.info(
             f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
         )

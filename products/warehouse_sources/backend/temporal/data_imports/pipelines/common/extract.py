@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.billing import is_in_free_historical_window
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
@@ -32,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
-    is_in_free_historical_window,
+    setup_row_tracking,
     will_hit_billing_limit,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
@@ -475,18 +476,19 @@ async def setup_row_tracking_with_billing_check(
     logger: FilteringBoundLogger,
     billable: bool | None = True,
 ) -> None:
-    if resource.rows_to_sync:
-        # The limit check adds up these rows for every running sync in the organization. Rows that
-        # will not bill (a non-billable job, or a source in its free first week) must stay out of
-        # that sum, because they would refuse the organization's other syncs until this run ends.
-        if billable and not is_in_free_historical_window(source):
-            await increment_rows(team_id, schema.id, resource.rows_to_sync)
-        # Check billing limits against incoming rows (skip for non-billable jobs)
-        if billable and await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
-            raise BillingLimitsWillBeReachedException(
-                f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
-                f"with {resource.rows_to_sync} rows"
-            )
+    # The limit check adds up these rows for every running sync in the organization. A run that the
+    # check skips (a non-billable job, or a source in its free first week when the run starts) must
+    # stay out of that sum, because its rows would refuse the organization's other syncs until it ends.
+    if not resource.rows_to_sync or not billable or is_in_free_historical_window(source.created_at):
+        return
+
+    await increment_rows(team_id, schema.id, resource.rows_to_sync)
+    # Check billing limits against incoming rows
+    if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
+        raise BillingLimitsWillBeReachedException(
+            f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
+            f"with {resource.rows_to_sync} rows"
+        )
 
 
 def reset_pipeline_requested(
@@ -774,6 +776,9 @@ async def handle_corrupted_delta_log(
     if job.billable:
         job.billable = False
         await database_sync_to_async_pool(job.save)(update_fields=["billable"])
+        # The run registered its row estimate while the job was still billable. The estimate must
+        # stop counting toward the limit check, the same as for a job that starts non-billable.
+        await setup_row_tracking(schema.team_id, schema.id)
 
     _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
     await logger.awarning(
