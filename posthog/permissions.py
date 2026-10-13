@@ -15,6 +15,7 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
+from posthog.api.api_operations import api_operation, api_operation_for_request
 from posthog.auth import (
     ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
@@ -830,6 +831,79 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     return None
 
 
+SCOUT_TOOL_NOT_GRANTED_CODE = "scout_tool_not_granted"
+
+# Calls the sandbox makes with the run's token outside any MCP tool: the MCP server resolving
+# who and where the caller is, and the agent server reporting on its own task and run. A scout
+# with a picked tool list still needs every one of these to run at all.
+SANDBOX_INFRA_OPERATIONS = frozenset(
+    api_operation(*operation.split(" ", 1))
+    for operation in (
+        "GET /api/users/{uuid}/",
+        "GET /api/personal_api_keys/{id}/",
+        "GET /api/organizations/{id}/",
+        "GET /api/organizations/{organization_id}/projects/",
+        "GET /api/projects/{id}/",
+        "GET /api/projects/{project_id}/mcp_server_installations/available_tools/",
+        "POST /api/projects/{project_id}/mcp_server_installations/{id}/call_tool/",
+        "GET /api/projects/{project_id}/mcp_server_installations/{id}/tools/",
+        "PATCH /api/projects/{project_id}/mcp_server_installations/{id}/tools/{tool_name}/",
+        "GET /api/projects/{project_id}/tasks/{id}/",
+        "GET /api/projects/{project_id}/tasks/{task_id}/runs/{id}/",
+        "PATCH /api/projects/{project_id}/tasks/{task_id}/runs/{id}/",
+        "PATCH /api/projects/{project_id}/tasks/{task_id}/runs/{id}/set_output/",
+        "PATCH /api/projects/{project_id}/tasks/{task_id}/runs/{id}/set_summary/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/append_log/",
+        "GET /api/projects/{project_id}/tasks/{task_id}/runs/{id}/logs/",
+        "GET /api/projects/{project_id}/tasks/{task_id}/runs/{id}/task_session/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/task_session_sync/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/subscription_token/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/relay_message/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/artifacts/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/artifacts/download/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/artifacts/prepare_upload/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/artifacts/finalize_upload/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/analysis-activity/",
+        "GET /api/projects/{project_id}/tasks/{task_id}/runs/{id}/peers/",
+        "POST /api/projects/{project_id}/tasks/{task_id}/runs/{id}/peers/{target}/message/",
+    )
+)
+
+
+def enforce_scout_tool_policy(request: Request) -> None:
+    """Refuse an operation that no MCP tool held by the token's scout run calls.
+
+    Only a token bound to a task with a stamped tool list is checked, so every other token
+    costs no query here. The held operations are cached on the request.
+    """
+    access_token = getattr(request.successful_authenticator, "access_token", None)
+    if not isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication) or access_token is None:
+        return
+    if access_token.sandbox_task_id is None:
+        return
+    held = getattr(request, "_scout_held_operations", ...)
+    if held is ...:
+        # Deferred: the signals facade imports the tasks facade, which imports this module.
+        from products.signals.backend.facade.tool_access import resolve_scout_held_operations  # noqa: PLC0415
+
+        scoped_teams = access_token.scoped_teams or []
+        held = (
+            resolve_scout_held_operations(sandbox_task_id=access_token.sandbox_task_id, team_id=scoped_teams[0])
+            if len(scoped_teams) == 1
+            else None
+        )
+        request._scout_held_operations = held
+    if held is None:
+        return
+    operation = api_operation_for_request(request)
+    if operation is not None and (operation in held or operation in SANDBOX_INFRA_OPERATIONS):
+        return
+    raise PermissionDenied(
+        detail=f"This scout was not given a tool for the operation {operation or 'requested'}.",
+        code=SCOUT_TOOL_NOT_GRANTED_CODE,
+    )
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -904,6 +978,7 @@ class APIScopePermission(ScopeBasePermission):
         required_scope_objects = {s.split(":", 1)[0] for s in required_scopes}
         action_targets_internal = not required_scope_objects.isdisjoint(INTERNAL_API_SCOPE_OBJECTS)
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
+            enforce_scout_tool_policy(request)
             return True
 
         missing_scopes = scopes_not_covered(key_scopes, required_scopes)
@@ -911,6 +986,7 @@ class APIScopePermission(ScopeBasePermission):
             self.message = f"API key missing required scope '{missing_scopes[0]}'"
             return False
 
+        enforce_scout_tool_policy(request)
         return True
 
     def _check_project_secret_api_key_team(self, request, view) -> None:

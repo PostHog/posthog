@@ -63,6 +63,10 @@ class McpToolDefinition:
     # that offers a choice of tools offers its successors instead.
     superseded_by: tuple[str, ...]
     feature_entitlement: str | None
+    # Advertised to every client regardless of a features or tools allowlist.
+    always_available: bool
+    # OpenAPI operation ids the tool calls. Empty for a tool whose calls are not catalogued.
+    operations: tuple[str, ...]
 
     @property
     def is_superseded(self) -> bool:
@@ -86,6 +90,8 @@ def _definition_from_json(name: str, raw: Mapping[str, Any]) -> McpToolDefinitio
         hidden_when_flag_on=raw.get("hidden_when_flag_on"),
         superseded_by=tuple(raw.get("superseded_by") or ()),
         feature_entitlement=raw.get("feature_entitlement"),
+        always_available=bool(raw.get("always_available", False)),
+        operations=tuple(raw.get("operations") or ()),
     )
 
 

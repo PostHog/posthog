@@ -41,6 +41,8 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
+// Every query wrapper posts its query to this endpoint.
+const QUERY_WRAPPER_OPERATION = 'POST /api/environments/{project_id}/query/'
 const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
 const TOOL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
@@ -2216,6 +2218,7 @@ function generateDefinitionsJson(
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
                     required_scopes: toolConfig.scopes,
+                    operations: [`${resolved.method.toUpperCase()} ${resolved.path}`],
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2240,6 +2243,7 @@ function generateDefinitionsJson(
                     summary: baseSummary,
                     title: baseTitle,
                     required_scopes: toolConfig.scopes,
+                    operations: [`${resolved.method.toUpperCase()} ${resolved.path}`],
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2267,6 +2271,7 @@ function generateDefinitionsJson(
                 summary: wrapperConfig.title || name,
                 title: wrapperConfig.title || name,
                 required_scopes: wrapperConfig.scopes,
+                operations: [QUERY_WRAPPER_OPERATION],
                 annotations: {
                     destructiveHint: wrapperConfig.annotations.destructive,
                     idempotentHint: wrapperConfig.annotations.idempotent,
@@ -2453,6 +2458,7 @@ function generateQueryWrapperDefinitionsJson(
             summary: toolConfig.title || name,
             title: toolConfig.title || name,
             required_scopes: toolConfig.scopes,
+            operations: [QUERY_WRAPPER_OPERATION],
             annotations: {
                 destructiveHint: toolConfig.annotations.destructive,
                 idempotentHint: toolConfig.annotations.idempotent,

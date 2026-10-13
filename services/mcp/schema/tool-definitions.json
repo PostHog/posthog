@@ -50,6 +50,7 @@
         "summary": "List artifacts for the current task.",
         "title": "List current task artifacts",
         "required_scopes": ["task:read"],
+        "operations": ["GET /api/projects/{project_id}/tasks/{id}/artifacts/"],
         "always_available": true,
         "annotations": {
             "destructiveHint": false,
@@ -65,6 +66,7 @@
         "summary": "List comments for the current task.",
         "title": "List current task comments",
         "required_scopes": ["comment:read"],
+        "operations": ["GET /api/projects/{project_id}/tasks/{id}/comments/"],
         "always_available": true,
         "annotations": {
             "destructiveHint": false,
@@ -80,6 +82,7 @@
         "summary": "Retrieve one comment conversation from the current task.",
         "title": "Retrieve current task comments",
         "required_scopes": ["comment:read"],
+        "operations": ["GET /api/projects/{project_id}/tasks/{id}/comments/{root_comment_id}/"],
         "always_available": true,
         "annotations": {
             "destructiveHint": false,
@@ -656,6 +659,7 @@
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
         "required_scopes": ["query:read"],
+        "operations": ["POST /api/environments/{project_id}/mcp_tools/{tool_name}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -670,6 +674,7 @@
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
         "required_scopes": ["action:read", "event_definition:read", "property_definition:read"],
+        "operations": ["POST /api/environments/{project_id}/mcp_tools/{tool_name}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
