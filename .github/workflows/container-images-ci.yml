@@ -92,6 +92,22 @@ jobs:
                         - .dockerignore
                         - pnpm-lock.yaml
                         - package.json
+                        - pnpm-workspace.yaml
+                        - tsconfig.json
+                        - turbo.json
+                        - frontend/**
+                        - products/**/*.ts
+                        - products/**/*.tsx
+                        - products/**/*.json
+                        - '!products/desktop/**'
+                        - common/esbuilder/**
+                        - common/hogvm/typescript/**
+                        - common/replay-shared/**
+                        - common/tailwind/**
+                        - packages/quill/**
+                        - packages/llm-normalizer/**
+                        - packages/agent/packages/agent-contracts/src/**
+                        - docs/onboarding/**
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:

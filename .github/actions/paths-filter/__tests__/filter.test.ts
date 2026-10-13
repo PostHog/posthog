@@ -32,6 +32,23 @@ describe('yaml filter parsing tests', () => {
 })
 
 describe('matching tests', () => {
+  test('builds the Docker image when frontend source changes', () => {
+    const workflowYaml = readFileSync(
+      path.join(__dirname, '../../../../.github/workflows/container-images-ci.yml'),
+      'utf8'
+    )
+    const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
+    const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
+    const files = modified([
+      'products/posthog_ai/frontend/logics/runStreamLogic.ts',
+      'packages/agent/packages/agent-contracts/src/acp-conversation.ts',
+      'products/desktop/src/App.tsx',
+      'posthog/api/example.py'
+    ])
+
+    expect(new Filter(filtersYaml).match(files).build_inputs).toEqual(files.slice(0, 2))
+  })
+
   test('runs frontend consumer tests when replay-shared source changes', () => {
     const workflowYaml = readFileSync(path.join(__dirname, '../../../../.github/workflows/ci-frontend.yml'), 'utf8')
     const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
