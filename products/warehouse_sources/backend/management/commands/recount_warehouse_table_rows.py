@@ -91,7 +91,6 @@ class Command(BaseCommand):
         for schema, _rows_synced in candidates:
             table = schema.table
             try:
-                # Counts the published files, which can time out on a very large table.
                 row_count = table.get_count()
             except Exception as e:
                 failed += 1

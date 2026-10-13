@@ -509,8 +509,6 @@ class TestValidateSchemaAndUpdateTable:
     def test_a_run_over_several_attempts_stores_the_table_size_not_the_last_attempts_rows(
         self, team, table_exists, sync_type
     ):
-        # A resumed run reports only the rows its last attempt read. The first two attempts of this
-        # run loaded 1,000 rows and the last one 200.
         schema, job = self._schema_and_job(team)
         schema.sync_type = sync_type
         schema.save()

@@ -414,8 +414,6 @@ async def validate_schema_and_update_table(
                 "format": table_format,
                 "url_pattern": new_url_pattern,
                 "team_id": team_id,
-                # A run that resumes reports only the rows of its last attempt, so the Delta log count
-                # is the table size whenever the log gives one.
                 "row_count": live_row_count if live_row_count is not None else row_count,
                 "queryable_folder": queryable_folder,
             }
