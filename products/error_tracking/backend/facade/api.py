@@ -154,7 +154,7 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
             status=ErrorTrackingIssue.Status.ACTIVE,
         )
         .order_by("-created_at")
-        .values("team_id", "name", "id")
+        .values("team_id", "name", "description", "id")
     )
 
 
