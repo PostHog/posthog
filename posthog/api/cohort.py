@@ -1394,8 +1394,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         The flag evaluator loads only non-deleted cohorts. A flag on a cohort that includes a
         deleted one therefore fails on every request. This check covers only this cohort's own
-        references. Deeper references rely on the delete guard, which refuses to delete a cohort
-        that a live cohort includes.
+        references. Each included cohort's own save checks its references. A deeper check here
+        would block this save because of a fault in another cohort.
         """
         instance = cast(Optional[Cohort], self.instance)
         # The delete call sends the whole cohort, criteria included. Checking it would block
