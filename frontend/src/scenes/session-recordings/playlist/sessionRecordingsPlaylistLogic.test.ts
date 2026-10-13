@@ -33,6 +33,7 @@ import {
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
     getEffectiveRecordingFilters,
+    isValidRecordingFilters,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -2899,6 +2900,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const universal = getDefaultFilters()
 
             expect(asUniversalFilters(universal)).toBe(universal)
+        })
+
+        it.each([
+            ['true', true],
+            ['false', false],
+        ])('turns a seeded filter_test_accounts of "%s" into a valid boolean', (stored, expected) => {
+            const seeded = { ...getDefaultFilters(), filter_test_accounts: stored, date_to: 'null' }
+
+            const filters = asUniversalFilters(seeded as any)!
+
+            expect(filters).toMatchObject({ filter_test_accounts: expected, date_to: null })
+            expect(isValidRecordingFilters(filters)).toBe(true)
         })
 
         it('returns undefined when there are no stored filters', () => {
