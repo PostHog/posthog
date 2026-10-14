@@ -20,6 +20,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import (
+    ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -175,7 +176,9 @@ class _EventReader:
         return list(response.results[0]) if response.results else []
 
 
-def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) -> InsightDataChecks:
+def run_insight_data_checks(
+    query: Mapping[str, Any], team: Team, user: User, *, can_read_members: bool
+) -> InsightDataChecks:
     """Check the events an insight reads for the common ways they mislead.
 
     Runs three ClickHouse queries: a cheap count that sets the samples, the checks on a large sample, and the
@@ -190,7 +193,7 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
         if get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk):
             return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
         has_internal_users_filter = bool(team.test_account_filters)
-        own_team = _own_team_emails(team, user)
+        own_team = _own_team_emails(team, user, can_read_members=can_read_members)
         # With `debug` on, a failed query returns an error and no rows, which would read as no events.
         modifiers = events.modifiers.model_copy(update={"debug": False})
         reader = _EventReader(
@@ -249,9 +252,14 @@ def _generic_emails() -> GenericEmails:
     return GenericEmails()
 
 
-def _own_team_emails(team: Team, user: User) -> OwnTeamEmails:
-    """The emails of the people who work on this project: the members of its organization, and its verified domains."""
+def _own_team_emails(team: Team, user: User, *, can_read_members: bool) -> OwnTeamEmails:
+    """The emails of the people who work on this project: the members of its organization, and its verified domains.
+
+    Without `can_read_members`, only the verified domains, because a match would tell the caller who is a member.
+    """
     memberships = OrganizationMembership.objects.filter(organization_id=team.organization_id)
+    if not can_read_members:
+        memberships = memberships.none()
     # A match on the email of a member that `user` may not see would tell `user` that the address is a member's.
     visible_membership_ids = restricted_visible_membership_ids(team.organization, user)
     if visible_membership_ids is not None:
@@ -319,6 +327,7 @@ def _count_events(
         internal_users = _count_internal_user_events(
             events,
             reader,
+            total=total,
             chart_events=round(counts.events / counts.sample_rate),
             has_internal_users_filter=has_internal_users_filter,
             own_team=own_team,
@@ -330,6 +339,7 @@ def _count_events(
         ClickHouseQueryTimeOut,
         ClickHouseEstimatedQueryExecutionTimeTooLong,
         ClickHouseQueryMemoryLimitExceeded,
+        ClickHouseAtCapacity,
     ) as error:
         # This query alone reads the project's filter and person properties, so it can fail when the others pass.
         capture_exception(error)
@@ -371,21 +381,26 @@ def _count_internal_user_events(
     events: ChartEvents,
     reader: _EventReader,
     *,
+    total: int,
     chart_events: int,
     has_internal_users_filter: bool,
     own_team: OwnTeamEmails,
 ) -> InternalUserCounts:
-    """`chart_events` is how many events the chart keeps after its filters, so the sample holds only those."""
+    """`total` is the events in the range before the chart's filters, and `chart_events` the events it keeps."""
     # When the insight applies the filter, the events it would remove are gone before this count.
     counts_filtered_events = has_internal_users_filter and not events.filters_internal_users
     # Without this, a project that joins person properties at query time reads every person to get the emails.
     modifiers = reader.modifiers
     if modifiers.personIdPushdown is None:
         modifiers = modifiers.model_copy(update={"personIdPushdown": True})
+    # The sample is drawn before the chart's filters. It keeps about the events this check needs, and reads no more
+    # events than the first sample of the other checks.
+    sampled = min(total, MAX_CHECKED_EVENTS, MAX_INTERNAL_USERS_CHECKED_EVENTS * total // max(chart_events, 1))
     query = events.select(
         _INTERNAL_USERS_QUERY,
-        where=events.where,
-        sample=ast.SampleExpr(sample_value=_sample(MAX_INTERNAL_USERS_CHECKED_EVENTS, chart_events)),
+        # The persons join reads only the people of the events that match a condition on the events alone.
+        where=ast.And(exprs=[events.sort_key_where, events.where]),
+        sample=ast.SampleExpr(sample_value=_sample(sampled, total)),
         kept_by_filter=(
             property_to_expr(reader.team.test_account_filters, reader.team)
             if counts_filtered_events
@@ -399,7 +414,7 @@ def _count_internal_user_events(
         events=events_count,
         removed_by_filter=removed_by_filter,
         missed_by_filter=missed_by_filter,
-        is_sample=chart_events > MAX_INTERNAL_USERS_CHECKED_EVENTS,
+        is_sample=sampled < total,
     )
 
 

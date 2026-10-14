@@ -11,9 +11,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import APIQueriesBudgetExceeded
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -370,7 +372,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _check(self, query: dict[str, Any]) -> InsightDataChecks:
-        return run_insight_data_checks(query, team=self.team, user=self.user)
+        return run_insight_data_checks(query, team=self.team, user=self.user, can_read_members=True)
 
     def test_counts_each_problem_in_the_events_the_insight_reads(self) -> None:
         result = self._check(self._query())
@@ -607,11 +609,26 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert result.checks[0].level == expected_level
 
-    def test_reports_the_other_checks_when_the_project_filter_cannot_be_read(self) -> None:
-        self.team.test_account_filters = [{"type": "hogql", "key": "timestamp.day"}]
-        self.team.save()
+    @parameterized.expand(
+        [
+            ("the_project_filter_cannot_be_read", [{"type": "hogql", "key": "timestamp.day"}], None),
+            ("the_cluster_is_at_capacity", None, ClickHouseAtCapacity()),
+        ]
+    )
+    def test_reports_the_other_checks_when_the_internal_users_query_fails(
+        self, _name: str, test_account_filters: list[dict[str, Any]] | None, error: Exception | None
+    ) -> None:
+        if test_account_filters is not None:
+            self.team.test_account_filters = test_account_filters
+            self.team.save()
 
-        result = self._check(self._query())
+        def execute(**kwargs: Any) -> Any:
+            if error is not None and kwargs["query_type"] == "insight_data_checks_internal_users":
+                raise error
+            return execute_hogql_query(**kwargs)
+
+        with patch(f"{CHECKS_MODULE}.execute_hogql_query", side_effect=execute):
+            result = self._check(self._query())
 
         assert {check.key: check.level for check in result.checks} == {
             "internal_users": "skipped",
@@ -619,6 +636,49 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             "bot_traffic": "warning",
             "duplicate_events": "warning",
         }
+
+    def test_the_internal_users_sample_reads_no_more_events_than_the_first_sample(self) -> None:
+        samples = []
+
+        def execute(**kwargs: Any) -> Any:
+            if kwargs["query_type"] == "insight_data_checks_internal_users":
+                ratio = kwargs["query"].select_from.sample.sample_value
+                samples.append((ratio.left.value, ratio.right.value if ratio.right else None))
+            return execute_hogql_query(**kwargs)
+
+        with (
+            patch(f"{CHECKS_MODULE}.MAX_CHECKED_EVENTS", 100),
+            patch(f"{CHECKS_MODULE}.execute_hogql_query", side_effect=execute),
+        ):
+            self._check(self._query(properties=[ON_LOCAL_HOST]))
+
+        assert samples == [(100, 630)]
+
+    @parameterized.expand(
+        [
+            ("with_the_member_scope", ["insight:read", "query:read", "organization_member:read"], "problem"),
+            ("without_the_member_scope", ["insight:read", "query:read"], "passed"),
+        ]
+    )
+    def test_a_token_matches_member_emails_only_with_the_member_scope(
+        self, _name: str, scopes: list[str], expected_level: str
+    ) -> None:
+        self._create_user("founder@gmail.com")
+        _create_person(team=self.team, distinct_ids=["founder"], properties={"email": "founder@gmail.com"})
+        self._events(80, distinct_id="founder", event=WIDELY_SENT_EVENT)
+        self._events(120, event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/data_checks/",
+            {"query": self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True)},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.json()["checks"][0]["level"] == expected_level, response.content
 
     def test_an_insight_that_filters_internal_users_passes_that_check(self) -> None:
         result = self._check(self._query(filterTestAccounts=True))

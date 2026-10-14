@@ -102,7 +102,7 @@ from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
 from posthog.rate_limit import (
@@ -2513,6 +2513,10 @@ When set, the specified dashboard's filters and date range override will be appl
         insight = self.get_object()
         return self._data_checks_response(upgrade(insight.query) if insight.query else {})
 
+    def _can_read_members(self) -> bool:
+        scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        return scopes is None or bool({"*", "organization_member:read", "organization_member:write"} & set(scopes))
+
     def _data_checks_response(self, query: dict[str, Any]) -> Response:
         # A personal API key reads within the same hourly budget as the query API, and each check query debits it.
         if get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY:
@@ -2520,7 +2524,12 @@ When set, the specified dashboard's filters and date range override will be appl
             enforce_api_queries_budget(self.team)
         try:
             with query_concurrency_slots(self.team):
-                checks = run_insight_data_checks(query, team=self.team, user=cast(User, self.request.user))
+                checks = run_insight_data_checks(
+                    query,
+                    team=self.team,
+                    user=cast(User, self.request.user),
+                    can_read_members=self._can_read_members(),
+                )
         except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)

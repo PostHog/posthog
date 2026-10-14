@@ -15,9 +15,13 @@ from products.product_analytics.backend import insight_data_checks
 from products.product_analytics.backend.facade.contracts import InsightDataChecks
 
 
-def run_insight_data_checks(query: Mapping[str, Any], *, team: Team, user: User) -> InsightDataChecks:
+def run_insight_data_checks(
+    query: Mapping[str, Any], *, team: Team, user: User, can_read_members: bool
+) -> InsightDataChecks:
     """Check the events an insight query reads for internal users, local traffic, bots and events sent twice.
 
     The checks read the events as `user`, so a property that person may not read stays hidden from them.
+    `can_read_members` is false for a token that may not read the organization's members, so the internal users
+    check does not match their emails.
     """
-    return insight_data_checks.run_insight_data_checks(query, team, user)
+    return insight_data_checks.run_insight_data_checks(query, team, user, can_read_members=can_read_members)
