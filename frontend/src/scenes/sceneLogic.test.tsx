@@ -1,4 +1,10 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
 
 import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
@@ -10,9 +16,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
@@ -55,6 +63,7 @@ const failingLogic = kea<testLogicType>([
 let pendingImportRejection: ((error: Error) => void) | null = null
 
 const testScenes: Record<string, () => any> = {
+    [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
@@ -395,6 +404,34 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
+    })
+
+    it.each([
+        ['without an organization', (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)],
+        [
+            'whose organization has no projects',
+            (): void => {
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
+                })
+                teamLogic.actions.loadCurrentTeamSuccess(null)
+            },
+        ],
+    ])('keeps a signed-in user %s on the agentic consent page', async (_label, setUpUser) => {
+        setUpUser()
+        const originalPath = window.location.pathname
+        // openScene reads window.location, which the test router's memory history never moves.
+        window.history.replaceState(null, '', urls.agenticAuthorize())
+        try {
+            router.actions.push(urls.agenticAuthorize())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.agenticAuthorize())
+            expect(logic.values.sceneId).toEqual(Scene.AgenticAuthorize)
+        } finally {
+            window.history.replaceState(null, '', originalPath)
+        }
     })
 
     it('persists the loaded scenes', async () => {

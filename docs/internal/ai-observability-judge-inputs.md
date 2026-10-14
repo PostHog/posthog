@@ -131,6 +131,8 @@ Models without a catalog match retain their usage with cost left unknown.
 A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
+The instructions ask the judge to follow the evaluation prompt's N/A rules and treat missing essential context or evidence as not applicable.
+A judgeable failure remains applicable; the question tells the judge not to invent missing facts.
 Uncertainty alone does not produce N/A.
 Decision model answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 
