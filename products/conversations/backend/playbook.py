@@ -144,6 +144,13 @@ def _as_custom_addendum(custom: str, inherited_text: str) -> str | None:
     return custom
 
 
+def _inherited_text(*, posthog: bool, overlay: str) -> str:
+    parts = [DEFAULT_SUPPORT_REPLY_INSTRUCTIONS.strip()]
+    if posthog:
+        parts.append(overlay.strip())
+    return "\n\n".join(parts)
+
+
 def _normalize_custom_instructions(custom_instructions: object) -> tuple[str | None, tuple[str, ...]]:
     if custom_instructions is None:
         return None, ()
@@ -177,12 +184,11 @@ def compose_support_playbook(
     )
     custom, warnings = _normalize_custom_instructions(custom_instructions)
 
-    inherited_parts = [DEFAULT_SUPPORT_REPLY_INSTRUCTIONS.strip()]
-    if posthog:
-        inherited_parts.append(overlay.strip())
-    inherited_text = "\n\n".join(inherited_parts)
+    inherited_text = _inherited_text(posthog=posthog, overlay=overlay)
     if custom is not None:
-        custom = _as_custom_addendum(custom, inherited_text)
+        # Settings saves snapshots of the docs-search overlay. Strip that one even when this run has no docs-search.
+        saved_inherited_text = _inherited_text(posthog=posthog, overlay=POSTHOG_SUPPORT_REPLY_INSTRUCTIONS)
+        custom = _as_custom_addendum(custom, saved_inherited_text)
         # Cap the addendum, not a pasted copy of the inherited playbook.
         if custom is not None and len(custom) > MAX_CUSTOM_INSTRUCTIONS_CHARS:
             custom = None
