@@ -496,7 +496,11 @@ class AssistantQueryExecutor:
                     if query_status.get("error_code") in TRANSIENT_QUERY_ERROR_CODES:
                         raise MaxToolTransientError(
                             query_status.get("error_message") or "The query service was too busy to run this query.",
-                            error_type="rate_limited",
+                            error_type=(
+                                "api_5xx"
+                                if query_status.get("error_code") == QueryRanConcurrently.default_code
+                                else "rate_limited"
+                            ),
                         )
                     error_code = query_status.get("error_code")
                     cached_error_type: MaxToolErrorType = (
@@ -523,9 +527,7 @@ class AssistantQueryExecutor:
             raise MaxToolFatalError(str(err), error_type="permission") from err
         except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded, QueryRanConcurrently) as err:
             error_type: MaxToolErrorType = (
-                "rate_limited"
-                if isinstance(err, QueryRanConcurrently) or classify_query_error(err) == QueryErrorCategory.RATE_LIMITED
-                else "api_5xx"
+                "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
             )
             raise MaxToolTransientError(
                 str(err), error_type=error_type, error_code=get_clickhouse_error_code(err)

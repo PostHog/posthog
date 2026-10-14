@@ -118,7 +118,7 @@ export const WithBreakdown: Story = {
 const sampleListData: ErrorIssueListData = {
     count: 4,
     results: [activeIssue, resolvedIssue, issueWithLinks, suppressedIssue],
-    _posthogUrl: 'https://us.posthog.com/project/1/error_tracking',
+    _posthogUrl: 'https://us.posthog.com/project/1/error-tracking',
 }
 
 export const List: Story = {
@@ -272,7 +272,7 @@ const sampleErrorDetails: ErrorDetailsData = {
             },
         },
     ],
-    _posthogUrl: 'https://us.posthog.com/project/1/error_tracking/issue-1',
+    _posthogUrl: 'https://us.posthog.com/project/1/error-tracking/issue-1',
 }
 
 export const ErrorDetails: Story = {

@@ -616,6 +616,9 @@ def get_user_mcp_server_configs(
 
     Returns an empty list on errors (non-fatal).
     """
+    if origin_product == "account_audit":
+        return []
+
     installations = get_installations_for_sandbox(
         team_id,
         user_id=user_id,
@@ -1584,6 +1587,7 @@ def ai_gateway_env_vars(
                 runtime=runtime,
                 internal=internal,
                 prior_slack_run=prior_slack_run,
+                origin_product=origin_product,
                 distinct_id=distinct_id,
             )
             if refusal:

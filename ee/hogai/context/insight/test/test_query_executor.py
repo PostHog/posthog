@@ -648,12 +648,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("at_capacity", "clickhouse_at_capacity", ClickHouseAtCapacity.default_detail, None),
-            ("ran_concurrently", "query_ran_concurrently", QueryRanConcurrently.default_detail, None),
-            ("concurrency_limit_without_message", "clickhouse_at_capacity", None, None),
-            ("direct_capacity", None, ClickHouseAtCapacity.default_detail, ClickHouseAtCapacity()),
-            ("direct_shared_failure", None, QueryRanConcurrently.default_detail, QueryRanConcurrently()),
-            ("direct_concurrency_limit", None, str(ConcurrencyLimitExceeded()), ConcurrencyLimitExceeded()),
+            ("at_capacity", "clickhouse_at_capacity", ClickHouseAtCapacity.default_detail, None, "rate_limited"),
+            ("ran_concurrently", "query_ran_concurrently", QueryRanConcurrently.default_detail, None, "api_5xx"),
+            ("concurrency_limit_without_message", "clickhouse_at_capacity", None, None, "rate_limited"),
+            ("direct_capacity", None, ClickHouseAtCapacity.default_detail, ClickHouseAtCapacity(), "rate_limited"),
+            ("direct_shared_failure", None, QueryRanConcurrently.default_detail, QueryRanConcurrently(), "api_5xx"),
+            (
+                "direct_concurrency_limit",
+                None,
+                str(ConcurrencyLimitExceeded()),
+                ConcurrencyLimitExceeded(),
+                "rate_limited",
+            ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -664,6 +670,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         error_code: str | None,
         error_message: str | None,
         raised_error: Exception | None,
+        expected_error_type: str,
         mock_get_query_status: Mock,
         mock_process_query: Mock,
     ) -> None:
@@ -683,7 +690,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             with self.assertRaises(MaxToolTransientError) as context:
                 await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
 
-        self.assertEqual(context.exception.error_type, "rate_limited")
+        self.assertEqual(context.exception.error_type, expected_error_type)
         self.assertEqual(context.exception.retry_hint, " You may retry this operation once without changes.")
         self.assertIn(
             error_message if raised_error is not None else error_message or "too busy", str(context.exception)
