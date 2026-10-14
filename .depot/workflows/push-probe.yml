@@ -1,0 +1,14 @@
+name: Push probe
+on:
+    push:
+        branches: ['ci/depot-gate-smoke']
+concurrency:
+    group: push-probe-${{ github.ref }}
+    cancel-in-progress: true
+jobs:
+    probe:
+        name: Push probe passes
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo "sha=$GITHUB_SHA ref=$GITHUB_REF event=$GITHUB_EVENT_NAME"
