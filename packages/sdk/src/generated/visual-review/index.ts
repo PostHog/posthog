@@ -109,6 +109,7 @@ export type {
     VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape30,
     VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape31,
     VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape32,
+    VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape33,
     VisualReviewVisualReviewRunsQuarantineLiftsListData,
     VisualReviewVisualReviewRunsQuarantineLiftsListOutput,
     VisualReviewVisualReviewRunsRecomputeCreateInput,

@@ -185061,21 +185061,29 @@ export interface ReplayVisionVisionScannersVariantsListOutput {
     meta: ResponseMeta
 }
 
-export type ReplayVisionVisionScannersWatchFeedRequestSchema4 =
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+export type ReplayVisionVisionScannersWatchFeedRequestSchema3 = number
+
+export type ReplayVisionVisionScannersWatchFeedRequestSchema5 =
     | 'monitor'
     | 'classifier'
     | 'scorer'
     | 'summarizer'
     | 'experiment'
 export interface ReplayVisionVisionScannersWatchFeedInput {
+    /** Comma-separated user IDs. Restrict the feed to observations from scanners those users created. */
+    created_by?: CdpFunctionsCdpFunctionsMetricsRetrieveRequestSchema0
     /** Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days. */
-    date_from?: CdpFunctionsCdpFunctionsMetricsRetrieveRequestSchema0
+    date_from?: CdpFunctionsCdpFunctionsMetricsRetrieveRequestSchema1
     /** Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time. */
-    date_to?: CdpFunctionsCdpFunctionsMetricsRetrieveRequestSchema1
+    date_to?: CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema2
     /** Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding. */
-    limit?: ReplayVisionVisionObservationsSearchRequestSchema2
+    limit?: ReplayVisionVisionScannersWatchFeedRequestSchema3
     /** Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read. */
-    scanner_ids?: CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema3
+    scanner_ids?: ErrorTrackingErrorTrackingSymbolSetsListRequestSchema4
     /** Restrict the feed to observations from scanners of this type.
      *
      * * `monitor` - Monitor
@@ -185083,11 +185091,11 @@ export interface ReplayVisionVisionScannersWatchFeedInput {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
      * * `experiment` - Experiment */
-    scanner_type?: ReplayVisionVisionScannersWatchFeedRequestSchema4
+    scanner_type?: ReplayVisionVisionScannersWatchFeedRequestSchema5
     /** Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it. */
-    search?: AiObservabilityLlmaDatasetListRequestSchema5
+    search?: AiObservabilityLlmaDatasetListRequestSchema6
     /** Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it. */
-    tags?: AiObservabilityLlmaDatasetListRequestSchema6
+    tags?: CustomerAnalyticsFeatureRequestsListRequestSchema7
 }
 
 export interface ReplayVisionVisionScannersWatchFeedData {
