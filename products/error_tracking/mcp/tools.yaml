@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Error tracking
 feature: error_tracking
-url_prefix: /error_tracking
+url_prefix: /error-tracking
 ui_apps:
     error-details:
         type: detail
