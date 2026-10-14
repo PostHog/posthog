@@ -5661,7 +5661,8 @@ class FeatureFlagViewSet(
     @action(
         methods=["POST"],
         detail=True,
-        required_scopes=["feature_flag:read"],
+        # Same-person validation reveals whether the supplied identities are linked.
+        required_scopes=["feature_flag:read", "person:read"],
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def test_evaluation_batch(self, request: request.Request, **kwargs: Any) -> Response:

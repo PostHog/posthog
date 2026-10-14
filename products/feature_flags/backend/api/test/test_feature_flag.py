@@ -14361,26 +14361,43 @@ class TestFeatureFlagHistoricalBatch(APIBaseTest):
         assert mock_query.call_count == expected_scans
         assert mock_flags.call_count == 3
 
-    @parameterized.expand([("feature_flag_read", ["feature_flag:read"], 200), ("person_read", ["person:read"], 403)])
+    @parameterized.expand(
+        [
+            ("feature_flag_read", ["feature_flag:read"], 403),
+            ("person_read", ["person:read"], 403),
+            ("both_scopes", ["feature_flag:read", "person:read"], 200),
+            ("session", None, 200),
+            ("single_id_unchanged", ["feature_flag:read"], 200),
+        ]
+    )
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
-    def test_historical_batch_requires_flag_read_scope(self, name, scopes, expected_status, mock_build, mock_flags):
+    def test_historical_batch_requires_person_and_flag_access(
+        self, name, scopes, expected_status, mock_person, mock_build, mock_flags
+    ):
         flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
         with mute_selected_signals():
-            create_person(team=self.team, distinct_ids=["alpha"])
+            person = create_person(team=self.team, distinct_ids=["alpha", "beta"])
+        mock_person.return_value = (person, ["alpha", "beta"])
         mock_flags.return_value = {"flags": {flag.key: {"enabled": True, "conditions": []}}}
-        token = self.create_personal_api_key_with_scopes(scopes)
-        self.client.logout()
+        if scopes is not None:
+            token = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        single = name == "single_id_unchanged"
+        endpoint = "test_evaluation" if single else "test_evaluation_batch"
+        identities = {"distinct_id": "alpha"} if single else {"distinct_ids": ["alpha", "beta"]}
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
-            {"distinct_ids": ["alpha"], "timestamp": now().isoformat()},
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/{endpoint}/",
+            {**identities, "timestamp": now().isoformat()},
             format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         assert response.status_code == expected_status, response.content
+        assert mock_person.call_count == (1 if expected_status == 200 else 0)
         assert mock_build.call_count == (1 if expected_status == 200 else 0)
-        assert mock_flags.call_count == (1 if expected_status == 200 else 0)
+        assert mock_flags.call_count == ((1 if single else 2) if expected_status == 200 else 0)
 
     @parameterized.expand([("success", False, False), ("history_failure", True, False), ("other_team", False, True)])
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
