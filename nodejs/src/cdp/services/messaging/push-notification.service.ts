@@ -218,7 +218,7 @@ function retriableTokenRejection(error: PushSendError): PushSendError {
         return error
     }
     return new PushSendError(
-        `APNs rejected the provider token, but this key delivered notifications in the last 20 minutes. The notification will be retried. [${error.code}]`,
+        `APNs rejected the provider token, although this key delivered notifications in the last 20 minutes, so the integration credentials are likely fine. [${error.code}]`,
         'apns',
         error.reason,
         'warn',
