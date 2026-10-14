@@ -161,6 +161,17 @@ class TestNewEventsClusterPilot(APIBaseTest):
                 ),
             )
         ]
+        + [
+            ({"useNewEventsCluster": True}, True, True, True, "SELECT 1", "force_async"),
+            ({"useNewEventsCluster": True}, True, True, True, "SELECT 1", "force_blocking", True),
+            (
+                {"useNewEventsCluster": True},
+                True,
+                True,
+                True,
+                {"kind": "PropertyValuesQuery", "property_key": "$browser", "property_type": "event"},
+            ),
+        ]
     )
     def test_query_route_requires_an_eligible_explicit_blocking_opt_in(
         self,
@@ -168,8 +179,12 @@ class TestNewEventsClusterPilot(APIBaseTest):
         eligible: bool,
         native_table: bool,
         native_cluster: bool,
-        sql: str = "SELECT count() AS n FROM events",
+        sql: str | dict[str, str] = "SELECT count() AS n FROM events",
+        refresh: str = "force_blocking",
+        async_: bool = False,
     ) -> None:
+        query = {"kind": "HogQLQuery", "query": sql} if isinstance(sql, str) else sql
+        unsupported = native_cluster and (query["kind"] != "HogQLQuery" or refresh != "force_blocking" or async_)
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
             patch(
@@ -182,17 +197,19 @@ class TestNewEventsClusterPilot(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/",
                 {
-                    "query": {"kind": "HogQLQuery", "query": sql, "modifiers": modifiers},
-                    "refresh": "force_blocking",
-                    "async": False,
+                    "query": {**query, "modifiers": modifiers},
+                    "refresh": refresh,
+                    "async": async_,
                 },
                 format="json",
             )
-        rejected = native_cluster and not eligible
+        rejected = native_cluster and (not eligible or unsupported)
         self.assertEqual(response.status_code, 400 if rejected else 200, response.json())
         enqueue.assert_not_called()
         if rejected:
             execute.assert_not_called()
+            if unsupported:
+                self.assertIn("Native cluster comparisons", response.json()["detail"])
             return
         self.assertEqual("events_json" in execute.call_args.args[0], native_table)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native_cluster)
