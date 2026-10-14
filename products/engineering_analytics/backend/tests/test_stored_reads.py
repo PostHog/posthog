@@ -139,20 +139,26 @@ class TestStoredReads(BaseTest):
             ("stored_rows_older_than_the_sync", True, timedelta(minutes=30), timedelta(minutes=30)),
             ("stored_rows_newer_than_the_sync", True, timedelta(minutes=1), timedelta(minutes=5)),
             ("flag_off", False, timedelta(minutes=30), timedelta(minutes=5)),
+            ("the_stored_days_lookup_fails", True, OperationalError("down"), timedelta(minutes=5)),
         ]
     )
     def test_ci_data_freshness_is_as_old_as_the_stored_rows_reads_take(
-        self, _name: str, flag: bool, stored_age: timedelta, expected_age: timedelta
+        self, _name: str, flag: bool, stored_age: timedelta | Exception, expected_age: timedelta
     ) -> None:
         now = timezone.now()
         ExternalDataSchema.objects.filter(team=self.team).update(last_synced_at=now - timedelta(minutes=5))
-        stored = SimpleNamespace(ready=True, job_ids=[uuid4()], computed_at=now - stored_age)
+        lookup: dict[str, Any] = (
+            {"side_effect": stored_age}
+            if isinstance(stored_age, Exception)
+            else {"return_value": SimpleNamespace(ready=True, job_ids=[uuid4()], computed_at=now - stored_age)}
+        )
 
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
             patch(f"{_CURATED}.refresh_ci_precompute"),
             patch(f"{_CURATED}.team_flag", return_value=flag),
-            patch(f"{_CI_PRECOMPUTE}.ensure_stored", return_value=stored),
+            patch(f"{_CI_PRECOMPUTE}.history_start", return_value=now - timedelta(days=400)),
+            patch(f"{_CI_PRECOMPUTE}.ensure_stored", **lookup),
         ):
             freshness = CuratedGitHubSource.for_team(self.team).ci_data_freshness()
 

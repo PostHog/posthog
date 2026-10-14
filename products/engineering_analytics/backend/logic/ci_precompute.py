@@ -416,11 +416,14 @@ class StoredCiReader:
         yesterday = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         computed_at: list[datetime] = []
         for stored in (STORED_RUNS, STORED_JOBS):
+            start = history_start(stored, self._team, self._source)
+            if start is None:
+                return None
             result = ensure_stored(
                 stored,
                 self._team,
                 self._source,
-                since=yesterday,
+                since=max(yesterday, start),
                 run_inserts=False,
                 stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
             )

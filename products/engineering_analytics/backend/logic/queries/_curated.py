@@ -407,8 +407,14 @@ class CuratedGitHubSource:
         synced = resolve_ci_data_freshness(
             team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
-        reader = self._stored_ci_reader()
-        refreshed_at = reader.refreshed_at() if reader else None
+        try:
+            reader = self._stored_ci_reader()
+            refreshed_at = reader.refreshed_at() if reader else None
+        except Exception:
+            # The stored rows only change how old an answer can be, so a failure to find them must not
+            # fail the answer.
+            logger.warning("engineering_analytics_stored_read_unavailable", team_id=self._team.pk, exc_info=True)
+            refreshed_at = None
         if synced.as_of is None or refreshed_at is None:
             return synced
         return replace(synced, as_of=min(synced.as_of, refreshed_at))
