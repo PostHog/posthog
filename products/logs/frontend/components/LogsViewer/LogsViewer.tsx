@@ -51,8 +51,6 @@ export interface LogsViewerProps {
     defaultFacetRailCollapsed?: boolean
     // Same, for the volume chart. Panels embedded in a short pane start without it.
     defaultSparklineCollapsed?: boolean
-    // Lift the log details drawer above popovers, for a viewer embedded in a modal that sits there.
-    logDetailsAbovePopovers?: boolean
 }
 
 export function LogsViewer({
@@ -65,7 +63,6 @@ export function LogsViewer({
     sessionId,
     defaultFacetRailCollapsed,
     defaultSparklineCollapsed,
-    logDetailsAbovePopovers = false,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
@@ -82,7 +79,6 @@ export function LogsViewer({
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
-                                        logDetailsAbovePopovers={logDetailsAbovePopovers}
                                     />
                                 </BindLogic>
                             </BindLogic>
@@ -106,12 +102,10 @@ function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
     scope,
-    logDetailsAbovePopovers,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
     scope: LogsViewerScope
-    logDetailsAbovePopovers: boolean
 }): JSX.Element {
     const {
         id,
@@ -423,7 +417,7 @@ function LogsViewerContent({
                     {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
                 </div>
             </div>
-            <LogDetailsModal timezone={timezone} forceAbovePopovers={logDetailsAbovePopovers} />
+            <LogDetailsModal timezone={timezone} />
             <LogsMetricRuleQuickCreateModal />
         </div>
     )

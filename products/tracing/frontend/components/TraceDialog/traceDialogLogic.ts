@@ -8,6 +8,12 @@ import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    type SessionPlayerModalContext,
+    sessionPlayerModalLogic,
+} from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+
+import type { SessionRecordingType } from '~/types'
 
 import { buildSpanTree, flattenTree, parseTimestampUs, type SpanNode } from 'products/tracing/frontend/spanTree'
 import { resolveTraceLookupRange } from 'products/tracing/frontend/traceLinks'
@@ -89,6 +95,15 @@ export interface traceDialogLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    openSessionPlayer: (
+        sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
+        initialTimestamp?: number | null,
+        modalContext?: SessionPlayerModalContext
+    ) => {
+        initialTimestamp: number | null
+        modalContext: SessionPlayerModalContext
+        sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
+    } // sessionPlayerModalLogic
     closeTraceDialog: () => {
         value: true
     }
@@ -155,7 +170,7 @@ export type traceDialogLogicType = MakeLogicType<
 export const traceDialogLogic = kea<traceDialogLogicType>([
     path(['products', 'tracing', 'frontend', 'components', 'TraceDialog', 'traceDialogLogic']),
     connect(() => ({
-        actions: [router, ['locationChanged']],
+        actions: [router, ['locationChanged'], sessionPlayerModalLogic, ['openSessionPlayer']],
         values: [tracingCorrelationConfigLogic, ['sessionErrorBadgesEnabled'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -315,6 +330,12 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
     listeners(({ values, actions, cache }) => ({
         openTraceDialog: ({ trace }) => {
             actions.loadTraceSpans(trace)
+        },
+        // The player is a global modal below this one, so a recording link in the inspector would open behind it.
+        openSessionPlayer: () => {
+            if (values.isOpen) {
+                actions.closeTraceDialog()
+            }
         },
         locationChanged: ({ pathname }) => {
             // Query and hash changes fire locationChanged too, so only a new pathname closes the dialog.
