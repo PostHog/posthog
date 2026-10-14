@@ -48,7 +48,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
     revoke_oauth_session,
 )
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -5079,6 +5079,16 @@ class TestOAuthAPI(APIBaseTest):
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_derives_scoped_teams_for_first_party_app(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        restricted_team = Team.objects.create(organization=self.organization, name="Restricted Team")
+        AccessControl.objects.create(
+            team=restricted_team, resource="project", resource_id=str(restricted_team.id), access_level="none"
+        )
         app = self._create_first_party_app(slug="first-party-derive")
         grant = OAuthGrant.objects.create(
             application=app,
@@ -5106,6 +5116,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertIn(self.team.pk, data["scoped_teams"])
+        self.assertNotIn(restricted_team.pk, data["scoped_teams"])
 
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
         self.assertEqual(access_token.scoped_teams, [])

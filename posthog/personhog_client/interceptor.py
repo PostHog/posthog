@@ -163,6 +163,9 @@ _RETRYABLE_CODES = frozenset(
 # not an application-level failure, so unlike INTERNAL in general it's always safe to retry.
 _DESERIALIZATION_FAILURE_DETAILS = "Exception deserializing response!"
 
+# Must match DB_TIMEOUT_METADATA_KEY in rust/personhog-common/src/grpc.rs.
+_DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
+
 
 def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Collection[grpc.StatusCode]) -> bool:
     if code is None:
@@ -172,12 +175,16 @@ def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Coll
     return code == grpc.StatusCode.INTERNAL and details == _DESERIALIZATION_FAILURE_DETAILS
 
 
+def _is_db_timeout(exc: grpc.RpcError) -> bool:
+    return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in exc.trailing_metadata() or ())
+
+
 def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
     """Whether ``exc``, or the error it was raised from, is a gRPC failure with a status in ``codes``.
 
     Follows ``__cause__`` so a caller that wrapped the RpcError (``personhog_call(reraise_as=...)``)
     still classifies the underlying transport failure. ``codes`` defaults to the in-process
-    RetryInterceptor policy; a caller that retries at a slower tier passes its own set.
+    RetryInterceptor's code set. A caller that retries at a slower tier passes its own set.
     """
     current: BaseException | None = exc
     while current is not None:
@@ -197,12 +204,14 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     Covers five failure modes:
     - UNAVAILABLE: client-to-router connection failure
     - ABORTED: HTTP/2 stream reset during router deploys
-    - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
+    - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness), but not a
+      Postgres statement or lock timeout, which personhog marks with ``_DB_TIMEOUT_METADATA_KEY``
     - UNKNOWN: catch-all for transient failures that don't map to a specific code
     - INTERNAL, but only the client-side response deserialization failure (see
       ``_DESERIALIZATION_FAILURE_DETAILS``) - INTERNAL otherwise stays terminal here since personhog
-      also maps DB-level conditions (lock timeouts, a read-only primary) to it, and those must not be
-      hammered with a fast in-process retry.
+      also maps DB-level conditions (a deadlock, a read-only primary) to it.
+
+    DB-level conditions, timeouts included, must not be hammered with a fast in-process retry.
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
     """
@@ -233,7 +242,7 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
                 details_fn = getattr(exc, "details", None)
                 details = details_fn() if callable(details_fn) else None
                 error_type = _grpc_error_type(code) if code else "Unknown"
-                retryable = _is_retryable(code, details, _RETRYABLE_CODES)
+                retryable = _is_retryable(code, details, _RETRYABLE_CODES) and not _is_db_timeout(exc)
 
                 if not retryable or attempt == self._max_retries:
                     PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
