@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
 from posthog.models.utils import UUIDTModel
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
@@ -9,7 +10,7 @@ from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
 from products.ai_observability.backend.models.taggers import LLMTaggerConfig, TagDefinition, Tagger
 
 
-class TestLLMTaggerConfig(BaseTest):
+class TestLLMTaggerConfig(SimpleTestCase):
     def test_valid_config(self):
         config = LLMTaggerConfig(
             prompt="Which features were discussed?",
