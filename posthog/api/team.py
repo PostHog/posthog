@@ -1468,12 +1468,14 @@ class ConversationsSettingsField(serializers.JSONField):
     pass
 
 
-def merge_modifiers(requested: dict | None, existing: dict | None) -> dict | None:
+def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
+    # Django admin can store a scalar or list here. Treat it as empty rather than raising.
+    stored = existing if isinstance(existing, dict) else {}
     if requested is not None:
-        return {**(existing or {}), **requested}
+        return {**stored, **requested}
     # PostHog staff set useNewEventsSchema per project, so a client that clears its modifiers keeps it.
-    if existing and "useNewEventsSchema" in existing:
-        return {"useNewEventsSchema": existing["useNewEventsSchema"]}
+    if "useNewEventsSchema" in stored:
+        return {"useNewEventsSchema": stored["useNewEventsSchema"]}
     return None
 
 

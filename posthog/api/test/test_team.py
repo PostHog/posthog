@@ -1424,16 +1424,36 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
 
-        @parameterized.expand([("environments",), ("projects",)])
-        def test_clearing_modifiers_keeps_use_new_events_schema(self, prefix: str) -> None:
-            self.team.modifiers = {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+        @parameterized.expand(
+            [
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                ("environments", True, None, None),
+                ("projects", ["useNewEventsSchema"], None, None),
+                ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
+            ]
+        )
+        def test_patching_modifiers_keeps_only_use_new_events_schema(
+            self, prefix: str, stored: object, patched: dict | None, expected: dict | None
+        ) -> None:
+            self.team.modifiers = stored
             self.team.save()
 
-            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": None}, format="json")
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": patched}, format="json")
             assert response.status_code == status.HTTP_200_OK, response.json()
 
             self.team.refresh_from_db()
-            assert self.team.modifiers == {"useNewEventsSchema": True}
+            assert self.team.modifiers == expected
 
         @parameterized.expand(
             [
