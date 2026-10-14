@@ -131,7 +131,11 @@ def _install_continuation(state: str) -> str:
 
 
 def _forget_install_continuation(state: str) -> None:
-    cache.delete(_install_continuation_cache_key(state))
+    # Runs after Vercel's code is spent, so failing here would strand the user; the entry expires anyway.
+    try:
+        cache.delete(_install_continuation_cache_key(state))
+    except Exception as e:
+        capture_exception(e, {"reason": "install_continuation_cleanup_failed", "integration": "vercel"})
 
 
 def _drop_excess_install_state_cookies(request: Request, response: HttpResponse) -> None:

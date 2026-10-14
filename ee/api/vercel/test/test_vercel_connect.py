@@ -429,6 +429,21 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         session = _load_connect_session(_session_token_from_redirect(retried["Location"]))
         assert session["next_url"] == "https://vercel.com/marketplace"
 
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.capture_exception")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_cache_failure_after_exchange_still_reaches_link_page(
+        self, mock_client_class: MagicMock, _mock_capture_exception: MagicMock
+    ) -> None:
+        _mock_vercel_client(mock_client_class)
+        state = _state_from_install_redirect(self.client.get(self.url, {"code": "code_from_marketplace"}))
+
+        with patch("ee.api.vercel.vercel_connect.cache.delete", side_effect=ConnectionError("cache unavailable")):
+            response = self.client.get(self.url, {"code": "code_from_install", "source": "external", "state": state})
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/connect/vercel/link?")
+
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectSessionInfo(VercelConnectTestBase):
