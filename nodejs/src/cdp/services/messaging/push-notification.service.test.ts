@@ -1079,6 +1079,20 @@ describe('PushNotificationService', () => {
                     expect(result.invocation.queueScheduledAt).toBeDefined()
                     expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
                 }
+
+                // Acceptance carried for a different signing key does not make this key's rejection retriable.
+                const otherKeyCarried = {
+                    ...rescheduled.invocation,
+                    queueMetadata: { tries: 1, apnsAcceptedKeys: ['0000000000000000'] },
+                }
+                const failed = await new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                ).executeSendPushNotification(otherKeyCarried)
+                expect(failed.finished).toBe(true)
+                expect(failed.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
             })
 
             it('reuses a token another pod already put in place of the rejected one', async () => {

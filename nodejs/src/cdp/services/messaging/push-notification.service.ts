@@ -213,22 +213,31 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
 
 // Apple sometimes rejects a token that the rest of the fleet keeps sending with, and the refresh limit can
 // block a new token for 20 minutes. A key that delivered recently works, so retry instead of failing the send.
-function retriableTokenRejection(error: PushSendError): PushSendError {
+class ApnsTokenRejectionError extends PushSendError {
+    constructor(
+        message: string,
+        code: string,
+        retryAfterMs: number | undefined,
+        public readonly keyRef: string
+    ) {
+        super(message, 'apns', 'auth_error', 'warn', true, code, retryAfterMs)
+    }
+}
+
+function retriableTokenRejection(error: PushSendError, keyRef: string): PushSendError {
     if (!error.code || !APNS_REJECTED_TOKEN_CODES.has(error.code)) {
         return error
     }
-    return new PushSendError(
+    return new ApnsTokenRejectionError(
         `APNs rejected the provider token, although this key delivered notifications in the last 20 minutes, so the integration credentials are likely fine. [${error.code}]`,
-        'apns',
-        error.reason,
-        'warn',
-        true,
         error.code,
-        error.retryAfterMs
+        error.retryAfterMs,
+        keyRef
     )
 }
 
-type PushQueueMetadata = { tries?: number; apnsKeyAccepted?: boolean }
+// apnsAcceptedKeys holds a short prefix of each key fingerprint, never key material.
+type PushQueueMetadata = { tries?: number; apnsAcceptedKeys?: string[] }
 
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
@@ -385,13 +394,16 @@ export class PushNotificationService {
             // which pops an empty stack and throws a bytecode error, dropping the notification.
             result.invocation.queueParameters = invocation.queueParameters
             // A retry can land on a pod that has not delivered with this key yet, so carry the evidence that the key works.
-            const apnsKeyAccepted =
-                metadata.apnsKeyAccepted ||
-                retriableErrors.some((e) => e.code !== undefined && APNS_REJECTED_TOKEN_CODES.has(e.code))
+            const apnsAcceptedKeys = new Set(metadata.apnsAcceptedKeys ?? [])
+            for (const e of retriableErrors) {
+                if (e instanceof ApnsTokenRejectionError) {
+                    apnsAcceptedKeys.add(e.keyRef)
+                }
+            }
             result.invocation.queueMetadata = {
                 ...metadata,
                 tries: nextTries,
-                ...(apnsKeyAccepted ? { apnsKeyAccepted: true } : {}),
+                ...(apnsAcceptedKeys.size > 0 ? { apnsAcceptedKeys: [...apnsAcceptedKeys] } : {}),
             }
             result.invocation.queuePriority = nextTries
             // Retrying re-attempts every failed channel, so wait out the LONGEST Retry-After any channel
@@ -621,6 +633,7 @@ export class PushNotificationService {
 
         let jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
         const keyFingerprint = this.apnsKeyFingerprint(appleTeamId, keyId, signingKey)
+        const keyRef = keyFingerprint.slice(0, 16)
         const apnsHost =
             integration.config.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
@@ -663,9 +676,9 @@ export class PushNotificationService {
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
                 const keyAccepted =
-                    (invocation.queueMetadata as PushQueueMetadata | undefined)?.apnsKeyAccepted ||
+                    (invocation.queueMetadata as PushQueueMetadata | undefined)?.apnsAcceptedKeys?.includes(keyRef) ||
                     this.apnsKeyAcceptedRecently(keyFingerprint)
-                const error = keyAccepted ? retriableTokenRejection(outcome.error) : outcome.error
+                const error = keyAccepted ? retriableTokenRejection(outcome.error, keyRef) : outcome.error
                 failures.push(error)
                 retriableFailure = longestRetriableFailure(retriableFailure, error)
             }
