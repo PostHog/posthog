@@ -166,13 +166,15 @@ def list_step_templates(team: Team) -> list[StepTemplate]:
     """The function templates a workflow step can use, as the editor's step picker offers them."""
     excluded_ids = set(hidden_gated_template_ids(team)) | _OWN_STEP_TYPE_TEMPLATE_IDS
     latest: dict[str, HogFunctionTemplate] = {}
+    # DISTINCT ON keeps the newest version of each template in the query, so old versions never reach the worker.
     for template in (
         HogFunctionTemplate.objects.filter(type="destination")
         .exclude(status__in=["deprecated", "coming_soon"])
+        .exclude(template_id__in=excluded_ids)
         .order_by("template_id", "-created_at")
+        .distinct("template_id")
+        .only("template_id", "name", "description", "status", "mapping_templates", "inputs_schema")
     ):
-        if template.template_id in latest or template.template_id in excluded_ids:
-            continue
         if template.status == "hidden" and template.template_id not in _BUILT_IN_STEP_TEMPLATE_IDS:
             continue
         # The worker does not apply mappings, so a mapping destination with a secret input cannot run as a step.
