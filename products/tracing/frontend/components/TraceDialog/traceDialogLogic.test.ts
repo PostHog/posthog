@@ -9,6 +9,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 import type { Span } from 'products/tracing/frontend/types'
 
 import { traceDialogLogic } from './traceDialogLogic'
@@ -229,11 +230,12 @@ describe('traceDialogLogic', () => {
         }).toMatchValues({ missingParentSpanId: null })
     })
 
-    it('closes when a recording opens, since the player sits behind the dialog', async () => {
+    it.each([
+        ['a recording opens', () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })],
+        ['the full-screen logs viewer opens', () => logsViewerModalLogic.actions.openLogsViewerModal()],
+    ])('closes when %s, since that modal sits behind the dialog', async (_name, open) => {
         logic.actions.openTraceDialog({ traceId: 'abc123' })
 
-        await expectLogic(logic, () => {
-            sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })
-        }).toMatchValues({ isOpen: false })
+        await expectLogic(logic, open).toMatchValues({ isOpen: false })
     })
 })
