@@ -214,7 +214,9 @@ class TestRateLimit(SimpleTestCase):
             pass
 
         # Second task should retry and eventually fail due to timeout
-        retry_limit.use(task_id=2)
+        slot = retry_limit.use(task_id=2)
+        assert slot is not None
+        self.addCleanup(retry_limit.release, slot)
         with self.assertRaises(ConcurrencyLimitExceeded):
             with retry_limit.run(task_id=2):
                 pass
