@@ -17,7 +17,7 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQue
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
-from posthog.ph_client import get_client
+from posthog.ph_client import get_client, ph_scoped_capture
 from posthog.utils import get_instance_region
 
 from products.messaging.backend.facade.api import EmailTemplateContent, EmailTemplateSummary, get_template_email_content
@@ -26,9 +26,15 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestion,
     DataSuggestionNotFound,
     DataSuggestionsResult,
+    MissingInput,
 )
 from products.workflows.backend.services.data_suggestions import team_context
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, clean_copy
+from products.workflows.backend.services.data_suggestions.builder import (
+    BuildContext,
+    build_workflow,
+    clean_copy,
+    missing_inputs,
+)
 from products.workflows.backend.services.data_suggestions.event_volume import weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
@@ -49,7 +55,7 @@ from products.workflows.backend.services.data_suggestions.stages import (
     StageClassificationFailed,
     classify_event_stages,
 )
-from products.workflows.backend.services.hog_flow_templates import list_step_templates
+from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -174,6 +180,12 @@ def start_build(
     return _read_build(team.id, suggestion_id, caller) or _BUILDING
 
 
+def build_caller(event_source: str, *, save: bool) -> str:
+    """The key a build is stored under. A saved build is checked with the editor's draft rules, so it differs from an
+    unsaved build for the same caller."""
+    return f"{event_source}:save" if save else event_source
+
+
 def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
     stored = _read_build(team.id, suggestion_id, caller)
@@ -188,9 +200,11 @@ def run_build(
     suggestion_id: str,
     caller: str,
     lock_token: str,
-    is_valid_draft: Callable[[Team, dict[str, Any]], bool],
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    save_draft: Callable[[Team, User, dict[str, Any]], str] | None = None,
 ) -> None:
-    """The background build that `start_build` queues. It stores the result and releases the lock."""
+    """The background build that `start_build` queues. It stores the result and releases the lock. With `save_draft`
+    it also saves the draft, for callers like agents that cannot save one in the editor."""
     lock_key = _build_lock_key(team_id, suggestion_id, caller)
     try:
         try:
@@ -202,9 +216,12 @@ def run_build(
             if team.organization.is_ai_data_processing_approved is not True or suggestion is None or cached is None:
                 result = _BUILD_FAILED
             else:
-                result = _plan_and_build(
-                    team=team, user=user, suggestion=suggestion, events=cached.events, is_valid_draft=is_valid_draft
+                result, validated = _plan_and_build(
+                    team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
                 )
+                if save_draft is not None and validated is not None:
+                    result = dataclasses.replace(result, workflow_id=save_draft(team, user, validated))
+                    _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
         except Exception as error:
             # Without a stored failure the next poll finds no result and no lock, and queues the same build again.
             logger.exception("workflows.data_suggestions.build_failed", team_id=team_id)
@@ -223,8 +240,8 @@ def _plan_and_build(
     user: User,
     suggestion: DataSuggestion,
     events: tuple[str, ...],
-    is_valid_draft: Callable[[Team, dict[str, Any]], bool],
-) -> BuiltSuggestion:
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+) -> tuple[BuiltSuggestion, dict[str, Any] | None]:
     idea = WorkflowIdea(
         name=suggestion.name,
         description=suggestion.description,
@@ -251,7 +268,7 @@ def _plan_and_build(
             analytics_client=analytics_client,
         )
     if plan is None:
-        return _BUILD_FAILED
+        return _BUILD_FAILED, None
 
     built = build_workflow(
         idea,
@@ -266,12 +283,47 @@ def _plan_and_build(
             once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         ),
     )
-    if built is None or not is_valid_draft(team, built.workflow):
-        return _BUILD_FAILED
+    if built is None:
+        return _BUILD_FAILED, None
+    validated = validate_draft(team, built.workflow)
     # Saved templates are copied into every email step, and a draft larger than a request body cannot be saved.
-    if len(json.dumps(built.workflow)) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE:
-        return _BUILD_FAILED
-    return BuiltSuggestion(status="ready", workflow=built.workflow, uses_saved_template=built.uses_saved_template)
+    if validated is None or len(json.dumps(built.workflow)) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE:
+        return _BUILD_FAILED, None
+    result = BuiltSuggestion(
+        status="ready",
+        workflow=built.workflow,
+        uses_saved_template=built.uses_saved_template,
+        missing_inputs=missing_inputs(built.workflow, _input_schemas(built.workflow)),
+    )
+    return result, validated
+
+
+def _input_schemas(workflow: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    template_ids = {(action.get("config") or {}).get("template_id") for action in workflow["actions"]}
+    schemas: dict[str, list[dict[str, Any]]] = {}
+    for template_id in {template_id for template_id in template_ids if isinstance(template_id, str)}:
+        schema = get_function_template_schema(template_id)
+        if schema is not None:
+            schemas[template_id] = list(schema.inputs_schema or [])
+    return schemas
+
+
+def _capture_saved_build(*, user: User, suggestion: DataSuggestion, result: BuiltSuggestion, caller: str) -> None:
+    # The web page sends this event from the browser. A saved build has no browser, so the funnel gets it from here.
+    with ph_scoped_capture() as capture:
+        # pinned: analytics event name - renaming breaks dashboards
+        capture(
+            distinct_id=user.distinct_id,
+            event="workflows data suggestion built",
+            properties={
+                "workflow_id": result.workflow_id,
+                "source": caller.removesuffix(":save"),
+                "trigger_event": suggestion.trigger_event,
+                "stage": suggestion.stage,
+                "uses_saved_template": result.uses_saved_template,
+                "missing_inputs": len(result.missing_inputs),
+            },
+        )
 
 
 def _chosen_template_bodies(
@@ -344,7 +396,9 @@ def _read_build(team_id: int, suggestion_id: str, caller: str) -> BuiltSuggestio
     if not isinstance(stored, dict):
         return None
     try:
-        return BuiltSuggestion(**stored)
+        return BuiltSuggestion(
+            **{**stored, "missing_inputs": tuple(MissingInput(**item) for item in stored.get("missing_inputs") or ())}
+        )
     except TypeError:
         return None
 

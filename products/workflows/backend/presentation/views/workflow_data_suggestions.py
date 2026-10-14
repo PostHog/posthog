@@ -17,6 +17,7 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.workflows.backend.facade.contracts import DataSuggestionNotFound
 from products.workflows.backend.facade.data_suggestions import (
+    build_caller,
     get_data_suggestions,
     needs_new_build,
     needs_new_generation,
@@ -101,6 +102,11 @@ class DataSuggestionBuildRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Start a new build when the last one failed. Leave it false when asking for a running build's status.",
     )
+    save_draft = serializers.BooleanField(
+        default=False,
+        help_text="Save the built draft in the project and return its workflow_id. Blank settings, like a webhook "
+        "URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving.",
+    )
 
 
 class DataSuggestionBuildStatus(models.TextChoices):
@@ -109,20 +115,36 @@ class DataSuggestionBuildStatus(models.TextChoices):
     FAILED = "failed"
 
 
+class DataSuggestionMissingInputSerializer(serializers.Serializer):
+    step_id = serializers.CharField(help_text="The id of the workflow step (action) the setting belongs to.")
+    step_name = serializers.CharField(help_text="The step's name, as the editor shows it.")
+    field = serializers.CharField(
+        help_text="The setting to fill, like 'Webhook URL', 'Email sender' or 'Condition: Is on a paid plan'."
+    )
+
+
 class DataSuggestionBuildResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=DataSuggestionBuildStatus.choices,
         help_text="ready when the draft is built, building while a background build runs (call build again to "
-        "check), failed when the plan did not produce a valid workflow. A failed result is reported once, so the "
-        "next call starts a new build.",
+        "check), failed when the plan did not produce a valid workflow. A failed result stays until a call sends "
+        "retry.",
     )
     workflow = serializers.JSONField(
         allow_null=True,
         help_text="With status ready: a validated draft workflow (name, description, trigger, actions, edges, "
-        "conversion, exit_condition) that the workflow create endpoint accepts from this caller. Nothing is saved "
-        "by this call. Null otherwise.",
+        "conversion, exit_condition) that the workflow create endpoint accepts from this caller. Saved only with "
+        "save_draft. Null otherwise.",
     )
     uses_saved_template = serializers.BooleanField(help_text="Whether an email step reuses a saved email template.")
+    workflow_id = serializers.CharField(
+        allow_null=True,
+        help_text="With status ready and save_draft: the id of the saved draft workflow. Null otherwise.",
+    )
+    missing_inputs = DataSuggestionMissingInputSerializer(
+        many=True,
+        help_text="With status ready: the settings the draft leaves blank, which must be filled before it is enabled.",
+    )
 
 
 class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -155,7 +177,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return not payload.is_valid() or needs_new_build(
             team=self.team,
             suggestion_id=payload.validated_data["suggestion_id"],
-            caller=get_event_source(self.request).value,
+            caller=build_caller(get_event_source(self.request).value, save=payload.validated_data["save_draft"]),
             retry=payload.validated_data["retry"],
         )
 
@@ -199,6 +221,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 user=user,
                 suggestion_id=payload.validated_data["suggestion_id"],
                 retry=payload.validated_data["retry"],
+                save=payload.validated_data["save_draft"],
                 event_source=get_event_source(request),
             )
         except DataSuggestionNotFound:

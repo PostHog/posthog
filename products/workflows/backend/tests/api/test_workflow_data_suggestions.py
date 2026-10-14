@@ -10,6 +10,7 @@ from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
 from posthog.errors import InternalCHQueryError
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -20,7 +21,7 @@ from products.messaging.backend.facade.testing import create_message_template_fo
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
+from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
@@ -31,15 +32,18 @@ from products.workflows.backend.services.data_suggestions.planner import (
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
     _build_key,
+    _build_lock_key,
     _cache_key,
     _generation_lock_key,
     _to_cache,
+    build_caller,
     run_data_suggestions,
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.services.data_suggestions.team_context import email_sender
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
+from products.workflows.backend.tasks.data_suggestions import build_data_suggestion
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
@@ -481,6 +485,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         branch = next(action for action in built.workflow["actions"] if action["type"] == "conditional_branch")
         # The editor's schema rejects null filters, so a suggested branch must look like one added by hand.
         assert branch["config"]["conditions"] == [{"filters": {}, "name": "Is on a paid plan"}]
+        assert [item.field for item in missing_inputs(built.workflow, {})] == ["Condition: Is on a paid plan"]
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
@@ -624,7 +629,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        assert response.json() == {"status": "building", "workflow": None, "uses_saved_template": False}
+        assert response.json() == {
+            "status": "building",
+            "workflow": None,
+            "uses_saved_template": False,
+            "workflow_id": None,
+            "missing_inputs": [],
+        }
         plan_steps.assert_not_called()
 
     @patch(f"{SERVICE}.plan_steps")
@@ -645,13 +656,37 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         web = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
         self.client.logout()
-        api = self.client.post(
-            build_url, {"suggestion_id": suggestion_id}, format="json", headers={"authorization": f"Bearer {key}"}
+        auth = {"authorization": f"Bearer {key}"}
+        api = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json", headers=auth)
+        saved = self.client.post(
+            build_url, {"suggestion_id": suggestion_id, "save_draft": True}, format="json", headers=auth
         )
 
         # The webhook URL stays blank, which the web editor saves as a draft and an API client's create rejects.
         assert web.json()["status"] == "ready"
         assert api.json()["status"] == "failed"
+        # Saving keeps the blank and lists it, so an agent can ask the user for it.
+        draft = HogFlow.objects.get(team=self.team, id=saved.json()["workflow_id"])
+        assert draft.status == "draft"
+        notify = next(action["id"] for action in draft.actions if action["type"] == "function")
+        assert notify in {item["step_id"] for item in saved.json()["missing_inputs"]}
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_worker_saves_a_built_draft_outside_any_request(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        caller = build_caller(EventSource.API.value, save=True)
+        cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "token", 60)
+
+        build_data_suggestion(self.team.id, self.user.id, suggestion_id, "token", EventSource.API.value, True)
+
+        built = cache.get(_build_key(self.team.id, suggestion_id, caller))
+        assert built["status"] == "ready"
+        assert HogFlow.objects.filter(team=self.team, id=built["workflow_id"], status="draft").exists()
 
     @parameterized.expand(
         [

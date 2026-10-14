@@ -1117,10 +1117,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
+                'workflows-data-suggestions',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(40)
+        expect(flags).toHaveLength(41)
     })
 
     it('every loops tool is gated on the loops flag', () => {

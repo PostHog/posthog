@@ -3174,6 +3174,7 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
 export const workflowDataSuggestionsBuildBodyRetryDefault = false
+export const workflowDataSuggestionsBuildBodySaveDraftDefault = false
 
 export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
     suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
@@ -3182,6 +3183,12 @@ export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
         .default(workflowDataSuggestionsBuildBodyRetryDefault)
         .describe(
             "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
+    save_draft: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildBodySaveDraftDefault)
+        .describe(
+            'Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving.'
         ),
 })
 

@@ -78,6 +78,8 @@ describe('workflowDataSuggestionsLogic', () => {
             status: 'ready',
             workflow: { name: 'Welcome new users' },
             uses_saved_template: false,
+            workflow_id: null,
+            missing_inputs: [],
         })
         jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
         const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
@@ -102,8 +104,20 @@ describe('workflowDataSuggestionsLogic', () => {
         jest.useFakeTimers()
         try {
             jest.mocked(workflowDataSuggestionsBuild)
-                .mockResolvedValueOnce({ status: 'building', workflow: null, uses_saved_template: false })
-                .mockResolvedValue({ status: 'ready', workflow: { name: 'Welcome' }, uses_saved_template: false })
+                .mockResolvedValueOnce({
+                    status: 'building',
+                    workflow: null,
+                    uses_saved_template: false,
+                    workflow_id: null,
+                    missing_inputs: [],
+                })
+                .mockResolvedValue({
+                    status: 'ready',
+                    workflow: { name: 'Welcome' },
+                    uses_saved_template: false,
+                    workflow_id: null,
+                    missing_inputs: [],
+                })
             jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
             const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
             logic.mount()

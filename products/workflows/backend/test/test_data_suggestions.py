@@ -16,7 +16,7 @@ from products.workflows.backend.presentation.views.workflow_data_suggestions imp
     DataSuggestionStage,
     DataSuggestionStepKind,
 )
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
+from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.llm import invoke_structured, strict_schema
 from products.workflows.backend.services.data_suggestions.planner import (
@@ -198,6 +198,11 @@ class TestDataSuggestions(SimpleTestCase):
         assert "slack_workspace" not in slack_inputs
         assert slack_inputs["text"]["value"] == "Trial user needs help"
         assert actions["action_5_wait_until_time_window"]["config"]["day"] == "weekday"
+        webhook_schema = {"template-webhook": [{"key": "url", "label": "Webhook URL", "required": True}]}
+        assert {(item.step_id, item.field) for item in missing_inputs(built.workflow, webhook_schema)} == {
+            ("action_0_email", "Email sender"),
+            ("action_2_function", "Webhook URL"),
+        }
 
     @patch("products.workflows.backend.services.data_suggestions.llm.logger")
     @patch("products.workflows.backend.services.data_suggestions.llm.is_privacy_mode_enabled", return_value=True)
