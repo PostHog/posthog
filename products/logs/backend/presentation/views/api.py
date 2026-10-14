@@ -2,17 +2,19 @@ import re
 import json
 import base64
 import datetime as dt
+from typing import Any
 
 from django.db import models
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -24,7 +26,10 @@ from posthog.hogql.errors import QueryError
 from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -84,6 +89,7 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 MAX_ATTRIBUTE_KEYS = 100
 
@@ -1358,6 +1364,24 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if self.action == "patterns_diff":
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+        try:
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
+        except ConcurrencyLimitExceeded as error:
+            logger.warning("logs_api_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
+            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        # DRF calls finalize_response also when the handler raises, so the slot is released on every path.
+        slot: ConcurrencySlot | None = getattr(self, "_logs_api_slot", None)
+        if slot is not None:
+            get_logs_api_team_rate_limiter().release(slot)
+            self._logs_api_slot = None
+        return super().finalize_response(request, response, *args, **kwargs)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
