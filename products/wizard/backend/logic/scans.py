@@ -2,6 +2,8 @@ from datetime import datetime
 
 from django.db import connection, transaction
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
 from products.wizard.backend.tool_catalog.catalog import classify_tool
@@ -23,10 +25,14 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
     for tool in params.tools:
         tools.setdefault(tool.kind, tool)
 
+    # A child environment's scans are stored under its parent team. The lookup, the created row and the lock
+    # must use the same id, or a replayed session misses its stored scan and fails on the unique constraint.
+    team_id = resolve_effective_team_id(params.team_id)
+
     with transaction.atomic():
-        _lock_workspace(params.team_id, params.workspace_fingerprint)
-        scan, created = WizardScan.objects.for_team(params.team_id).get_or_create(
-            team_id=params.team_id,
+        _lock_workspace(team_id, params.workspace_fingerprint)
+        scan, created = WizardScan.objects.for_team(team_id, canonical=True).get_or_create(
+            team_id=team_id,
             session_id=params.session_id,
             defaults={
                 "created_by_id": params.created_by_id,
@@ -41,18 +47,20 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
             return WizardScanResult(id=scan.id, created=False)
 
         # Tool state follows the newest scan of the workspace. A scan that arrives after a newer one is stored,
-        # but it changes nothing, even when the newer scan found no tools at all.
+        # but it changes nothing, even when the newer scan found no tools at all. Both reads use the writer, because
+        # a lagging read replica can miss the scan or tool rows that the previous holder of the lock committed.
         newer_scan_exists = (
-            WizardScan.objects.for_team(params.team_id)
+            WizardScan.objects.for_team(team_id, canonical=True)
+            .using("default")
             .filter(workspace_fingerprint=params.workspace_fingerprint, scanned_at__gt=scan.scanned_at)
             .exists()
         )
         if not newer_scan_exists:
             existing = {
                 row.kind: row
-                for row in WizardDetectedTool.objects.for_team(params.team_id).filter(
-                    workspace_fingerprint=params.workspace_fingerprint
-                )
+                for row in WizardDetectedTool.objects.for_team(team_id, canonical=True)
+                .using("default")
+                .filter(workspace_fingerprint=params.workspace_fingerprint)
             }
             _apply_scan(scan, tools, existing, complete=params.complete)
 

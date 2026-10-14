@@ -96,9 +96,15 @@ def test_older_scan_arriving_late_does_not_rewind_state(
 
 
 @pytest.mark.django_db
-def test_replayed_session_changes_nothing(team: Team) -> None:
-    first = _scan(team, "s1", 0, ["Stripe"])
-    replay = _scan(team, "s1", 1, ["Amplitude"])
+@pytest.mark.parametrize("through_child_environment", [False, True])
+def test_replayed_session_changes_nothing(team: Team, through_child_environment: bool) -> None:
+    reporting_team = (
+        Team.objects.create(organization=team.organization, parent_team=team, name="env")
+        if through_child_environment
+        else team
+    )
+    first = _scan(reporting_team, "s1", 0, ["Stripe"])
+    replay = _scan(reporting_team, "s1", 1, ["Amplitude"])
 
     assert replay == WizardScanResult(id=first.id, created=False)
     assert set(_tools(team)) == {"Stripe"}
