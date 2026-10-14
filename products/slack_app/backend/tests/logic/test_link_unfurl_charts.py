@@ -16,7 +16,7 @@ from posthog.temporal.ai.slack_app.types import (
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
-from products.slack_app.backend.services.link_unfurl_charts import (
+from products.slack_app.backend.logic.link_unfurl_charts import (
     chart_cache_key,
     post_unfurl_charts,
     prepare_unfurl_charts,
@@ -69,7 +69,7 @@ class TestLinkUnfurlCharts(BaseTest):
         assert (prepared.assets[0].asset_id == 987654) is expect_cached
 
     @parameterized.expand([("rendered", None, True), ("render_failed", "Export failed", False)])
-    @patch("products.slack_app.backend.services.link_unfurl_charts.SlackIntegration")
+    @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
     def test_post_adds_the_chart_under_the_title_only_when_the_render_succeeded(
         self, _name: str, exception: str | None, expect_unfurl: bool, mock_slack: MagicMock
     ) -> None:

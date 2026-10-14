@@ -39,8 +39,8 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
+from products.slack_app.backend.logic.link_unfurl_charts import chat_unfurl_kwargs
 from products.slack_app.backend.services.followup_invite import build_followup_invite
-from products.slack_app.backend.services.link_unfurl_charts import chat_unfurl_kwargs
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
