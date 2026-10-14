@@ -5,14 +5,13 @@ The lazy computation framework stores the parsed rows instead, one job for the r
 repository created on one day. A refresh after a data load computes only the days that are missing
 or too old, so its cost follows the new data and not the history.
 
-The stored days are what a page range of 30 days reads. A read reaches one more span before its
-range: a timeline also reads the CI from ``CI_LOOKBACK`` before it, and a comparison reads the
-previous period. Three more days cover the day a read floors below its window, the whole date of a
-floor, and the UTC day of a stored row. A longer range reads the warehouse tables.
+Every day from the first raw row of a repository is stored. So a read keyed by pull request number,
+which has no floor, can take the stored rows too. Each refresh finds the first row again, so a
+backfill of older rows reaches the stored days on the next load.
 """
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -20,9 +19,11 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
@@ -35,31 +36,30 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.engineering_analytics.backend.logic.queries._workflow_filters import (
-    CI_LOOKBACK,
-    JOB_FLOOR_SLACK_ON_RUN_STARTED,
-)
+from products.engineering_analytics.backend.facade.contracts import STORED_READS_FEATURE_FLAG
+from products.engineering_analytics.backend.logic.feature_flags import team_flag
+from products.engineering_analytics.backend.logic.queries._workflow_filters import JOB_FLOOR_SLACK_ON_RUN_STARTED
 from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_precompute_sources
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs, workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.created_window import CreatedWindow
 
 logger = structlog.get_logger(__name__)
 
-_LONGEST_STORED_RANGE = timedelta(days=30)
-_FLOOR_MARGIN = timedelta(days=3)
-_LOWEST_RUN_STARTED_FLOOR = _LONGEST_STORED_RANGE + max(_LONGEST_STORED_RANGE, CI_LOOKBACK) + _FLOOR_MARGIN
-
 # GitHub ends a workflow run after 35 days, so a run was created at most that long before its newest
 # start and before any of its jobs.
 RUN_LIFETIME = timedelta(days=35)
 
-STORED_JOB_DAYS = _LOWEST_RUN_STARTED_FLOOR + JOB_FLOOR_SLACK_ON_RUN_STARTED
-STORED_RUN_DAYS = STORED_JOB_DAYS + RUN_LIFETIME
-
 _RECENT_DAYS_MAX_AGE_SECONDS = 15 * 60
 _LAST_WEEK_MAX_AGE_SECONDS = 6 * 60 * 60
-_OLDER_DAYS_MAX_AGE_SECONDS = 5 * 24 * 60 * 60
-_OLDER_DAYS_MAX_AGE_SPREAD_SECONDS = 2 * 24 * 60 * 60
+_RUN_LIFETIME_MAX_AGE_SECONDS = 5 * 24 * 60 * 60
+_SETTLED_DAYS_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+_SETTLED_DAYS_MAX_AGE_SPREAD_SECONDS = 15 * 24 * 60 * 60
+
+# A refresh stores the newest days first, this many at a time, so a recent page can read stored rows
+# long before the whole history is stored.
+_BACKFILL_STEP = timedelta(days=30)
+# A read takes the first day that a refresh found. Each refresh finds it again.
+_HISTORY_START_SECONDS = 24 * 60 * 60
 
 # The time one table of one repository has to start its inserts, and the time a whole refresh has.
 # A refresh that runs out of either keeps the days it stored, and the next load continues from there.
@@ -147,26 +147,38 @@ def _jobs_insert_query(source: JobSourceTables) -> str:
     return _stored_rows(source, JOB_COLUMNS, rows)
 
 
+def _first_created_query(table: str, depot: depot_ci.DepotJobAttempts | None, depot_column: str) -> str:
+    github = f"SELECT min(nullIf(created_at, '')) AS created_at FROM {table}"
+    if depot is None:
+        return github
+    return f"SELECT min(created_at) FROM ({github} UNION ALL {depot_ci.first_created(depot, depot_column)})"
+
+
 @frozen
 class StoredRows:
-    """One table of stored rows."""
+    """One table of stored rows. ``first_created`` gives a query for the raw creation time of the
+    oldest row, the time the windows of ``insert_query`` compare."""
 
     table: LazyComputationTable
     insert_query: Callable[[JobSourceTables], str]
-    days: timedelta
+    first_created: Callable[[JobSourceTables], str]
     query_type: str
 
 
 STORED_RUNS = StoredRows(
     table=LazyComputationTable.ENGINEERING_ANALYTICS_CI_RUNS_PRECOMPUTED,
     insert_query=_runs_insert_query,
-    days=STORED_RUN_DAYS,
+    first_created=lambda source: _first_created_query(
+        source.github_workflow_runs, source.depot_job_attempts, "workflow_created_at"
+    ),
     query_type="engineering_analytics.ci_runs_precompute",
 )
 STORED_JOBS = StoredRows(
     table=LazyComputationTable.ENGINEERING_ANALYTICS_CI_JOBS_PRECOMPUTED,
     insert_query=_jobs_insert_query,
-    days=STORED_JOB_DAYS,
+    first_created=lambda source: _first_created_query(
+        source.github_workflow_jobs, source.depot_job_attempts, "attempt_started_at"
+    ),
     query_type="engineering_analytics.ci_jobs_precompute",
 )
 
@@ -174,11 +186,50 @@ STORED_JOBS = StoredRows(
 def _max_age_schedule() -> TtlSchedule:
     # UTC bands, like the jobs: a cut at the team's midnight ages the previous UTC day too early.
     return parse_ttl_schedule(
-        {"1d": _RECENT_DAYS_MAX_AGE_SECONDS, "7d": _LAST_WEEK_MAX_AGE_SECONDS, "default": _OLDER_DAYS_MAX_AGE_SECONDS},
+        {
+            "1d": _RECENT_DAYS_MAX_AGE_SECONDS,
+            "7d": _LAST_WEEK_MAX_AGE_SECONDS,
+            f"{RUN_LIFETIME.days}d": _RUN_LIFETIME_MAX_AGE_SECONDS,
+            "default": _SETTLED_DAYS_MAX_AGE_SECONDS,
+        },
         "UTC",
         max_window_days=1,
-        default_ttl_jitter_seconds=_OLDER_DAYS_MAX_AGE_SPREAD_SECONDS,
+        default_ttl_jitter_seconds=_SETTLED_DAYS_MAX_AGE_SPREAD_SECONDS,
     )
+
+
+def _history_start_key(stored: StoredRows, team: Team, source: JobSourceTables) -> str:
+    return f"engineering_analytics:ci_history_start:{team.pk}:{stored.table}:{source.source_id}:{source.repository}"
+
+
+def history_start(stored: StoredRows, team: Team, source: JobSourceTables) -> datetime | None:
+    """The UTC day of the oldest raw row of one repository, as the last refresh found it, or None."""
+    start = cache.get(_history_start_key(stored, team, source))
+    return start if isinstance(start, datetime) else None
+
+
+def _find_history_start(stored: StoredRows, team: Team, source: JobSourceTables, database: Database) -> datetime | None:
+    response = execute_hogql_query(
+        query=stored.first_created(source),
+        team=team,
+        query_type=f"{stored.query_type}.history_start",
+        bypass_warehouse_access_control=True,
+        context=HogQLContext(team_id=team.pk, bypass_warehouse_access_control=True, database=database),
+    )
+    first_created = response.results[0][0] if response.results else None
+    try:
+        start = datetime.strptime(str(first_created)[:10], "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+    cache.set(_history_start_key(stored, team, source), start, timeout=_HISTORY_START_SECONDS)
+    return start
+
+
+def _newest_first(start: datetime) -> Iterator[datetime]:
+    since = datetime.now(UTC)
+    while since > start:
+        since = max(start, since - _BACKFILL_STEP)
+        yield since
 
 
 def ensure_stored(
@@ -250,6 +301,11 @@ def refresh_after_load(team: Team) -> None:
             cache.delete(running)
 
 
+def _may_insert(team: Team, deadline: float) -> bool:
+    # The flag is checked before each insert, so turning it off also stops a running refresh.
+    return time.monotonic() < deadline and bool(team_flag(STORED_READS_FEATURE_FLAG, team))
+
+
 def _refresh(team: Team) -> bool:
     """Whether an insert failed. A refresh that only ran out of its budget did not fail: the next
     load continues it."""
@@ -267,28 +323,31 @@ def _refresh(team: Team) -> bool:
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return failed
-            result = ensure_stored(
-                stored,
-                team,
-                source,
-                since=datetime.now(UTC) - stored.days,
-                database=database,
-                run_inserts=True,
-                wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, remaining),
-            )
-            if not result.ready:
-                logger.warning(
-                    "engineering_analytics_ci_precompute_incomplete",
-                    team_id=team.pk,
-                    table=str(stored.table),
-                    source_id=source.source_id,
-                    repository=source.repository,
-                    errors=result.errors,
+            table_deadline = min(deadline, time.monotonic() + _REFRESH_BUDGET_SECONDS)
+            start = _find_history_start(stored, team, source, database) if _may_insert(team, table_deadline) else None
+            for since in _newest_first(start) if start else ():
+                if not _may_insert(team, table_deadline):
+                    break
+                result = ensure_stored(
+                    stored,
+                    team,
+                    source,
+                    since=since,
+                    database=database,
+                    run_inserts=True,
+                    wait_timeout_seconds=table_deadline - time.monotonic(),
                 )
-                failed = failed or not result.timed_out
+                if not result.ready:
+                    logger.warning(
+                        "engineering_analytics_ci_precompute_incomplete",
+                        team_id=team.pk,
+                        table=str(stored.table),
+                        source_id=source.source_id,
+                        repository=source.repository,
+                        errors=result.errors,
+                    )
+                    failed = failed or not result.timed_out
+                    break
     return failed
 
 
@@ -301,8 +360,9 @@ class StoredCiReader:
     """The stored rows of one repository of one source, as subqueries for the reads of one request.
 
     Each method gives a subquery with the columns of the builder it stands for, or None when a day
-    the read needs is not stored. ``floor`` is the date-only scan floor of the read. The subquery
-    still applies the floor placeholder of the builder, so it returns the rows the builder returns.
+    the read needs is not stored. ``floor`` is the date-only scan floor of the read, or None for a
+    read of the whole history. The subquery still applies the floor placeholder of the builder, so it
+    returns the rows the builder returns.
 
     A run is stored under the day it was created, and a re-run starts it again up to ``RUN_LIFETIME``
     later. So a read of runs, or of the runs that jobs belong to, needs the stored days from that
@@ -317,22 +377,23 @@ class StoredCiReader:
         )
         self._days: dict[tuple[LazyComputationTable, datetime], str | None] = {}
 
-    def runs(self, floor: str) -> str | None:
+    def runs(self, floor: str | None) -> str | None:
         rows = self._run_rows(floor)
-        return rows and f"({rows} AND run_started_at_raw >= {{run_started_floor}})"
+        floored = " AND run_started_at_raw >= {run_started_floor}" if floor is not None else ""
+        return rows and f"({rows}{floored})"
 
-    def jobs(self, floor: str) -> str | None:
+    def jobs(self, floor: str | None) -> str | None:
         rows = self._job_rows(floor, workflow_jobs.COLUMNS)
         return rows and f"({rows})"
 
-    def job_costs(self, floor: str) -> str | None:
+    def job_costs(self, floor: str | None) -> str | None:
         jobs = self._job_rows(floor, JOB_COLUMNS)
         runs = self._run_rows(floor)
         if jobs is None or runs is None:
             return None
         return f"({job_costs.build_attributed_query(costed_jobs=jobs, runs=runs)})"
 
-    def _run_rows(self, floor: str) -> str | None:
+    def _run_rows(self, floor: str | None) -> str | None:
         stored = self._stored(STORED_RUNS, floor, reach=RUN_LIFETIME)
         if stored is None:
             return None
@@ -343,31 +404,34 @@ class StoredCiReader:
             WHERE {stored} AND NOT is_handoff_shell
         """
 
-    def _job_rows(self, floor: str, columns: tuple[str, ...]) -> str | None:
+    def _job_rows(self, floor: str | None, columns: tuple[str, ...]) -> str | None:
         stored = self._stored(STORED_JOBS, floor)
         stored_runs = self._stored(STORED_RUNS, floor, reach=RUN_LIFETIME)
         if stored is None or stored_runs is None:
             return None
+        floored = " AND created_at_raw >= {job_created_floor}" if floor is not None else ""
         return f"""
             SELECT {", ".join(columns)}
             FROM {STORED_JOBS.table}
-            WHERE {stored} AND created_at_raw >= {{job_created_floor}}
+            WHERE {stored}{floored}
                 AND (ci_engine, run_id) NOT IN (
                     SELECT ci_engine, id FROM {STORED_RUNS.table} WHERE {stored_runs} AND is_handoff_shell
                 )
         """
 
-    def _stored(self, stored: StoredRows, floor: str, *, reach: timedelta = timedelta(0)) -> str | None:
-        """A predicate for the stored rows of this repository from ``reach`` before the floor, or None
-        when a day in that span is not stored or the floor is not a date."""
-        try:
-            since = datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC) - reach
-        except (ValueError, OverflowError):
+    def _stored(self, stored: StoredRows, floor: str | None, *, reach: timedelta = timedelta(0)) -> str | None:
+        """A predicate for the stored rows of this repository from ``reach`` before the floor, or from
+        the first day of the history without a floor. None when a day in that span is not stored, the
+        first day is not known, or the floor is not a date. No row is older than the first day, so a
+        span that starts earlier starts there."""
+        since = history_start(stored, self._team, self._source)
+        if since is None:
             return None
-        # A floor below the stored days can never be served, and a lookup from a far-off floor
-        # walks every day up to now.
-        if since.date() < (datetime.now(UTC) - stored.days).date():
-            return None
+        if floor is not None:
+            try:
+                since = max(since, datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC) - reach)
+            except (ValueError, OverflowError):
+                return None
         key = (stored.table, since)
         if key not in self._days:
             result = ensure_stored(

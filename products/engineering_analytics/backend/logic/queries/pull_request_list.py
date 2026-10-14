@@ -162,7 +162,7 @@ def query_pr_push_activity(
     if not pr_numbers:
         return {}
     sql = (
-        _PUSH_ACTIVITY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _PUSH_ACTIVITY_SELECT.replace("__RUNS_SOURCE__", curated.run_source(stored_history=True))
         .replace("__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT))
         .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )

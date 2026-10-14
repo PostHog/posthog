@@ -14,6 +14,7 @@ from django.utils import timezone
 
 import pandas as pd
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import TtlSchedule
@@ -328,8 +329,13 @@ class _StoredCiRowsMixin(_WarehouseMixin):
             ensure_stored(stored, team, source, since=since, run_inserts=True)
             return ensure_stored(stored, team, source, since=since, **kwargs)
 
+        def find_history_start(stored: Any, team: Any, source: Any) -> datetime | None:
+            database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+            return ci_precompute._find_history_start(stored, team, source, database)
+
         for patcher in (
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", side_effect=store_then_check),
+            patch(f"{_CI_PRECOMPUTE}.history_start", side_effect=find_history_start),
             # One insert for the whole span of a read, in place of one insert for each day.
             patch(f"{_CI_PRECOMPUTE}._max_age_schedule", return_value=TtlSchedule.from_seconds(3600)),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=self._execute),

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -89,7 +90,8 @@ class TestStoredReads(BaseTest):
 
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
-            patch(f"{_CURATED}._start_refresh") as mock_refresh,
+            patch(f"{_CI_PRECOMPUTE}.history_start", return_value=timezone.now() - timedelta(days=400)),
+            patch(f"{_CURATED}.refresh_ci_precompute") as mock_refresh,
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", **lookup),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute) as mock_execute,
         ):
@@ -103,4 +105,32 @@ class TestStoredReads(BaseTest):
         assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
         # The first read that can take the stored rows starts a refresh, because no load refreshed them
         # while the team was not in use.
-        assert mock_refresh.call_count == 1
+        assert mock_refresh.delay.call_count == refreshes
+
+    @parameterized.expand(
+        [
+            ("first_day_known", timezone.now() - timedelta(days=400), [_STORED_READ]),
+            ("first_day_not_found_yet", None, [_RAW_READ]),
+        ]
+    )
+    def test_a_read_keyed_by_pull_request_takes_the_stored_rows_of_the_whole_history(
+        self, _name: str, first_day: datetime | None, expected_reads: list[str]
+    ) -> None:
+        curated = CuratedGitHubSource.for_team(self.team)
+        sql = f"SELECT count() FROM {curated.run_source(stored_history=True)} AS r"
+
+        with (
+            patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
+            patch(f"{_CI_PRECOMPUTE}.history_start", return_value=first_day),
+            patch(f"{_CURATED}.refresh_ci_precompute"),
+            patch(f"{_CURATED}.team_flag", return_value=True),
+            patch(
+                f"{_CI_PRECOMPUTE}.ensure_stored", return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])
+            ) as mock_ensure,
+            patch(f"{_CURATED}.execute_hogql_query", return_value=SimpleNamespace(results=[(1,)])) as mock_execute,
+        ):
+            curated.run(sql, query_type=_RAW_READ)
+
+        assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
+        # With no floor, the read needs every stored day from the first day of the history.
+        assert {call.kwargs["since"] for call in mock_ensure.call_args_list} == ({first_day} if first_day else set())

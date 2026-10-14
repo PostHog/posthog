@@ -407,6 +407,12 @@ def windowed_runs(
     return f"({github_runs}{depot_runs})"
 
 
+def first_created(depot: DepotJobAttempts, column: str) -> str:
+    """The oldest raw ``column`` of the repository's attempts, as ``created_at``. ``column`` is the time
+    that the window of ``windowed_runs`` or ``windowed_jobs`` compares."""
+    return f"SELECT min(nullIf({column}, '')) AS created_at FROM {_attempts(depot, pull_requests_table=None)}"
+
+
 def windowed_jobs(jobs_table: str, depot: DepotJobAttempts | None, window: CreatedWindow) -> workflow_jobs.JobsTable:
     """The job attempts of both engines that were created inside ``window``.
 

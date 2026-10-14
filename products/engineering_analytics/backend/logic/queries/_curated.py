@@ -102,35 +102,48 @@ class DeploySources:
 
 
 @frozen
-class _FlooredCiSource:
-    """A CI source with a scan floor. A query names it by ``token`` until ``run`` picks the stored
-    rows or the raw tables for it. ``stored_source`` takes the floor of the query."""
+class _StoredCiSource:
+    """A CI source that the stored rows can serve. A query names it by ``token`` until ``run`` picks
+    the stored rows or the raw tables for it. ``stored_source`` takes the floor of the query, or None
+    for a source with no ``floor_placeholder``, which reads the whole history."""
 
     token: str
-    floor_placeholder: str
-    stored_source: Callable[[StoredCiReader, str], str | None]
+    floor_placeholder: str | None
+    stored_source: Callable[[StoredCiReader, str | None], str | None]
     raw_source: Callable[["CuratedGitHubSource"], str]
 
 
-_FLOORED_RUNS = _FlooredCiSource(
+_FLOORED_RUNS = _StoredCiSource(
     token="__FLOORED_CI_RUNS__",
     floor_placeholder="run_started_floor",
     stored_source=StoredCiReader.runs,
     raw_source=lambda curated: curated._raw_run_source(started_floor=True),
 )
-_FLOORED_JOBS = _FlooredCiSource(
+_FLOORED_JOBS = _StoredCiSource(
     token="__FLOORED_CI_JOBS__",
     floor_placeholder="job_created_floor",
     stored_source=StoredCiReader.jobs,
     raw_source=lambda curated: curated._raw_jobs_source(created_floor=True),
 )
-_FLOORED_JOB_COSTS = _FlooredCiSource(
+_FLOORED_JOB_COSTS = _StoredCiSource(
     token="__FLOORED_CI_JOB_COSTS__",
     floor_placeholder="job_created_floor",
     stored_source=StoredCiReader.job_costs,
     raw_source=lambda curated: curated._raw_job_cost_source(created_floor=True),
 )
-_FLOORED_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS)
+_HISTORY_RUNS = _StoredCiSource(
+    token="__CI_RUNS_HISTORY__",
+    floor_placeholder=None,
+    stored_source=StoredCiReader.runs,
+    raw_source=lambda curated: curated._raw_run_source(started_floor=False),
+)
+_HISTORY_JOB_COSTS = _StoredCiSource(
+    token="__CI_JOB_COSTS_HISTORY__",
+    floor_placeholder=None,
+    stored_source=StoredCiReader.job_costs,
+    raw_source=lambda curated: curated._raw_job_cost_source(created_floor=False),
+)
+_STORED_CI_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS, _HISTORY_RUNS, _HISTORY_JOB_COSTS)
 
 STORED_QUERY_TYPE_SUFFIX = ".stored"
 _STORED_READ_REJECTED = (QueryErrorCategory.USER_ERROR, QueryErrorCategory.ERROR)
@@ -304,14 +317,21 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self, *, started_floor: bool = False) -> str:
+    def run_source(self, *, started_floor: bool = False, stored_history: bool = False) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant).
 
         A floored source is a stand-in until ``run`` executes the query: the floor is what tells
-        ``run`` whether the stored table holds every row the query can read."""
-        return _FLOORED_RUNS.token if started_floor else self._raw_run_source(started_floor=False)
+        ``run`` whether the stored table holds every row the query can read. ``stored_history`` makes
+        a source with no floor a stand-in too, for the whole history. Ask for it in a read keyed by
+        pull request, not in a read of the current state of CI, because stored rows can be some
+        minutes older than the raw tables."""
+        if started_floor:
+            return _FLOORED_RUNS.token
+        if stored_history:
+            return _HISTORY_RUNS.token
+        return self._raw_run_source(started_floor=False)
 
     def _raw_run_source(self, *, started_floor: bool) -> str:
         query = workflow_runs.build_query(
@@ -526,7 +546,7 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
+    def job_cost_source(self, *, created_floor: bool = False, stored_history: bool = False) -> str | None:
         """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
         the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
         among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -541,11 +561,15 @@ class CuratedGitHubSource:
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
         source's window predicates read the RUN's columns and so can never prune the jobs scan, and
         the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
-        A floored source is a stand-in, like the floored ``run_source``.
+        A floored source is a stand-in, and so is a source with ``stored_history``, like ``run_source``.
         """
         if not self._tables.workflow_jobs:
             return None
-        return _FLOORED_JOB_COSTS.token if created_floor else self._raw_job_cost_source(created_floor=False)
+        if created_floor:
+            return _FLOORED_JOB_COSTS.token
+        if stored_history:
+            return _HISTORY_JOB_COSTS.token
+        return self._raw_job_cost_source(created_floor=False)
 
     def _raw_job_cost_source(self, *, created_floor: bool) -> str:
         query = job_costs.build_query(
@@ -556,27 +580,30 @@ class CuratedGitHubSource:
         return f"({query})"
 
     def _with_raw_ci_sources(self, sql: str) -> str:
-        """``sql`` with every floored CI source read from the raw tables."""
-        for source in _FLOORED_SOURCES:
+        """``sql`` with every stand-in CI source read from the raw tables."""
+        for source in _STORED_CI_SOURCES:
             if source.token in sql:
                 sql = sql.replace(source.token, source.raw_source(self))
         return sql
 
     def _with_stored_ci_sources(self, sql: str, placeholders: dict[str, ast.Expr]) -> str | None:
-        """``sql`` with every floored CI source read from the stored rows, or None when the query
+        """``sql`` with every stand-in CI source read from the stored rows, or None when the query
         must read the raw tables. One source that needs a day that is not stored sends the whole
         query to the raw tables, so the sources of a query never mix the two."""
-        sources = [source for source in _FLOORED_SOURCES if source.token in sql]
+        sources = [source for source in _STORED_CI_SOURCES if source.token in sql]
         reader = self._stored_ci_reader() if sources else None
         if reader is None:
             return None
         if mark_in_use(self._team):
             _start_refresh(self._team)
         for source in sources:
-            floor = placeholders.get(source.floor_placeholder)
-            if not (isinstance(floor, ast.Constant) and isinstance(floor.value, str)):
-                return None
-            stored = source.stored_source(reader, floor.value)
+            floor = None
+            if source.floor_placeholder is not None:
+                constant = placeholders.get(source.floor_placeholder)
+                if not (isinstance(constant, ast.Constant) and isinstance(constant.value, str)):
+                    return None
+                floor = constant.value
+            stored = source.stored_source(reader, floor)
             if stored is None:
                 return None
             sql = sql.replace(source.token, stored)
@@ -830,7 +857,7 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
 
-        A query with floored CI sources reads them from the stored tables when they hold every row it
+        A query with stand-in CI sources reads them from the stored tables when they hold every row it
         can read (see ``_with_stored_ci_sources``), and from the raw tables otherwise.
         """
         with self._lock:

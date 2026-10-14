@@ -137,8 +137,8 @@ _EMPTY = PRCostSummary(
 # and _COSTS_BY_PR_SELECT without run_from: both are keyed by PR number, not by a window, and a PR's
 # created_at would cost an extra round trip here (build_pr_cost is handed a number and a repo, nothing
 # else) or be the min across a whole page there, which for a page holding one old PR is no bound at
-# all. Left unfloored deliberately; if these ever get slow, thread the PR's created_at down and floor
-# a day below it rather than inventing a window.
+# all. Left unfloored deliberately: both read the stored rows of the whole history when every day of
+# it is stored (see job_cost_source(stored_history=...)).
 _PR_COST_SELECT = """
     SELECT
         c.workflow_name AS workflow_name,
@@ -160,7 +160,7 @@ def query_pr_cost(
     repo_owner: str,
     repo_name: str,
 ) -> PRCostSummary:
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(stored_history=True)
     if cost_source is None:
         # The optional job-level source isn't synced for this team yet — no honest cost to report.
         return _EMPTY
@@ -237,7 +237,7 @@ def query_pr_costs(
     A population that can be repo-wide (every PR merged in a window) passes ``run_from``: runs started
     before it are left out, which trims the jobs scan for a population of thousands of PRs.
     """
-    cost_source = curated.job_cost_source(created_floor=run_from is not None)
+    cost_source = curated.job_cost_source(created_floor=run_from is not None, stored_history=True)
     if cost_source is None or not pr_numbers:
         return {}
     placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}

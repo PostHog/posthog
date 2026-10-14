@@ -43,6 +43,7 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _job_row,
     _pr_list_run,
     _resp,
+    _StoredCiRowsMixin,
     _WarehouseMixin,
 )
 
@@ -742,6 +743,13 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         by_repo = {(item.repo.owner, item.repo.name): item for item in result.items}
         assert (by_repo[("PostHog", "posthog")].pushes, by_repo[("PostHog", "posthog")].rerun_cycles) == (1, 0)
         assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)
+
+
+class TestPullRequestEndpointsStored(_StoredCiRowsMixin, TestPullRequestEndpointsWarehouse):
+    STORED_READ_TESTS = (
+        "test_pr_cost_aggregates_billable_jobs_across_runs",
+        "test_pull_request_list_includes_cost_and_reuses_it",
+    )
 
 
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
