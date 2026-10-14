@@ -204,6 +204,8 @@ describe('ML session key batches', () => {
             sessionKeyId(unused.teamId, unused.sessionId),
         ])
         expect(readBack.size).toBe(sessionUsed ? 1 : 0)
+        expect(batch.get(unused.teamId, unused.sessionId)).toBeUndefined()
+        expect(batch.get(session.teamId, session.sessionId) !== undefined).toBe(sessionUsed)
     })
 
     it('writes one request per key instead of two by batching the month index entries', async () => {

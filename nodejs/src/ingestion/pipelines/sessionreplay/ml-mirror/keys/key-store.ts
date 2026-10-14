@@ -324,6 +324,19 @@ export class MlKeyBatch {
     }
 
     /** `used` names the sessions a published message will be written under; a key no message uses is not stored. */
+    /** A candidate that was never stored must not reach a caller, so nothing can be sealed under it. */
+    private forgetUnusedSessionKeys(): void {
+        const used = this.used
+        if (!used) {
+            return
+        }
+        for (const [id, key] of this.keys) {
+            if (key.identity.sessionId && !used.has(id)) {
+                this.keys.delete(id)
+            }
+        }
+    }
+
     public async commit(used?: Iterable<MlSessionIdentity>): Promise<void> {
         if (this.committed) {
             throw new Error('ML batch already committed')
@@ -339,6 +352,7 @@ export class MlKeyBatch {
             try {
                 await this.persist(deadline)
                 this.committed = true
+                this.forgetUnusedSessionKeys()
                 return
             } catch (error) {
                 const delayMs = commitRetryDelayMs(attempt)
