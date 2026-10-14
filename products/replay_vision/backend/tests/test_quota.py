@@ -76,7 +76,7 @@ class _VisionQuotaTestCase(APIBaseTest):
     def _make_receipt(observation: ReplayObservation) -> None:
         # Mirror production: the receipt freezes the snapshot model and its credit price.
         model = observation.scanner_snapshot.get("model", "")
-        ReplayObservationUsage.objects.get_or_create(
+        receipt, _ = ReplayObservationUsage.objects.get_or_create(
             observation_id=observation.id,
             defaults={
                 "organization_id": observation.team.organization_id,
@@ -87,6 +87,9 @@ class _VisionQuotaTestCase(APIBaseTest):
                 "credits": observation_credits_for_model(model),
             },
         )
+        # The receipt is written when the observation completes.
+        if observation.completed_at is not None:
+            ReplayObservationUsage.objects.filter(pk=receipt.pk).update(created_at=observation.completed_at)
 
 
 class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
@@ -113,10 +116,25 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         )
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected_credits
 
-    def test_excludes_observations_created_in_a_previous_month(self) -> None:
+    @parameterized.expand(
+        [
+            ("settled_last_month", ObservationStatus.SUCCEEDED, True, 0),
+            # Billing buckets a receipt by write time, so one that settles after rollover is this month's spend.
+            ("started_last_month_settled_this_month", ObservationStatus.SUCCEEDED, False, 15),
+            ("started_last_month_still_running", ObservationStatus.RUNNING, False, 15),
+        ]
+    )
+    def test_counts_spend_in_the_period_its_receipt_lands_in(
+        self, _name: str, status: ObservationStatus, completed_last_month: bool, expected_credits: int
+    ) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(model=ScannerModel.GEMINI_3_8_FLASH)
+        self.scanner.refresh_from_db()
         last_month = (datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)) - timedelta(days=1)
-        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=last_month, created_at=last_month)
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 0
+        completed_at = (
+            None if status == ObservationStatus.RUNNING else (last_month if completed_last_month else timezone.now())
+        )
+        self._make_observation(status=status, completed_at=completed_at, created_at=last_month)
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected_credits
 
     def test_period_bounds_are_first_of_month_utc(self) -> None:
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
@@ -134,13 +152,10 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
 
     def test_observations_at_period_boundaries(self) -> None:
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        last_moment = snapshot.period_end - timedelta(microseconds=1)
+        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=last_moment, created_at=last_moment)
         self._make_observation(
-            status=ObservationStatus.SUCCEEDED,
-            completed_at=timezone.now(),
-            created_at=snapshot.period_end - timedelta(microseconds=1),
-        )
-        self._make_observation(
-            status=ObservationStatus.SUCCEEDED, completed_at=timezone.now(), created_at=snapshot.period_end
+            status=ObservationStatus.SUCCEEDED, completed_at=snapshot.period_end, created_at=snapshot.period_end
         )
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
 
@@ -588,7 +603,9 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         assert snapshot.period_end == end
         # Usage is counted against the billing window, not the calendar month.
         self._make_observation(
-            status=ObservationStatus.SUCCEEDED, completed_at=timezone.now(), created_at=start - timedelta(days=1)
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=start - timedelta(days=1),
+            created_at=start - timedelta(days=1),
         )
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 0
 
@@ -743,7 +760,7 @@ class TestVisionSpendSeriesEndpoint(_VisionQuotaTestCase):
         return f"/api/environments/{self.team.id}/vision/quota/spend_series/"
 
     def _receipt(self, created_at: str, credits: int, organization_id: uuid.UUID | None = None) -> None:
-        ReplayObservationUsage.objects.create(
+        receipt = ReplayObservationUsage.objects.create(
             observation_id=uuid.uuid4(),
             organization_id=organization_id or self.organization.id,
             team_id=self.team.id,
@@ -751,6 +768,7 @@ class TestVisionSpendSeriesEndpoint(_VisionQuotaTestCase):
             model=ScannerModel.GEMINI_3_8_FLASH,
             credits=credits,
         )
+        ReplayObservationUsage.objects.filter(pk=receipt.pk).update(created_at=datetime.fromisoformat(created_at))
 
     @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
     def test_zero_filled_daily_credits_from_period_start_through_today(self) -> None:

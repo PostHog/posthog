@@ -224,8 +224,7 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
 
 def current_period_bounds(organization_id: UUID) -> BillingPeriod:
     """The org's active billing period when synced and current, else the current calendar month."""
-    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
-    return _current_period_bounds(organization, datetime.now(UTC))
+    return org_credit_cap(organization_id).period
 
 
 @dataclass(frozen=True)
@@ -472,30 +471,15 @@ def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = No
     )
 
 
-def quota_state(organization_id: UUID) -> QuotaState:
-    # Single `now` so the usage window and any caller comparisons are computed from one instant.
-    now = datetime.now(UTC)
-    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
-    # Billing is the source of truth once synced, falling back to the env cap and calendar months otherwise.
-    period = _current_period_bounds(organization, now)
-    # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
-    consumed = ReplayObservationUsage.objects.filter(
-        organization_id=organization_id,
-        observation_created_at__gte=period.start,
-        observation_created_at__lt=period.end,
-    ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
-    # In-flight rows aren't in the ledger yet (receipt is written on success), so reserve their credits live,
-    # priced from the frozen snapshot model exactly as the eventual receipt will be. One created just before
-    # a period rollover settles into the next window, so it is briefly counted in neither; accepted.
-    in_flight_models = Counter(
-        ReplayObservation.objects.filter(
-            team__organization_id=organization_id,
-            status__in=IN_FLIGHT_STATUSES,
-            created_at__gte=period.start,
-            created_at__lt=period.end,
-        ).values_list("scanner_snapshot__model", flat=True)
-    )
-    reserved = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
+@frozen
+class OrgCreditCap:
+    """The org's credit limit and the billing period it applies to, read without any spend aggregates."""
+
+    period: BillingPeriod
+    credit_limit: int | None
+
+
+def _org_credit_limit(organization: Organization | None, organization_id: UUID) -> int | None:
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
@@ -504,8 +488,51 @@ def quota_state(organization_id: UUID) -> QuotaState:
     override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
     if override is not None:
         credit_limit = override if credit_limit is None else min(credit_limit, override)
+    return credit_limit
+
+
+def org_credit_cap(organization_id: UUID) -> OrgCreditCap:
+    """One org read; billing is the source of truth once synced, else the env cap and calendar months."""
+    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
+    return org_credit_cap_for(organization, organization_id)
+
+
+def org_credit_cap_for(organization: Organization | None, organization_id: UUID) -> OrgCreditCap:
+    """`org_credit_cap` for a caller that already loaded the org's `usage`."""
+    return OrgCreditCap(
+        period=_current_period_bounds(organization, datetime.now(UTC)),
+        credit_limit=_org_credit_limit(organization, organization_id),
+    )
+
+
+def quota_state(organization_id: UUID) -> QuotaState:
+    return quota_state_for_cap(organization_id, org_credit_cap(organization_id))
+
+
+def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
+    """The org's spend against a cap the caller already resolved, so the two cannot straddle a period boundary."""
+    period = cap.period
+    # In-flight rows aren't in the ledger yet (receipt is written on success), so reserve their credits live,
+    # priced from the frozen snapshot model exactly as the eventual receipt will be. Every one counts toward
+    # the current period, even one started before rollover, because that is where its receipt will land.
+    # Read before the ledger: an observation settling between the two reads is then counted twice, which
+    # fails toward capped, never in neither.
+    in_flight_models = Counter(
+        ReplayObservation.objects.filter(
+            team__organization_id=organization_id,
+            status__in=IN_FLIGHT_STATUSES,
+        ).values_list("scanner_snapshot__model", flat=True)
+    )
+    # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it. Bucketed by receipt
+    # write time, as billing buckets it, so the cap and the bill agree on which period a receipt belongs to.
+    consumed = ReplayObservationUsage.objects.filter(
+        organization_id=organization_id,
+        created_at__gte=period.start,
+        created_at__lt=period.end,
+    ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
+    reserved = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     return QuotaState(
-        credit_limit=credit_limit,
+        credit_limit=cap.credit_limit,
         credits_used=consumed + reserved,
         period_start=period.start,
         period_end=period.end,
@@ -558,10 +585,11 @@ def daily_spend_series(organization_id: UUID) -> DailySpendSeries:
     rows = (
         ReplayObservationUsage.objects.filter(
             organization_id=organization_id,
-            observation_created_at__gte=period.start,
-            observation_created_at__lt=period.end,
+            created_at__gte=period.start,
+            created_at__lt=period.end,
         )
-        .annotate(day=TruncDay("observation_created_at", tzinfo=UTC))
+        # Receipt write time, the same bucketing as the quota meter, so the days add up to its total.
+        .annotate(day=TruncDay("created_at", tzinfo=UTC))
         .values("day")
         .annotate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
         .order_by()
