@@ -192,6 +192,7 @@ class IterationTrailEntry:
     train_score: float | None
     agent_description: str
     summary: str | None
+    headline: str | None
     model_spec: dict[str, Any]
     recipe_snapshot: dict[str, Any]
 
@@ -235,6 +236,7 @@ class TrainingRun:
     best_holdout_score: float | None
     summary: dict[str, Any] | None
     reader_summary: str | None
+    headline: str | None
     next_steps: list[str] | None
     iterations: list[IterationTrailEntry]
     error: str
@@ -259,6 +261,7 @@ class Iteration:
     status: str
     agent_description: str
     summary: str | None
+    headline: str | None
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
