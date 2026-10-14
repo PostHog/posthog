@@ -23,7 +23,7 @@ use crate::filters::manager::{CatalogHandle, CatalogView, RefreshSeq};
 use crate::filters::reverse_index::TeamFilters;
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_BITS_FIXED_TOTAL,
-    RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DEFERRED_TOTAL, RECONCILE_JOBS_DISCARDED_TOTAL,
+    RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DEFERRED_TOTAL, RECONCILE_JOBS_WITHHELD_TOTAL,
     RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKER_PRODUCE_ERRORS,
     RECONCILE_PAGE_DURATION_SECONDS, RECONCILE_QUEUE_DEPTH, RECONCILE_ROWS_EMITTED_TOTAL,
     RECONCILE_ROWS_SCANNED_TOTAL,
@@ -796,7 +796,7 @@ async fn drain_withheld(
             "withheld reconcile",
         );
         counter!(
-            RECONCILE_JOBS_DISCARDED_TOTAL,
+            RECONCILE_JOBS_WITHHELD_TOTAL,
             "reason" => reason.as_str(),
             "kind" => kind,
         )

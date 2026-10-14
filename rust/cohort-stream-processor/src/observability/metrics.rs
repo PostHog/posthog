@@ -663,7 +663,7 @@ pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_complete
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
 /// Reconcile jobs withheld by the drain-time guard, labelled by bounded `reason` and `kind`
 /// (counter).
-pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
+pub const RECONCILE_JOBS_WITHHELD_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
 /// Reconcile jobs the guard would discard against a catalog snapshot older than the job, held until
 /// a refresh that began after the job's admission, labelled by `reason` and `kind`. Counted once per
 /// job (counter). Each one is a catalog race the processor absorbed instead of stranding the run.
@@ -1101,7 +1101,7 @@ mod tests {
             "cohort_reconcile_jobs_superseded_total",
         );
         assert_eq!(
-            RECONCILE_JOBS_DISCARDED_TOTAL,
+            RECONCILE_JOBS_WITHHELD_TOTAL,
             "cohort_reconcile_jobs_discarded_total",
         );
         assert_eq!(
