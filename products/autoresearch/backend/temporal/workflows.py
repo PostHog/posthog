@@ -51,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.autoresearch.backend.query import BATCH_QUERY
     from products.autoresearch.backend.training.runner import run_training
+    from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -630,8 +631,8 @@ def evaluate_pipeline_outcome(
 @frozen
 class KickoffTrainingResult:
     kicked_off: bool
-    # "started" | "budget_exhausted" | "already_running" | "already_ran_today" | "not_eligible"
-    # | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
+    # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
+    # | "not_eligible" | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -642,7 +643,7 @@ class KickoffTrainingResult:
 
 _COORDINATOR_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
 _KICKOFF_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10))
-# The iterations of a rescue run. It does not come out of the pipeline budget.
+# The iterations of a rescue run, which is shorter than a research run.
 RESCUE_ITERATION_BUDGET = 3
 
 
@@ -708,11 +709,11 @@ def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> 
 
 @activity.defn(name="autoresearch-coordinator.kickoff_training")
 def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResult:
-    """Spend part of the iteration budget on a new agent training run, if the pipeline is eligible.
+    """Start a scheduled agent training run, if the pipeline's research schedule says one is due.
 
-    The deduction, the run row, and its task binding commit together under the pipeline row lock,
-    as in the facade's ``start_training``. A manual start cannot interleave, and a failed launch
-    rolls the deduction back. A launch failure raises, so the activity retry applies.
+    The run row and its task binding commit together under the pipeline row lock, as in the
+    facade's ``start_training``, so a manual start cannot interleave. A launch failure raises,
+    so the activity retry applies.
     """
     # The gates can call out to billing and flags, so they run before the row lock is taken.
     with team_scope(inp.team_id):
@@ -726,17 +727,6 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         if pipeline.status != AutoresearchPipeline.Status.RUNNING:
             return KickoffTrainingResult(kicked_off=False, reason="not_eligible")
 
-        # The column is nullable (an admin can clear it); read that as exhausted rather
-        # than refunding the budget mid-flight.
-        remaining = pipeline.iteration_budget_remaining or 0
-        # A champion that cannot score stops all predictions, and only a training run can replace
-        # it. So an exhausted pipeline still gets a small rescue run that spends no budget.
-        rescue = remaining <= 0
-        if rescue:
-            champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
-            if find_unscorable_champion(champion) is None:
-                return KickoffTrainingResult(kicked_off=False, reason="budget_exhausted")
-
         if AutoresearchTrainingRun.objects.filter(
             pipeline=pipeline,
             status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
@@ -745,22 +735,41 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 
         # At most one scheduled run per UTC day. A retry after a lost activity response must not
         # launch a second paid run once the first has already ended.
-        today = django_timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        now = django_timezone.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=today).exists():
             return KickoffTrainingResult(kicked_off=False, reason="already_ran_today")
 
-        # At most one rescue run in each window of UNSCORABLE_AFTER_FAILED_DAYS UTC days, so a pipeline
-        # that no candidate can fix costs a bounded amount.
-        rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
-        if (
-            rescue
-            and AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=rescue_window_start).exists()
-        ):
-            return KickoffTrainingResult(kicked_off=False, reason="rescue_throttled")
+        schedule = research_schedule(
+            research_interval_days=pipeline.research_interval_days,
+            pipeline_created_at=pipeline.created_at,
+            runs=schedule_runs_for([pipeline.pk], inp.team_id).get(pipeline.pk, []),
+        )
+        kickoff_reason: AutoresearchTrainingRun.KickoffReason | None = None
+        skip_reason = "not_due"
+        if pipeline.research_interval_days is None:
+            skip_reason = "manual_only"
+        elif schedule.phase == "explore":
+            kickoff_reason = AutoresearchTrainingRun.KickoffReason.EXPLORE
+        elif schedule.is_due(now):
+            kickoff_reason = AutoresearchTrainingRun.KickoffReason.SCHEDULED
+
+        # A champion that cannot score stops all predictions, and only a training run can replace
+        # it. So a pipeline with no research run due still gets a small rescue run.
+        if kickoff_reason is None:
+            champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+            if find_unscorable_champion(champion) is None:
+                return KickoffTrainingResult(kicked_off=False, reason=skip_reason)
+            # At most one rescue run in each window of UNSCORABLE_AFTER_FAILED_DAYS UTC days, so a
+            # pipeline that no candidate can fix costs a bounded amount.
+            rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
+            if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=rescue_window_start).exists():
+                return KickoffTrainingResult(kicked_off=False, reason="rescue_throttled")
+            kickoff_reason = AutoresearchTrainingRun.KickoffReason.RESCUE
 
         # Training runs in a Tasks sandbox that requires a real owning user. CLI-created
-        # pipelines have no creator, so fail before spending budget rather than launching
-        # a run that would crash in the tasks facade.
+        # pipelines have no creator, so fail here rather than launching a run that would
+        # crash in the tasks facade.
         if pipeline.created_by_id is None:
             error = f"Pipeline {inp.pipeline_id} has no creator; training kickoff requires created_by to own the task"
             logger.error(
@@ -769,20 +778,16 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
 
+        rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         try:
             with transaction.atomic():
-                if rescue:
-                    run_training(
-                        pipeline=pipeline,
-                        iteration_budget=RESCUE_ITERATION_BUDGET,
-                        user_id=pipeline.created_by_id,
-                        rescue=True,
-                    )
-                else:
-                    daily_budget = min(10, remaining)
-                    pipeline.iteration_budget_remaining = remaining - daily_budget
-                    pipeline.save(update_fields=["iteration_budget_remaining"])
-                    run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
+                run_training(
+                    pipeline=pipeline,
+                    iteration_budget=RESCUE_ITERATION_BUDGET if rescue else pipeline.iterations_per_run,
+                    user_id=pipeline.created_by_id,
+                    rescue=rescue,
+                    kickoff_reason=kickoff_reason,
+                )
         except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
@@ -790,7 +795,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     if rescue:
         logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
         return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
-    return KickoffTrainingResult(kicked_off=True, reason="started")
+    return KickoffTrainingResult(kicked_off=True, reason=kickoff_reason.value)
 
 
 def _sweep_access_block(pipeline: AutoresearchPipeline) -> str | None:

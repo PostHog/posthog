@@ -21,6 +21,10 @@ def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
     )
 
 
+# The research intervals a user can pick, in days.
+RESEARCH_INTERVAL_DAYS_CHOICES = (7, 14, 30, 60, 90)
+
+
 def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool = False) -> models.CheckConstraint:
     at_least = models.Q(**{f"{field}__gte": minimum})
     if nullable:
@@ -93,6 +97,21 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     # iteration_budget on first save.
     iteration_budget_remaining = models.IntegerField(
         null=True, blank=True, default=None, validators=[MinValueValidator(0)]
+    )
+    iterations_per_run = models.IntegerField(
+        default=5,
+        db_default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(50)],
+        help_text="Experiments the agent may try in each training run",
+    )
+    # Null means no scheduled research: training starts only when someone asks for it.
+    research_interval_days = models.IntegerField(
+        null=True,
+        blank=True,
+        default=7,
+        db_default=7,
+        choices=[(days, f"{days} days") for days in RESEARCH_INTERVAL_DAYS_CHOICES],
+        help_text="Days between scheduled research runs once the first burst of daily runs ends",
     )
 
     # Stop criteria
@@ -302,6 +321,12 @@ class AutoresearchTrainingRun(PipelineScopedModel):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
+    class KickoffReason(models.TextChoices):
+        EXPLORE = "explore", "Explore"
+        SCHEDULED = "scheduled", "Scheduled"
+        RESCUE = "rescue", "Rescue"
+        MANUAL = "manual", "Manual"
+
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="training_runs")
 
     # Link to the Task/TaskRun sandbox (nullable for stubs).
@@ -311,6 +336,8 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     task_run_id = models.UUIDField(null=True, blank=True, help_text="TaskRun ID in the tasks product sandbox")
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # Null on runs started before the field existed.
+    kickoff_reason = models.CharField(max_length=20, choices=KickoffReason.choices, null=True, blank=True)
     iteration_budget = models.IntegerField(default=50, validators=[MinValueValidator(1)])
     iteration_count = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     best_holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
