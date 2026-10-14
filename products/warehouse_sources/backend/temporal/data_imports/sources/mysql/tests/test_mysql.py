@@ -231,7 +231,7 @@ class TestFieldCharsetResult:
         result.field_count = 1
         result._get_descriptions()
 
-        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))  # type: ignore[attr-defined]
+        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))
 
         assert row == (expected,)
 
