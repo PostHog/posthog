@@ -5,6 +5,7 @@ import os
 import json
 import time
 import uuid
+import hashlib
 import zipfile
 import mimetypes
 from abc import ABC, abstractmethod
@@ -444,6 +445,7 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
     written_with_open_network = resolved.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
 
     if resolved.storage_path:
+        stored_sha256 = resolved.record.get("content_sha256")
         size = _stored_version_size(resolved)
         if size is not None and size > LIVING_VERSION_PREVIEW_MAX_BYTES:
             raise LivingArtifactVersionTooLarge()
@@ -454,16 +456,17 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
             name=artifact.name,
             content_type=resolved.content_type,
             content=payload,
-            written_with_open_network=written_with_open_network,
+            script_sha256=stored_sha256 if written_with_open_network and isinstance(stored_sha256, str) else None,
         )
 
     text = resolved.record.get("content")
     if isinstance(text, str):
+        content = text.encode("utf-8")
         return LivingArtifactVersionContent(
             name=artifact.name,
             content_type=resolved.content_type,
-            content=text.encode("utf-8"),
-            written_with_open_network=written_with_open_network,
+            content=content,
+            script_sha256=hashlib.sha256(content).hexdigest() if written_with_open_network else None,
         )
     return None
 
@@ -912,6 +915,7 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
             content_type=resolved_content_type,
             source_artifact=source_artifact,
             size=len(payload),
+            content_sha256=hashlib.sha256(payload).hexdigest(),
         )
         version_payload["delivery_status"] = "pending"
         return ArtifactCommit(
@@ -1624,6 +1628,7 @@ def _version_payload(
     source_artifact: dict[str, Any] | None = None,
     content: str | None = None,
     size: int | None = None,
+    content_sha256: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "version": version,
@@ -1638,6 +1643,8 @@ def _version_payload(
         payload["source_storage_path"] = source_artifact.get("storage_path")
     if size is not None:
         payload["size"] = size
+    if content_sha256 is not None:
+        payload["content_sha256"] = content_sha256
     if content is not None:
         payload["content"] = content
     return payload
