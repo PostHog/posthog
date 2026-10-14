@@ -35,6 +35,7 @@ import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
+import { HogFunctionDraftBanner } from './HogFunctionDraftBanner'
 import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
@@ -82,14 +83,14 @@ export function HogFunctionConfiguration({
             : null
     )
 
-    // An approved `cdp-functions-partial-update` mutates the function server-side while this form keeps
-    // pre-update state, so the scene (and the approval-card diff for any later proposal, e.g. a revert)
+    // An approved `cdp-functions-partial-update` (or a publish or discard of its staged draft) mutates the
+    // function server-side while this form keeps pre-update state, so the scene (and the approval-card diff for any later proposal, e.g. a revert)
     // would show stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which
     // also discards unsaved manual edits; tool results land in the open scene. A plain tool-stream
     // listener, not `useMcpToolApplyBack`: the refetch is idempotent, so it must not be dropped by the
     // apply-back claim gating (claims snapshot the targets mounted at prompt-send and release each turn).
     useToolStreamListener({
-        tools: ['cdp-functions-partial-update'],
+        tools: ['cdp-functions-partial-update', 'cdp-functions-publish', 'cdp-functions-discard-draft'],
         onEvent: (event) => {
             if (event.phase !== 'completed' || !hogFunction?.id) {
                 return
@@ -133,6 +134,7 @@ export function HogFunctionConfiguration({
     return (
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
+                {hogFunction ? <HogFunctionDraftBanner logicProps={logicProps} /> : null}
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
