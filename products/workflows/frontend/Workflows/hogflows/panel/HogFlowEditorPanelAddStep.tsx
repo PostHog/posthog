@@ -4,8 +4,15 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { STEP_ATTRIBUTION } from '../stepPicker/stepAttribution'
+import { stepCatalogIdOf } from '../stepPicker/stepCatalogId'
 import { StepPickerModal } from '../stepPicker/StepPickerModal'
+
+function pendingStepLabel(step: CreateActionType): string {
+    const attribution = STEP_ATTRIBUTION[stepCatalogIdOf(step)]
+    return attribution?.vendor && attribution.operation ? `${attribution.vendor}: ${attribution.operation}` : step.name
+}
 
 export function HogFlowEditorPanelAddStep(): JSX.Element {
     const { newStepToPlace } = useValues(hogFlowEditorLogic)
@@ -16,7 +23,7 @@ export function HogFlowEditorPanelAddStep(): JSX.Element {
         <div className="flex flex-col gap-2 overflow-y-auto p-3" data-attr="workflow-add-action">
             {newStepToPlace ? (
                 <>
-                    <div className="font-semibold truncate">{newStepToPlace.name}</div>
+                    <div className="font-semibold truncate">{pendingStepLabel(newStepToPlace)}</div>
                     <p className="m-0 text-secondary">Click a highlighted spot in your workflow to add this step.</p>
                     <LemonButton
                         type="secondary"

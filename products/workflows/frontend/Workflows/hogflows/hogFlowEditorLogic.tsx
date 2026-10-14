@@ -2549,6 +2549,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     })),
     listeners(({ values, actions }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
+        const abandonPlacingNewStep = (): void => {
+            const step = values.newStepToPlace
+            if (!step) {
+                return
+            }
+            captureStepPlacementFinished(step, 'cancelled')
+            actions.finishPlacingNewStep()
+        }
         return {
             onEdgesChange: ({ edges }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -3050,6 +3058,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
             },
             startCopyingNode: () => {
+                abandonPlacingNewStep()
                 actions.showDropzones()
             },
             stopCopyingNode: () => {
@@ -3067,6 +3076,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.stopCopyingNode()
             },
             startMovingNode: () => {
+                actions.cancelPlacingNewStep()
                 actions.showDropzones()
             },
             stopMovingNode: () => {
@@ -3098,6 +3108,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.stopMovingNode()
             },
             startPlacingNewStep: () => {
+                if (values.isCopyingNode) {
+                    actions.stopCopyingNode()
+                }
+                if (values.isMovingNode) {
+                    actions.stopMovingNode()
+                }
                 actions.showDropzones()
             },
             placeNewStep: ({ targetEdge, joinEdges }) => {
@@ -3115,14 +3131,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.finishPlacingNewStep()
             },
             cancelPlacingNewStep: () => {
-                const step = values.newStepToPlace
-                if (!step) {
+                if (!values.newStepToPlace) {
                     return
                 }
                 actions.setNodeToBeAdded(null)
                 actions.hideDropzones()
-                captureStepPlacementFinished(step, 'cancelled')
-                actions.finishPlacingNewStep()
+                abandonPlacingNewStep()
             },
             moveNodeToEdge: ({ movingNodeId, targetEdge, isBranchJoinDropzone, joinEdges }) => {
                 // Uses computeMoveEdges (pure function) to manipulate edges in a single
@@ -3144,6 +3158,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setSelectedNodeId(movingNodeId)
             },
             duplicateNodeBelow: ({ actionId }) => {
+                actions.cancelPlacingNewStep()
                 const action = values.workflow.actions.find((action) => action.id === actionId)
                 const targetEdge = values.workflow.edges.find((edge) => edge.from === actionId)
 

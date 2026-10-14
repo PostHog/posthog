@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
+import type { DragEvent, MouseEvent } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ScrollArea, ScrollBar } from 'lib/ui/quill'
@@ -26,8 +26,8 @@ import {
 } from './workflowTreePresentation'
 
 export function HogFlowTreeEditor(): JSX.Element {
-    const { nodeToBeAdded, workflow, treePathsCollapsedByDefault } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId, setTreePathsCollapsedByDefault } = useActions(hogFlowEditorLogic)
+    const { nodeToBeAdded, workflow, treePathsCollapsedByDefault, isPlacingNewStep } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId, setTreePathsCollapsedByDefault, cancelPlacingNewStep } = useActions(hogFlowEditorLogic)
     const { setSelectedBranch } = useHogFlowBranchSelection()
     const [focusedEdges, setFocusedEdges] = useState<HogFlowEdge[]>([])
     const [focusTarget, setFocusTarget] = useState<string | null>(null)
@@ -245,6 +245,15 @@ export function HogFlowTreeEditor(): JSX.Element {
         setDraggedActionId(null)
     }
 
+    const cancelPlacementOnEmptyAreaClick = (event: MouseEvent<HTMLElement>): void => {
+        const clickedControl = (event.target as Element).closest(
+            'button, a, input, [role="button"], [data-attr="workflow-tree-step"]'
+        )
+        if (isPlacingNewStep && !clickedControl) {
+            cancelPlacingNewStep()
+        }
+    }
+
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <HogFlowTreeFeaturePreview />
@@ -252,6 +261,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                 className="min-h-0 min-w-0 flex-1 bg-background @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
                 data-quill
                 data-attr="workflow-tree-editor"
+                onClick={cancelPlacementOnEmptyAreaClick}
             >
                 <div
                     ref={treeRef}
