@@ -22,6 +22,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.gemini_client import (
     GatewayGeminiClient,
+    disable_replay_gateway,
     replay_gateway_client,
     replay_gateway_enabled,
 )
@@ -142,8 +143,6 @@ async def _store_video(
         except Exception:
             logger.exception("replay_vision.upload_video_to_gemini.rollback_delete_failed")
         raise
-    if gateway is not None:
-        await _check_cleanup_key_sees(gateway, gemini_file_name)
 
     wait_start = time.time()
     delay = _POLL_FIRST_SECONDS
@@ -183,6 +182,10 @@ async def _store_video(
             kind=FailureKind.PROVIDER_TRANSIENT,
         )
 
+    if gateway is not None and not await _cleanup_key_sees(gateway, gemini_file_name):
+        # Cleanup could not delete this file, so the gateway is off for this process and the video goes direct.
+        return await _store_video(None, video_bytes, mime_type, workflow_id)
+
     return UploadedVideo(
         file_uri=uploaded_file.uri,
         mime_type=uploaded_file.mime_type or mime_type,
@@ -190,30 +193,41 @@ async def _store_video(
     )
 
 
-async def _check_cleanup_key_sees(gateway: GatewayGeminiClient, name: str) -> None:
-    """Fail the scan when the direct key cannot read a file the gateway stored: cleanup could not delete it."""
+_KEY_MISMATCH = "REPLAY_VISION_GEMINI_API_KEY must reach the Google project bound to REPLAY_VISION_AI_GATEWAY_API_KEY"
+
+
+async def _cleanup_key_sees(gateway: GatewayGeminiClient, name: str) -> bool:
+    """False when the direct key, which cleanup uses, cannot read an ACTIVE file the gateway stored.
+
+    Then the file is deleted through the gateway and the gateway is disabled for this process. Any other
+    error skips the check, so a good upload is kept and the next one checks again.
+    """
     global _cleanup_key_sees_gateway_files
     if _cleanup_key_sees_gateway_files:
-        return
+        return True
     raw_client = RawGenAIClient(api_key=gemini_api_key())
     try:
         await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=name)
-    except errors.ClientError as e:
-        if e.code not in (403, 404):
-            raise
+    except Exception as e:
+        if not isinstance(e, errors.ClientError) or e.code not in (403, 404):
+            logger.warning(
+                "replay_vision.upload_video_to_gemini.cleanup_key_check_skipped",
+                gemini_file_name=name,
+                error_type=type(e).__name__,
+                code=getattr(e, "code", None),
+            )
+            return True
         logger.exception(
-            "replay_vision.upload_video_to_gemini.cleanup_key_mismatch",
-            gemini_file_name=name,
-            detail="REPLAY_VISION_GEMINI_API_KEY must reach the Google project bound to REPLAY_VISION_AI_GATEWAY_API_KEY",
+            "replay_vision.upload_video_to_gemini.cleanup_key_mismatch", gemini_file_name=name, detail=_KEY_MISMATCH
         )
         try:
             await sync_to_async(gateway.files.delete, thread_sensitive=False)(name=name)
         except Exception:
             logger.exception("replay_vision.upload_video_to_gemini.mismatch_delete_failed", gemini_file_name=name)
-        raise ScannerFailureError(
-            "Replay Vision's Gemini keys reach different Google projects", kind=FailureKind.INTERNAL_ERROR
-        ) from e
+        disable_replay_gateway(_KEY_MISMATCH)
+        return False
     _cleanup_key_sees_gateway_files = True
+    return True
 
 
 def _write_and_upload(raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str) -> types.File:

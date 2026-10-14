@@ -41,17 +41,26 @@ def resolve_replay_gateway_config() -> AIGatewayConfig | None:
     if not settings.REPLAY_VISION_AI_GATEWAY_API_KEY:
         return None
     if not settings.REPLAY_VISION_GEMINI_API_KEY:
-        _warn_gateway_without_dedicated_key()
+        _warn_gateway_disabled("REPLAY_VISION_AI_GATEWAY_API_KEY is set but REPLAY_VISION_GEMINI_API_KEY is not")
+        return None
+    if _disabled_reason is not None:
+        _warn_gateway_disabled(_disabled_reason)
         return None
     return resolve_ai_gateway_config(api_key=settings.REPLAY_VISION_AI_GATEWAY_API_KEY)
 
 
+_disabled_reason: str | None = None
+
+
+def disable_replay_gateway(reason: str) -> None:
+    """Send Replay Vision direct for the rest of this process, as when its gateway key is unset."""
+    global _disabled_reason
+    _disabled_reason = reason
+
+
 @functools.cache
-def _warn_gateway_without_dedicated_key() -> None:
-    logger.warning(
-        "replay_vision.gateway_disabled",
-        reason="REPLAY_VISION_AI_GATEWAY_API_KEY is set but REPLAY_VISION_GEMINI_API_KEY is not",
-    )
+def _warn_gateway_disabled(reason: str) -> None:
+    logger.warning("replay_vision.gateway_disabled", reason=reason)
 
 
 def replay_gateway_enabled(team_id: int) -> bool:

@@ -21,7 +21,7 @@ import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai import types
-from google.genai.errors import APIError, ClientError
+from google.genai.errors import APIError, ClientError, ServerError
 from parameterized import parameterized
 from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
@@ -50,6 +50,7 @@ from products.replay_vision.backend.enqueue_claims import (
     pending_enqueue_claims_for_team,
     try_claim_enqueue_slot,
 )
+from products.replay_vision.backend.gemini_client import resolve_replay_gateway_config
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -3689,7 +3690,10 @@ class TestUploadThroughTheGateway:
 
     @pytest.fixture(autouse=True)
     def _unchecked_cleanup_key(self) -> Any:
-        with patch(f"{self._MODULE}._cleanup_key_sees_gateway_files", False):
+        with (
+            patch(f"{self._MODULE}._cleanup_key_sees_gateway_files", False),
+            patch("products.replay_vision.backend.gemini_client._disabled_reason", None),
+        ):
             yield
 
     @staticmethod
@@ -3759,39 +3763,50 @@ class TestUploadThroughTheGateway:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("code", [403, 404])
-    async def test_a_cleanup_key_on_another_project_fails_the_scan_loudly(self, code: int) -> None:
+    async def test_a_cleanup_key_on_another_project_turns_the_gateway_off_and_uploads_direct(self, code: int) -> None:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         gateway = self._gateway()
         with (
+            override_settings(
+                AI_GATEWAY_URL="https://ai-gateway.example/v1",
+                REPLAY_VISION_AI_GATEWAY_API_KEY="phs_replay_vision",
+                REPLAY_VISION_GEMINI_API_KEY="replay-vision-google-key",
+            ),
             patch(f"{self._MODULE}.replay_gateway_enabled", return_value=True),
             patch(f"{self._MODULE}.replay_gateway_client", return_value=gateway),
             patch(f"{self._MODULE}.RawGenAIClient") as raw_client,
-            patch(f"{self._MODULE}.track_uploaded_file", AsyncMock()),
+            patch(f"{self._MODULE}.track_uploaded_file", AsyncMock()) as track,
             patch(f"{self._MODULE}.logger") as log,
         ):
             raw_client.return_value.files.get.side_effect = ClientError(code, {"error": {"code": code}})
-            with pytest.raises(ScannerFailureError) as exc_info:
-                await ActivityEnvironment().run(
-                    upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
-                )
-            again = MagicMock(side_effect=ClientError(code, {"error": {"code": code}}))
-            raw_client.return_value.files.get = again
-            with pytest.raises(ScannerFailureError):
-                await ActivityEnvironment().run(
-                    upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
-                )
+            raw_client.return_value.files.upload.return_value = types.File(
+                name="files/direct", state=types.FileState.ACTIVE, uri="https://g/files/direct"
+            )
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+            assert resolve_replay_gateway_config() is None
 
-        assert exc_info.value.kind is FailureKind.INTERNAL_ERROR
-        assert exc_info.value.non_retryable is True
-        # The gateway removes the file the cleanup key cannot see, and a mismatch is never cached as fine.
-        gateway.files.delete.assert_called_with(name="files/abc")
-        again.assert_called_once_with(name="files/abc")
+        # The gateway removes the file cleanup cannot see, and the scan goes on with a direct upload.
+        gateway.files.delete.assert_called_once_with(name="files/abc")
+        assert uploaded.gemini_file_name == "files/direct"
+        assert [c.args[0] for c in track.await_args_list] == ["files/abc", "files/direct"]
         detail = log.exception.call_args.kwargs["detail"]
         assert "REPLAY_VISION_GEMINI_API_KEY" in detail and "REPLAY_VISION_AI_GATEWAY_API_KEY" in detail
 
     @pytest.mark.asyncio
-    async def test_a_cleanup_key_check_that_cannot_answer_keeps_its_own_class(self) -> None:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ClientError(429, {"error": {"code": 429}}),
+            ServerError(503, {"error": {"code": 503}}),
+            httpx.ConnectError("reset"),
+        ],
+    )
+    async def test_a_cleanup_key_check_that_cannot_answer_keeps_the_upload_and_checks_again(
+        self, error: Exception
+    ) -> None:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         gateway = self._gateway()
@@ -3800,15 +3815,42 @@ class TestUploadThroughTheGateway:
             patch(f"{self._MODULE}.replay_gateway_client", return_value=gateway),
             patch(f"{self._MODULE}.RawGenAIClient") as raw_client,
             patch(f"{self._MODULE}.track_uploaded_file", AsyncMock()),
+            patch(f"{self._MODULE}.disable_replay_gateway") as disable,
         ):
-            raw_client.return_value.files.get.side_effect = ClientError(429, {"error": {"code": 429}})
-            with pytest.raises(ScannerFailureError) as exc_info:
-                await ActivityEnvironment().run(
+            raw_client.return_value.files.get.side_effect = error
+            for _ in range(2):
+                uploaded = await ActivityEnvironment().run(
                     upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
                 )
+                assert uploaded.gemini_file_name == "files/abc"
 
-        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert raw_client.return_value.files.get.call_count == 2
         gateway.files.delete.assert_not_called()
+        raw_client.return_value.files.upload.assert_not_called()
+        disable.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_cleanup_key_check_waits_for_the_file_to_be_active(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        gateway = self._gateway()
+        gateway.upload_file.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
+        order = MagicMock()
+        gateway.files.get = order.poll
+        order.poll.return_value = types.File(name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc")
+        with (
+            patch(f"{self._MODULE}.replay_gateway_enabled", return_value=True),
+            patch(f"{self._MODULE}.replay_gateway_client", return_value=gateway),
+            patch(f"{self._MODULE}.RawGenAIClient") as raw_client,
+            patch(f"{self._MODULE}.track_uploaded_file", AsyncMock()),
+            patch(f"{self._MODULE}.asyncio.sleep", AsyncMock()),
+        ):
+            raw_client.return_value.files.get = order.check
+            await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        assert [name for name, _, _ in order.mock_calls] == ["poll", "check"]
 
     @pytest.mark.asyncio
     async def test_a_rate_limited_poll_waits_instead_of_uploading_again(self) -> None:

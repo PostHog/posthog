@@ -27,8 +27,9 @@ from products.replay_vision.backend.gemini_client import (
     GatewayGeminiClient,
     GatewaySpendLimitError,
     _send_before,
-    _warn_gateway_without_dedicated_key,
+    _warn_gateway_disabled,
     assemble_stream,
+    disable_replay_gateway,
     replay_gateway_client,
     replay_gateway_enabled,
     replay_gemini_client,
@@ -350,11 +351,13 @@ def test_a_failed_pii_rewrite_keeps_a_transient_or_spend_limit_class(
     error: BaseException, raised: type[BaseException]
 ) -> None:
     output = MagicMock()
+    rewrite = AsyncMock(side_effect=error)
     with (
         patch.object(pii_check, "answer_text", return_value={"a": "my email is x@y.z"}),
         patch.object(pii_check, "asks_for_identity", return_value=False),
         patch.object(pii_check, "contains_pii", return_value=True),
-        patch.object(pii_check, "rewrite_without_pii", AsyncMock(side_effect=error)),
+        patch.object(pii_check, "rewrite_without_pii", rewrite),
+        patch.object(pii_check.asyncio, "sleep", AsyncMock()),
         pytest.raises(raised) as exc_info,
     ):
         asyncio.run(
@@ -364,6 +367,31 @@ def test_a_failed_pii_rewrite_keeps_a_transient_or_spend_limit_class(
         )
     if isinstance(exc_info.value, ScannerFailureError):
         assert exc_info.value.kind == FailureKind.PII_DETECTED
+    # Only a transient failure is retried in place, so a spend limit or a rejection is called once.
+    transient = raised in (genai_errors.ServerError, genai_errors.ClientError, httpx.ConnectError)
+    assert rewrite.await_count == (3 if transient else 1)
+
+
+def test_a_transient_pii_rewrite_failure_is_retried_in_place() -> None:
+    output = MagicMock()
+    rewrite = AsyncMock(side_effect=[genai_errors.ServerError(503, {"error": {"code": 503}}), {"a": "clean"}])
+    sleep = AsyncMock()
+    with (
+        patch.object(pii_check, "answer_text", return_value={"a": "my email is x@y.z"}),
+        patch.object(pii_check, "asks_for_identity", return_value=False),
+        patch.object(pii_check, "contains_pii", side_effect=[True, False]),
+        patch.object(pii_check, "rewrite_without_pii", rewrite),
+        patch.object(pii_check.asyncio, "sleep", sleep),
+    ):
+        result = asyncio.run(
+            pii_check.keep_unrequested_pii_out(
+                output, team_id=1, question="q", identity_values=(), scanner_type="monitor", trace_id="t"
+            )
+        )
+
+    assert result is output.model_copy.return_value
+    assert rewrite.await_count == 2
+    sleep.assert_awaited_once_with(1.0)
 
 
 def test_a_draft_does_not_retry_a_spend_limit() -> None:
@@ -524,7 +552,7 @@ class TestReplayVisionKey:
         # Without it, direct cleanup would use the shared project and miss the files the gateway stores.
         direct = MagicMock()
         no_google_key = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": ""}
-        _warn_gateway_without_dedicated_key.cache_clear()
+        _warn_gateway_disabled.cache_clear()
         with (
             override_settings(**no_google_key),
             patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
@@ -536,7 +564,24 @@ class TestReplayVisionKey:
         gateway_client.assert_not_called()
         replay_logger.warning.assert_called_once()
         assert "REPLAY_VISION_GEMINI_API_KEY" in replay_logger.warning.call_args.kwargs["reason"]
-        _warn_gateway_without_dedicated_key.cache_clear()
+        _warn_gateway_disabled.cache_clear()
+
+    def test_a_disabled_gateway_leaves_replay_vision_direct(self) -> None:
+        direct = MagicMock()
+        _warn_gateway_disabled.cache_clear()
+        with (
+            override_settings(**_GATEWAY),
+            patch("products.replay_vision.backend.gemini_client._disabled_reason", None),
+            patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+            patch("products.replay_vision.backend.gemini_client.logger") as replay_logger,
+        ):
+            disable_replay_gateway("REPLAY_VISION_GEMINI_API_KEY reaches another project")
+            assert replay_gemini_client(direct, team_id=42) is direct.return_value
+            assert replay_gateway_client() is None
+        gateway_client.assert_not_called()
+        replay_logger.warning.assert_called_once()
+        assert "REPLAY_VISION_GEMINI_API_KEY" in replay_logger.warning.call_args.kwargs["reason"]
+        _warn_gateway_disabled.cache_clear()
 
     def test_the_shared_key_alone_leaves_replay_vision_direct(self) -> None:
         direct = MagicMock()

@@ -161,6 +161,25 @@ async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, st
     return {field: new for field in text if isinstance(new := getattr(rewritten, field), str) and new.strip()}
 
 
+_REWRITE_ATTEMPTS = 3
+_REWRITE_BACKOFF_SECONDS = 1.0
+
+
+async def _rewrite_retrying_transients(
+    *, team_id: int, question: str, text: dict[str, str], trace_id: str
+) -> dict[str, str]:
+    """Retry a transient rewrite failure here: raised, it would rerun the whole scan."""
+    attempt = 1
+    while True:
+        try:
+            return await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
+        except Exception as e:
+            if attempt >= _REWRITE_ATTEMPTS or classify_gemini_error(e) is not FailureKind.PROVIDER_TRANSIENT:
+                raise
+        await asyncio.sleep(_REWRITE_BACKOFF_SECONDS * attempt)
+        attempt += 1
+
+
 def record_pii_check(outcome: str, scanner_type: str) -> None:
     REPLAY_VISION_PII_CHECKS.labels(outcome=outcome, scanner_type=scanner_type).inc()
 
@@ -187,7 +206,8 @@ async def keep_unrequested_pii_out(
 
     When the question asks who the session belongs to, the session's own identity values are allowed and only the
     rest of the answer is judged. Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still
-    flagged, or the rewrite fails.
+    flagged or the rewrite fails. A transient rewrite failure is retried here and then raised with its own class;
+    a spend limit is raised at once.
     """
     text = answer_text(output)
     if not text:
@@ -203,7 +223,7 @@ async def keep_unrequested_pii_out(
         return output
     try:
         rewritten = output.model_copy(
-            update=await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
+            update=await _rewrite_retrying_transients(team_id=team_id, question=question, text=text, trace_id=trace_id)
         )
     except Exception as e:
         record_pii_check("failed", scanner_type)
