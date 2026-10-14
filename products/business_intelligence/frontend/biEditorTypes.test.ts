@@ -63,6 +63,30 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    test.each(['month', 'quarter', 'day_of_week'] as const)(
+        'uses numeric %s date parts for scatter axes',
+        (datePart) => {
+            const result = buildBIQuery({
+                ...DEFAULT_BI_CONFIG,
+                source: timestampField.source,
+                rows: [{ ...timestampField, datePart }],
+                chartType: ChartDisplayType.ScatterPlot,
+            })!
+            expect(result.node.chartSettings?.xAxis?.column).not.toBe('count')
+            expect(result.node.chartSettings?.yAxis).toEqual([{ column: 'count' }])
+            expect(
+                getBIChartFit(
+                    {
+                        ...DEFAULT_BI_CONFIG,
+                        source: timestampField.source,
+                        rows: [{ ...timestampField, datePart }],
+                        chartType: ChartDisplayType.ScatterPlot,
+                    },
+                    ChartDisplayType.ScatterPlot
+                ).fits
+            ).toBe(true)
+        }
+    )
     it.each(['month', 'quarter', 'year'] as const)(
         'aligns %s comparison buckets with calendar arithmetic',
         (dateBucket) => {

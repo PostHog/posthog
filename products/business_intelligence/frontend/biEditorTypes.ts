@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { getAutoBoxPlotSettings } from '~/queries/nodes/DataVisualization/Components/Charts/sqlBoxPlotAdapter'
 import {
     BIConfig,
     BISort,
@@ -104,7 +105,8 @@ export interface BIQueryBuildResult {
 export function mergeBIChartSettings(
     current: ChartSettings | undefined,
     generated: ChartSettings | undefined,
-    previousDefaults?: ChartSettings
+    previousDefaults?: ChartSettings,
+    preserveNumericAxes = false
 ): ChartSettings | undefined {
     if (!generated) {
         if (current?.seriesBreakdownColumn) {
@@ -112,6 +114,29 @@ export function mergeBIChartSettings(
             return settings
         }
         return current
+    }
+    if (preserveNumericAxes && current?.xAxis?.column) {
+        const axes = [generated.xAxis, ...(generated.yAxis ?? [])].filter((axis) => axis?.column)
+        const selectedX = axes.find((axis) => axis?.column === current.xAxis?.column)
+        const selectedY = current.yAxis?.filter(
+            (axis) => axis.column !== selectedX?.column && axes.some((available) => available?.column === axis.column)
+        )
+        if (selectedX && selectedY?.length) {
+            return {
+                ...current,
+                ...generated,
+                xAxis: { ...selectedX, ...current.xAxis },
+                xAxisLabel: current.xAxisLabel,
+                yAxis: selectedY.map((axis) => ({
+                    ...axis,
+                    settings: mergeBIMeasureSettings(
+                        axis.settings,
+                        axes.find((available) => available?.column === axis.column)?.settings
+                    ),
+                })),
+                leftYAxisSettings: { ...generated.leftYAxisSettings, ...current.leftYAxisSettings },
+            }
+        }
     }
     return {
         ...current,
@@ -143,6 +168,7 @@ export function mergeBIChartSettings(
                     settings: mergeBIMeasureSettings(saved?.settings, axis.settings),
                 }
             }) ?? current?.yAxis,
+        boxPlot: current?.boxPlot || generated.boxPlot ? { ...generated.boxPlot, ...current?.boxPlot } : undefined,
         heatmap: current?.heatmap || generated.heatmap ? { ...current?.heatmap, ...generated.heatmap } : undefined,
     }
 }
@@ -255,6 +281,10 @@ const NUMERIC_FIELD_TYPES = new Set<DatabaseSerializedFieldType>(['integer', 'fl
 
 export function isNumericBIField(field: BIField): boolean {
     return NUMERIC_FIELD_TYPES.has(field.type)
+}
+
+export function isNumericBIResultField(field: BIField): boolean {
+    return isNumericBIField(field) || !!field.datePart
 }
 
 export function isDateTimeBIField(field: BIField): boolean {
@@ -401,7 +431,7 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
     const dimensionCount = rowCount + columnCount
     const hasDateDimension = [...config.rows, ...config.columns].some(isDateTimeBIField)
     const numericColumnCount =
-        [...config.rows, ...config.columns].filter(isNumericBIField).length + Math.max(1, config.values.length)
+        [...config.rows, ...config.columns].filter(isNumericBIResultField).length + Math.max(1, config.values.length)
 
     switch (chartType) {
         case ChartDisplayType.Auto:
@@ -1583,7 +1613,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
     if (config.chartType === ChartDisplayType.ScatterPlot) {
         const numericColumns = [
             ...getBIResultDimensions(config)
-                .filter(({ field }) => isNumericBIField(field))
+                .filter(({ field }) => isNumericBIResultField(field))
                 .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) })),
             ...(configuredValues.length
                 ? configuredValues.map(({ alias, value }) => ({ column: alias, label: getBIValuePillLabel(value) }))
@@ -1601,6 +1631,17 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             leftYAxisSettings: { label: ys.length === 1 ? ys[0].label : undefined },
             seriesBreakdownColumn: undefined,
         }
+    }
+
+    if (config.chartType === ChartDisplayType.BoxPlot) {
+        const columns = [
+            ...getBIResultDimensions(config).map(({ column, field }) => ({
+                name: column,
+                type: { isNumerical: isNumericBIResultField(field) },
+            })),
+            ...configuredValues.map(({ alias }) => ({ name: alias, type: { isNumerical: true } })),
+        ].map((column, dataIndex) => ({ ...column, dataIndex }))
+        seriesSettings = { ...seriesSettings, boxPlot: getAutoBoxPlotSettings(columns) }
     }
 
     return {
@@ -1628,7 +1669,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                             ? dimension.alias
                                             : fieldExpression(dimension.field)
                                     )),
-                              ...configuredValues.map((value) => value.alias),
+                              ...(configuredValues.length ? configuredValues.map((value) => value.alias) : ['count']),
                               ...(comparing ? ['bi_comparison'] : []),
                           ].map((column) => {
                               const dimension = dimensions.find(

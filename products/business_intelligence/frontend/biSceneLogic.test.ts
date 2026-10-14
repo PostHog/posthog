@@ -253,6 +253,81 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
+    it('initializes box plot mappings without changing the returned columns', async () => {
+        const statistics = ['min', 'p25', 'median', 'mean', 'p75', 'max']
+        logic.actions.restoreWorksheet(
+            worksheet({
+                ...config,
+                columns: [],
+                values: [],
+                rows: statistics.map((name) => ({
+                    ...eventField,
+                    id: name,
+                    name,
+                    expression: name,
+                    type: 'float',
+                })),
+            })
+        )
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        editor.actions.setChartType(ChartDisplayType.BoxPlot)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.boxPlot).toMatchObject(
+            Object.fromEntries(statistics.map((name) => [`${name}Column`, name]))
+        )
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('keeps generated axis defaults aligned after an unrelated axis edit', async () => {
+        logic.actions.restoreWorksheet(
+            worksheet({ ...config, columns: [], values: [{ field: eventField, aggregation: 'count' }] })
+        )
+        editor.actions.setAutoUpdate(false)
+        editor.actions.renameField('values', 0, 'First count')
+        logic.actions.runQuery()
+        logic.actions.setChartSettings({ ...logic.values.lastRunQuery!.chartSettings, xAxisLabel: 'Custom events' })
+        editor.actions.renameField('values', 0, 'Second count')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.leftYAxisSettings?.label).toBe('Second count')
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe('Custom events')
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('preserves implicit count formatting and valid saved scatter axes', async () => {
+        logic.actions.restoreWorksheet(worksheet({ ...config, columns: [] }))
+        logic.actions.setVisualization({
+            ...logic.values.worksheet,
+            tableSettings: {
+                columns: [
+                    { column: 'event' },
+                    { column: 'count', settings: { display: { label: 'Records' }, formatting: { decimalPlaces: 2 } } },
+                ],
+            },
+        })
+        expect(
+            logic.values.worksheet.tableSettings?.columns?.find(({ column }) => column === 'count')?.settings
+        ).toMatchObject({ display: { label: 'Records' }, formatting: { decimalPlaces: 2 } })
+        logic.actions.restoreWorksheet(
+            worksheet({
+                ...config,
+                chartType: ChartDisplayType.ScatterPlot,
+                rows: [],
+                columns: [],
+                values: [
+                    { field: eventField, aggregation: 'count' },
+                    { field: eventField, aggregation: 'count_distinct' },
+                ],
+            })
+        )
+        const settings = logic.values.worksheet.chartSettings!
+        const x = settings.xAxis!.column
+        const y = settings.yAxis![0].column
+        logic.actions.setChartSettings({ ...settings, xAxis: { column: y }, yAxis: [{ column: x }] })
+        expect(logic.values.worksheet.chartSettings).toMatchObject({ xAxis: { column: y }, yAxis: [{ column: x }] })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         logic.actions.restoreWorksheet(worksheet())

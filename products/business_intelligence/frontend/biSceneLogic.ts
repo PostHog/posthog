@@ -30,7 +30,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings, HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { warehouseSavedQueriesCreate } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
@@ -94,6 +94,7 @@ export interface biSceneLogicValues {
     currentTeamId: number | null // teamLogic
     canRedo: boolean
     canUndo: boolean
+    chartSettingsDefaults: ChartSettings | null
     copyDisabledReason: string | undefined
     dataNodeKey: string
     exportViewName: string
@@ -217,6 +218,9 @@ export interface biSceneLogicActions {
     setChartSettings: (chartSettings: ChartSettings) => {
         chartSettings: ChartSettings
     }
+    setChartSettingsDefaults: (defaults: ChartSettings | undefined) => {
+        defaults: ChartSettings | undefined
+    }
     setExportViewName: (name: string) => {
         name: string
     }
@@ -254,7 +258,8 @@ export interface biSceneLogicMeta {
         worksheet: (
             config: BIConfig,
             generatedQuery: BIQueryBuildResult | null,
-            visualization: BIVisualizationNode
+            visualization: BIVisualizationNode,
+            chartSettingsDefaults: ChartSettings | null
         ) => BIVisualizationNode
         hasUnsavedChanges: (worksheet: BIVisualizationNode, name: string, insight: InsightApi | null) => boolean
         saveDisabledReason: (
@@ -298,6 +303,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         restoreWorksheet: (worksheet: BIVisualizationNode) => ({ worksheet }),
         setVisualization: (visualization: VisualizationNode) => ({ visualization }),
         setChartSettings: (chartSettings: ChartSettings) => ({ chartSettings }),
+        setChartSettingsDefaults: (defaults: ChartSettings | undefined) => ({ defaults }),
         setName: (name: string) => ({ name }),
         runQuery: true,
         cancelQuery: true,
@@ -410,6 +416,14 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         : state,
             },
         ],
+        chartSettingsDefaults: [
+            null as ChartSettings | null,
+            {
+                setChartSettingsDefaults: (_, { defaults }) => defaults ?? null,
+                restoreWorksheet: () => null,
+                setVisualization: () => null,
+            },
+        ],
         visualization: [
             emptyWorksheet(),
             {
@@ -446,11 +460,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
         dataNodeKey: [(_, props) => [props.tabId], (tabId: string): string => `InsightViz.new-bi-${tabId}`],
         worksheet: [
-            (s) => [s.config, s.generatedQuery, s.visualization],
+            (s) => [s.config, s.generatedQuery, s.visualization, s.chartSettingsDefaults],
             (
                 config: BIConfig,
                 generatedQuery: BIQueryBuildResult | null,
-                visualization: BIVisualizationNode
+                visualization: BIVisualizationNode,
+                chartSettingsDefaults: ChartSettings | null
             ): BIVisualizationNode => ({
                 ...visualization,
                 ...generatedQuery?.node,
@@ -463,7 +478,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 chartSettings: mergeBIChartSettings(
                     visualization.chartSettings,
                     generatedQuery?.node.chartSettings,
-                    buildBIQuery(visualization.config)?.node.chartSettings
+                    chartSettingsDefaults ?? buildBIQuery(visualization.config)?.node.chartSettings,
+                    config.chartType === ChartDisplayType.ScatterPlot
                 ),
                 tableSettings: mergeBITableSettings(
                     visualization.tableSettings,
@@ -693,6 +709,9 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
         setChartSettings: ({ chartSettings }) => {
+            actions.setChartSettingsDefaults(
+                buildBIQuery(values.lastRunQuery?.config ?? values.config)?.node.chartSettings
+            )
             if (values.lastRunQuery) {
                 actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
             }

@@ -4,6 +4,7 @@ import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { BIComparisonRow, buildBIComparisonRows, getBIComparisonValues } from './biComparisonResults'
+import { getBIFieldPillLabel } from './biEditorTypes'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
 
 export function BIComparisonSummary({
@@ -114,7 +115,7 @@ export function BIComparisonSummary({
                               {
                                   children: dimensions.map((field, index) => ({
                                       key: field.id,
-                                      title: field.name,
+                                      title: getBIFieldPillLabel(field),
                                       render: (_: unknown, row: BIComparisonRow) =>
                                           String(row.dimensions[index] ?? '(empty)'),
                                   })),

@@ -7,6 +7,7 @@ import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { captureBIWorksheetAction } from './biEditorAnalytics'
+import { getBIFieldPillLabel } from './biEditorTypes'
 import { biPivotCellKey, biPivotKey, BIPivotMember, buildBIPivotModel, visibleBIPivotMembers } from './biPivot'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
 
@@ -80,7 +81,7 @@ export function BIPivotTable({
     const headerRows = Array.from({ length: config.columns.length }, (_, depth) => {
         const cells: { title: React.ReactNode; colSpan: number; key: string }[] = [
             {
-                title: depth === 0 ? config.columns.map((field) => field.name).join(' / ') : '',
+                title: depth === 0 ? config.columns.map(getBIFieldPillLabel).join(' / ') : '',
                 colSpan: 1,
                 key: 'rows',
             },
@@ -123,7 +124,7 @@ export function BIPivotTable({
                 columns={[
                     {
                         key: 'rows',
-                        title: config.rows.map((field) => field.name).join(' / '),
+                        title: config.rows.map(getBIFieldPillLabel).join(' / '),
                         render: (_, member) => (
                             <div className="flex items-center gap-1 whitespace-nowrap">
                                 {member.path.slice(1).map((_, index) => (
