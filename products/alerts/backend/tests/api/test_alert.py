@@ -2284,6 +2284,18 @@ class TestAlertEventProperties(SimpleTestCase):
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
 
+class TestPersistedAlertEventProperties(APIBaseTest):
+    def test_event_properties_include_alert_id_and_subscriber_count(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="test alert")
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        props = alert._get_event_properties()
+
+        assert props["alert_id"] == alert.id
+        assert props["subscribed_users_count"] == 1
+
+
 class TestAlertListFilters(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
