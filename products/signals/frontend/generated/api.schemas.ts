@@ -3803,7 +3803,7 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly effective_precheck_query: string | null
-    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
     readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
