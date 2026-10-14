@@ -724,6 +724,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
+    /** Compile and run this query against the hosted Trino target. */
+    executionTarget?: 'default' | 'managed_trino'
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
@@ -4923,7 +4925,7 @@ export interface MetricsQuerySeries {
     metricName?: string
     /** Clause alias that produced this series (`formula` for the formula result) */
     clause?: string
-    /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+    /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
     unit?: string
 }
 

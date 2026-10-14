@@ -65,6 +65,7 @@ _LAZY = {
     "reproject_direct_mysql_table": "mysql_helpers",
     "get_postgres_source_location": "postgres_helpers",
     "reconcile_postgres_schemas": "postgres_helpers",
+    "reconcile_managed_trino_schemas": "trino_helpers",
     "reproject_direct_postgres_table": "postgres_helpers",
     "reconcile_snowflake_schemas": "snowflake_helpers",
     "reproject_direct_snowflake_table": "snowflake_helpers",

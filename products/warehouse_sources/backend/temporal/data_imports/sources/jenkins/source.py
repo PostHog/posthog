@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.cloud_utils import is_cloud
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^JENKINS_",),
+        npm=("jenkins",),
+        pypi=("python-jenkins", "api4jenkins"),
+        go=("github.com/bndr/gojenkins",),
+        maven=("com.offbytwo.jenkins:jenkins-client",),
+        rubygems=("jenkins_api_client", "jenkins_launcher"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

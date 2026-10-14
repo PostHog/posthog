@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CiscoDuoSource(ResumableSource[CiscoDuoSourceConfig, CiscoDuoResumeConfig]):
+    codebase_detection = detect(
+        env=("^(CISCO_DUO|CISCODUO)_",),
+        npm=("@duosecurity/duo_api", "@duosecurity/duo_universal"),
+        pypi=("duo-client", "duo-universal"),
+        composer=("duosecurity/duo_api_php", "duosecurity/duo_universal_php"),
+        go=("github.com/duosecurity/duo_api_golang", "github.com/duosecurity/duo_universal_golang"),
+        maven=("com.duosecurity:duo-client", "com.duosecurity:duo-universal-sdk"),
+        rubygems=("duo_api", "duo_universal"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

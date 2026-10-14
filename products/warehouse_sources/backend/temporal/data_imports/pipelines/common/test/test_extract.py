@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     UNREADABLE_JOB_INPUTS_MESSAGE,
     _get_redis,
+    count_worker_deaths,
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
@@ -323,6 +324,21 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             # No workload reports were seeded, so evidence must be honestly absent (fails open), not 0.
             assert event.self_phase is None and event.self_peak_buffer_bytes is None
             assert event.self_report_age_at_death_seconds is None
+
+    def test_counts_the_deaths_of_this_run_only(self) -> None:
+        schema = self._schema()
+        other_schema = self._schema()
+        events = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk)
+        for schema_id, run_id in [
+            (schema.id, "run-1"),
+            (schema.id, "run-1"),
+            (schema.id, "run-0"),
+            (other_schema.id, "run-1"),
+        ]:
+            events.create(team_id=self.team.pk, schema_id=schema_id, run_id=run_id)
+        inputs = MagicMock(team_id=self.team.pk, schema_id=schema.id, run_id="run-1")
+
+        assert count_worker_deaths(inputs, MagicMock()) == 2
 
     def test_row_snapshots_workload_evidence_without_co_tenant_identifiers(self) -> None:
         # The whole point of the stack: the dead attempt's own self-report and its pod's aggregates

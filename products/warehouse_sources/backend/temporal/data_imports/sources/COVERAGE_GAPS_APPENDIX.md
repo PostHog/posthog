@@ -823,10 +823,10 @@ Today (4): `company_leads`, `flow_engagement`, `teams`, `users`
 
 Diffed against: <https://docs.arcade.software/kb/leverage/advanced-features/rest-api/insights-api>
 
-- [ ] `Views (POST /insights, type=views)` — supplies unique demo viewers, the denominator for conversion from viewing to playing (high)
-- [ ] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
-- [ ] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
-- [ ] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
+- [x] `Views (POST /insights, type=views)` — supplies unique demo viewers, the denominator for conversion from viewing to playing (high)
+- [x] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
+- [x] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
+- [x] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
 - [ ] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
 - [ ] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
 - [ ] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)
@@ -853,15 +853,15 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asaas — **thin**
 
-Today (5): `Customers`, `Installments`, `Payments`, `Subscriptions`, `Transfers`
+Today (9): `Customers`, `FinancialTransactions`, `Installments`, `Invoices`, `Payments`, `PixTransactions`, `ReceivedSplits`, `Subscriptions`, `Transfers`
 
 Diffed against: <https://docs.asaas.com/reference/llms.txt>
 
 - [ ] `Payment links (GET /v3/paymentLinks)` — resolves paymentLink IDs in Payments and identifies the checkout offers that produced revenue (high)
-- [ ] `Pix transactions (GET /v3/pix/transactions)` — resolves pixTransaction IDs in Payments and supports reconciliation of incoming and outgoing Pix transfers (high)
-- [ ] `Financial statement (GET /v3/financialTransactions)` — reconciles account credits, debits, and fees to calculate cash movements (high)
-- [ ] `Invoices (GET /v3/invoices)` — connects fiscal invoice status and tax details to customers and payments (high)
-- [ ] `Received splits (GET /v3/payments/splits/received)` — measures marketplace revenue received from payments created by other accounts (high)
+- [x] `Pix transactions (GET /v3/pix/transactions)` — resolves pixTransaction IDs in Payments and supports reconciliation of incoming and outgoing Pix transfers (high)
+- [x] `Financial statement (GET /v3/financialTransactions)` — reconciles account credits, debits, and fees to calculate cash movements (high)
+- [x] `Invoices (GET /v3/invoices)` — connects fiscal invoice status and tax details to customers and payments (high)
+- [x] `Received splits (GET /v3/payments/splits/received)` — measures marketplace revenue received from payments created by other accounts (high)
 - [ ] `Anticipations (GET /v3/anticipations)` — measures receivable advances, financing costs, and their effects on cash flow (medium)
 - [ ] `Paid splits (GET /v3/payments/splits/paid)` — adds settlement dates and account relationships beyond the split details embedded in Payments (medium)
 - [ ] `Bill payments (GET /v3/bill)` — tracks outgoing bill payments and their status for cash flow analysis (medium)
@@ -1080,14 +1080,14 @@ Note: The wiki.awin.com URLs in the source config are dead - they now 302 to the
 
 ## AWS Batch — gaps
 
-Today (4): `compute_environments`, `job_definitions`, `job_queues`, `jobs`
+Today (8): `compute_environments`, `consumable_resources`, `job_children`, `job_definitions`, `job_queues`, `jobs`, `scheduling_policies`, `service_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/batch/2016-08-10/service-2.json>
 
-- [ ] `Scheduling policies (ListSchedulingPolicies, POST /v1/listschedulingpolicies; DescribeSchedulingPolicies, POST /v1/describeschedulingpolicies)` — resolves schedulingPolicyArn in job queues and explains fair-share allocation (high)
-- [ ] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
-- [ ] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high)
-- [ ] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium)
+- [x] `Scheduling policies (ListSchedulingPolicies, POST /v1/listschedulingpolicies; DescribeSchedulingPolicies, POST /v1/describeschedulingpolicies)` — resolves schedulingPolicyArn in job queues and explains fair-share allocation (high)
+- [x] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
+- [x] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high) — the `job_children` table describes children by their derived IDs (`parentId:index`, `parentId#node`) with DescribeJobs, because ListJobs ignores its all-status filter for children and would need one walk per status
+- [x] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium) — the `service_jobs` table uses the ListServiceJobs summaries; DescribeServiceJob takes one request per job, so it is not called
 - [ ] `Job queue snapshots (GetJobQueueSnapshot, POST /v1/getjobqueuesnapshot)` — measures queued demand, dispatch order, and capacity utilization over time (medium)
 
 Note: Parsed read operations, request fields, and response shapes in the official botocore service model. AWS reads mainly use POST; existing jobs already call DescribeJobs, but child discovery needs arrayJobId or multiNodeJobId. Scheduling policies and consumable resources need detail reads, and queue snapshots need retained timestamps. Excluded writes and tag plumbing.
@@ -1117,30 +1117,30 @@ Note: Parsed all read operations and response shapes in the official botocore se
 
 ## AWS Compute Optimizer — gaps
 
-Today (6): `auto_scaling_group_recommendations`, `ebs_volume_recommendations`, `ec2_instance_recommendations`, `ecs_service_recommendations`, `lambda_function_recommendations`, `recommendation_summaries`
+Today (10): `auto_scaling_group_recommendations`, `ebs_volume_recommendations`, `ec2_instance_recommendations`, `ec2_recommendation_projected_metrics`, `ecs_service_recommendation_projected_metrics`, `ecs_service_recommendations`, `idle_recommendations`, `lambda_function_recommendations`, `rds_database_recommendations`, `recommendation_summaries`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/compute-optimizer/2019-11-01/service-2.json>
 
-- [ ] `RDS database recommendations (GetRDSDatabaseRecommendations, POST /)` — identifies database instance and storage savings that the current compute recommendations do not cover (high)
-- [ ] `Idle resource recommendations (GetIdleRecommendations, POST /)` — identifies unused resources and their potential savings across resource types (high)
+- [x] `RDS database recommendations (GetRDSDatabaseRecommendations, POST /)` — identifies database instance and storage savings that the current compute recommendations do not cover (high)
+- [x] `Idle resource recommendations (GetIdleRecommendations, POST /)` — identifies unused resources and their potential savings across resource types (high)
 - [ ] `License recommendations (GetLicenseRecommendations, POST /)` — shows license savings options for existing EC2 instances (medium)
-- [ ] `EC2 recommendation projected metrics (GetEC2RecommendationProjectedMetrics, POST /)` — provides projected CPU and memory time series to assess recommended instance sizes (medium)
-- [ ] `ECS service recommendation projected metrics (GetECSServiceRecommendationProjectedMetrics, POST /)` — provides projected utilization time series to assess recommended service capacity (medium)
+- [x] `EC2 recommendation projected metrics (GetEC2RecommendationProjectedMetrics, POST /)` — provides projected CPU and memory time series to assess recommended instance sizes (medium)
+- [x] `ECS service recommendation projected metrics (GetECSServiceRecommendationProjectedMetrics, POST /)` — provides projected utilization time series to assess recommended service capacity (medium)
 - [ ] `RDS database recommendation projected metrics (GetRDSDatabaseRecommendationProjectedMetrics, POST /)` — provides projected utilization time series to assess recommended database sizes (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. JSON RPC reads use POST / and select operations through X-Amz-Target. Projected metrics require calls for each resource ARN and a time window. Enrollment, preferences, and export plumbing were excluded.
 
 ## AWS Config — **thin**
 
-Today (4): `config_rules`, `conformance_packs`, `resources`, `rule_compliance`
+Today (7): `aggregated_resources`, `config_rules`, `conformance_pack_compliance_scores`, `conformance_packs`, `resources`, `rule_compliance`, `rule_evaluation_results`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/config/2014-11-12/service-2.json>
 
 - [ ] `Resource configuration history (GetResourceConfigHistory, POST /)` — provides configuration changes, deleted resource states, and historical relationships for auditing and incident analysis (high)
-- [ ] `Rule evaluation results (GetComplianceDetailsByConfigRule, POST /)` — connects synced rules to evaluated resources, compliance outcomes, timestamps, and reasons for failures (high)
+- [x] `Rule evaluation results (GetComplianceDetailsByConfigRule, POST /)` — connects synced rules to evaluated resources, compliance outcomes, timestamps, and reasons for failures (high)
 - [ ] `Conformance pack evaluation results (GetConformancePackComplianceDetails, POST /)` — connects synced packs, rules, and resources to detailed compliance outcomes (high)
-- [ ] `Conformance pack compliance scores (ListConformancePackComplianceScores, POST /)` — provides the percentage of compliant rule-resource combinations for compliance dashboards (high)
-- [ ] `Aggregated resource configurations (SelectAggregateResourceConfig, POST /)` — enables resource inventory and configuration analysis across accounts and regions (high)
+- [x] `Conformance pack compliance scores (ListConformancePackComplianceScores, POST /)` — provides the percentage of compliant rule-resource combinations for compliance dashboards (high)
+- [x] `Aggregated resource configurations (SelectAggregateResourceConfig, POST /)` — enables resource inventory and configuration analysis across accounts and regions (high)
 - [ ] `Remediation execution status (DescribeRemediationExecutionStatus, POST /)` — shows remediation progress, step timestamps, and errors for noncompliant resources (medium)
 - [ ] `Proactive resource evaluations (ListResourceEvaluations, POST /)` — tracks compliance evaluations before resources are deployed (medium)
 
@@ -1162,10 +1162,10 @@ Today (4): `cost_and_usage_daily`, `cost_and_usage_monthly`, `reservation_utiliz
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/ce/2017-10-25/service-2.json>
 
-- [ ] `Dimension values (GetDimensionValues, POST /)` — resolves linked account IDs in cost tables to account names and provides dimension metadata (high)
-- [ ] `Cost and usage with resources (GetCostAndUsageWithResources, POST /)` — attributes spend to individual resources for cost allocation and investigation (high)
-- [ ] `Reservation coverage (GetReservationCoverage, POST /)` — measures eligible usage covered by Reserved Instances, which utilization totals cannot establish (high)
-- [ ] `Savings Plans coverage (GetSavingsPlansCoverage, POST /)` — measures eligible spend covered by Savings Plans and the remaining on-demand exposure (high)
+- [x] `Dimension values (GetDimensionValues, POST /)` — resolves linked account IDs in cost tables to account names and provides dimension metadata (high)
+- [x] `Cost and usage with resources (GetCostAndUsageWithResources, POST /)` — attributes spend to individual resources for cost allocation and investigation (high)
+- [x] `Reservation coverage (GetReservationCoverage, POST /)` — measures eligible usage covered by Reserved Instances, which utilization totals cannot establish (high)
+- [x] `Savings Plans coverage (GetSavingsPlansCoverage, POST /)` — measures eligible spend covered by Savings Plans and the remaining on-demand exposure (high)
 - [ ] `Savings Plans utilization details (GetSavingsPlansUtilizationDetails, POST /)` — shows utilization, savings, commitments, and attributes for each Savings Plan (medium)
 - [ ] `Cost forecast (GetCostForecast, POST /)` — supports budget planning with predicted spend and confidence intervals (medium)
 - [ ] `Rightsizing recommendations (GetRightsizingRecommendation, POST /)` — identifies idle or oversized EC2 instances and estimates savings (medium)
@@ -3879,10 +3879,10 @@ Today (18): `addons`, `balance_ledger_entries`, `brands`, `credit_entitlements`,
 
 Diffed against: <https://raw.githubusercontent.com/dodopayments/dodopayments-python/main/api.md>
 
-- [ ] `Payment line items (GET /payments/{payment_id}/line-items)` — attribute payment revenue to products and metered charges absent from payment listings (high)
-- [ ] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
-- [ ] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
-- [ ] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
+- [x] `Payment line items (GET /payments/{payment_id}/line-items)` — attribute payment revenue to products and metered charges absent from payment listings (high)
+- [x] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
+- [x] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
+- [x] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
 - [ ] `Credit entitlement ledger (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/ledger)` — track credit consumption and balance changes by customer and entitlement (high)
 - [ ] `Credit entitlement grants (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/grants)` — analyze granted credits, expiry, and remaining quantities by customer (medium)
 - [ ] `Customer wallets (GET /customers/{customer_id}/wallets)` — measure customer wallet balances and prepaid funds by currency (medium)
@@ -4206,9 +4206,9 @@ Diffed against: <https://api.elevenlabs.io/openapi.json>
 - [x] `/v1/models` — lookup table resolving the model_id carried on history items and conversations (high)
 - [x] `/v1/workspace/members (and /v1/workspace/groups)` — lookup resolving the workspace user ids attached to history, conversations and usage rows (high)
 - [x] `/v1/convai/tools and /v1/convai/tools/{tool_id}/executions` — agent tool catalog plus per-execution records — the analytical detail behind agent conversations (medium)
-- [ ] `/v1/convai/phone-numbers` — lookup resolving the phone number a Conversational AI call came in on (medium)
-- [ ] `/v1/convai/batch-calling/workspace` — batch calling jobs, the campaign-level grouping over outbound conversations (medium)
-- [ ] `/v1/user/subscription` — plan quota and current-period usage, needed to turn character stats into utilization (medium)
+- [x] `/v1/convai/phone-numbers` — lookup resolving the phone number a Conversational AI call came in on (medium)
+- [x] `/v1/convai/batch-calling/workspace` — batch calling jobs, the campaign-level grouping over outbound conversations (medium)
+- [x] `/v1/user/subscription` — plan quota and current-period usage, needed to turn character stats into utilization (medium)
 - [ ] `/v1/convai/knowledge-base (+ /summaries)` — knowledge base documents referenced by agents, resolves document ids seen in agent configs (medium)
 - [ ] `/v1/convai/tags` — tag lookup for grouping agents and conversations in reporting (medium)
 - [ ] `/v1/workspace/audit-logs` — state/transition history across workspace resources (medium)
@@ -4743,10 +4743,10 @@ Diffed against: <https://developer.fleetio.com/sitemap.xml>
 - [x] `service_tasks` — lookup resolving the task IDs referenced by service entries, work orders and service reminders (high)
 - [x] `vendors` — lookup resolving vendor IDs on service entries, fuel entries and purchase orders (high)
 - [x] `purchase_orders (and purchase_order_line_items)` — parts procurement transactions and their line items; parts are synced but never their purchases (medium)
-- [ ] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
-- [ ] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
-- [ ] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
-- [ ] `inventory_journal_entries` — parts inventory movements; parts are synced only as current stock levels (medium)
+- [x] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
+- [x] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
+- [x] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
+- [x] `inventory_journal_entries` — parts inventory movements; parts are synced only as current stock levels (medium)
 
 Note: No OpenAPI file is published; the resource list came from the Docusaurus sitemap, which enumerates every documented endpoint page (index/show/create/update per resource) under /docs/api/2023-03-01/. Also unsynced but lower value: equipment and equipment_assignments, submitted_inspection_forms, issue_priorities, fuel_types, groups, labels, places, tires, vehicle/contact renewal reminders and types, part_locations, comments, vmrs_reason_for_repairs.
 
@@ -5362,10 +5362,10 @@ Diffed against: <https://developer.gocardless.com/api-reference/>
 - [x] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
 - [x] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
 - [x] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
-- [ ] `instalment_schedules` — payment plans that group the individual payments we sync (medium)
-- [ ] `billing_requests` — the modern checkout/mandate-setup funnel object, needed to measure setup conversion (medium)
-- [ ] `payment_account_transactions` — transaction ledger for embedded payment accounts (medium)
-- [ ] `outbound_payments` — money-out transactions, the counterpart to the payments table (medium)
+- [x] `instalment_schedules` — payment plans that group the individual payments we sync (medium)
+- [x] `billing_requests` — the modern checkout/mandate-setup funnel object, needed to measure setup conversion (medium)
+- [x] `payment_account_transactions` — transaction ledger for embedded payment accounts (medium)
+- [x] `outbound_payments` — money-out transactions, the counterpart to the payments table (medium)
 - [ ] `creditor_bank_accounts` — lookup resolving the destination bank account on payouts (medium)
 - [ ] `tax_rates` — lookup resolving the tax rate ID on payments and subscriptions (low)
 - [ ] `scheme_identifiers` — lookup resolving the scheme identifier referenced by mandates (low)
@@ -6866,14 +6866,14 @@ Diffed against: <https://docs.knock.app/llms.txt>
 - [x] `messages/{id}/delivery_logs` — provider-level request/response per delivery attempt; the only way to diagnose bounces and provider failures (high)
 - [x] `objects (list objects in a collection)` — non-user recipients (accounts, projects, devices) — the lookup that resolves object recipient IDs appearing on messages and subscriptions (high)
 - [x] `schedules (list schedules)` — scheduled and recurring workflow runs, the forward-looking counterpart to workflow_recipient_runs (high)
-- [ ] `messages/{id}/activities` — the trigger activities (actor, recipient, data) that produced a message — links notifications back to the originating event (medium)
-- [ ] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
-- [ ] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
-- [ ] `users/{id}/preferences and objects preferences` — per-recipient notification preference sets — needed to explain why recipients were skipped (medium)
+- [x] `messages/{id}/activities` — the trigger activities (actor, recipient, data) that produced a message — links notifications back to the originating event (medium)
+- [x] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
+- [x] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
+- [x] `users/{id}/preferences and objects preferences` — per-recipient notification preference sets — needed to explain why recipients were skipped (medium)
 - [ ] `users/{id}/feeds (list feed items)` — in-app feed items per user, for in-app channel engagement analysis (medium)
 - [ ] `bulk_operations (get bulk operation)` — status of bulk identify/subscribe jobs, useful for sync auditing (low)
 
-Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.json returns the docs SPA), but llms.txt enumerates every api-reference page and is authoritative. Caveat for whoever implements `objects`: there is no global list-all-objects endpoint — listing requires a collection key per request, so the table would need collection names as config or dynamic discovery. The message sub-resources (events, delivery_logs, activities) likewise require iterating message IDs, which is expensive but is where the deliverability data lives.
+Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.json returns the docs SPA), but llms.txt enumerates every api-reference page and is authoritative. Caveat for whoever implements `objects`: there is no global list-all-objects endpoint — listing requires a collection key per request, so the table would need collection names as config or dynamic discovery. The message sub-resources (events, delivery_logs, activities) likewise require iterating message IDs, which is expensive but is where the deliverability data lives. The subscriptions and preferences tables (`user_subscriptions`, `user_preferences`) fan out over users only; the object-side endpoints would need a two-level walk over configured collections and their objects. Audiences cannot be listed either, so `audience_members` reads the audience keys configured on the source.
 
 ## Knowbe4 — gaps
 
@@ -7035,10 +7035,10 @@ Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/ope
 - [x] `GET /payments` — actual cash collection against the invoices already synced (high)
 - [x] `GET /plans/{code}/charges (and /charges/{charge_code}/filters)` — lookup joining plans to billable metrics; without it, fees cannot be traced to pricing rules (high)
 - [x] `GET /events` — the raw usage events that every fee is derived from (high)
-- [ ] `GET /taxes` — lookup resolving tax codes applied on invoices, fees and customers (medium)
-- [ ] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
-- [ ] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
-- [ ] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
+- [x] `GET /taxes` — lookup resolving tax codes applied on invoices, fees and customers (medium)
+- [x] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
+- [x] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
+- [x] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
 - [ ] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
 - [ ] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
 - [ ] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
@@ -12319,10 +12319,10 @@ Today (16): `countries`, `languages`, `movie_genres`, `movie_now_playing`, `movi
 
 Diffed against: <https://developer.themoviedb.org/reference/movie-details>
 
-- [ ] `GET /3/discover/movie and /3/discover/tv` — The workhorse catalog query - lets a user pull arbitrary filtered slices instead of only the four curated popularity lists (high)
-- [ ] `GET /3/movie/{movie_id}/credits and /3/tv/{series_id}/aggregate_credits` — Cast and crew membership joining the movies/tv and people tables we already sync - the single most-wanted relation (high)
-- [ ] `GET /3/tv/{series_id}/season/{season_number} (seasons and episodes)` — Seasons and episodes are the child objects of every synced TV row; without them tv\_\* tables cannot be analyzed at episode grain (high)
-- [ ] `GET /3/watch/providers/movie, /3/watch/providers/tv, /3/watch/providers/regions` — Streaming-provider lookup tables that resolve the provider IDs returned by the per-title watch/providers endpoints (high)
+- [x] `GET /3/discover/movie and /3/discover/tv` — The workhorse catalog query - lets a user pull arbitrary filtered slices instead of only the four curated popularity lists (high)
+- [x] `GET /3/movie/{movie_id}/credits and /3/tv/{series_id}/aggregate_credits` — Cast and crew membership joining the movies/tv and people tables we already sync - the single most-wanted relation (high)
+- [x] `GET /3/tv/{series_id}/season/{season_number} (seasons and episodes)` — Seasons and episodes are the child objects of every synced TV row; without them tv\_\* tables cannot be analyzed at episode grain (high)
+- [x] `GET /3/watch/providers/movie, /3/watch/providers/tv, /3/watch/providers/regions` — Streaming-provider lookup tables that resolve the provider IDs returned by the per-title watch/providers endpoints (high)
 - [ ] `GET /3/company/{company_id}` — Lookup table resolving the production_companies IDs already embedded in synced movie and tv rows (medium)
 - [ ] `GET /3/network/{network_id}` — Lookup table resolving the network IDs on synced TV series rows (medium)
 - [ ] `GET /3/certification/movie/list and /3/certification/tv/list` — Lookup tables of age/content certifications per country, needed to decode release_dates and content_ratings (medium)

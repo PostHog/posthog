@@ -581,7 +581,7 @@ class EntitySearchContext:
             case "survey":
                 return f"{base_url}/surveys/{result_id}"
             case "error_tracking_issue":
-                return f"{base_url}/error_tracking/{result_id}"
+                return f"{base_url}/error-tracking/{result_id}"
             case "alert_configuration":
                 return f"{base_url}/alerts?alert_id={result_id}"
             case "hog_flow":

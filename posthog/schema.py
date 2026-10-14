@@ -122,6 +122,7 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
@@ -2734,7 +2735,11 @@ class MetricsQuerySeries(BaseModel):
     points: list[MetricsQueryPoint]
     unit: str | None = Field(
         default=None,
-        description=('UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one.'),
+        description=(
+            'UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the'
+            " ingested unit, except that a count of series has no unit and a rate is"
+            " per second. Empty when the values have no unit."
+        ),
     )
 
 
@@ -30739,6 +30744,10 @@ class HogQLQuery(BaseModel):
             " instead of ClickHouse — a pure-direct source, or a synced source with"
             " direct query enabled."
         ),
+    )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description="Compile and run this query against the hosted Trino target.",
     )
     explain: bool | None = None
     filters: HogQLFilters | None = Field(

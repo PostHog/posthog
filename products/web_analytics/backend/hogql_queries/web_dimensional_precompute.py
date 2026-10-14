@@ -317,6 +317,7 @@ def ensure_web_stats_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
         read_after_write=False,
+        spill_to_disk=True,  # GROUP BY over every fixed dimension; a large team's day outgrows the memory limit
     )
 
 
@@ -335,4 +336,5 @@ def ensure_web_bounces_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
         read_after_write=False,
+        spill_to_disk=True,  # session-level GROUP BY over every fixed dimension; same memory profile as stats
     )
