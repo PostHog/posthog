@@ -81,6 +81,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Workflow suggestions',
         description: 'When PostHog suggests a change to a workflow you set up',
     },
+    workflow_ideas: {
+        label: 'Workflow ideas',
+        description: 'When PostHog drafts workflows from the events your project sends',
+    },
 }
 
 export function NotificationTitle({

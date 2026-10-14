@@ -9,6 +9,12 @@ from django.utils import timezone
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    TargetType,
+    create_notification,
+)
 from products.workflows.backend.facade.contracts import (
     NewWorkflowIdea,
     WorkflowIdeaAlreadyResolved,
@@ -88,6 +94,44 @@ def create_ideas(
         if was_created:
             created.append(_record(row))
     return created
+
+
+def notify_new_ideas(*, team_id: int, idea_ids: Iterable[UUID]) -> bool:
+    """Tells the project once about ideas it has not heard about yet."""
+    with transaction.atomic():
+        # Claim the ideas first, so an overlapping run finds them taken and the locks are not held while
+        # the notification checks its flag over the network.
+        pending = list(
+            WorkflowIdea.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id__in=list(idea_ids), notified_at__isnull=True, status=WorkflowIdea.Status.SUGGESTED)
+            .order_by("created_at")
+        )
+        if not pending:
+            return False
+        claimed = [row.id for row in pending]
+        WorkflowIdea.objects.for_team(team_id).filter(id__in=claimed).update(notified_at=timezone.now())
+    count = len(pending)
+    event = None
+    try:
+        event = create_notification(
+            NotificationData(
+                team_id=team_id,
+                notification_type=NotificationType.WORKFLOW_IDEAS,
+                title=f"PostHog drafted {count} email workflow{'s' if count != 1 else ''} from your events",
+                body="; ".join(row.title for row in pending) + ". Review the emails and turn on the ones you want.",
+                target_type=TargetType.TEAM,
+                target_id=str(team_id),
+                # Only people who can view workflows hear about ideas, as only they can open them.
+                resource_type="hog_flow",
+                source_url="/workflows",
+            )
+        )
+    finally:
+        # If nothing was sent, for any reason, give the ideas back for a later run.
+        if event is None:
+            WorkflowIdea.objects.for_team(team_id).filter(id__in=claimed).update(notified_at=None)
+    return event is not None
 
 
 def _lock_open(team_id: int, idea_id: str) -> WorkflowIdea:
