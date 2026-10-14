@@ -12,10 +12,13 @@ re-validates everything on save.
 import re
 import time
 import uuid
+import functools
 import itertools
 from collections.abc import Callable, Collection, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, replace
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
 from django.conf import settings
 from django.db import connections
@@ -34,6 +37,7 @@ from posthog.api.search import (
     EntityConfig,
     search_entities,
 )
+from posthog.clickhouse.query_tagging import get_query_tags, query_tags
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import EventDefinition
@@ -78,6 +82,9 @@ _MAX_RETRYABLE_FAILURE_S = 10
 # Reasoning is most of the draft's wait; the flag caps it so draft quality can be compared first.
 CAPPED_THINKING_FLAG = "vision-draft-capped-thinking"
 _CAPPED_THINKING_BUDGET = 1_024
+# Runs estimates a draft may not wait for, so they never hold a request's own threads.
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="vision-draft-background")
+_T = TypeVar("_T")
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_PROMPT_LENGTH = 20_000
@@ -1858,6 +1865,17 @@ def _finalize_v2(
     )
 
 
+def _closing(item: Callable[[], _T]) -> Callable[[], _T]:
+    def run() -> _T:
+        try:
+            return item()
+        finally:
+            # A worker thread's connections are its own, and nothing else would close them.
+            connections.close_all()
+
+    return run
+
+
 def _run_concurrently(work: Sequence[Callable[[], None]], *, thread_name_prefix: str) -> None:
     """Run independent reads at once, so the draft waits for the slowest rather than for their sum."""
     # Django does not make the test transaction visible to another thread, so tests run them in turn.
@@ -1865,20 +1883,24 @@ def _run_concurrently(work: Sequence[Callable[[], None]], *, thread_name_prefix:
         for item in work:
             item()
         return
-
-    def closing(item: Callable[[], None]) -> Callable[[], None]:
-        def run() -> None:
-            try:
-                item()
-            finally:
-                # A worker thread's connections are its own, and nothing else would close them.
-                connections.close_all()
-
-        return run
-
     run_in_parallel_threads(
-        [closing(item) for item in work], max_workers=len(work), thread_name_prefix=thread_name_prefix
+        [_closing(item) for item in work], max_workers=len(work), thread_name_prefix=thread_name_prefix
     )
+
+
+def _start_in_background(work: Callable[[], _T]) -> Callable[[], _T]:
+    """Start `work` now and return a getter that waits for its result. A caller that never asks never waits."""
+    if settings.TEST:
+        return functools.cache(work)
+
+    def run() -> _T:
+        # A private copy, so the worker cannot change the caller's query tags in place.
+        query_tags.set(get_query_tags().model_copy())
+        return _closing(work)()
+
+    context = copy_context()
+    future: Future[_T] = _BACKGROUND_EXECUTOR.submit(lambda: context.run(run))
+    return lambda: future.result()
 
 
 def _capped_thinking(team: Team, user: User) -> bool:
@@ -2027,38 +2049,30 @@ def draft_scanner_from_goal_v2(
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
         )
 
-    # Estimated next to the draft's own filter, so a filter that matches nothing costs no second wait.
+    # Started next to the draft's own estimate, so a filter that matches nothing costs no second wait.
     fallback = _pages_only(draft.query)
     if fallback == draft.query:
         fallback = None
-    solution: _BudgetSolution | None = None
-    relaxed: _BudgetSolution | None = None
 
-    def solve_draft() -> None:
-        nonlocal solution
+    def solve_fallback() -> _BudgetSolution | None:
         try:
-            solution = solve(draft.query)
-        except Exception:
-            # A slow count must not throw away a good draft; the wizard falls back to its defaults.
-            logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
-
-    def solve_fallback() -> None:
-        nonlocal relaxed
-        try:
-            relaxed = solve(fallback)
+            return solve(fallback)
         except Exception:
             logger.warning("replay_vision.scanner_draft.fallback_solve_failed", team_id=team.id, exc_info=True)
+            return None
 
-    _run_concurrently(
-        [solve_draft, solve_fallback] if fallback is not None else [solve_draft],
-        thread_name_prefix="vision-draft-budget",
-    )
-    if solution is None:
+    relaxed = _start_in_background(solve_fallback) if fallback is not None else None
+    try:
+        solution = solve(draft.query)
+    except Exception:
+        # A slow count must not throw away a good draft; the wizard falls back to its defaults.
+        logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
         return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
     if solution.estimated_monthly_observations == 0 and fallback is not None and relaxed is not None:
-        draft, solution = _fall_back_to_pages(
-            team=team, draft=draft, solution=solution, fallback=fallback, relaxed=relaxed
-        )
+        if (relaxed_solution := relaxed()) is not None:
+            draft, solution = _fall_back_to_pages(
+                team=team, draft=draft, solution=solution, fallback=fallback, relaxed=relaxed_solution
+            )
     return replace(
         draft,
         sampling_mode=solution.sampling_mode,

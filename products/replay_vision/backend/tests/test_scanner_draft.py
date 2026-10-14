@@ -53,6 +53,7 @@ from products.replay_vision.backend.scanner_draft import (
     _measured_events,
     _run_concurrently,
     _solve_budget,
+    _start_in_background,
     _v2_query,
     draft_scanner_from_goal,
     draft_scanner_from_goal_v2,
@@ -546,6 +547,12 @@ class TestRunConcurrently:
             _run_concurrently([lambda: ran.append("c"), fail], thread_name_prefix="test")
 
         assert sorted(ran) == ["a", "b", "c"]
+
+    @override_settings(TEST=False)
+    def test_a_background_estimate_hands_its_result_to_the_caller(self):
+        get = _start_in_background(lambda: 42)
+
+        assert get() == 42
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):
