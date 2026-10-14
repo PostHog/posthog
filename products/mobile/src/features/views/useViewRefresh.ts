@@ -74,11 +74,11 @@ export interface RefreshList {
 
 export interface ViewRefreshOptions {
     screen: ViewsScreen
-    /** The queue group and bulk floor key: `list`, `dashboard:{id}`, `insight:{short_id}`, `web`. */
+    /** The bulk floor key, and the queue group with `rangeKey`: `list`, `dashboard:{id}`, `insight:{short_id}`, `web`. */
     screenKey: string
     /** Every data item, in screen order (top first). */
     items: readonly RefreshItem[]
-    /** The keys on screen now. Undefined: every item is visible. */
+    /** The keys on screen now. Undefined until the list reports them: the first `INITIAL_VISIBLE_ROWS` items count. */
     visibleKeys?: ReadonlySet<string>
     container?: RefreshContainer | null
     lists?: readonly RefreshList[]
@@ -111,14 +111,24 @@ interface PassCounters {
     jobs: Promise<JobResult>[]
 }
 
+/** A list renders this many rows first (`initialNumToRender`). */
+export const INITIAL_VISIBLE_ROWS = 6
+
 function useQueueBusy(group: string): boolean {
     const subscribe = useCallback((listener: () => void) => viewsQueue.subscribe(listener), [])
     return useSyncExternalStore(subscribe, () => viewsQueue.isBusy(group))
 }
 
+// A list reports what it shows only after its rows lay out, which is after the first paint. Until then the rows it
+// renders first count as visible, so a long dashboard does not compute every stale tile on open.
 function visibleOf(options: ViewRefreshOptions): RefreshItem[] {
     const { items, visibleKeys } = options
-    return visibleKeys ? items.filter((item) => visibleKeys.has(item.key)) : [...items]
+    return visibleKeys ? items.filter((item) => visibleKeys.has(item.key)) : items.slice(0, INITIAL_VISIBLE_ROWS)
+}
+
+/** The queue group: one per screen and range, so the reads of a range the user left can be dropped. */
+function groupOf(options: Pick<ViewRefreshOptions, 'screenKey' | 'rangeKey'>): string {
+    return options.rangeKey === undefined ? options.screenKey : `${options.screenKey}|${options.rangeKey}`
 }
 
 function maxAgeSeconds(snapshots: readonly (Freshness | undefined)[], now: number): number | null {
@@ -146,9 +156,10 @@ function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): Blo
 export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const optionsRef = useRef(options)
     optionsRef.current = options
-    const { screenKey, enabled } = options
+    const { enabled } = options
+    const group = groupOf(options)
 
-    const busy = useQueueBusy(screenKey)
+    const busy = useQueueBusy(group)
     const [hintUntil, setHintUntil] = useState<{ text: string; until: number } | null>(null)
     const [pulling, setPulling] = useState(false)
     const [, setTick] = useState(0)
@@ -165,9 +176,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
 
     const send = useCallback(
         (counters: PassCounters, key: string, family: BudgetFamily, mode: RefreshMode, read: RefreshItem['read']) => {
-            counters.jobs.push(
-                viewsQueue.enqueue({ key, family, group: optionsRef.current.screenKey, mode, run: read })
-            )
+            counters.jobs.push(viewsQueue.enqueue({ key, family, group: groupOf(optionsRef.current), mode, run: read }))
         },
         []
     )
@@ -176,7 +185,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         const job = viewsQueue.enqueue({
             key: container.key,
             family: container.family,
-            group: optionsRef.current.screenKey,
+            group: groupOf(optionsRef.current),
             mode: 'force_cache',
             run: (_mode, signal) => container.read(signal),
         })
@@ -240,6 +249,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const openItems = useCallback(
         async (fresh: RefreshItem[], trigger: PassTrigger, counters: PassCounters) => {
             const current = optionsRef.current
+            const passGroup = groupOf(current)
             const startedAt = Date.now()
             const age = maxAgeSeconds(
                 fresh.map((item) => item.snapshot()),
@@ -247,6 +257,10 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             )
             if (current.container && containerReading.current) {
                 await containerReading.current
+                if (groupOf(optionsRef.current) !== passGroup) {
+                    // The user picked another range while the dashboard read ran. That range has its own pass.
+                    return
+                }
             }
             for (const item of fresh) {
                 const snapshot = item.snapshot()
@@ -372,6 +386,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
 
     // First paint and items that come into view. A container (dashboard) read goes first when its key is new.
     const seen = useRef(new Set<string>())
+    const seenGroup = useRef(group)
     const containerKey = useRef<string | null>(null)
     const itemKeys = options.items.map((item) => item.key).join('|')
     const visibleKeyList = options.visibleKeys ? [...options.visibleKeys].sort().join('|') : '*'
@@ -382,12 +397,19 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         }
         const current = optionsRef.current
         const counters: PassCounters = { jobs: [] }
+        if (seenGroup.current !== groupOf(current)) {
+            // Leaving a range dropped its queued reads, so coming back to it checks its items again.
+            seenGroup.current = groupOf(current)
+            seen.current.clear()
+        }
         let containerOpened = false
         if (current.container && containerKey.current !== current.container.key) {
             containerKey.current = current.container.key
             containerOpened = true
             if (readFloorPassed(current.container.readAt())) {
                 void readContainer(counters, current.container)
+            } else {
+                containerReading.current = null
             }
         }
         const fresh = visibleOf(current).filter((item) => !seen.current.has(item.key))
@@ -400,7 +422,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         const trigger: PassTrigger = pendingRangeTrigger.current ? 'range' : 'open'
         pendingRangeTrigger.current = false
         void openItems(fresh, trigger, counters)
-    }, [enabled, itemKeys, visibleKeyList, options.container?.key, openItems, readContainer])
+    }, [enabled, group, itemKeys, visibleKeyList, options.container?.key, openItems, readContainer])
 
     // Screen focus after the first one, which is the mount. Leaving drops what only this screen queued.
     const focusedBefore = useRef(false)
@@ -410,7 +432,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 void focusPass('focus')
             }
             focusedBefore.current = true
-            return () => viewsQueue.leave(optionsRef.current.screenKey)
+            return () => viewsQueue.leave(groupOf(optionsRef.current))
         }, [focusPass])
     )
 
@@ -432,7 +454,8 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         })
     }, [focusPass])
 
-    useEffect(() => () => viewsQueue.leave(optionsRef.current.screenKey), [])
+    // A new range, and unmount, drop the queued reads of the range on screen until now. The current range goes first.
+    useEffect(() => () => viewsQueue.leave(group), [group])
 
     // The hint hides after 3 s.
     useEffect(() => {
@@ -482,7 +505,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             void viewsQueue.enqueue({
                 key: item.key,
                 family: item.family,
-                group: current.screenKey,
+                group: groupOf(current),
                 mode,
                 run: item.read,
             })

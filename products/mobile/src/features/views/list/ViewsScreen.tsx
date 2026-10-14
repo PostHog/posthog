@@ -22,6 +22,7 @@ import { refreshHintText } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey, insightItemKey, insightQueryKey, pinTarget } from '../items'
 import { pinModes, usePinActions, usePinData, useViewsList } from '../pinHooks'
 import { ChartSheetsProvider, useChartSheets } from '../pointSheet/ChartSheetsProvider'
+import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
@@ -543,7 +544,7 @@ function ViewsBody(): ReactElement {
                 viewabilityConfig={list.viewabilityConfig}
                 onScroll={motion.onScroll}
                 scrollEventThrottle={16}
-                initialNumToRender={6}
+                initialNumToRender={INITIAL_VISIBLE_ROWS}
                 windowSize={5}
                 removeClippedSubviews={Platform.OS === 'android'}
                 contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}

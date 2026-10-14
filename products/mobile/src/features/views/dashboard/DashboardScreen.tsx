@@ -26,6 +26,7 @@ import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
 import { ViewSkeleton } from '../screen/ViewSkeleton'
 import { ViewTitle } from '../screen/ViewTitle'
 import { resolvedRangeText } from '../snapshotChart'
+import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
 import { type DashboardScreenState, type DashboardTileState, useDashboardScreen, useTileData } from '../viewHooks'
@@ -158,7 +159,7 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
             viewabilityConfig={screen.viewabilityConfig}
             onScroll={motion.onScroll}
             scrollEventThrottle={16}
-            initialNumToRender={6}
+            initialNumToRender={INITIAL_VISIBLE_ROWS}
             windowSize={5}
             refreshControl={
                 <RefreshControl

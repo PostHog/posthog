@@ -429,8 +429,6 @@ export function useRecordRecentView(entry: Omit<DeviceRecentEntry, 'viewedAt'> |
 }
 
 const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 }
-/** The list's `initialNumToRender`. */
-export const INITIAL_VISIBLE_PINS = 6
 
 export interface Visibility {
     /** Undefined until the list reports what it shows. */
@@ -501,17 +499,11 @@ export function useViewsList(): ViewsListState {
         return shortcutId ? (keyByPin.get(shortcutId) ?? null) : null
     })
     const lists = useMemo(() => [pinList, recentList], [pinList, recentList])
-    // Until the list reports what it shows, the first rows it renders count as visible.
-    const reported = visibility.visibleKeys
-    const visibleKeys = useMemo(
-        () => reported ?? new Set(items.slice(0, INITIAL_VISIBLE_PINS).map((item) => item.key)),
-        [reported, items]
-    )
     const refresh = useViewRefresh({
         screen: 'list',
         screenKey: 'list',
         items,
-        visibleKeys,
+        visibleKeys: visibility.visibleKeys,
         lists,
         bulkFloor: true,
         enabled: context.ready,
