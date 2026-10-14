@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
@@ -53,6 +54,79 @@ def _wrapped_hogql_error(cause: Exception, message: str) -> ExposedHogQLError:
 
 
 class TestMCPToolsAPI(APIBaseTest):
+    @parameterized.expand([("session",), ("read_scope",)])
+    @patch(
+        "products.posthog_ai.backend.mcp_result_files.object_storage.get_presigned_url",
+        return_value="https://storage.example.com/result.json",
+    )
+    @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
+    def test_store_result_file(self, authentication: str, write: Mock, presign: Mock) -> None:
+        headers: dict[str, str] = {}
+        if authentication == "read_scope":
+            token = self.create_personal_api_key_with_scopes(["project:read"])
+            self.client.logout()
+            headers["authorization"] = f"Bearer {token}"
+        content = json.dumps({"content": [{"type": "text", "text": "Invented query result"}]})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_tools/results/store/",
+            {"content": content},
+            format="json",
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"download_url": "https://storage.example.com/result.json", "expires_in": 3600}
+        )
+        key, stored_content = write.call_args.args
+        self.assertIn(f"/mcp_results/team_{self.team.id}/", key)
+        self.assertEqual(stored_content, content)
+        self.assertEqual(write.call_args.kwargs["extras"]["Tagging"], f"ttl_days=1&team_id={self.team.id}")
+        presign.assert_called_once_with(key, expiration=3600)
+
+    @parameterized.expand([("invalid_json", "not JSON"), ("utf8_size", json.dumps("猫猫猫", ensure_ascii=False))])
+    @patch("products.posthog_ai.backend.api.mcp_tools.MCP_RESULT_FILE_MAX_BYTES", 8)
+    @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
+    def test_store_result_rejects_invalid_content(self, _name: str, content: str, write: Mock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_tools/results/store/", {"content": content}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        write.assert_not_called()
+
+    @parameterized.expand([("disabled", False), ("signing_unavailable", True)])
+    @patch("products.posthog_ai.backend.mcp_result_files.object_storage.get_presigned_url", return_value=None)
+    @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
+    def test_store_result_storage_unavailable(self, _name: str, enabled: bool, write: Mock, presign: Mock) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=enabled):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/mcp_tools/results/store/", {"content": "{}"}, format="json"
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("download_url", response.json())
+        if not enabled:
+            write.assert_not_called()
+            presign.assert_not_called()
+
+    @parameterized.expand([("unauthenticated", 401), ("other_team", 403), ("missing_scope", 403)])
+    @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
+    def test_store_result_requires_project_access(self, access: str, expected_status: int, write: Mock) -> None:
+        team_id = self.team.id
+        headers: dict[str, str] = {}
+        if access == "unauthenticated":
+            self.client.logout()
+        elif access == "missing_scope":
+            token = self.create_personal_api_key_with_scopes(["query:read"])
+            self.client.logout()
+            headers["authorization"] = f"Bearer {token}"
+        else:
+            other_org = Organization.objects.create(name="Example organization")
+            team_id = Team.objects.create(organization=other_org).id
+        response = self.client.post(
+            f"/api/projects/{team_id}/mcp_tools/results/store/", {"content": "{}"}, format="json", headers=headers
+        )
+        self.assertEqual(response.status_code, expected_status)
+        write.assert_not_called()
+
     def test_unauthenticated_request(self):
         self.client.logout()
         response = self.client.post(

@@ -308,6 +308,11 @@ export class MCPClientProfile {
         )
     }
 
+    isOpenAIClient(): boolean {
+        const fragments = ['openai-mcp', 'codex', 'chatgpt']
+        return matchesAnyFragment(this.clientName, fragments) || matchesAnyFragment(this.userAgent, fragments)
+    }
+
     isLegacyDialectOnly(): boolean {
         return matchesAnyFragment(this.clientName, LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS)
     }

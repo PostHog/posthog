@@ -726,6 +726,14 @@ Runtime access still comes from the viewset's `scope_object`,
 and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
 Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
 
+### Large results for OpenAI clients
+
+The `mcp-openai-result-files` feature flag changes successful tool responses larger than 32 KiB for OpenAI clients, identified by an `openai-mcp`, `codex`, or `chatgpt` client name or User-Agent. It applies to both direct tool calls and single-exec responses.
+
+The server stores the complete model-facing MCP response as JSON in object storage and returns `download_url`, `expires_in`, `size_bytes`, and an incomplete text preview. Clients should download the file and filter or aggregate its `content` or `structuredContent` locally. UI metadata stays on the inline response.
+
+Download URLs expire after one hour, and stored objects carry the `ttl_days=1` lifecycle tag. Small responses, errors, responses above the 8 MiB upload limit, other clients, and calls with the flag off stay inline. Storage failures also return the original inline response so a completed tool action does not become a failed call.
+
 ### MCP-only endpoints
 
 An endpoint that is in the public schema becomes a REST contract: it shows up in Swagger, Redoc and the API docs, and people build on it.

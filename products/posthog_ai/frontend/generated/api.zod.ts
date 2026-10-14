@@ -240,6 +240,15 @@ export const DocsSearchBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const mcpToolsResultsStoreCreateBodyContentMax = 8388608
+
+export const McpToolsResultsStoreCreateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .max(mcpToolsResultsStoreCreateBodyContentMax)
+        .describe('Complete MCP tool response serialized as JSON, limited to 8 MiB of UTF-8 text.'),
+})
+
 /**
  * Stream a terminal model response through PostHog AI. Requires organization approval for AI data processing. SDK consumers must use getTerminalAiCreateUrl() with streaming fetch. The generated JSON client buffers the response and cannot parse SSE.
  */

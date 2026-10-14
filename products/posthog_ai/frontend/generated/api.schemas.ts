@@ -680,6 +680,21 @@ export interface DocsSearchResponseApi {
     content: string
 }
 
+export interface MCPStoredResultRequestApi {
+    /**
+     * Complete MCP tool response serialized as JSON, limited to 8 MiB of UTF-8 text.
+     * @maxLength 8388608
+     */
+    content: string
+}
+
+export interface MCPStoredResultResponseApi {
+    /** Presigned URL for downloading the complete MCP response as JSON. */
+    download_url: string
+    /** Number of seconds until the download URL expires. */
+    expires_in: number
+}
+
 /**
  * Agent instructions.
  */

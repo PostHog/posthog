@@ -2,6 +2,7 @@ import { parseSigningKeys } from '@/lib/client-ip-signature'
 import type { Env } from '@/tools/types'
 
 export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
+export const MCP_OPENAI_RESULT_FILES_FEATURE_FLAG = 'mcp-openai-result-files'
 
 export {
     USER_AGENT,
