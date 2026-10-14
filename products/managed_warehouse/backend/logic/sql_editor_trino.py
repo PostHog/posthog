@@ -30,6 +30,7 @@ class ManagedTrinoAdapter:
     def prepare_raw_sql(self, sql: str) -> str:
         return ensure_read_only_raw_trino_statement(sql)
 
+    # nosemgrep: tuple-return-prefer-dataclass -- DirectSQLAdapter requires an implementation/config tuple.
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[None, None]:
         if (
             source.team_id != team.pk

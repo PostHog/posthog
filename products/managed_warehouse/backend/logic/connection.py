@@ -35,7 +35,7 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas, reconcile_trino_schemas
+from products.data_warehouse.backend.facade.api import reconcile_managed_trino_schemas, reconcile_postgres_schemas
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceAuth
 from products.managed_warehouse.backend.logic.sql_editor import managed_warehouse_sql_editor_uses_trino
 from products.managed_warehouse.backend.logic.sql_editor_credentials import (
@@ -438,8 +438,10 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
                 schema_model.should_sync = True
                 schema_model.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
 
-        reconcile = reconcile_trino_schemas if use_trino else reconcile_postgres_schemas
-        reconcile(source=source, source_schemas=source_schemas, team_id=team_id)
+        if use_trino:
+            reconcile_managed_trino_schemas(source_id=source.id, source_schemas=source_schemas, team_id=team_id)
+        else:
+            reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 def _discover_postgres_schemas(

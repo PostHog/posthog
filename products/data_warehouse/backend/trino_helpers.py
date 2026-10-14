@@ -8,6 +8,7 @@ url_pattern, the option keys that encode source location on a direct table) live
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 
@@ -162,6 +163,13 @@ def get_trino_source_location_for_schema_model(
         schema_metadata=None,
         default_catalog=default_catalog,
     )
+
+
+def reconcile_managed_trino_schemas(*, source_id: UUID, source_schemas: list[SourceSchema], team_id: int) -> list[str]:
+    source = ExternalDataSource.objects.get(id=source_id, team_id=team_id, deleted=False)
+    if not source.is_dynamic_managed_warehouse:
+        raise ValueError("Source is not a dynamic managed warehouse connection")
+    return reconcile_trino_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 def reconcile_trino_schemas(
