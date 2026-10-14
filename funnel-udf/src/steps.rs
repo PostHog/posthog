@@ -209,11 +209,13 @@ impl AggregateFunnelRow {
             .filter(|i| **i <= final_index as i8)
             .count();
 
-        for i in 0..(final_index - optional_count) {
-            //if event_uuids[i].len() >= MAX_REPLAY_EVENTS && !event_uuids[i].contains(&final_value.uuids[i]) {
+        // The path uuids skip optional steps, so pair each one with its required step index
+        let required_steps =
+            (1..=final_index).filter(|step| !args.optional_steps.contains(&(*step as i8)));
+        for (uuid, step) in final_value.uuids.iter().zip(required_steps) {
             // Always put the actual event uuids first, we use it to extract timestamps
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
-            vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
+            vars.event_uuids[step - 1].insert(0, *uuid);
         }
 
         self.results.push(Result(
@@ -311,8 +313,8 @@ impl AggregateFunnelRow {
 
                         if !previous_step.excluded {
                             vars.entered_timestamp[step] = new_entered_timestamp.clone();
-                            if vars.event_uuids[previous_step_index].len() < MAX_REPLAY_EVENTS - 1 {
-                                vars.event_uuids[previous_step_index].push(event.uuid);
+                            if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
+                                vars.event_uuids[step - 1].push(event.uuid);
                             }
                         }
 
@@ -335,5 +337,40 @@ impl AggregateFunnelRow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const U1: &str = "00000000-0000-0000-0000-000000000001";
+    const U2: &str = "00000000-0000-0000-0000-000000000002";
+    const U3: &str = "00000000-0000-0000-0000-000000000003";
+
+    fn event_uuids_per_step(optional_steps: &str, events: &[(f64, &str, i8)]) -> Value {
+        let value = events
+            .iter()
+            .map(|(timestamp, uuid, step)| {
+                json!({"timestamp": timestamp, "uuid": uuid, "breakdown": "", "steps": [step]})
+            })
+            .collect::<Vec<_>>();
+        let line = format!(
+            r#"{{"num_steps":4,"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"ordered","prop_vals":[""],"optional_steps":{optional_steps},"value":{}}}"#,
+            Value::Array(value)
+        );
+        process_line(&line)["result"][0][3].clone()
+    }
+
+    #[test]
+    fn event_uuids_stay_in_their_step_slot_when_an_optional_step_is_skipped() {
+        let result = event_uuids_per_step("[2]", &[(1.0, U1, 1), (2.0, U3, 3)]);
+        assert_eq!(result, json!([[U1, U1], [], [U3, U3], []]));
+    }
+
+    #[test]
+    fn event_uuids_stay_in_their_step_slot_when_an_optional_step_is_done() {
+        let result = event_uuids_per_step("[2]", &[(1.0, U1, 1), (2.0, U2, 2), (3.0, U3, 3)]);
+        assert_eq!(result, json!([[U1, U1], [U2], [U3, U3], []]));
     }
 }

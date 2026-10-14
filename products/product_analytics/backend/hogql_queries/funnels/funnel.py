@@ -9,6 +9,7 @@ from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
+from posthog.udf_versioner import UDF_VERSION
 from posthog.utils import DATERANGE_MAP
 
 from products.product_analytics.backend.hogql_queries.funnels.base import (
@@ -356,18 +357,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             conditions.append(parse_expr(f"bitTest(steps_bitfield, {funnelStep - 1})"))
         else:
             # For dropoff at step N, check that user completed the prior REQUIRED step but not step N
-            # With optional steps, we need to find the last required step before the dropoff step
             target_step_index = abs(funnelStep) - 1  # 0-indexed step we're checking dropoff at
-
-            # Find the last required step before target_step_index
-            prior_required_step_index = None
-            for i in range(target_step_index - 1, -1, -1):
-                if not getattr(self.context.query.series[i], "optionalInFunnel", False):
-                    prior_required_step_index = i
-                    break
-
-            if prior_required_step_index is None:
-                raise ValueError("Missing prior required step in actors query")
+            prior_required_step_index = self._prior_required_step_index(target_step_index)
 
             # User completed the prior required step but not the target step
             conditions.append(parse_expr(f"bitTest(steps_bitfield, {prior_required_step_index})"))
@@ -393,14 +384,38 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             and self.context.actorsQuery.includeRecordings
         ):
             if self.context.includeFinalMatchingEvents:
+                required_step_indexes = self._required_step_indexes()
+                # step_reached counts required steps only. UDF v13+ keeps matched events in their own step slot.
+                if UDF_VERSION >= 13 and len(required_step_indexes) < len(self.context.query.series):
+                    required_step_slots = ",".join(str(i + 1) for i in required_step_indexes)
+                    return [
+                        parse_expr(
+                            f"matched_events_array[[{required_step_slots}][step_reached + 1]] as matching_events"
+                        )
+                    ]
                 # Always returns the user's final step of the funnel, 1 indexed
                 return [parse_expr("matched_events_array[step_reached + 1] as matching_events")]
 
             absolute_actors_step = self._absolute_actors_step
             if absolute_actors_step is None:
                 raise ValueError("Missing funnelStep actors query property")
+            funnelStep = self.context.actorsQuery.funnelStep
+            if funnelStep is not None and funnelStep < 0:
+                # The drop-off condition matches on the prior required step, so read the recordings from the same step
+                absolute_actors_step = self._prior_required_step_index(abs(funnelStep) - 1)
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
         return []
+
+    def _required_step_indexes(self) -> list[int]:
+        return [
+            i for i, series in enumerate(self.context.query.series) if not getattr(series, "optionalInFunnel", False)
+        ]
+
+    def _prior_required_step_index(self, target_step_index: int) -> int:
+        prior_required_step_indexes = [i for i in self._required_step_indexes() if i < target_step_index]
+        if not prior_required_step_indexes:
+            raise ValueError("Missing prior required step in actors query")
+        return prior_required_step_indexes[-1]
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         """
