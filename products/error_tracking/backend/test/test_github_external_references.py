@@ -212,7 +212,7 @@ class TestGitHubExternalReferences(BaseTest):
 
         body = "\n".join(
             [
-                f"https://app.example.com/project/{self.team.id}/error_tracking/{direct_issue.id}",
+                f"https://app.example.com/project/{self.team.id}/error-tracking/{direct_issue.id}",
                 (
                     f"https://app.example.com/project/{self.team.id}/error_tracking/fingerprint/"
                     f"{quote(fingerprint, safe='')}"
