@@ -47,15 +47,22 @@ export function cacheTargetPassed(snapshot: Freshness | undefined, now: number =
     return !snapshot?.cacheTargetAge || Date.parse(snapshot.cacheTargetAge) <= now
 }
 
-/** Server ms from which a tap may force this item, or null for an item with no good value, which never forces. */
-export function forceAllowedAt(snapshot: Freshness | undefined): number | null {
+/**
+ * Server ms from which a tap may force this item: past `next_allowed_client_refresh`, and a minute after its last read,
+ * because the queue sends at most one request per item per minute. Null for an item with no good value, which never
+ * forces.
+ */
+export function forceAllowedAt(snapshot: Freshness | undefined, offsetMs: number = serverOffsetMs()): number | null {
     if (!hasGoodValue(snapshot) || !snapshot?.nextAllowedRefreshAt) {
         return null
     }
-    return Date.parse(snapshot.nextAllowedRefreshAt) + FORCE_MARGIN_MS
+    return Math.max(
+        Date.parse(snapshot.nextAllowedRefreshAt) + FORCE_MARGIN_MS,
+        snapshot.readAt + offsetMs + READ_FLOOR_MS
+    )
 }
 
-/** True when a tap may force this item: it has a good value and its `next_allowed_client_refresh` has passed. */
+/** True when a tap may force this item: it has a good value, its window has passed, and its last read is a minute old. */
 export function isEligible(snapshot: Freshness | undefined, now: number = serverNow()): boolean {
     const allowedAt = forceAllowedAt(snapshot)
     return allowedAt !== null && now >= allowedAt

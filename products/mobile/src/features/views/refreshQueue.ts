@@ -89,7 +89,7 @@ export class RefreshQueue {
         this.itemFloorMs = options.itemFloorMs ?? READ_FLOOR_MS
         this.rateLimitRetryMs = options.rateLimitRetryMs ?? 5_000
         this.defaultPauseMs = options.defaultPauseMs ?? 30_000
-        this.now = options.now ?? Date.now
+        this.now = options.now ?? (() => Date.now())
         this.canSpend = options.canSpend ?? canSpend
     }
 
@@ -154,6 +154,11 @@ export class RefreshQueue {
             }
         }
         return false
+    }
+
+    /** True while a request for this freshness key is queued, running, or waiting for its retry. */
+    isKeyBusy(key: string): boolean {
+        return this.jobs.has(key)
     }
 
     subscribe(listener: () => void): () => void {

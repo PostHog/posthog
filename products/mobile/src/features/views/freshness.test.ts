@@ -11,7 +11,7 @@ function snap(overrides: Partial<Freshness>): Freshness {
         lastRefreshAt: new Date(T - 10 * MIN).toISOString(),
         cacheTargetAge: new Date(T + 6 * 60 * MIN).toISOString(),
         nextAllowedRefreshAt: new Date(T + 5 * MIN).toISOString(),
-        readAt: T,
+        readAt: T - 10 * MIN,
         refreshFailed: false,
         ...overrides,
     }
@@ -25,24 +25,24 @@ describe('freshness', () => {
 
     test.each<[string, Freshness | undefined, number, number]>([
         ['an item never read', undefined, 0, 0],
-        ['a good value far from its target age', snap({}), 0, T + 5 * MIN],
+        ['a good value far from its target age', snap({ readAt: T }), 0, T + 5 * MIN],
         [
             'a target age two minutes after the read',
-            snap({ cacheTargetAge: new Date(T + 2 * MIN).toISOString() }),
+            snap({ readAt: T, cacheTargetAge: new Date(T + 2 * MIN).toISOString() }),
             0,
             T + 2 * MIN,
         ],
         [
             'a target age that passed, inside the read floor',
-            snap({ cacheTargetAge: new Date(T - MIN).toISOString() }),
+            snap({ readAt: T, cacheTargetAge: new Date(T - MIN).toISOString() }),
             0,
             T + MIN,
         ],
-        ['no good value', snap({ lastRefreshAt: null }), 0, T + MIN],
+        ['no good value', snap({ readAt: T, lastRefreshAt: null }), 0, T + MIN],
         // The server clock is 3 minutes ahead, so its target age arrives 3 minutes earlier on the device.
         [
             'a target age with a server clock ahead',
-            snap({ cacheTargetAge: new Date(T + 4 * MIN).toISOString() }),
+            snap({ readAt: T, cacheTargetAge: new Date(T + 4 * MIN).toISOString() }),
             3 * MIN,
             T + MIN,
         ],
@@ -55,6 +55,7 @@ describe('freshness', () => {
         ['inside the 2 s margin', 'Wed, 14 Oct 2026 12:05:01 GMT', {}, false],
         ['a device clock ahead of the server', 'Wed, 14 Oct 2026 11:50:00 GMT', {}, false],
         ['an item without a good value', 'Wed, 14 Oct 2026 13:00:00 GMT', { lastRefreshAt: null }, false],
+        ['an item read under a minute ago', 'Wed, 14 Oct 2026 13:00:00 GMT', { readAt: T + 10 * MIN - 30_000 }, false],
     ])('isEligible %s', (_name, serverDate, overrides, expected) => {
         jest.useFakeTimers({ now: T + 10 * MIN })
         recordServerDate(serverDate)
@@ -105,6 +106,12 @@ describe('freshness', () => {
             [snap({}), snap({ lastRefreshAt: null })],
             null,
             { blocked: false, until: null, reason: null },
+        ],
+        [
+            'an item read under a minute ago',
+            [snap({ nextAllowedRefreshAt: new Date(T - MIN).toISOString(), readAt: T - 20_000 })],
+            null,
+            { blocked: true, until: T + 40_000, reason: 'item_window' },
         ],
         [
             'a bulk floor past the item windows',
