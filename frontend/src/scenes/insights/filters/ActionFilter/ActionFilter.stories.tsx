@@ -190,7 +190,7 @@ export const RecentPicksAfterRememberedEvents: Story = {
         const body = within(document.body)
         await userEvent.click(await body.findByRole('button', { name: /Current category: Events/ }))
         await userEvent.click(await body.findByRole('menuitem', { name: 'Recent' }))
-        await body.findByText('signed up')
+        await body.findAllByText('signed up')
         await body.findByText(mockActionDefinition.name)
     },
 }
