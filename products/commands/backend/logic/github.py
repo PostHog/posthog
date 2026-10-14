@@ -1,4 +1,4 @@
-"""The GitHub calls dispatch makes, through the PostHog GitHub App installation the comment came from.
+"""The GitHub calls commands make, through the PostHog GitHub App installation of the pull request.
 
 Reads raise ``GitHubCallFailed`` so dispatch can fail closed. Reactions and replies are best effort:
 a lost acknowledgement must not stop a command or turn a run that started into a failure.
@@ -15,8 +15,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 
-from .commands import PullRequestFacts
-from .intake import REPOSITORY_NAME_RE
+from .commands import REPOSITORY_NAME_RE, PullRequestFacts
 
 logger = structlog.get_logger(__name__)
 

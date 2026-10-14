@@ -26,11 +26,11 @@ from posthog.models.user_integration import UserIntegration
 from posthog.token_bucket import BucketDecision
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.commands.backend.logic.commands import CommandContext, ProjectMember, PullRequestFacts
-from products.commands.backend.logic.dispatch import dispatch_comment_command
+from products.commands.backend.channels.github.comments import GitHubCommentChannel, dispatch_comment_command
+from products.commands.backend.channels.github.intake import CommentCommandRequest
+from products.commands.backend.logic.commands import CommandContext, CommandRequest, ProjectMember, PullRequestFacts
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
 from products.commands.backend.logic.handlers import handle_loop, handle_qa, handle_review
-from products.commands.backend.logic.intake import CommentCommandRequest
 from products.commands.backend.logic.schema import LoopArgs, QaArgs, ReviewArgs
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
@@ -43,15 +43,15 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
-FLAG = "products.commands.backend.logic.dispatch.posthog_feature_flag_enabled"
+FLAG = "products.commands.backend.channels.github.comments.posthog_feature_flag_enabled"
 REQUEST_STAMPHOG_REVIEW = "products.commands.backend.logic.handlers.stamphog_requests.request_review"
 DESKTOP_ACCESS = "products.commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
 CREATE_TASK = "products.commands.backend.logic.handlers.tasks_facade.create_and_run_task"
 USAGE_LIMITED = "products.commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
 REQUEST_PR_REVIEW = "products.commands.backend.logic.handlers.review_hog_facade.request_pr_review"
 OWNING_TEAM_ID = "products.commands.backend.logic.handlers.review_hog_github.owning_team_id"
-CLAIM_CACHE = "products.commands.backend.logic.dispatch.cache"
-CONSUME_BUDGET = "products.commands.backend.logic.dispatch.consume"
+CLAIM_CACHE = "products.commands.backend.channels.github.comments.cache"
+CONSUME_BUDGET = "products.commands.backend.channels.github.comments.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
@@ -115,6 +115,9 @@ class TestDispatchCommentCommand(BaseTest):
             verb=verb,
             argument=argument,
         )
+
+    def _command_request(self, verb: str, argument: str = "") -> CommandRequest:
+        return GitHubCommentChannel(self._request(verb=verb, argument=argument)).request
 
     def _link_github_login(self) -> None:
         UserSocialAuth.objects.create(user=self.user, provider="github", uid=str(self.github_id))
@@ -332,7 +335,7 @@ class TestDispatchCommentCommand(BaseTest):
 
     def test_loop_reports_retirement(self) -> None:
         context = CommandContext(
-            request=self._request(verb="loop", argument="Triage PR"),
+            request=self._command_request(verb="loop", argument="Triage PR"),
             pull_request=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
@@ -352,7 +355,7 @@ class TestDispatchCommentCommand(BaseTest):
         self, _name: str, decision: DesktopAccessDecision, usage_limited: bool
     ) -> None:
         context = CommandContext(
-            request=self._request(verb="qa"),
+            request=self._command_request(verb="qa"),
             pull_request=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
@@ -419,7 +422,7 @@ class TestDispatchCommentCommand(BaseTest):
             None: None,
         }
         context = CommandContext(
-            request=self._request(verb="review"),
+            request=self._command_request(verb="review"),
             pull_request=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )

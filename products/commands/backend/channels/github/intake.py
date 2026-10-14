@@ -3,23 +3,20 @@
 This runs inside the webhook request, so it reads only the payload: no database, no GitHub API.
 Every check here is a cheap filter that drops noise before a task is queued. None of them is the
 authority on who may run a command. The task re-checks the commenter against GitHub and PostHog
-before anything runs (see ``dispatch.py``).
+before anything runs (see ``comments.py`` and ``logic/dispatcher.py``).
 """
 
-import re
 from collections.abc import Mapping
 from typing import Literal
 
 from posthog.dataclasses import frozen
 
+from ...logic.commands import REPOSITORY_NAME_RE
 from .parsing import AmbiguousCommand, ParsedCommand, parse_command
 
 # GitHub's `author_association` for people with a standing relationship to the repository.
 # Outside contributors never get past this filter, so they cannot spend the task queue.
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
-
-# The name goes into GitHub API paths, so it must be exactly `owner/name`.
-REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 
 DropReason = Literal[
     "not_created",
