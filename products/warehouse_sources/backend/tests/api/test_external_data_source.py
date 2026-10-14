@@ -5381,6 +5381,7 @@ class TestExternalDataSource(APIBaseTest):
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
+        source_mock.has_managed_hogql_schema = False
         parsed_config = Mock()
         parsed_config.schema = "public"
         payload = {
