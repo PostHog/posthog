@@ -15,6 +15,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -63,8 +64,10 @@ from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
 logger = structlog.get_logger(__name__)
 
 # Keep title + status + message under Slack's 3000-char section limit; the client shows "Show more".
-_MAX_BODY_CHARS = 2000
-_MAX_FIELD_CHARS = 500
+_MAX_BODY_CHARS = 200
+_MAX_TITLE_CHARS = 150
+_MAX_CHART_LINES = 4
+_MAX_GRID_TILES = 4
 _CHART_WIDTH = 20
 _CHART_LABEL_CHARS = 16
 
@@ -149,7 +152,9 @@ _LEGACY_FILTER_INSIGHT_TO_SHORT_NAME: dict[str, str] = {
 def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
-    return text[: max_len - 1] + "…"
+    cut = text[: max_len - 1]
+    word_end = cut.rfind(" ")
+    return (cut[:word_end] if word_end > max_len // 2 else cut).rstrip(" ,.;:") + "…"
 
 
 # App hosts that name a Cloud region. `app.posthog.com` is the legacy alias for US Cloud; a bare
@@ -301,7 +306,6 @@ class _UnfurlCard:
     title: str
     status: str | None = None
     details: tuple[str, ...] = ()
-    facts: dict[str, str] = dataclasses.field(default_factory=dict)
     body: str | None = None
     chart: str | None = None
     timestamp: datetime | None = None
@@ -316,11 +320,12 @@ def _tracked_url(url: str, kind: str) -> str:
     return urlunsplit(parts._replace(query=urlencode(params)))
 
 
-def _card_summary(card: _UnfurlCard) -> str:
+def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
     parts = [escape_slack_mrkdwn(card.label)]
     if card.status:
         parts.append(f"*{escape_slack_mrkdwn(card.status)}*")
-    parts.extend(escape_slack_mrkdwn(detail) for detail in card.details)
+    if not compact:
+        parts.extend(escape_slack_mrkdwn(detail) for detail in card.details)
     if card.timestamp:
         label = card.timestamp_label
         parts.append(f"<!date^{int(card.timestamp.timestamp())}^{label} {{ago}}|{label} {card.timestamp:%Y-%m-%d}>")
@@ -329,19 +334,13 @@ def _card_summary(card: _UnfurlCard) -> str:
 
 def _card_blocks(card: _UnfurlCard, *, kind: str, url: str, compact: bool) -> list[dict]:
     link = _tracked_url(url, kind)
-    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(card.title)}>*"
+    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card)}]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]},
     ]
     if compact:
         return blocks
-    if card.facts:
-        fields = [
-            {"type": "mrkdwn", "text": f"*{label}*\n{_truncate(escape_slack_mrkdwn(value), _MAX_FIELD_CHARS)}"}
-            for label, value in card.facts.items()
-        ]
-        blocks.append({"type": "section", "fields": fields})
     if card.chart:
         chart = f"```{escape_slack_mrkdwn(card.chart)}```"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chart}})
@@ -538,11 +537,49 @@ def _chart_label(value: object) -> str:
     return _truncate(str(value or "").replace("`", "'"), _CHART_LABEL_CHARS)
 
 
+def _capped_lines(lines: list[str]) -> list[str]:
+    if len(lines) <= _MAX_CHART_LINES:
+        return lines
+    kept = _MAX_CHART_LINES - 1
+    return [*lines[:kept], f"+ {len(lines) - kept} more"]
+
+
 def _chart_rows(rows: list[tuple[str, str, str]]) -> str | None:
     if not rows:
         return None
     width = max(len(label) for label, _, _ in rows)
-    return "\n".join(f"{label.ljust(width)}  {graphic}  {value}".rstrip() for label, graphic, value in rows)
+    lines = [f"{label.ljust(width)}  {graphic}  {value}".rstrip() for label, graphic, value in rows]
+    return "\n".join(_capped_lines(lines))
+
+
+def _tile_grid(names: list[str]) -> str | None:
+    if not names:
+        return None
+    width = _CHART_WIDTH + 2
+    cells = [_truncate(name.replace("`", "'"), width).ljust(width) for name in names[:_MAX_GRID_TILES]]
+    if len(cells) % 2:
+        cells.append(" " * width)
+    rule = "─" * (width + 2)
+    rows = [f"│ {cells[index]} │ {cells[index + 1]} │" for index in range(0, len(cells), 2)]
+    return "\n".join([f"┌{rule}┬{rule}┐", *rows, f"└{rule}┴{rule}┘"])
+
+
+def _question_list(questions: object) -> str | None:
+    if not isinstance(questions, list):
+        return None
+    texts = [str(question.get("question") or "").strip() for question in questions if isinstance(question, dict)]
+    lines = [f"{index}. {_truncate(text, 60)}" for index, text in enumerate(texts, 1)]
+    return "\n".join(_capped_lines(lines)) or None
+
+
+def _by(user: User | None) -> tuple[str, ...]:
+    return (f"By {user.first_name}",) if user and user.first_name else ()
+
+
+def _primary_metric(metrics: object) -> str | None:
+    first = metrics[0] if isinstance(metrics, list) and metrics else None
+    name = first.get("name") if isinstance(first, dict) else None
+    return name if isinstance(name, str) and name else None
 
 
 def _variant_rows(filters: dict) -> list[tuple[str, str, str]]:
@@ -563,6 +600,7 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     return _UnfurlCard(
         label=_insight_resource_label(insight),
         title=insight.name or insight.derived_name or "Untitled",
+        details=_by(insight.created_by),
         body=insight.description,
         timestamp=insight.last_modified_at,
         chart_insight_id=insight.id,
@@ -576,15 +614,18 @@ def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _S
     level = ctx.uac.get_user_access_level(dashboard)
     if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
         return "no_access"
-    insights = (
+    tiles = (
         DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
         .exclude(deleted=True)
-        .count()
+        .order_by("id")
+        .values_list("insight__name", "insight__derived_name")
     )
+    names = [name or derived_name or "Untitled" for name, derived_name in tiles]
     return _UnfurlCard(
         label="Dashboard",
         title=dashboard.name or "Untitled",
-        details=(_count(insights, "insight"),),
+        details=(_count(len(names), "insight"), *_by(dashboard.created_by)),
+        chart=_tile_grid(names),
         body=dashboard.description,
     )
 
@@ -606,7 +647,10 @@ def _ticket_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         label="Support ticket",
         title=f"Ticket #{ticket.ticket_number}",
         status=ticket.get_status_display(),
-        details=(f"Requested by {_ticket_requester(ctx.team, ticket)}", ticket.get_channel_source_display()),
+        details=(
+            f"Requested by {_ticket_requester(ctx.team, ticket)}",
+            *((f"{ticket.get_priority_display()} priority",) if ticket.priority else ()),
+        ),
         body=_ticket_opening_message(ctx.team.pk, ticket.id),
         timestamp=ticket.created_at,
         timestamp_label="Opened",
@@ -633,10 +677,12 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     except Exception:
         logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=ctx.team.pk)
     pr_url = tasks_facade.get_latest_pr_url_by_task([task.id]).get(str(task.id))
+    repository = next((dto.repository for dto in tasks_facade.get_tasks_by_ids([task.id], [ctx.team.pk])), None)
     return _UnfurlCard(
         label="Task",
         title=task.title,
         status=task.latest_run_status,
+        details=(repository,) if repository else (),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
     )
 
@@ -663,6 +709,7 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
     return _UnfurlCard(
         label="Notebook",
         title=notebook.title or "Untitled",
+        details=_by(notebook.created_by),
         body=notebook.text_content,
         timestamp=notebook.last_modified_at,
     )
@@ -689,7 +736,7 @@ def _flag_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
         label="Feature flag",
         title=flag.key,
         status="Active" if flag.active else "Disabled",
-        details=(_count(len(groups), "release condition"),),
+        details=(_count(len(groups), "release condition"), *_by(flag.created_by)),
         chart=_flag_chart(flag.filters),
         body=flag.name,
         timestamp=flag.updated_at,
@@ -706,14 +753,18 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
         return "not_found"
     if not ctx.uac.check_access_level_for_object(experiment, required_level="viewer"):
         return "no_access"
-    facts = {"Feature flag": experiment.feature_flag.key}
+    details: list[str] = []
     if experiment.start_date:
-        facts["Started"] = f"{experiment.start_date:%b} {experiment.start_date.day}, {experiment.start_date.year}"
+        days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
+        details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
+    metric = _primary_metric(experiment.metrics)
+    if metric:
+        details.append(f"Metric: {metric}")
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
         status=experiment.get_status_display() if experiment.status else None,
-        facts=facts,
+        details=tuple(details),
         chart=_chart_rows(_variant_rows(experiment.feature_flag.filters)),
         body=experiment.description,
         timestamp=experiment.updated_at,
@@ -738,7 +789,8 @@ def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         label="Survey",
         title=survey.name,
         status=_survey_status(survey),
-        details=(_count(len(survey.questions or []), "question"),),
+        details=(_count(len(survey.questions or []), "question"), *_by(survey.created_by)),
+        chart=_question_list(survey.questions),
         body=survey.description,
         timestamp=survey.updated_at,
     )
@@ -753,8 +805,10 @@ def _cohort_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     return _UnfurlCard(
         label="Static cohort" if cohort.is_static else "Cohort",
         title=cohort.name or "Untitled",
-        details=(_count(cohort.count, "person"),) if cohort.count is not None else (),
+        details=(*((_count(cohort.count, "person"),) if cohort.count is not None else ()), *_by(cohort.created_by)),
         body=cohort.description,
+        timestamp=cohort.last_calculation,
+        timestamp_label="Calculated",
     )
 
 
@@ -773,6 +827,7 @@ def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipR
         label="Error issue",
         title=issue.name or "Untitled issue",
         status=_humanize(issue.status),
+        details=(f"{issue.severity.capitalize()} severity",) if issue.severity else (),
         body=issue.description,
         timestamp=issue.first_seen,
         timestamp_label="First seen",

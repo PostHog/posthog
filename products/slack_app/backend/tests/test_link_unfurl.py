@@ -43,6 +43,8 @@ from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOP
 from products.slack_app.backend.slack_link_unfurl import (
     _flag_chart,
     _insight_resource_label,
+    _question_list,
+    _tile_grid,
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
@@ -155,6 +157,37 @@ class TestFlagChart:
     def test_chart(self, _name: str, filters: dict, expected_lines: list[str] | None) -> None:
         chart = _flag_chart(filters)
         assert (chart.splitlines() if chart else None) == expected_lines
+
+    @parameterized.expand(
+        [
+            (
+                "odd_count",
+                ["Signups", "Activation", "Revenue"],
+                [
+                    "┌────────────────────────┬────────────────────────┐",
+                    "│ Signups                │ Activation             │",
+                    "│ Revenue                │                        │",
+                    "└────────────────────────┴────────────────────────┘",
+                ],
+            ),
+            (
+                "more_than_shown",
+                [f"Tile {index}" for index in range(8)],
+                "└────────────────────────┴────────────────────────┘",
+            ),
+            ("empty", [], None),
+        ]
+    )
+    def test_tile_grid(self, _name: str, names: list[str], expected: list[str] | str | None) -> None:
+        grid = _tile_grid(names)
+        if isinstance(expected, str):
+            assert grid is not None and grid.splitlines()[-1] == expected
+        else:
+            assert (grid.splitlines() if grid else None) == expected
+
+    def test_question_list_numbers_and_caps_questions(self) -> None:
+        questions = [{"question": f"Question {index}"} for index in range(7)]
+        assert _question_list(questions) == "1. Question 0\n2. Question 1\n3. Question 2\n+ 4 more"
 
 
 @pytest.mark.django_db
@@ -634,7 +667,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             case "experiment":
                 flag = FeatureFlag.objects.create(team=self.team, key="button-color", created_by=self.user)
                 experiment = Experiment.objects.create(team=self.team, name="Button color", feature_flag=flag)
-                return f"{base}/experiments/{experiment.pk}", ["Button color", "button-color"]
+                return f"{base}/experiments/{experiment.pk}", ["Button color", "*Draft*"]
             case "survey":
                 survey = Survey.objects.create(
                     team=self.team,
@@ -642,7 +675,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     type="popover",
                     questions=[{"type": "open", "question": "Why?"}],
                 )
-                return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question"]
+                return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question", "1. Why?"]
             case "cohort":
                 cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
                 return f"{base}/cohorts/{cohort.pk}", ["Power users", "1,200 persons"]
