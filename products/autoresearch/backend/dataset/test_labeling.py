@@ -1,14 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import (
-    APIBaseTest,
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -45,7 +38,7 @@ from products.autoresearch.backend.dataset.labeling import (
 from products.autoresearch.backend.query import run_hogql_rows
 
 
-class TestStripSqlComments(BaseTest):
+class TestStripSqlComments(SimpleTestCase):
     @parameterized.expand(
         [
             ("line_comment", "SELECT a -- the count\nFROM t", "SELECT a \nFROM t"),
@@ -74,7 +67,7 @@ class TestStripSqlComments(BaseTest):
         self.assertEqual(strip_sql_comments(sql), sql)
 
 
-class TestSubstituteAnchors(BaseTest):
+class TestSubstituteAnchors(SimpleTestCase):
     def test_placeholder_in_line_comment_does_not_corrupt_substitution(self) -> None:
         # A multi-line anchors subquery substituted into a `--` comment would
         # escape the comment and break the parse — stripping comments first avoids it.
@@ -102,7 +95,7 @@ class TestSubstituteAnchors(BaseTest):
         self.assertEqual(result, "SELECT a.person_id AS distinct_id FROM (SELECT 1) a")
 
 
-class TestBuildInferenceFeaturesSql(BaseTest):
+class TestBuildInferenceFeaturesSql(SimpleTestCase):
     def test_comment_in_feature_sql_is_stripped_before_substitution(self) -> None:
         feature_sql = "SELECT a.person_id AS distinct_id -- {anchors}\nFROM {anchors} a"
         sql, _values = build_inference_features_sql(
