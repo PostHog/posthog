@@ -192,7 +192,10 @@ def _describe(error: Exception) -> str:
 
 @asynccontextmanager
 async def _mcp_session(config: RunConfig) -> AsyncIterator[tuple[ClientSession, str | None]]:
-    async with streamablehttp_client(config.url, headers=config.headers) as (read, write, _):
+    # Bounds every transport request, including the DELETE that ends the session on close.
+    async with streamablehttp_client(
+        config.url, headers=config.headers, timeout=TOOL_CALL_TIMEOUT, sse_read_timeout=TOOL_CALL_TIMEOUT
+    ) as (read, write, _):
         # The timeout bounds a server that keeps the stream open but never answers initialize or list_tools.
         async with ClientSession(
             read, write, client_info=CLIENT_INFO, read_timeout_seconds=TOOL_CALL_TIMEOUT

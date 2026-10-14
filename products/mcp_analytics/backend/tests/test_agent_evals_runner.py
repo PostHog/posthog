@@ -171,3 +171,19 @@ class TestTrialFailureBoundary(SimpleTestCase):
             trial = asyncio.run(runner._run_scenario(CONFIG, None, [], [], SCENARIO, 1))  # type: ignore[arg-type]
 
         assert (trial.outcome, trial.error) == expected
+
+    def test_session_setup_and_teardown_share_the_tool_call_timeout(self) -> None:
+        seen: dict[str, object] = {}
+
+        @asynccontextmanager
+        async def transport(url: str, **kwargs: object) -> AsyncIterator[None]:
+            seen.update(kwargs)
+            if url:
+                raise ConnectionError("refused")
+            yield
+
+        with patch.object(runner, "streamablehttp_client", transport):
+            trial = asyncio.run(runner._run_scenario(CONFIG, None, [], [], SCENARIO, 1))  # type: ignore[arg-type]
+
+        assert trial.outcome == "mcp_error"
+        assert (seen["timeout"], seen["sse_read_timeout"]) == (runner.TOOL_CALL_TIMEOUT, runner.TOOL_CALL_TIMEOUT)
