@@ -1771,7 +1771,7 @@ class SavedHeatmapViewSet(
     DEFAULT_ORDER = "-updated_at"
 
     def get_throttles(self):
-        if self.action in ("create", "prewarm", "capture"):
+        if self.action in ("create", "prewarm", "capture", "capture_screenshot_history"):
             # More restrictive rate limiting for expensive screenshot generation
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "preflight":

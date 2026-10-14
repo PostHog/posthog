@@ -17,6 +17,7 @@ from parameterized import parameterized
 from PIL import Image
 
 from posthog.models import Organization, Team
+from posthog.rate_limit import AIBurstRateThrottle
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.web_analytics.backend.heatmap_history import (
@@ -333,6 +334,22 @@ class TestHeatmapHistory(APIBaseTest):
         assert self.client.get(self.base_url + f"requests/{uuid4()}/").status_code == 404
         with patch(f"{API_MODULE}.history_enabled", return_value=False):
             assert self.client.get(self.base_url).status_code == 404
+
+    def test_capture_api_shares_the_render_budget_across_heatmaps(self) -> None:
+        second = SavedHeatmap.objects.create(
+            team=self.team, url="https://example.com/second", target_widths=[1024], status="completed"
+        )
+        with (
+            patch.object(AIBurstRateThrottle, "rate", "1/minute"),
+            patch.object(HeatmapHistoryService, "dispatch"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            first = self.client.post(self.base_url + "capture/")
+            throttled = self.client.post(
+                f"/api/projects/{self.team.id}/saved/{second.short_id}/screenshot_history/capture/"
+            )
+        assert first.status_code == 202
+        assert throttled.status_code == 429
 
     def test_image_revisions_expiry_and_cache_headers(self) -> None:
         request = self.enqueue()
