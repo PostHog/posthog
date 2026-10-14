@@ -659,7 +659,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         try:
             stats = refresh_deletion_stats(obj, user_id=request.user.id)
             self.log_change(request, obj, "Fetched ClickHouse stats.")
-            messages.success(request, f"Stats fetched: {stats['count']:,} matching events found.")
+            noun = "log records" if obj.request_type == RequestType.LOGS_REMOVAL else "events"
+            messages.success(request, f"Stats fetched: {stats['count']:,} matching {noun} found.")
         except Exception as e:
             messages.error(request, f"Failed to fetch stats: {e}")
 
@@ -724,7 +725,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        supports_deferred = obj.request_type in (RequestType.EVENT_REMOVAL, RequestType.HOGQL_EVENT_REMOVAL)
+        supports_deferred = obj.request_type in (
+            RequestType.EVENT_REMOVAL,
+            RequestType.HOGQL_EVENT_REMOVAL,
+            RequestType.LOGS_REMOVAL,
+        )
         is_hogql_event_removal = obj.request_type == RequestType.HOGQL_EVENT_REMOVAL
         default_execution_mode = ExecutionMode.DEFERRED if supports_deferred else ExecutionMode.IMMEDIATE
 
@@ -738,7 +743,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 messages.error(request, f"Invalid execution mode: {execution_mode!r}.")
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
             if execution_mode == ExecutionMode.DEFERRED and not supports_deferred:
-                messages.error(request, "Deferred execution is only supported for event removal requests.")
+                messages.error(request, "Deferred execution is only supported for event and logs removal requests.")
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
 
             updated = DataDeletionRequest.objects.filter(
@@ -772,6 +777,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "supports_deferred": supports_deferred,
             "is_hogql_event_removal": is_hogql_event_removal,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
+            "is_logs_removal": obj.request_type == RequestType.LOGS_REMOVAL,
             "execution_mode_choices": ExecutionMode.choices,
             "default_execution_mode": default_execution_mode,
             "opts": self.model._meta,

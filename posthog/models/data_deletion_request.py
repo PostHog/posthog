@@ -1,5 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Protocol
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
@@ -226,6 +228,7 @@ class RequestType(models.TextChoices):
     EVENT_REMOVAL = "event_removal"
     HOGQL_EVENT_REMOVAL = "hogql_event_removal", "HogQL event removal"
     PERSON_REMOVAL = "person_removal"
+    LOGS_REMOVAL = "logs_removal"
 
 
 class RequestStatus(models.TextChoices):
@@ -251,7 +254,8 @@ class DataDeletionRequest(UUIDModel):
         choices=RequestType.choices,
         help_text="property_removal: remove specific properties from matching events. "
         "event_removal: delete entire events matching the criteria. "
-        "hogql_event_removal: delete events selected by a stored HogQL query.",
+        "hogql_event_removal: delete events selected by a stored HogQL query. "
+        "logs_removal: delete every log record for the team in the time range.",
     )
     start_time = models.DateTimeField(null=True, blank=True)
     end_time = models.DateTimeField(null=True, blank=True)
@@ -402,8 +406,9 @@ class DataDeletionRequest(UUIDModel):
         default=ExecutionMode.IMMEDIATE,
         help_text="Picked by ClickHouse Team at approval time. "
         "Immediate: run a dedicated delete mutation now. "
-        "Deferred: queue event UUIDs into adhoc_events_deletion so the "
-        "scheduled deletes_job drains them. Only honored for event_removal.",
+        "Deferred: the scheduled deletes_job deletes the rows. Event removals queue event UUIDs into "
+        "adhoc_events_deletion for it, and logs removals wait in the queued status for it. "
+        "Ignored for property_removal and person_removal.",
     )
 
     # Execution tracking
@@ -478,6 +483,9 @@ class DataDeletionRequest(UUIDModel):
         elif self.request_type == RequestType.PERSON_REMOVAL:
             self._clean_person_removal()
             return  # PERSON_REMOVAL never has hogql_predicate / events / properties
+        elif self.request_type == RequestType.LOGS_REMOVAL:
+            self._clean_logs_removal()
+            return
         else:
             raise ValidationError({"request_type": f"Unknown request_type: {self.request_type}"})
 
@@ -549,6 +557,17 @@ class DataDeletionRequest(UUIDModel):
         if self.hogql_predicate:
             raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
 
+    def _clean_logs_removal(self) -> None:
+        self._reject_hogql_query_fields()
+        self._require_time_range()
+        if self.events or self.delete_all_events:
+            raise ValidationError({"events": "events / delete_all_events are not valid for logs_removal."})
+        if self.properties or self.person_properties:
+            raise ValidationError({"properties": "properties / person_properties are not valid for logs_removal."})
+        if self.hogql_predicate:
+            raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for logs_removal."})
+        self._reject_person_fields()
+
     def _reject_hogql_query_fields(self) -> None:
         if self.hogql_query or self.hogql_variables:
             raise ValidationError(
@@ -562,6 +581,161 @@ class DataDeletionRequest(UUIDModel):
             )
         if self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings:
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
+
+
+class LogsRemovalCriteria(Protocol):
+    """What a logs removal deletes: the rows of one team in one time range."""
+
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def start_time(self) -> datetime | None: ...
+
+    @property
+    def end_time(self) -> datetime | None: ...
+
+
+@dataclass(frozen=True)
+class LogsRemovalTable:
+    """One logs table that a logs_removal request deletes from.
+
+    ``data_table`` is the replicated storage table the mutation runs on. ``read_table`` is the
+    Distributed proxy that counts read through.
+    """
+
+    data_table: str
+    read_table: str
+    time_column: str
+    # Width of the buckets in ``time_column`` for a rollup table, None for raw rows. A bucket that
+    # starts before the range can still hold rows from inside it, so the start rounds down to it.
+    bucket_minutes: int | None = None
+
+    def removal_where(self, obj: LogsRemovalCriteria, suffix: str = "") -> tuple[str, dict]:
+        # ``suffix`` keeps the parameter names of several requests apart when they share one command.
+        start = f"%(start_time{suffix})s"
+        if self.bucket_minutes:
+            start = f"toStartOfInterval(toDateTime64({start}, 6), toIntervalMinute({self.bucket_minutes}))"
+        predicate = (
+            f"team_id = %(team_id{suffix})s AND {self.time_column} >= {start} "
+            f"AND {self.time_column} < %(end_time{suffix})s"
+        )
+        return predicate, {
+            f"team_id{suffix}": obj.team_id,
+            f"start_time{suffix}": obj.start_time,
+            f"end_time{suffix}": obj.end_time,
+        }
+
+    def removal_where_any(self, requests: Sequence[LogsRemovalCriteria]) -> tuple[str, dict]:
+        """Match the rows of any of ``requests``, so one mutation deletes them all."""
+        predicates: list[str] = []
+        params: dict = {}
+        for index, request in enumerate(requests):
+            predicate, request_params = self.removal_where(request, suffix=f"_{index}")
+            predicates.append(f"({predicate})")
+            params.update(request_params)
+        return " OR ".join(predicates), params
+
+
+LOGS_TABLE = LogsRemovalTable(data_table="logs34", read_table="logs_distributed", time_column="timestamp")
+
+# Every logs table that keeps text from a log record. logs_volume_buckets keeps only counts, so it
+# ages out on its own TTL.
+LOGS_REMOVAL_TABLES = (
+    LOGS_TABLE,
+    # Attribute keys and values, rolled up from logs34 in 10-minute buckets.
+    LogsRemovalTable(
+        data_table="log_attributes3",
+        read_table="log_attributes_distributed",
+        time_column="time_bucket",
+        bucket_minutes=10,
+    ),
+    # Masked message patterns. The writer picks the bucket width, and one hour covers every width
+    # that divides it.
+    LogsRemovalTable(
+        data_table="logs_pattern_buckets",
+        read_table="logs_pattern_buckets_distributed",
+        time_column="time_bucket",
+        bucket_minutes=60,
+    ),
+)
+
+
+def _logs_count_query_template(predicate: str) -> str:
+    # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helpers, not user input)
+    return f"""
+            SELECT
+                count() AS logs,
+                count(DISTINCT _part) AS parts,
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
+            FROM {LOGS_TABLE.read_table}
+            WHERE {predicate}
+            """
+
+
+def fetch_logs_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
+    """Count log records and the parts that hold them for a logs removal request.
+
+    Reads through the logs workload, which connects to the logs cluster as its own user. That user
+    has no access to the main cluster's system tables, so the part sizes stay empty.
+    """
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    predicate, params = LOGS_TABLE.removal_where(obj)
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=obj.team_id,
+        user_id=user_id,
+        query_type="delete_logs_count",
+    ):
+        result = sync_execute(
+            _logs_count_query_template(predicate),
+            params,
+            team_id=obj.team_id,
+            readonly=True,
+            workload=Workload.LOGS,
+            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
+        )
+    count = result[0][0] if result else 0
+    return {
+        "count": count,
+        "min_timestamp": result[0][2] if count else None,
+        "max_timestamp": result[0][3] if count else None,
+        "part_count": result[0][1] if result else 0,
+        "parts_size": None,
+        "parts_row_count": None,
+    }
+
+
+def count_remaining_logs(request: "DataDeletionRequest") -> int:
+    """Count rows a logs removal request still matches, across every table it deletes from."""
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+    from posthog.models.deletion_targets import surviving_rows_sql
+
+    total = 0
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        query_type="data_deletion_request_verify_logs",
+    ):
+        for table in LOGS_REMOVAL_TABLES:
+            predicate, params = table.removal_where(request)
+            result = sync_execute(
+                surviving_rows_sql(table.read_table, predicate),
+                params,
+                team_id=request.team_id,
+                readonly=True,
+                workload=Workload.LOGS,
+            )
+            total += int(result[0][0]) if result else 0
+    return total
 
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
@@ -650,6 +824,9 @@ def build_deletion_count_query(obj: "DataDeletionRequest") -> tuple[str, dict]:
     Mirrors ``_fetch_stats`` so admin users can copy the query and run it
     independently — ``substitute_params_for_display`` is the companion renderer.
     """
+    if obj.request_type == RequestType.LOGS_REMOVAL:
+        predicate, params = LOGS_TABLE.removal_where(obj)
+        return _logs_count_query_template(predicate), params
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
         extra_filter, params = _build_property_filter(obj)
     else:
@@ -765,6 +942,8 @@ def fetch_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = No
     """Dispatch to the appropriate stats function based on request type."""
     if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
         raise ValueError("Stats are not available for query-backed deletion requests yet.")
+    if obj.request_type == RequestType.LOGS_REMOVAL:
+        return fetch_logs_deletion_stats(obj, user_id=user_id)
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
         return fetch_property_deletion_stats(obj, user_id=user_id)
     return fetch_event_deletion_stats(obj, user_id=user_id)
@@ -1015,13 +1194,15 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     """Count rows still matching a deletion request's criteria in ClickHouse.
 
     Dispatches on request type: matching events for event_removal, rows still carrying the
-    target property for property_removal. Returns ``None`` for person_removal, which has no
-    automated remaining-count.
+    target property for property_removal, matching log rows for logs_removal. Returns ``None`` for
+    person_removal, which has no automated remaining-count.
     """
     if request.request_type == RequestType.EVENT_REMOVAL:
         return count_remaining_matching_events(request)
     if request.request_type == RequestType.PROPERTY_REMOVAL:
         return count_remaining_property_events(request)
+    if request.request_type == RequestType.LOGS_REMOVAL:
+        return count_remaining_logs(request)
     return None
 
 

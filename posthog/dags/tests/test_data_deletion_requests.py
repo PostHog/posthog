@@ -44,6 +44,7 @@ from posthog.dags.data_deletion_requests import (
     copy_property_removal_shard,
     data_deletion_request_event_removal,
     data_deletion_request_hogql_event_removal,
+    data_deletion_request_logs_removal,
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
@@ -63,6 +64,7 @@ from posthog.dags.data_deletion_requests import (
     verify_property_removal,
     verify_property_removal_shard,
 )
+from posthog.dags.deletes import delete_queued_logs
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -3140,22 +3142,161 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
 
 
 @pytest.mark.django_db
-def test_pickup_sensor_routes_person_removal_request():
+@pytest.mark.parametrize(
+    "criteria,job_name,load_op",
+    [
+        (
+            {
+                "request_type": RequestType.PERSON_REMOVAL,
+                "person_uuids": [str(uuid4())],
+                "person_drop_profiles": True,
+            },
+            "data_deletion_request_person_removal",
+            "load_person_removal_request",
+        ),
+        (
+            {
+                "request_type": RequestType.LOGS_REMOVAL,
+                "start_time": datetime(2026, 1, 1, tzinfo=UTC),
+                "end_time": datetime(2026, 1, 2, tzinfo=UTC),
+            },
+            "data_deletion_request_logs_removal",
+            "load_logs_removal_request",
+        ),
+    ],
+    ids=["person_removal", "logs_removal"],
+)
+def test_pickup_sensor_routes_request_to_its_job(criteria: dict, job_name: str, load_op: str) -> None:
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
-        request_type=RequestType.PERSON_REMOVAL,
-        person_uuids=[str(uuid4())],
-        person_drop_profiles=True,
         status=RequestStatus.APPROVED,
         approved_at=datetime.now(),
+        **criteria,
     )
     instance = dagster.DagsterInstance.ephemeral()
     ctx = dagster.build_sensor_context(instance=instance)
     result = data_deletion_request_pickup_sensor(ctx)
     assert isinstance(result, dagster.RunRequest)
-    assert result.job_name == "data_deletion_request_person_removal"
-    assert "load_person_removal_request" in result.run_config["ops"]
+    assert result.job_name == job_name
+    assert load_op in result.run_config["ops"]
     assert result.run_key == f"{request.pk}:{request.attempt_count}"
+
+
+def _insert_logs_rows(team_id: int, at: datetime, client: Client) -> None:
+    database = django_settings.CLICKHOUSE_DATABASE
+    client.execute(
+        f"INSERT INTO {database}.logs34 "
+        "(uuid, team_id, timestamp, observed_timestamp, original_expiry_timestamp, body, severity_text, service_name) "
+        "VALUES",
+        [(str(uuid4()), team_id, at, at, at + timedelta(days=30), "token=abc123", "info", "api")],
+    )
+    client.execute(
+        f"INSERT INTO {database}.log_attributes3 "
+        "(team_id, time_bucket, service_name, attribute_key, attribute_value, attribute_count, "
+        "original_expiry_time_bucket, severity_text) VALUES",
+        [(team_id, at, "api", "token", "abc123", 1, at + timedelta(days=30), "info")],
+    )
+    client.execute(
+        f"INSERT INTO {database}.logs_pattern_buckets "
+        "(team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, "
+        "log_count) VALUES",
+        [(team_id, at, "api", "", "", "info", 1, "token=abc123", 1)],
+    )
+
+
+def _count_logs_rows(team_id: int, at: datetime, client: Client) -> dict[str, int]:
+    database = django_settings.CLICKHOUSE_DATABASE
+    columns = {"logs34": "timestamp", "log_attributes3": "time_bucket", "logs_pattern_buckets": "time_bucket"}
+    return {
+        table: client.execute(
+            f"SELECT count() FROM {database}.{table} WHERE team_id = %(team_id)s AND {column} = %(at)s",
+            {"team_id": team_id, "at": at},
+        )[0][0]
+        for table, column in columns.items()
+    }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("execution_mode", [ExecutionMode.IMMEDIATE, ExecutionMode.DEFERRED])
+def test_full_job_logs_removal(cluster: ClickhouseCluster, execution_mode: ExecutionMode) -> None:
+    hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=5)
+    # The range starts inside the rollup bucket at `hour`, so that bucket holds rows from the range.
+    start_time = hour + timedelta(minutes=5)
+    end_time = hour + timedelta(hours=2)
+    in_range = hour + timedelta(minutes=30)
+    before_range = hour - timedelta(hours=3)
+    # The ClickHouse reset between tests leaves the logs tables alone, so each run uses fresh teams.
+    team = TEAM_ID + uuid4().int % 1_000_000 * 3
+    other_team = team + 1
+    queued_team = team + 2
+
+    for team_id, at in [
+        (team, in_range),
+        (team, hour),
+        (team, before_range),
+        (other_team, in_range),
+        (queued_team, in_range),
+        (queued_team, before_range),
+    ]:
+        cluster.any_host(partial(_insert_logs_rows, team_id, at)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=team,
+        request_type=RequestType.LOGS_REMOVAL,
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+        execution_mode=execution_mode,
+    )
+    result = data_deletion_request_logs_removal.execute_in_process(
+        run_config={"ops": {"load_logs_removal_request": {"config": {"request_id": str(request.pk)}}}},
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    request.refresh_from_db()
+    if execution_mode == ExecutionMode.DEFERRED:
+        assert request.status == RequestStatus.QUEUED
+        assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == {
+            "logs34": 1,
+            "log_attributes3": 1,
+            "logs_pattern_buckets": 1,
+        }
+        # A second queued request with another range shares the drain's mutation with the first.
+        DataDeletionRequest.objects.create(
+            team_id=queued_team,
+            request_type=RequestType.LOGS_REMOVAL,
+            start_time=before_range - timedelta(hours=1),
+            end_time=before_range + timedelta(hours=1),
+            status=RequestStatus.QUEUED,
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+        delete_queued_logs(build_op_context(resources={"cluster": cluster}))
+        assert cluster.any_host(partial(_count_logs_rows, queued_team, before_range)).result() == {
+            "logs34": 0,
+            "log_attributes3": 0,
+            "logs_pattern_buckets": 0,
+        }
+    else:
+        assert request.status == RequestStatus.COMPLETED
+
+    assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == {
+        "logs34": 0,
+        "log_attributes3": 0,
+        "logs_pattern_buckets": 0,
+    }
+    # The raw record at `hour` is before the range, but the rollup buckets starting there overlap it.
+    assert cluster.any_host(partial(_count_logs_rows, team, hour)).result() == {
+        "logs34": 1,
+        "log_attributes3": 0,
+        "logs_pattern_buckets": 0,
+    }
+    for team_id, at in [(team, before_range), (other_team, in_range), (queued_team, in_range)]:
+        assert cluster.any_host(partial(_count_logs_rows, team_id, at)).result() == {
+            "logs34": 1,
+            "log_attributes3": 1,
+            "logs_pattern_buckets": 1,
+        }
 
 
 @pytest.mark.django_db

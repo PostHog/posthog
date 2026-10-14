@@ -104,12 +104,14 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
 
     @parameterized.expand(
         [
-            ("deferred", ExecutionMode.DEFERRED),
-            ("immediate", ExecutionMode.IMMEDIATE),
+            ("event_removal_deferred", RequestType.EVENT_REMOVAL, ExecutionMode.DEFERRED),
+            ("event_removal_immediate", RequestType.EVENT_REMOVAL, ExecutionMode.IMMEDIATE),
+            ("logs_removal_deferred", RequestType.LOGS_REMOVAL, ExecutionMode.DEFERRED),
+            ("logs_removal_immediate", RequestType.LOGS_REMOVAL, ExecutionMode.IMMEDIATE),
         ]
     )
-    def test_approve_view_post_persists_execution_mode_for_event_removal(self, _name, execution_mode):
-        request = self._pending_request()
+    def test_approve_view_post_persists_execution_mode(self, _name, request_type, execution_mode):
+        request = self._pending_request(request_type=request_type)
         response = self._call_approve("POST", request, {"execution_mode": execution_mode.value})
 
         self.assertEqual(response.status_code, 302)
@@ -118,8 +120,9 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(request.execution_mode, execution_mode)
         self.assertTrue(request.approved)
 
-    def test_approve_view_post_defaults_event_removal_to_deferred(self):
-        request = self._pending_request()
+    @parameterized.expand([("event_removal", RequestType.EVENT_REMOVAL), ("logs_removal", RequestType.LOGS_REMOVAL)])
+    def test_approve_view_post_defaults_to_deferred(self, _name, request_type):
+        request = self._pending_request(request_type=request_type)
         response = self._call_approve("POST", request, {})
 
         self.assertEqual(response.status_code, 302)
@@ -1120,8 +1123,12 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL]),
-            ("clickhouse_team", True, [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL]),
+            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL, RequestType.LOGS_REMOVAL]),
+            (
+                "clickhouse_team",
+                True,
+                [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL, RequestType.LOGS_REMOVAL],
+            ),
         ]
     )
     def test_types_offered_on_a_new_request(self, _name, offer_clickhouse_team_types, expected_types):

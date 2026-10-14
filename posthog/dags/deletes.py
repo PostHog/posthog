@@ -18,6 +18,7 @@ from more_itertools import chunked
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
     MutationWaiter,
@@ -38,6 +39,16 @@ from posthog.dags.common.staged_dictionary import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.data_deletion_request import (
+    LOGS_REMOVAL_TABLES,
+    LOGS_TABLE,
+    DataDeletionRequest,
+    ExecutionMode,
+    LogsRemovalCriteria,
+    LogsRemovalTable,
+    RequestStatus,
+    RequestType,
+)
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
@@ -46,6 +57,7 @@ from posthog.models.deletion_targets import (
     DeletionTarget,
     TargetPlacement,
     _any_node_has,
+    placement_for,
     resolve_placements,
     shards_by_partition,
     surviving_rows_sql,
@@ -1198,6 +1210,110 @@ def cleanup_delete_assets(
     return True
 
 
+def _logs_deletion_target(table: LogsRemovalTable) -> DeletionTarget:
+    return DeletionTarget(
+        data_table=table.data_table,
+        read_table=table.read_table,
+        cluster_setting="CLICKHOUSE_LOGS_CLUSTER",
+        node_role=NodeRole.LOGS,
+        optional=True,
+    )
+
+
+def delete_logs_rows(
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    requests: Sequence[LogsRemovalCriteria],
+    reuse_since: datetime | None = None,
+) -> list[str]:
+    """Delete the rows of ``requests`` from every logs table, then fail if any of them are still readable.
+
+    logs34 has a projection, and ClickHouse refuses a lightweight delete on a table with one, so
+    every table gets one ALTER TABLE ... DELETE mutation that matches all the requests. All of them
+    are enqueued before any is waited on, so the wait is the longest mutation rather than their sum.
+
+    The command text names ranges, not rows, so a finished mutation from an earlier run has the
+    same text and deleted nothing that arrived after it ran. ``reuse_since`` bounds which mutations
+    a run adopts. When it is None, the logs cluster's clock at the start of this call bounds it.
+    Returns the data tables it deleted from.
+    """
+    placements: list[tuple[LogsRemovalTable, TargetPlacement]] = []
+    for table in LOGS_REMOVAL_TABLES:
+        placement = placement_for(cluster, _logs_deletion_target(table))
+        if placement is None:
+            if table is LOGS_TABLE:
+                raise dagster.Failure(
+                    f"No node reachable from this job carries {table.data_table}, so no logs can be deleted."
+                )
+            context.log.info(f"{table.data_table} does not exist on this deployment, skipping")
+            continue
+        placements.append((table, placement))
+
+    if reuse_since is None:
+        logs_cluster = placements[0][1].cluster
+        reuse_since = logs_cluster.any_host_by_role(Query("SELECT now()"), logs_cluster.shard_role).result()[0][0]
+
+    enqueued: list[tuple[LogsRemovalTable, ClickhouseCluster, dict[int, MutationWaiter]]] = []
+    for table, placement in placements:
+        predicate, params = table.removal_where_any(requests)
+        runner = AlterTableMutationRunner(
+            table=table.data_table,
+            commands={f"DELETE WHERE {predicate}"},
+            parameters=params,
+            reuse_since=reuse_since,
+        )
+        context.log.info(f"Enqueueing delete on {table.data_table} ({len(placement.cluster.shards)} shards)")
+        enqueued.append((table, placement.cluster, runner.enqueue_on_shards(placement.cluster)))
+
+    for table, table_cluster, shard_mutations in enqueued:
+        wait_for_mutations_on_shards(table_cluster, shard_mutations)
+        context.log.info(f"Delete on {table.data_table} complete")
+
+    surviving: dict[str, int] = {}
+    for table, table_cluster, _shard_mutations in enqueued:
+        predicate, params = table.removal_where_any(requests)
+        query = Query(surviving_rows_sql(table.read_table, predicate), params, settings={"max_execution_time": "1800"})
+        rows = table_cluster.any_host_by_role(query, table_cluster.shard_role).result()
+        count = int(rows[0][0]) if rows else 0
+        if count:
+            surviving[table.read_table] = count
+    if surviving:
+        raise dagster.Failure(description=f"The logs deletes finished but rows are still readable: {surviving}")
+
+    return [table.data_table for table, _, _ in enqueued]
+
+
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+def delete_queued_logs(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """Delete the rows of every queued deferred logs removal request.
+
+    The request rows in Postgres are the queue: a deferred logs removal stays QUEUED until this op
+    deletes its rows, and verify_queued_deletion_requests then moves it to COMPLETED.
+    """
+    requests = list(
+        DataDeletionRequest.objects.filter(
+            status=RequestStatus.QUEUED,
+            request_type=RequestType.LOGS_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+        ).order_by("created_at", "id")
+    )
+    if not requests:
+        context.log.info("No queued logs removal requests")
+        return
+
+    context.log.info(f"Deleting logs for {len(requests)} queued logs removal request(s)")
+    swept_tables = delete_logs_rows(context, cluster, requests)
+    context.add_output_metadata(
+        {
+            "requests": dagster.MetadataValue.text(", ".join(str(request.pk) for request in requests)),
+            "swept_tables": dagster.MetadataValue.text(", ".join(swept_tables)),
+        }
+    )
+
+
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
@@ -1210,7 +1326,8 @@ def cleanup_delete_assets(
 def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
-    oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=ensure_no_concurrent_deletes_run())
+    no_concurrent_run = ensure_no_concurrent_deletes_run()
+    oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=no_concurrent_run)
     swept_targets = resolve_sweep_targets()
     deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
     pending_deletes_dictionary = load_and_verify_deletes_dictionary(
@@ -1248,6 +1365,9 @@ def deletes_job():
 
     # Clean up
     cleanup_delete_assets(swept_targets, verified_deletion_resources)
+
+    # The logs tables are on their own cluster and share nothing with the steps above.
+    delete_queued_logs(start_after=no_concurrent_run)
 
 
 # What every sensor-launched deletes_job run carries. retry_max_attempts is raised because
