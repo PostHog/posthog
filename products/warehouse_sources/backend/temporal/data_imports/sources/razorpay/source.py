@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]):
+    codebase_detection = detect(
+        env=("^RAZORPAY_",),
+        script_hosts=("checkout.razorpay.com",),
+        npm=("razorpay", "react-native-razorpay"),
+        pypi=("razorpay",),
+        cocoapods=("razorpay-pod",),
+        composer=("razorpay/razorpay",),
+        go=(
+            "github.com/razorpay/razorpay-go",
+            "github.com/razorpay/razorpay-cli",
+            "github.com/razorpay/razorpay-mcp-server",
+        ),
+        maven=(
+            "com.razorpay:razorpay-java",
+            "com.razorpay:checkout",
+            "com.razorpay:razorpay-android",
+            "com.razorpay:razorpay-googlepay",
+            "com.razorpay:razorpay-turbo",
+        ),
+        pub=("razorpay_flutter", "razorpay_flutter_banking_wrapper_sdk", "razorpay_flutter_customui", "razorpay_turbo"),
+        rubygems=("razorpay",),
+        swiftpm=(
+            "github.com/razorpay/razorpay-banking-wrapper-sdk",
+            "github.com/razorpay/razorpay-customui-pod",
+            "github.com/razorpay/razorpay-pod",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://razorpay.com/docs/api/"
 
