@@ -13,8 +13,9 @@
  *  1. Never upscale. Enlarging pixels adds nothing and softens the edges detection depends on.
  *  2. Bound the work by the tensor, not by the frame. A budget on frame area does not bound the
  *     tensor once a collapsed axis is padded up to the encoder's stride.
- *  3. Store small. The final consumer identifies what kind of site a session is on, so it needs
- *     scene structure and not legibility. Text being unreadable in the artifact is the point.
+ *  3. Store the size the operator chose. SCRUB_STORED_MAX_SIDE sets it; unset, the default detector
+ *     sizes allow about 161 px on the long side. Rule 4, not a small size, keeps what was not
+ *     redacted unreadable.
  *  4. Keep the ratio. Every detector must see a subject at least `ratio` times larger than the
  *     stored image keeps it, so anything still readable was large enough to have been found.
  */
