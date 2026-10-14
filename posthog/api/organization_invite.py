@@ -16,10 +16,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
-from posthog.email import is_email_available
+from posthog.email import is_email_available, is_http_email_service_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import (
     EmailNormalizer,
+    ESPSuppressionReason,
+    check_esp_suppression,
     reject_plus_addressed_email,
     validate_display_name,
     validate_message_body,
@@ -140,6 +142,13 @@ class OrganizationInviteManager:
         ).delete()
 
 
+def is_invite_email_suppressed(email: str) -> bool:
+    # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
+    if not is_http_email_service_available():
+        return False
+    return check_esp_suppression(email).reason == ESPSuppressionReason.SUPPRESSED
+
+
 def first_bulk_invite_error(errors: list[Any]) -> exceptions.ValidationError:
     """
     A many=True error is a list of per-row dicts the exception handler can't flatten — clients would
@@ -175,6 +184,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "first_name",
             "emailing_attempt_made",
+            "email_suppressed",
             "level",
             "is_expired",
             "created_by",
@@ -188,6 +198,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "emailing_attempt_made",
+            "email_suppressed",
             "created_at",
             "updated_at",
         ]
@@ -324,6 +335,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
+            invite.email_suppressed = is_invite_email_suppressed(invite.target_email)
             send_invite(invite_id=invite.id)
             invite.save()
 
@@ -337,6 +349,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             ).count(),
             is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
+            email_suppressed=invite.email_suppressed,
             current_url=self.context.get("current_url"),
             session_id=self.context.get("session_id"),
         )

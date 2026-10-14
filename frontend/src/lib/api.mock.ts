@@ -333,6 +333,7 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     target_email: 'test@posthog.com',
     first_name: '',
     emailing_attempt_made: true,
+    email_suppressed: false,
     is_expired: true,
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
