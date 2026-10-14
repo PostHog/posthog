@@ -1,13 +1,11 @@
-"""What a command acts on. Pull requests are the only kind so far.
+"""What a command acts on. Pull requests are the only kind, and dispatch builds this class directly.
 
-A channel names the subject: a comment names the pull request it sits on, and a message can name one
-by its URL. The subject decides which projects a command may run in, and reads the facts its handler
-gets. Another kind of subject, such as a PostHog dashboard, adds a reference type and a class here.
+A channel names the pull request: a comment names the one it sits on, and a Slack message names one
+by its URL. The subject reads the facts a handler gets, and refuses a pull request no command may
+touch.
 """
 
 from typing import Any
-
-from posthog.models.integration import Integration
 
 from .commands import Answer, PullRequestFacts, PullRequestRef
 from .github import CommandGitHub, GitHubCallFailed, UnsupportedPullRequest
@@ -16,23 +14,13 @@ from .schema import CommandDeclaration
 
 class PullRequestSubject:
     def __init__(self, ref: PullRequestRef, github: CommandGitHub) -> None:
-        self.ref = ref
+        self._ref = ref
         self._github = github
-
-    def candidate_team_ids(self) -> list[int]:
-        """Projects whose GitHub integration uses the pull request's installation, oldest first."""
-        return list(
-            dict.fromkeys(
-                Integration.objects.filter(kind="github", integration_id=self.ref.installation_id)
-                .order_by("id")
-                .values_list("team_id", flat=True)
-            )
-        )
 
     def facts(self, declaration: CommandDeclaration[Any]) -> PullRequestFacts | Answer:
         """The pull request as GitHub reports it now, or why the command must not run on it."""
         try:
-            pull_request = self._github.pull_request(self.ref.repository, self.ref.number)
+            pull_request = self._github.pull_request(self._ref.repository, self._ref.number)
         except GitHubCallFailed:
             pull_request = None
         except UnsupportedPullRequest:

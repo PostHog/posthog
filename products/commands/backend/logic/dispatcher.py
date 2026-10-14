@@ -28,7 +28,7 @@ from posthog.models.user import User
 from posthog.permissions import UserAccessControl
 
 from .commands import Answer, CommandContext, CommandRequest, DispatchOutcome, ProjectMember
-from .github import CommandGitHub
+from .github import CommandGitHub, InstallationGitHub
 from .identity import Requester, resolve_requester
 from .registry import COMMANDS, CommandSpec, Invocation, help_text
 from .schema import HELP_VERB, ArgumentError, ResourceAccess, resolve_verb, usage
@@ -47,9 +47,11 @@ COMMANDS_TOTAL = Counter(
 class Admission:
     """A request the channel let through, with what the shared steps need from it."""
 
-    github: CommandGitHub
-    # Projects in the channel's rollout. A command runs only in one of them.
-    rolled_out_team_ids: frozenset[int]
+    # Projects on the installation in the channel's rollout, oldest integration first. A command
+    # runs only in one of them.
+    team_ids: tuple[int, ...]
+    # A channel that already called GitHub passes its client. Otherwise dispatch makes one.
+    github: CommandGitHub | None = None
 
 
 class CommandChannel(Protocol):
@@ -63,15 +65,11 @@ class CommandChannel(Protocol):
         """The checks that stay silent: nobody who fails one hears from the bot."""
         ...
 
-    def acknowledge(self) -> None: ...
-
     def linked_users(self) -> list[User]:
         """The active PostHog users linked to the requester, most recently linked first."""
         ...
 
     def reply(self, message: str) -> None: ...
-
-    def mark_accepted(self) -> None: ...
 
 
 class CommandDispatcher:
@@ -101,14 +99,18 @@ class CommandDispatcher:
         admission = self._channel.admit()
         if not isinstance(admission, Admission):
             return admission
-        self._channel.acknowledge()
+        github = admission.github or InstallationGitHub.for_installation(
+            self._channel.request.subject.installation_id, admission.team_ids
+        )
+        if github is None:
+            return "no_installation"
 
         command = self._runnable_command(spec)
         if isinstance(command, Answer):
             self._channel.reply(command.message)
             return command.outcome
 
-        context = self._command_context(command.spec, admission)
+        context = self._command_context(command.spec, admission.team_ids, github)
         if isinstance(context, Answer):
             self._channel.reply(context.message)
             return context.outcome
@@ -129,11 +131,11 @@ class CommandDispatcher:
             return Answer(outcome="invalid_arguments", message=f"{invocation.reason} Use `{usage(spec.declaration)}`.")
         return invocation
 
-    def _command_context(self, spec: CommandSpec[Any], admission: Admission) -> CommandContext | Answer:
+    def _command_context(
+        self, spec: CommandSpec[Any], team_ids: tuple[int, ...], github: CommandGitHub
+    ) -> CommandContext | Answer:
         request = self._channel.request
         declaration = spec.declaration
-        subject = PullRequestSubject(request.subject, admission.github)
-        team_ids = [team_id for team_id in subject.candidate_team_ids() if team_id in admission.rolled_out_team_ids]
         requester = resolve_requester(self._channel.linked_users(), team_ids)
         if not isinstance(requester, Requester):
             if requester.reason == "refused":
@@ -146,7 +148,7 @@ class CommandDispatcher:
                 message="You aren't a member of a PostHog project that uses pull request commands on this repository.",
             )
 
-        pull_request = subject.facts(declaration)
+        pull_request = PullRequestSubject(request.subject, github).facts(declaration)
         if isinstance(pull_request, Answer):
             return pull_request
 
@@ -175,10 +177,7 @@ class CommandDispatcher:
             self._channel.reply(f"Something went wrong while running `{verb}`. Try again in a few minutes.")
             return "failed"
         self._channel.reply(outcome.message)
-        if outcome.accepted:
-            self._channel.mark_accepted()
-            return "accepted"
-        return "refused"
+        return "accepted" if outcome.accepted else "refused"
 
 
 def _members_with_access(members: tuple[ProjectMember, ...], access: ResourceAccess) -> tuple[ProjectMember, ...]:

@@ -22,18 +22,13 @@ integration does not.
 
 from datetime import datetime
 
-from django.core.cache import cache
-
 import structlog
 from social_django.models import UserSocialAuth
 
-from posthog.models.integration import Integration
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-from posthog.permissions import posthog_feature_flag_enabled
-from posthog.token_bucket import BucketDecision, Budget, consume
 
+from ...logic.admission import claim, release, rolled_out_team_ids, within_rate_limit
 from ...logic.commands import CommandRequest, DispatchOutcome, PullRequestRef
 from ...logic.dispatcher import Admission, CommandDispatcher
 from ...logic.github import CommandGitHub, GitHubCallFailed, InstallationGitHub, Reaction
@@ -43,58 +38,10 @@ logger = structlog.get_logger(__name__)
 
 ROLLOUT_FLAG = "github-commands"
 _WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
-_CLAIM_TTL_SECONDS = 7 * 24 * 60 * 60
-# A person typing commands rarely sends more than a few in a row. The cap stops a script or a
-# runaway agent with a member's account from fanning out runs that cost money.
-_COMMENTER_BUDGET = Budget(burst=5, per_hour=30)
 
 
 def _claim_key(comment_id: int) -> str:
     return f"commands:github_comment:{comment_id}"
-
-
-def _claim_comment(comment_id: int) -> DispatchOutcome | None:
-    """None when this call claimed the comment, else the outcome that stops dispatch."""
-    try:
-        claimed = cache.add(_claim_key(comment_id), 1, timeout=_CLAIM_TTL_SECONDS)
-    except Exception:
-        # Fail closed: the cache shares Redis with the Celery broker, so an outage that drops this
-        # command drops it anyway, while failing open lets a redelivery start a second paid run.
-        logger.warning("github_command_claim_failed", comment_id=comment_id, exc_info=True)
-        return "claim_unavailable"
-    return None if claimed else "duplicate"
-
-
-def _release_comment(comment_id: int) -> None:
-    try:
-        cache.delete(_claim_key(comment_id))
-    except Exception:
-        logger.warning("github_command_release_failed", comment_id=comment_id, exc_info=True)
-
-
-def _within_rate_limit(github_user_id: int) -> bool:
-    decision = consume(f"commands:github_commenter:{github_user_id}", _COMMENTER_BUDGET)
-    # Fail open when Redis can't answer, like the other per-caller buckets.
-    return not isinstance(decision, BucketDecision) or decision.allowed
-
-
-def _rolled_out_team_ids(installation_id: str) -> frozenset[int]:
-    """Projects on this installation whose organization is in the rollout."""
-    team_ids = set(
-        Integration.objects.filter(kind="github", integration_id=installation_id).values_list("team_id", flat=True)
-    )
-    teams = Team.objects.filter(id__in=team_ids).only("id", "organization_id")
-    return frozenset(
-        team.id
-        for team in teams
-        if posthog_feature_flag_enabled(
-            ROLLOUT_FLAG,
-            # The rollout targets organizations, so the person behind the comment does not matter yet.
-            f"github-commands-installation-{installation_id}",
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    )
 
 
 def _linked_users(github_user_id: int) -> list[User]:
@@ -139,16 +86,16 @@ class GitHubCommentChannel:
         comment = self._comment
         # Before any GitHub call: the App is installed on repositories of organizations that never
         # turned commands on, and the bot must stay silent there.
-        rolled_out_team_ids = _rolled_out_team_ids(comment.installation_id)
-        if not rolled_out_team_ids:
+        team_ids = rolled_out_team_ids(ROLLOUT_FLAG, comment.installation_id)
+        if not team_ids:
             return "not_rolled_out"
-        claim_refusal = _claim_comment(comment.comment_id)
+        claim_refusal = claim(_claim_key(comment.comment_id))
         if claim_refusal is not None:
             return claim_refusal
-        if not _within_rate_limit(comment.commenter_github_id):
+        if not within_rate_limit(f"commands:github_commenter:{comment.commenter_github_id}"):
             return "rate_limited"
         if self._github is None:
-            self._github = InstallationGitHub.for_installation(comment.installation_id, rolled_out_team_ids)
+            self._github = InstallationGitHub.for_installation(comment.installation_id, team_ids)
             if self._github is None:
                 return "no_installation"
         try:
@@ -158,14 +105,12 @@ class GitHubCommentChannel:
         except GitHubCallFailed:
             logger.warning("github_command_permission_lookup_failed", repository=comment.repository, exc_info=True)
             # Nothing ran, so a redelivery may try again.
-            _release_comment(comment.comment_id)
+            release(_claim_key(comment.comment_id))
             return "permission_lookup_failed"
         if permission not in _WRITE_PERMISSIONS:
             return "no_write_access"
-        return Admission(github=self._github, rolled_out_team_ids=rolled_out_team_ids)
-
-    def acknowledge(self) -> None:
         self._react("eyes")
+        return Admission(team_ids=team_ids, github=self._github)
 
     def linked_users(self) -> list[User]:
         return _linked_users(self._comment.commenter_github_id)
@@ -179,8 +124,11 @@ class GitHubCommentChannel:
         body = f"<!-- posthog-github-command:{comment.comment_id} -->\n@{comment.commenter_login} {message}"
         self._github.reply(comment.repository, comment.pr_number, body)
 
-    def mark_accepted(self) -> None:
-        self._react("rocket")
+    def dispatch(self) -> DispatchOutcome:
+        outcome = CommandDispatcher(self).dispatch()
+        if outcome == "accepted":
+            self._react("rocket")
+        return outcome
 
     def _react(self, reaction: Reaction) -> None:
         if self._github is not None:
@@ -188,4 +136,4 @@ class GitHubCommentChannel:
 
 
 def dispatch_comment_command(comment: CommentCommandRequest, *, github: CommandGitHub | None = None) -> DispatchOutcome:
-    return CommandDispatcher(GitHubCommentChannel(comment, github)).dispatch()
+    return GitHubCommentChannel(comment, github).dispatch()

@@ -43,15 +43,15 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
-FLAG = "products.commands.backend.channels.github.comments.posthog_feature_flag_enabled"
+FLAG = "products.commands.backend.logic.admission.posthog_feature_flag_enabled"
 REQUEST_STAMPHOG_REVIEW = "products.commands.backend.logic.handlers.stamphog_requests.request_review"
 DESKTOP_ACCESS = "products.commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
 CREATE_TASK = "products.commands.backend.logic.handlers.tasks_facade.create_and_run_task"
 USAGE_LIMITED = "products.commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
 REQUEST_PR_REVIEW = "products.commands.backend.logic.handlers.review_hog_facade.request_pr_review"
 OWNING_TEAM_ID = "products.commands.backend.logic.handlers.review_hog_github.owning_team_id"
-CLAIM_CACHE = "products.commands.backend.channels.github.comments.cache"
-CONSUME_BUDGET = "products.commands.backend.channels.github.comments.consume"
+CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
+CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
