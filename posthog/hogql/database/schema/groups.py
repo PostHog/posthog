@@ -151,7 +151,7 @@ def join_with_group_n_table(
     # blob row by row — on high-volume teams that's enough to OOM the whole query even when
     # only a handful of rows are actually being selected. With the filter, the hash table is
     # bounded by the distinct `$group_N` values present in the matched rows.
-    outer_prefilter = _outer_prefilter(node, context)
+    outer_prefilter = _outer_prefilter(node, context, join_to_add)
     if outer_prefilter is not None:
         prefilter_where, prefilter_source = outer_prefilter
         key_subquery = ast.SelectQuery(
@@ -231,7 +231,9 @@ def _guarded_aliases(context: HogQLContext, source_chain: list[str]) -> frozense
     return LAZY_JOIN_ALIASES | traversers
 
 
-def _outer_prefilter(node: SelectQuery, context: HogQLContext) -> tuple[ast.Expr, ast.JoinExpr] | None:
+def _outer_prefilter(
+    node: SelectQuery, context: HogQLContext, join_to_add: LazyJoinToAdd
+) -> tuple[ast.Expr, ast.JoinExpr] | None:
     """
     Extract a clone of the outer query's WHERE that we can safely embed inside the groups
     join subquery, together with the FROM that the subquery reads. We only return it when:
@@ -246,14 +248,16 @@ def _outer_prefilter(node: SelectQuery, context: HogQLContext) -> tuple[ast.Expr
        set is bounded by a date range." Without that guard, a query whose WHERE is only
        `team_id = X` (or empty) would push a key subquery that scans every row for the
        team, which is strictly worse than no filter at all.
-    3. The WHERE does not reference any lazy-join alias on the source table — including the
+    3. The group join hangs off the outer FROM table, not a table the query joins explicitly. The outer
+       WHERE bounds only the outer table's rows, so it says nothing about the group keys of a joined table.
+    4. The WHERE does not reference any lazy-join alias on the source table — including the
        per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
        Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner
        subquery would re-trigger the resolver on the same lazy join during inner-subquery
        resolution.
     """
     # Deferred: lazy_tables imports the resolver, which imports database schema modules — circular.
-    from posthog.hogql.transforms.lazy_tables import find_field_chains  # noqa: PLC0415
+    from posthog.hogql.transforms.lazy_tables import find_field_chains, get_table_alias_for_lazy_join  # noqa: PLC0415
 
     where = node.where
     if where is None:
@@ -269,6 +273,8 @@ def _outer_prefilter(node: SelectQuery, context: HogQLContext) -> tuple[ast.Expr
     if source_chain not in _PREFILTER_SOURCE_CHAINS:
         return None
     if select_from.alias is not None and select_from.alias != source_chain[-1]:
+        return None
+    if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != source_chain[-1]:
         return None
 
     if not _references_timestamp(where):

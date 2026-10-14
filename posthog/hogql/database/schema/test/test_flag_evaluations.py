@@ -429,6 +429,30 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert ("in(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
+    def test_group_join_on_a_joined_table_reads_that_tables_group(self):
+        # The outer WHERE bounds the event's group keys, and the event has no group. A key bound built from that
+        # WHERE would drop the flag evaluation's group.
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "software"})
+        _create_event(team=self.team, event="$pageview", distinct_id="probe-distinct-id", timestamp=self.occurred_at)
+        flush_persons_and_events()
+
+        with patch(
+            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+            return_value=True,
+        ):
+            response = execute_hogql_query(
+                "SELECT fe.group_0.properties.industry FROM events "
+                "JOIN posthog.flag_evaluations AS fe ON fe.distinct_id = events.distinct_id "
+                "WHERE events.timestamp >= now() - INTERVAL 1 DAY",
+                team=self.team,
+                context=HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True),
+            )
+
+        assert response.results == [("software",)]
+
     def test_session_join_reads_only_sessions_near_the_query_date_range(self):
         # Without the date bound, the sessions subquery aggregates every session the team has.
         clickhouse = self._execute(
