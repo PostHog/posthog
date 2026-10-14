@@ -4,8 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.tests.api.test_hog_flow import _email_function_template, _valid_email_inputs
