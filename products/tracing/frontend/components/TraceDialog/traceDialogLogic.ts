@@ -102,7 +102,11 @@ export interface traceDialogLogicActions {
         payload?: TraceLinkParams
     }
     openTraceDialog: (trace: TraceLinkParams) => {
-        trace: TraceLinkParams
+        trace: {
+            spanId: string | null
+            traceId: string
+            ts?: string | null | undefined
+        }
     }
     selectSpan: (spanId: string) => {
         spanId: string
@@ -113,6 +117,11 @@ export interface traceDialogLogicActions {
 export interface traceDialogLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dialogEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        flatSpans: (traceSpans: TraceDialogSpans | null) => SpanNode[]
+        serviceColorMap: (traceSpans: TraceDialogSpans | null) => Map<string, number>
+        timeline: (traceSpans: TraceDialogSpans | null) => TraceDialogTimeline
+        summary: (traceSpans: TraceDialogSpans | null) => TraceDialogSummary
+        openedAtUs: (trace: TraceLinkParams | null) => number | null
     }
 }
 
@@ -203,15 +212,16 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         ],
         flatSpans: [
             (s) => [s.traceSpans],
-            (traceSpans): SpanNode[] => (traceSpans ? flattenTree(buildSpanTree(traceSpans.spans), new Set()) : []),
+            (traceSpans: TraceDialogSpans | null): SpanNode[] =>
+                traceSpans ? flattenTree(buildSpanTree(traceSpans.spans), new Set()) : [],
         ],
         serviceColorMap: [
             (s) => [s.traceSpans],
-            (traceSpans): Map<string, number> => buildServiceColorMap(traceSpans?.spans ?? []),
+            (traceSpans: TraceDialogSpans | null): Map<string, number> => buildServiceColorMap(traceSpans?.spans ?? []),
         ],
         timeline: [
             (s) => [s.traceSpans],
-            (traceSpans): TraceDialogTimeline => {
+            (traceSpans: TraceDialogSpans | null): TraceDialogTimeline => {
                 const spans = traceSpans?.spans ?? []
                 if (spans.length === 0) {
                     return { startUs: 0, durationUs: 0 }
@@ -224,7 +234,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         ],
         summary: [
             (s) => [s.traceSpans],
-            (traceSpans): TraceDialogSummary => {
+            (traceSpans: TraceDialogSpans | null): TraceDialogSummary => {
                 const spans = traceSpans?.spans ?? []
                 return {
                     rootSpan: spans.find((span) => span.is_root_span) ?? null,
@@ -238,7 +248,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         // when the log fired. Millisecond precision is enough to place a tick on a bar.
         openedAtUs: [
             (s) => [s.trace],
-            (trace): number | null =>
+            (trace: TraceLinkParams | null): number | null =>
                 trace?.ts && dayjs(trace.ts).isValid() ? dayjs(trace.ts).valueOf() * 1_000 : null,
         ],
     }),
