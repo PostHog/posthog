@@ -76,6 +76,7 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -265,6 +266,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.

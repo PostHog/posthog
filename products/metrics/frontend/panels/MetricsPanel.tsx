@@ -11,7 +11,7 @@ import { TablePanel } from './TablePanel'
 import { TimeSeriesPanel } from './TimeSeriesPanel'
 
 /** A series with its own unit resolved: the display override wins, then the series'
- * ingested unit — but only when no other series carries a different unit, since a tile
+ * ingested unit — but only when every series carries that same unit, since a tile
  * mixes the values on one chart. A mixed-unit result renders bare numbers rather than
  * mislabeling one series with another's unit. */
 function withResolvedUnits(series: MetricsChartSeries[], displayUnit: string | undefined): MetricsChartSeries[] {

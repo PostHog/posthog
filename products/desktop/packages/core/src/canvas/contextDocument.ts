@@ -324,7 +324,7 @@ const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [
   { kind: "flag", re: /^\/feature_flags\/(\d+)/ },
   { kind: "experiment", re: /^\/experiments\/(\d+)/ },
   { kind: "survey", re: /^\/surveys\/([^/?#]+)/ },
-  { kind: "error", re: /^\/error_tracking\/([0-9a-f-]{8,})/i },
+  { kind: "error", re: /^\/error[_-]tracking\/([0-9a-f-]{8,})/i },
   { kind: "replay", re: /^\/replay\/([^/?#]+)/ },
   { kind: "notebook", re: /^\/notebooks\/([^/?#]+)/ },
   { kind: "cohort", re: /^\/cohorts\/(\d+)/ },
