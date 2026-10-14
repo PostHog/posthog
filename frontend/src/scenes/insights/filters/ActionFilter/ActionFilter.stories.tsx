@@ -1,12 +1,15 @@
-import type { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { DISPLAY_TYPES_TO_CATEGORIES, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { DISPLAY_TYPES_TO_CATEGORIES, FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { uuid } from 'lib/utils/dom'
 import { alphabet } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -14,6 +17,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
+import { mockActionDefinition } from '~/test/mocks'
 import {
     ChartDisplayType,
     EntityTypes,
@@ -124,6 +128,71 @@ const renderActionFilter = ({ ...props }: Partial<SeriesActionFilterProps>): JSX
 export const Standard: Story = {
     render: renderActionFilter,
     args: {},
+}
+
+const WithRecentFilters: Decorator = (Story) => {
+    useMountedLogic(recentTaxonomicFiltersLogic)
+    useEffect(() => () => recentTaxonomicFiltersLogic.actions.clearRecentFilters(), [])
+    return <Story />
+}
+
+export const RememberedEventsWithRecents: Story = {
+    render: renderActionFilter,
+    args: {},
+    decorators: [WithRecentFilters],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY],
+        mockDate: '2026-10-14T12:00:00Z',
+    },
+    play: async ({ canvasElement }) => {
+        const body = within(document.body)
+        const seriesPicker = (index: number): Promise<HTMLElement> =>
+            waitFor(() => {
+                const button = canvasElement.querySelector<HTMLElement>(`[data-attr="trend-element-subject-${index}"]`)
+                if (!button) {
+                    throw new Error(`Series picker ${index} is not ready`)
+                }
+                return button
+            })
+
+        await userEvent.click(await seriesPicker(0))
+        recentTaxonomicFiltersLogic.actions.clearRecentFilters()
+        for (const recent of [
+            {
+                groupType: TaxonomicFilterGroupType.Actions,
+                groupName: 'Actions',
+                value: mockActionDefinition.id,
+                item: { name: mockActionDefinition.name, id: mockActionDefinition.id },
+            },
+            {
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'signed up',
+                item: { name: 'signed up', id: 'a' },
+            },
+        ]) {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({ ...recent, teamId: MOCK_TEAM_ID })
+        }
+        await userEvent.click(await body.findByRole('button', { name: /Current category:/ }))
+        await userEvent.click(await body.findByRole('menuitem', { name: 'Events' }))
+        await userEvent.click(await seriesPicker(0))
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Add graph series' }))
+        await userEvent.click(await seriesPicker(1))
+        await body.findByRole('button', { name: /Current category: Events/ })
+        await body.findByText('logged out')
+    },
+}
+
+export const RecentPicksAfterRememberedEvents: Story = {
+    ...RememberedEventsWithRecents,
+    play: async (context) => {
+        await RememberedEventsWithRecents.play?.(context)
+        const body = within(document.body)
+        await userEvent.click(await body.findByRole('button', { name: /Current category: Events/ }))
+        await userEvent.click(await body.findByRole('menuitem', { name: 'Recent' }))
+        await body.findByText('signed up')
+        await body.findByText(mockActionDefinition.name)
+    },
 }
 
 export const Bordered: Story = {
