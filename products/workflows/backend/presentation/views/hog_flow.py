@@ -259,6 +259,7 @@ from products.workflows.backend.facade.validation import (
     find_clock_function,
     is_duration,
     is_signed_duration,
+    split_realtime_audience_cohorts,
 )
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
@@ -1382,6 +1383,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
         # membership is frozen and precalculated — matching the audience-picker exemption in
         # _build_cohort_dependency_graph in products/cohorts/backend/models/dependencies.py.
+        # A behavioral realtime cohort is the exception behind the cohort-conditions flag: the audience
+        # reads it from realtime membership instead (see lower_realtime_cohorts).
         if not isinstance(properties, list):
             return
         cohort_ids = [
@@ -1391,8 +1394,38 @@ class HogFlowActionSerializer(serializers.Serializer):
         ]
         if not cohort_ids:
             return
-        cohort_name = find_behavioral_cohort_name(self.context["get_team"]().project_id, cohort_ids)
+        project_id = self.context["get_team"]().project_id
+
+        ready: set[int] = set()
+        referenced_ids = {int(value) for value in cohort_ids if str(value).isdigit()}
+        ready_ids, unready = split_realtime_audience_cohorts(project_id, referenced_ids)
+        if ready_ids or unready is not None:
+            stored = self.context.get("stored_realtime_audience_cohort_ids") or set()
+            realtime_allowed = self._cohort_conditions_enabled()
+            # A flag dial-down must not break an active flow whose audience was accepted under the flag.
+            ready = ready_ids if realtime_allowed else ready_ids & stored
+            if unready is not None and (realtime_allowed or unready.pk in stored):
+                raise serializers.ValidationError(
+                    {
+                        "filters": (
+                            f"Cohort '{unready.name}' isn't ready yet. Audiences can use a realtime cohort "
+                            "once it finishes calculating."
+                        )
+                    }
+                )
+
+        cohort_name = find_behavioral_cohort_name(project_id, cohort_ids, exempt_cohort_ids=frozenset(ready))
         if cohort_name is not None:
+            if self._cohort_conditions_enabled():
+                raise serializers.ValidationError(
+                    {
+                        "filters": (
+                            f"Cohort '{cohort_name}' targets event behavior, which batch/schedule audiences "
+                            "can only evaluate for realtime cohorts. Use a realtime, static or property-based "
+                            "cohort, or an event trigger for behavioral targeting."
+                        )
+                    }
+                )
             raise serializers.ValidationError(
                 {
                     "filters": (
@@ -2967,6 +3000,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict)
             and action.get("id")
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+        }
+
+        # Realtime cohorts an active flow's batch/schedule audience already reads, so the
+        # cohort-conditions flag polices new adoption only, like stored_cohort_conditions below.
+        self.context["stored_realtime_audience_cohort_ids"] = {
+            cohort_id
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") in ("batch", "schedule")
+            for cohort_id in filter_cohort_ids((action.get("config") or {}).get("filters"))
         }
 
         self.context["stored_cohort_conditions"] = {

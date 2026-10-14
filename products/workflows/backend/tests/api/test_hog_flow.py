@@ -4029,6 +4029,66 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "behavior" in response.json()["detail"].lower()
 
+    @parameterized.expand(
+        [
+            ("batch_ready_flag_on", "batch", "realtime_ready", True, 201, None),
+            ("schedule_ready_flag_on", "schedule", "realtime_ready", True, 201, None),
+            ("unready_flag_on", "batch", "realtime_unready", True, 400, "isn't ready yet"),
+            ("ready_flag_off", "batch", "realtime_ready", False, 400, "can't evaluate"),
+            ("non_realtime_flag_on", "batch", "non_realtime", True, 400, "only evaluate for realtime cohorts"),
+            # The audience reads realtime membership for direct references only. A wrapper is
+            # evaluated as a whole cohort, so the behavioral cohort inside it is not exempt.
+            ("wrapper_of_ready_flag_on", "batch", "wrapper_of_realtime_ready", True, 400, "only evaluate"),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false")
+    def test_hog_flow_audience_realtime_behavioral_cohort(
+        self, _name, trigger_type, cohort_kind, flag_on, expected_status, expected_detail, mock_flag
+    ):
+        mock_flag.return_value = flag_on
+        if cohort_kind == "non_realtime":
+            cohort = self._make_cohort(behavioral=True)
+        elif cohort_kind == "wrapper_of_realtime_ready":
+            realtime = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+            cohort = self._make_cohort(nested_cohort_id=realtime.pk)
+        else:
+            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind == "realtime_ready")
+
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+
+        assert response.status_code == expected_status, response.json()
+        if expected_detail:
+            assert expected_detail in response.json()["detail"]
+
+    def test_hog_flow_audience_grandfathers_stored_realtime_cohort_after_flag_dial_down(self):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True
+        ):
+            created = self._post_batch_with_cohort(cohort.pk)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        stored_actions = created.json()["actions"]
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=False
+        ):
+            resave = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "renamed", "actions": stored_actions},
+            )
+            assert resave.status_code == 200, resave.json()
+
+            edited_actions = deepcopy(stored_actions)
+            edited_actions[0]["config"]["filters"]["properties"][0]["value"] = other_cohort.pk
+            new_adoption = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": edited_actions},
+            )
+            assert new_adoption.status_code == 400, new_adoption.json()
+            assert "can't evaluate" in new_adoption.json()["detail"]
+
     def test_hog_flow_batch_trigger_rejects_nested_behavioral_cohort(self):
         behavioral = self._make_cohort(behavioral=True)
         wrapper = self._make_cohort(nested_cohort_id=behavioral.pk)

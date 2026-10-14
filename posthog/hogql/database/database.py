@@ -138,6 +138,7 @@ from posthog.hogql.database.schema.preaggregation_results import PreaggregationR
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
+from posthog.hogql.database.schema.realtime_cohort_membership import RealtimeCohortMembershipTable
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
@@ -611,6 +612,12 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "error_tracking_recent_issue_state": TableNode(
                         name="error_tracking_recent_issue_state",
                         table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
+                    ),
+                    # Read by workflow audiences. Hidden until its readers outside workflows are settled.
+                    "realtime_cohort_membership": TableNode(
+                        name="realtime_cohort_membership",
+                        table=RealtimeCohortMembershipTable(),
                         hidden=True,
                     ),
                     "web_overview_preaggregated": TableNode(

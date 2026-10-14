@@ -231,6 +231,7 @@ from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.facade.clickhouse import TRUNCATE_REALTIME_COHORT_MEMBERSHIP_TABLE_SQL
 from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -2124,6 +2125,7 @@ def reset_clickhouse_database() -> None:
             DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_REALTIME_COHORT_MEMBERSHIP_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,

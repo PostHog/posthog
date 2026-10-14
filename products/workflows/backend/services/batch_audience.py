@@ -19,6 +19,7 @@ from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
+from products.workflows.backend.services.batch_audience_cohorts import lower_realtime_cohorts
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
@@ -59,7 +60,7 @@ def get_batch_audience_person_ids(
         return get_user_blast_radius_persons(team, filters, group_type_index, cursor)
 
     with unevaluable_filters_as_validation_errors():
-        cleaned_filter = replace_proxy_properties(team, filters)
+        cleaned_filter = replace_proxy_properties(team, lower_realtime_cohorts(team, filters))
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
