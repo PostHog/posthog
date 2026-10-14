@@ -765,4 +765,35 @@ describe('biSceneLogic', () => {
             data.unmount()
         }
     )
+
+    it.each(['x', 'y'] as const)('preserves a saved numeric detail on scatter %s with two measures', async (axis) => {
+        const state = {
+            ...config,
+            chartType: ChartDisplayType.ScatterPlot,
+            rows: [{ ...eventField, type: 'integer' as const }],
+            columns: [],
+            values: [
+                { field: eventField, aggregation: 'count' as const },
+                { field: eventField, aggregation: 'count_distinct' as const },
+            ],
+        }
+        const saved = worksheet(state)
+        saved.chartSettings = {
+            ...saved.chartSettings,
+            xAxis: { column: axis === 'x' ? 'event' : 'count_event' },
+            yAxis: [{ column: axis === 'y' ? 'event' : 'count_event' }],
+        }
+        logic.actions.restoreWorksheet(saved)
+        editor.actions.setAutoUpdate(false)
+        expect(logic.values.worksheet.chartSettings).toMatchObject({
+            xAxis: saved.chartSettings.xAxis,
+            yAxis: saved.chartSettings.yAxis,
+        })
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings).toMatchObject({
+            xAxis: saved.chartSettings.xAxis,
+            yAxis: saved.chartSettings.yAxis,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+    })
 })

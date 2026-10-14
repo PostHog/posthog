@@ -5,9 +5,27 @@ import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationL
 import { BIConfig, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 
 import { getBIDrillSelection } from './biDrilldown'
-import { getBIFieldPillLabel, getBIResultDimensions } from './biEditorTypes'
+import {
+    getBIFieldPillLabel,
+    getBIResultDimensions,
+    getBIResultMeasureColumns,
+    getBIValuePillLabel,
+    isNumericBIResultField,
+} from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
 import { createBIMemberLabelLookup } from './biMemberAliases'
+
+export function getBIScatterAxisOptions(config: BIConfig): { value: string; label: string }[] {
+    return [
+        ...getBIResultDimensions(config)
+            .filter(({ field }) => isNumericBIResultField(field))
+            .map(({ column, field }) => ({ value: column, label: getBIFieldPillLabel(field) })),
+        ...getBIResultMeasureColumns(config).map(({ column, value }) => ({
+            value: column,
+            label: value ? getBIValuePillLabel(value) : 'Count of rows',
+        })),
+    ]
+}
 
 export function createBIScatterRowKey(config: BIConfig, columns: string[]): (row: unknown[]) => string {
     const indices = getBIResultDimensions(config).map(({ column }) => columns.indexOf(column))

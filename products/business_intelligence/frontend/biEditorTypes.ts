@@ -125,7 +125,8 @@ export function mergeBIChartSettings(
     current: ChartSettings | undefined,
     generated: ChartSettings | undefined,
     previousDefaults?: ChartSettings,
-    preserveNumericAxes = false
+    preserveNumericAxes = false,
+    numericColumns: string[] = []
 ): ChartSettings | undefined {
     if (!generated) {
         if (current?.seriesBreakdownColumn) {
@@ -135,7 +136,11 @@ export function mergeBIChartSettings(
         return current
     }
     if (preserveNumericAxes && current?.xAxis?.column) {
-        const axes = [generated.xAxis, ...(generated.yAxis ?? [])].filter((axis) => axis?.column)
+        const axes = [
+            generated.xAxis,
+            ...(generated.yAxis ?? []),
+            ...numericColumns.map((column) => ({ column, settings: undefined })),
+        ].filter((axis) => axis?.column)
         const selectedX = axes.find((axis) => axis?.column === current.xAxis?.column)
         const selectedY = current.yAxis?.filter(
             (axis) => axis.column !== selectedX?.column && axes.some((available) => available?.column === axis.column)
@@ -621,7 +626,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const candidate = decodedConfig as Partial<BIConfig>
     if (
-        candidate.hierarchies !== undefined &&
+        candidate.hierarchies != null &&
         (!Array.isArray(candidate.hierarchies) ||
             candidate.hierarchies.some(
                 (hierarchy) =>
@@ -637,13 +642,13 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         return null
     }
     if (
-        candidate.localFields !== undefined &&
+        candidate.localFields != null &&
         (!Array.isArray(candidate.localFields) || candidate.localFields.some((field) => !parseBIFieldValue(field)))
     ) {
         return null
     }
     if (
-        candidate.memberAliases !== undefined &&
+        candidate.memberAliases != null &&
         (!Array.isArray(candidate.memberAliases) ||
             candidate.memberAliases.some(
                 (entry) =>
@@ -663,7 +668,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         return null
     }
     if (
-        candidate.hierarchyDrillPath !== undefined &&
+        candidate.hierarchyDrillPath != null &&
         (!Array.isArray(candidate.hierarchyDrillPath) ||
             candidate.hierarchyDrillPath.some(
                 (step) =>

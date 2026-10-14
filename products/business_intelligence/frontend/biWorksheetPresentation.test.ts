@@ -96,6 +96,17 @@ it('preserves distinct raw identity for duplicate aliases, null, empty and numer
     ).toBeNull()
 })
 
+it.each(['localFields', 'hierarchies', 'memberAliases', 'hierarchyDrillPath'] as const)(
+    'restores a nullable %s definition as absent without discarding the worksheet',
+    (definition) => {
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify({ ...config, [definition]: null }))
+        expect(restored?.config.source).toEqual(config.source)
+        expect(restored?.config.rows).toEqual(config.rows)
+        expect(restored?.config[definition]).toBeUndefined()
+        expect(buildBIQuery(restored!.config)?.query).toEqual(buildBIQuery(config)?.query)
+    }
+)
+
 it('previews a blank source, separates all rows from worksheet filters and bounds sample size without mutating it', () => {
     const filtered: BIConfig = {
         ...config,
