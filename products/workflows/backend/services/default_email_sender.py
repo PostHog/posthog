@@ -1,5 +1,7 @@
 """The project's default email sender, which new broadcasts and workflow email steps start with."""
 
+from django.db import transaction
+
 from posthog.models.team import Team
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -9,7 +11,9 @@ from products.workflows.backend.services.email_sending_controls import ensure_wo
 def _forget_memoized_config() -> None:
     # Team.workflows_config is memoized for the whole process, so a write that bypasses the
     # memoized row would keep serving the old sender to this team's next request.
+    # Inside a transaction another request can memoize the old row before the commit, so clear again after it.
     Team.workflows_config.fget.cache_clear()
+    transaction.on_commit(Team.workflows_config.fget.cache_clear)
 
 
 def set_default_email_sender_if_unset(team_id: int, integration_id: int) -> bool:
