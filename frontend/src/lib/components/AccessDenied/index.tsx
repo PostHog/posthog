@@ -17,9 +17,19 @@ export interface AccessDeniedProps {
     /** Custom explanation of *why* access is denied. Rendered in place of the default first sentence; the support-link tail stays. */
     reason?: ReactNode
     inline?: boolean
+    /** Set to false for organization admins, so the page does not tell them to contact themselves. */
+    suggestAdministrators?: boolean
+    /** Rendered below the explanation, for example a button that leads out of the page. */
+    actions?: ReactNode
 }
 
-export function AccessDenied({ object, reason, inline = false }: AccessDeniedProps): JSX.Element {
+export function AccessDenied({
+    object,
+    reason,
+    inline = false,
+    suggestAdministrators = true,
+    actions,
+}: AccessDeniedProps): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const handleClickSupport = (): void => {
@@ -34,7 +44,7 @@ export function AccessDenied({ object, reason, inline = false }: AccessDeniedPro
                 <>
                     <p className="text-sm mt-3 mb-0">{reason}</p>
                     <p className="text-sm mt-2 mb-0">
-                        Please contact your account's administrators or{' '}
+                        {suggestAdministrators ? "Please contact your account's administrators or " : 'Please contact '}
                         <Link onClick={handleClickSupport}>support</Link> if you think this is a mistake.
                     </p>
                 </>
@@ -49,6 +59,7 @@ export function AccessDenied({ object, reason, inline = false }: AccessDeniedPro
                     <Link onClick={handleClickSupport}>support</Link> if you think this is a mistake.
                 </p>
             )}
+            {actions ? <div className="mt-4">{actions}</div> : null}
         </div>
     )
 }
