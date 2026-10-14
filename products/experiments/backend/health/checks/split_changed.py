@@ -5,7 +5,7 @@ functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure 
 People exposed before such a change can get another variant after it, so the results mix two assignments.
 """
 
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import Literal
 
 from products.experiments.backend.facade.contracts import (
@@ -57,7 +57,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
             sentences=[*_reverted(history, effect), "Nobody was exposed in between."],
         )
     if effect.shape == SplitChangeShape.REVERTED:
-        last_at = format_change_time(effect.last.changed_at, history.team_timezone)
+        start_at = _suggested_start(history, effect)
         return _finding(
             history,
             effect,
@@ -67,7 +67,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
                 *_reverted(history, effect),
                 *_delay(history, effect),
                 "People exposed in between may have switched variants.",
-                f"Move the start date to {last_at}, or reset the experiment.",
+                f"Move the start date to {start_at}, or reset the experiment.",
             ],
         )
     return _finding(
@@ -119,7 +119,7 @@ def _what_changed(history: SplitHistory, effect: SplitNetEffect) -> str:
 
 
 def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
-    last_at = format_change_time(effect.last.changed_at, history.team_timezone)
+    start_at = _suggested_start(history, effect)
     the_change = _the_change(effect, "the")
     match effect.shape:
         case SplitChangeShape.VARIANT_ROLLED_OUT:
@@ -133,12 +133,12 @@ def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
             return [
                 f"The results leave out people who saw only {keys}, and people who had {keys} may now get "
                 "another variant.",
-                f"Reset the experiment, or move its start date to {last_at}.",
+                f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case SplitChangeShape.VARIANT_ADDED:
             return [
                 f"People exposed before {the_change} may have switched variants.",
-                f"Reset the experiment, or move its start date to {last_at}.",
+                f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case SplitChangeShape.VARIANT_ZEROED:
             # The zeroed share goes to other variants, which moves their boundaries too. Excluding the zeroed
@@ -146,19 +146,19 @@ def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
             keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
             return [
                 f"People exposed before {the_change} may have switched variants, and no new users get {keys}.",
-                f"Reset the experiment, or move its start date to {last_at}.",
+                f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case SplitChangeShape.REORDERED:
             # Restoring the order moves the people exposed since the change a second time.
             return [
                 f"The order decides who gets which variant, so people exposed before {the_change} may have "
                 "switched variants.",
-                f"Reset the experiment, or move its start date to {last_at}.",
+                f"Reset the experiment, or move its start date to {start_at}.",
             ]
         case _:
             return [
                 f"People exposed before {the_change} may have switched variants, so the results mix two assignments.",
-                f"Reset the experiment, or move its start date to {last_at} to analyze only the people exposed "
+                f"Reset the experiment, or move its start date to {start_at} to analyze only the people exposed "
                 f"after {the_change}.",
             ]
 
@@ -217,6 +217,15 @@ def _finding(
             "E4" if effect.shape in (SplitChangeShape.VARIANT_ADDED, SplitChangeShape.VARIANT_REMOVED) else "E3"
         ),
     )
+
+
+def _suggested_start(history: SplitHistory, effect: SplitNetEffect) -> str:
+    # The start date picker saves whole minutes, so a start inside the minute of the change keeps exposures
+    # from before it.
+    changed_at = effect.last.changed_at
+    minute = changed_at.replace(second=0, microsecond=0)
+    start = minute if minute == changed_at else minute + timedelta(minutes=1)
+    return format_change_time(start, history.team_timezone)
 
 
 def _seconds_after_launch(history: SplitHistory, effect: SplitNetEffect) -> float:

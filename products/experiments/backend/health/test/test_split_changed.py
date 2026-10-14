@@ -52,12 +52,13 @@ def _context(
     exposed_before_first: bool | None = True,
     exposed_between: bool | None = None,
     launched_at: datetime = LAUNCHED_AT,
+    first_change_at: datetime = FIRST_CHANGE_AT,
     archived: bool = False,
     deleted: bool = False,
 ) -> HealthContext:
     changes = tuple(
         SplitChange(
-            changed_at=FIRST_CHANGE_AT + timedelta(minutes=17 * index),
+            changed_at=first_change_at + timedelta(minutes=17 * index),
             before=parse_variants(before),
             after=parse_variants(after),
         )
@@ -93,6 +94,15 @@ class TestSplitChangedMidRun(TestCase):
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
                 f"after the change. {MIXED_ASSIGNMENTS}",
+            ),
+            (
+                "suggested_start_rounded_up_to_the_next_minute",
+                _context(EVEN, UNEVEN, first_change_at=FIRST_CHANGE_AT + timedelta(seconds=45)),
+                ("rebalanced", ExperimentHealthFindingSeverity.WARNING, "E3"),
+                f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
+                "People exposed before the change may have switched variants, so the results mix two assignments. "
+                "Reset the experiment, or move its start date to September 12, 2026 at 3:05 PM CEST to analyze "
+                f"only the people exposed after the change. {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_with_unknown_exposure",
