@@ -1132,15 +1132,15 @@ Note: Compared the official botocore operation model with the static endpoint ma
 
 ## AWS Config — **thin**
 
-Today (4): `config_rules`, `conformance_packs`, `resources`, `rule_compliance`
+Today (7): `aggregated_resources`, `config_rules`, `conformance_pack_compliance_scores`, `conformance_packs`, `resources`, `rule_compliance`, `rule_evaluation_results`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/config/2014-11-12/service-2.json>
 
 - [ ] `Resource configuration history (GetResourceConfigHistory, POST /)` — provides configuration changes, deleted resource states, and historical relationships for auditing and incident analysis (high)
-- [ ] `Rule evaluation results (GetComplianceDetailsByConfigRule, POST /)` — connects synced rules to evaluated resources, compliance outcomes, timestamps, and reasons for failures (high)
+- [x] `Rule evaluation results (GetComplianceDetailsByConfigRule, POST /)` — connects synced rules to evaluated resources, compliance outcomes, timestamps, and reasons for failures (high)
 - [ ] `Conformance pack evaluation results (GetConformancePackComplianceDetails, POST /)` — connects synced packs, rules, and resources to detailed compliance outcomes (high)
-- [ ] `Conformance pack compliance scores (ListConformancePackComplianceScores, POST /)` — provides the percentage of compliant rule-resource combinations for compliance dashboards (high)
-- [ ] `Aggregated resource configurations (SelectAggregateResourceConfig, POST /)` — enables resource inventory and configuration analysis across accounts and regions (high)
+- [x] `Conformance pack compliance scores (ListConformancePackComplianceScores, POST /)` — provides the percentage of compliant rule-resource combinations for compliance dashboards (high)
+- [x] `Aggregated resource configurations (SelectAggregateResourceConfig, POST /)` — enables resource inventory and configuration analysis across accounts and regions (high)
 - [ ] `Remediation execution status (DescribeRemediationExecutionStatus, POST /)` — shows remediation progress, step timestamps, and errors for noncompliant resources (medium)
 - [ ] `Proactive resource evaluations (ListResourceEvaluations, POST /)` — tracks compliance evaluations before resources are deployed (medium)
 
