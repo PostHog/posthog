@@ -9,12 +9,13 @@ import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import type { SeriesLabel } from './metricsSeries'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 import { SampleAttributes } from './SampleAttributes'
@@ -111,22 +112,16 @@ function SamplesTab(): JSX.Element {
 
 const SEPARATOR_SEGMENTS = /[^/._:-]*[/._:-]?/g
 
-/** One `key=value` label with the key muted, so the values are easy to scan.
- * With `wrap`, `<wbr>` lets a long value break after `=` and after separators instead of mid-word.
- * Chrome breaks at `<wbr>` even in nowrap text, so truncated names must not get it. */
-function SeriesNamePart({ part, wrap = false }: { part: string; wrap?: boolean }): JSX.Element {
-    const separatorIndex = part.indexOf('=')
-    if (separatorIndex < 1) {
-        return <>{part}</>
-    }
-    const value = part.slice(separatorIndex + 1)
-    const segments = wrap ? (value.match(SEPARATOR_SEGMENTS)?.filter(Boolean) ?? [value]) : [value]
+/** One `key=value` label per line, with the key muted so the values are easy to scan.
+ * `<wbr>` lets a long value break after `=` and after separators instead of mid-word.
+ * Chrome breaks at `<wbr>` even in nowrap text, so truncated text must not use this. */
+function BreakableText({ text }: { text: string }): JSX.Element {
+    const segments = text.match(SEPARATOR_SEGMENTS)?.filter(Boolean) ?? [text]
     return (
         <>
-            <span className="text-tertiary">{part.slice(0, separatorIndex + 1)}</span>
             {segments.map((segment, index) => (
                 <Fragment key={index}>
-                    {wrap && <wbr />}
+                    <wbr />
                     {segment}
                 </Fragment>
             ))}
@@ -134,99 +129,178 @@ function SeriesNamePart({ part, wrap = false }: { part: string; wrap?: boolean }
     )
 }
 
+function SeriesLabelLine({ label: [key, value], prefix }: { label: SeriesLabel; prefix?: string }): JSX.Element {
+    return (
+        <span className="wrap-anywhere pl-3 -indent-3">
+            {prefix}
+            <span className="text-tertiary">
+                <BreakableText text={key} />=
+            </span>
+            <BreakableText text={value} />
+        </span>
+    )
+}
+
+/** A compact number (70.5M) keeps the series column wide in the narrow panel. The tooltip has the exact value. */
+function SeriesValue({ value }: { value: number }): JSX.Element {
+    return (
+        <Tooltip title={humanFriendlyNumber(value, 2)}>
+            <span className="font-mono">{humanFriendlyLargeNumber(value)}</span>
+        </Tooltip>
+    )
+}
+
+/** Labels that every series has with the same value. Shown once here, so each row shows only what tells it apart. */
+function SharedSeriesLabels({ labels, seriesCount }: { labels: SeriesLabel[]; seriesCount: number }): JSX.Element {
+    const { sharedSeriesLabelsExpanded } = useActions(metricsUsageTrackingLogic)
+    const [isExpanded, setIsExpanded] = useState(false)
+    const heading = seriesCount > 1 ? `Shared by all ${seriesCount} series` : 'Labels'
+
+    return (
+        <div className="flex items-start gap-1.5 px-1 pb-2 text-xs text-secondary">
+            <LemonButton
+                size="xsmall"
+                noPadding
+                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                title={isExpanded ? 'Show less' : 'Show all labels'}
+                onClick={() => {
+                    setIsExpanded(!isExpanded)
+                    if (!isExpanded) {
+                        sharedSeriesLabelsExpanded()
+                    }
+                }}
+                data-attr="metrics-shared-series-labels-toggle"
+            />
+            {isExpanded ? (
+                <span className="flex-1 min-w-0 flex flex-col gap-1">
+                    <span>{heading}</span>
+                    <span className="flex flex-col gap-1 text-primary">
+                        {labels.map((label) => (
+                            <SeriesLabelLine key={label[0]} label={label} />
+                        ))}
+                    </span>
+                </span>
+            ) : (
+                <span className="flex-1 min-w-0 truncate pt-0.5">
+                    {heading}:{' '}
+                    {labels.map(([key, value], index) => (
+                        <Fragment key={key}>
+                            {index > 0 && ', '}
+                            <span className="text-tertiary">{key}=</span>
+                            <span className="text-primary">{value}</span>
+                        </Fragment>
+                    ))}
+                </span>
+            )}
+        </div>
+    )
+}
+
 function SeriesTab(): JSX.Element {
-    const { seriesRows } = useValues(metricsSamplesLogic)
+    const { seriesRows, sharedSeriesLabels } = useValues(metricsSamplesLogic)
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
     const { seriesRowExpanded } = useActions(metricsUsageTrackingLogic)
     const [expandedNames, setExpandedNames] = useState<string[]>([])
 
     return (
-        <LemonTable
-            dataSource={seriesRows}
-            loading={queryLoading}
-            size="small"
-            rowKey={(row: MetricsSeriesRow) => row.name}
-            emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
-            rowClassName={(row) => (expandedNames.includes(row.name) ? '[&>td]:align-top' : null)}
-            columns={[
-                {
-                    key: 'toggle',
-                    width: 0,
-                    render: (_, row) => {
-                        if (!row.hasLabels) {
-                            return null
-                        }
-                        const isExpanded = expandedNames.includes(row.name)
-                        return (
-                            <LemonButton
-                                noPadding
-                                active={isExpanded}
-                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                                title={isExpanded ? 'Show less' : 'Show full series name'}
-                                onClick={() => {
-                                    if (isExpanded) {
-                                        setExpandedNames(expandedNames.filter((name) => name !== row.name))
-                                    } else {
-                                        setExpandedNames([...expandedNames, row.name])
-                                        seriesRowExpanded()
-                                    }
-                                }}
-                                data-attr="metrics-series-row-toggle"
-                            />
-                        )
-                    },
-                },
-                {
-                    title: 'Series',
-                    key: 'series',
-                    width: '100%',
-                    render: (_, row) => {
-                        const isExpanded = expandedNames.includes(row.name)
-                        return (
-                            <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
-                                <span
-                                    className={clsx('w-2 h-2 rounded-full shrink-0', isExpanded && 'mt-1.5')}
-                                    // Dynamic per-series colour can't be a Tailwind class.
-                                    style={{ backgroundColor: getColorVar(row.color) }}
+        <>
+            {sharedSeriesLabels.length > 0 && (
+                <SharedSeriesLabels labels={sharedSeriesLabels} seriesCount={seriesRows.length} />
+            )}
+            <LemonTable
+                dataSource={seriesRows}
+                loading={queryLoading}
+                size="small"
+                rowKey={(row: MetricsSeriesRow) => row.name}
+                emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
+                rowClassName={(row) => (expandedNames.includes(row.name) ? '[&>td]:align-top' : null)}
+                columns={[
+                    {
+                        key: 'toggle',
+                        width: 0,
+                        render: (_, row) => {
+                            if (!row.labels.length) {
+                                return null
+                            }
+                            const isExpanded = expandedNames.includes(row.name)
+                            return (
+                                <LemonButton
+                                    noPadding
+                                    active={isExpanded}
+                                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                    title={isExpanded ? 'Show less' : 'Show the labels of this series'}
+                                    onClick={() => {
+                                        if (isExpanded) {
+                                            setExpandedNames(expandedNames.filter((name) => name !== row.name))
+                                        } else {
+                                            setExpandedNames([...expandedNames, row.name])
+                                            seriesRowExpanded()
+                                        }
+                                    }}
+                                    data-attr="metrics-series-row-toggle"
                                 />
-                                {isExpanded ? (
-                                    // wrap-anywhere keeps the min-content width small, so long values wrap instead of widening the column.
-                                    <span className="flex-1 min-w-0 flex flex-col gap-1">
-                                        {row.nameParts.map((part, index) => (
-                                            <span key={index} className="wrap-anywhere pl-3 -indent-3">
-                                                <SeriesNamePart part={part} wrap />
-                                            </span>
-                                        ))}
-                                    </span>
-                                ) : (
-                                    // w-0 + min-w-full fills the column without the text widening it.
-                                    <span className="w-0 min-w-full truncate" title={row.name}>
-                                        {row.nameParts.map((part, index) => (
-                                            <Fragment key={index}>
-                                                {index > 0 && ', '}
-                                                <SeriesNamePart part={part} />
-                                            </Fragment>
-                                        ))}
-                                    </span>
-                                )}
-                            </span>
-                        )
+                            )
+                        },
                     },
-                },
-                {
-                    title: 'Latest',
-                    key: 'latest',
-                    align: 'right',
-                    render: (_, row) => <span className="font-mono">{humanFriendlyNumber(row.latest, 2)}</span>,
-                },
-                {
-                    title: 'Total',
-                    key: 'total',
-                    align: 'right',
-                    render: (_, row) => <span className="font-mono">{humanFriendlyNumber(row.total, 2)}</span>,
-                },
-            ]}
-        />
+                    {
+                        title: 'Series',
+                        key: 'series',
+                        width: '100%',
+                        render: (_, row) => {
+                            const isExpanded = expandedNames.includes(row.name)
+                            return (
+                                <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
+                                    <span
+                                        className={clsx('w-2 h-2 rounded-full shrink-0', isExpanded && 'mt-1.5')}
+                                        // Dynamic per-series colour can't be a Tailwind class.
+                                        style={{ backgroundColor: getColorVar(row.color) }}
+                                    />
+                                    {isExpanded ? (
+                                        // wrap-anywhere keeps the min-content width small, so long values wrap instead of widening the column.
+                                        <span className="flex-1 min-w-0 flex flex-col gap-1">
+                                            {row.labels.map((label, index) => (
+                                                <SeriesLabelLine
+                                                    key={label[0]}
+                                                    label={label}
+                                                    prefix={index === 0 ? row.prefix : undefined}
+                                                />
+                                            ))}
+                                        </span>
+                                    ) : (
+                                        // w-0 + min-w-full fills the column without the text widening it.
+                                        <span className="w-0 min-w-full truncate" title={row.name}>
+                                            {row.labels.length
+                                                ? [
+                                                      row.prefix,
+                                                      ...row.labels.map(([key, value], index) => (
+                                                          <Fragment key={key}>
+                                                              {index > 0 && <span className="text-tertiary"> · </span>}
+                                                              {value}
+                                                          </Fragment>
+                                                      )),
+                                                  ]
+                                                : row.fallbackName}
+                                        </span>
+                                    )}
+                                </span>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Latest',
+                        key: 'latest',
+                        align: 'right',
+                        render: (_, row) => <SeriesValue value={row.latest} />,
+                    },
+                    {
+                        title: 'Total',
+                        key: 'total',
+                        align: 'right',
+                        render: (_, row) => <SeriesValue value={row.total} />,
+                    },
+                ]}
+            />
+        </>
     )
 }
 
