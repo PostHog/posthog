@@ -6,7 +6,8 @@ const LIMIT_REACHED_TOOLTIP =
 const FREE_CREDITS_USED_TOOLTIP =
     'This scanner only uses free credits, and your organization has used them for this billing period. ' +
     'It starts again when the period resets. Sessions skipped until then are not scanned later. ' +
-    'To keep scanning now, turn off "Free credits only" in its settings.'
+    'To keep scanning now, turn off "Free credits only" in its settings. ' +
+    "If your organization's spend limit is used up too, raise it in billing as well."
 
 type LimitFields = { free_only?: boolean; credit_limit?: number | null } | null | undefined
 
