@@ -72,11 +72,13 @@ Use official PostHog documentation via docs-search for product features, billing
 Do not invent PostHog product behavior that docs-search and those skills do not support.
 """
 
-# Same overlay for a run with docs-search excluded. Naming a tool the run lacks makes the agent refuse.
+# Same overlay for a run with docs-search excluded. Telling the agent to use a tool the run lacks makes it refuse.
 POSTHOG_SUPPORT_REPLY_INSTRUCTIONS_WITHOUT_DOCS_SEARCH = f"""\
 This team supports PostHog.
 
-{_POSTHOG_SKILLS}"""
+{_POSTHOG_SKILLS}
+Some skills call docs-search. This run does not have it, so do those steps with business-knowledge-documents-search.
+"""
 
 
 @frozen

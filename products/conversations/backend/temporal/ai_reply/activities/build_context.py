@@ -12,6 +12,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import get_always_on_context
 from products.conversations.backend.ai.suggest import _build_ticket_context
+from products.conversations.backend.events import analytics_distinct_id_for_ticket
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.playbook import is_posthog_docs_source
 from products.conversations.backend.temporal.ai_reply.constants import (
@@ -87,7 +88,7 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
     raw_docs_source = settings_dict.get("docs_source")
     docs_source = raw_docs_source if isinstance(raw_docs_source, str) else ""
     docs_search_disabled = is_posthog_docs_source(docs_source) and is_inkeep_docs_search_disabled(
-        team, ticket.distinct_id
+        team, analytics_distinct_id_for_ticket(ticket, team)
     )
     raw_custom = settings_dict.get("ai_reply_custom_instructions")
     custom_instructions = raw_custom if isinstance(raw_custom, str) else ""

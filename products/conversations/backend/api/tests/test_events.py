@@ -17,6 +17,7 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
     _resolve_groups_from_analytics,
+    analytics_distinct_id_for_ticket,
     capture_message_received,
     capture_message_sent,
     capture_ticket_assigned,
@@ -597,6 +598,30 @@ class TestConversationEvents(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is True
         assert call_kwargs["properties"]["$groups"]["organization"] == "org-uuid-1"
+
+    @parameterized.expand(
+        [
+            ("slack_resolves_the_person", "slack", ["real-did-1"], "real-did-1"),
+            ("email_without_a_person_keeps_the_email", "email", None, "biz@acme.com"),
+            ("widget_ignores_its_unverified_email", "widget", ["real-did-1"], "biz@acme.com"),
+        ]
+    )
+    @patch("products.conversations.backend.person_lookup._get_persons_by_email")
+    def test_analytics_distinct_id_for_ticket(self, _name, channel, person_distinct_ids, expected, mock_get_by_email):
+        from posthog.models.person.person import Person
+
+        person = Person(team_id=self.team.id, is_identified=True)
+        person._distinct_ids = person_distinct_ids
+        mock_get_by_email.return_value = {"biz@acme.com": person} if person_distinct_ids else {}
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="biz@acme.com",
+            channel_source=channel,
+            anonymous_traits={"email": "biz@acme.com"},
+        )
+
+        assert analytics_distinct_id_for_ticket(ticket, self.team) == expected
 
     @parameterized.expand(
         [

@@ -53,8 +53,9 @@ class TestComposeSupportPlaybook(SimpleTestCase):
 
         flagged = compose_support_playbook(docs_source="posthog", docs_search_disabled=True)
         assert flagged.layers == (LAYER_DEFAULT, LAYER_POSTHOG)
-        assert "diagnosing-missing-recordings" in flagged.text
-        assert "docs-search" not in flagged.text
+        assert "diagnosing-sdk-health" in flagged.text
+        assert "via docs-search" not in flagged.text
+        assert "do those steps with business-knowledge-documents-search" in flagged.text
         assert flagged.mcp_exclude_tools == (DOCS_SEARCH_TOOL_NAME,)
 
     def test_custom_layer_order(self):
