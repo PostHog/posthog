@@ -14,9 +14,10 @@ export interface TraceLinkParams {
 
 /** Path + query for a trace view, relative to the app root. */
 export function traceUrl({ traceId, spanId, ts }: TraceLinkParams): string {
-    const params = new URLSearchParams({ trace: traceId })
+    // The trace API returns ids as uppercase hex, and the viewer matches the URL ids against them exactly.
+    const params = new URLSearchParams({ trace: traceId.toUpperCase() })
     if (spanId) {
-        params.set('span', spanId)
+        params.set('span', spanId.toUpperCase())
     }
     if (ts) {
         params.set('ts', ts)
