@@ -578,7 +578,6 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'context_layer_internal:write',
         'hog_flow_proposal:write',
         'internal_run:read',
-        'loop_context_internal:write',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',
@@ -617,8 +616,8 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
 
 describe('server-minted scope matching', () => {
     it('requires literal internal scopes instead of accepting a wildcard', () => {
-        expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
-        expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+        expect(hasScope(['*'], 'context_layer_internal:write')).toBe(false)
+        expect(hasScope(['context_layer_internal:write'], 'context_layer_internal:write')).toBe(true)
     })
 
     // The scratchpad write scope was split out of `signal_scout_internal`, which is on the
@@ -637,7 +636,6 @@ describe('server-minted scope matching', () => {
     it.each([
         'context_layer_internal',
         'internal_run',
-        'loop_context_internal',
         'mcp_builtin_agent',
         'signal_scout_internal',
         'signal_scout_report',
@@ -1048,6 +1046,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).not.toContain('notebooks-set-variables')
         expect(off).not.toContain('notebooks-run')
         expect(off).not.toContain('notebooks-run-status')
+        expect(off).not.toContain('notebooks-run-cell')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -1058,13 +1057,13 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-set-variables')
         expect(on).toContain('notebooks-run')
         expect(on).toContain('notebooks-run-status')
+        expect(on).toContain('notebooks-run-cell')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
         expect(on).toContain('notebooks-configure-compute')
         expect(on).not.toContain('notebooks-create')
         expect(on).not.toContain('notebooks-retrieve')
-        expect(on).not.toContain('notebooks-run-cell')
 
         // notebook-edit keeps its collaboration gate but retires under the cell tools.
         const collabOnly = getToolsForFeatures({

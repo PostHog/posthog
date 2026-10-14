@@ -148,6 +148,8 @@ export interface AutoresearchLiveTrainingRunApi {
      * @nullable
      */
     readonly latest_summary: string | null
+    /** Best-so-far holdout AUC per experiment of this run, oldest first. Experiments before the first holdout score are left out. */
+    readonly trend: readonly AutoresearchTrainingTrendPointApi[]
 }
 
 /**

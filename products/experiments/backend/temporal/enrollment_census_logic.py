@@ -61,9 +61,10 @@ ENROLLMENT_MODE_ENROLL = "enroll"
 MAX_ENROLLMENTS_PER_RUN = 5
 
 # Reads query_log_archive, not system.query_log: the archive outlives query_log's short
-# retention and stores log_comment as a typed JSON column. The lc_product prefilter keeps
-# the scan small enough for one query over the full window; the raw system.query_log
-# needed day-chunking to stay under the per-query byte cap.
+# retention and stores the log_comment tags as typed lc_* columns. The lc_product prefilter
+# keeps the scan small enough for one query over the full window; the raw system.query_log
+# needed day-chunking to stay under the per-query byte cap. The archive keeps one row per
+# finished query and drops QueryStart rows, so no type filter is necessary.
 # Slow-read and duration stats only count successful reads — failed ones have truncated durations.
 CENSUS_SQL = """
     SELECT
@@ -78,11 +79,10 @@ CENSUS_SQL = """
     WHERE event_date >= toDate(now() - INTERVAL %(window_days)s DAY)
         AND event_time > now() - INTERVAL %(window_days)s DAY
         AND lc_product = 'experiments'
-        AND toString(log_comment.experiment_query_surface) = 'metric'
-        AND ifNull(toString(log_comment.experiment_exposures_path), '') = 'direct_scan'
-        AND ifNull(toString(log_comment.experiment_precompute_skip_reason), '') = 'team_disabled'
+        AND lc_experiment_query_surface = 'metric'
+        AND lc_experiment_exposures_path = 'direct_scan'
+        AND lc_experiment_precompute_skip_reason = 'team_disabled'
         AND is_initial_query
-        AND toInt8(type) > 1
     GROUP BY team_id
     HAVING direct_reads >= %(min_direct_reads)s
     SETTINGS skip_unavailable_shards=1

@@ -8,11 +8,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -24,9 +31,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DodoPaymentsResumeConfig:
-    page_number: int
+    # Top-level endpoints resume from the next zero-based page.
+    page_number: int | None = None
+    # Fan-out endpoints resume by parent: the child paths already synced, the one in progress and
+    # its paginator state. See `_make_paginate_dependent_resource` in `common/rest_source`.
+    completed: list[str] | None = None
+    current: str | None = None
+    child_state: dict[str, Any] | None = None
 
 
 def base_url_for_mode(mode: str) -> str:
@@ -103,8 +116,27 @@ def get_resource(
         params["page_size"] = PAGE_SIZE
     if should_use_incremental_field and config.start_param and incremental_start_value:
         params[config.start_param] = incremental_start_value
+    if config.fanout is not None:
+        params[config.fanout.resolve_param] = {
+            "type": "resolve",
+            "resource": config.fanout.parent_name,
+            "field": config.fanout.resolve_field,
+        }
 
-    return {
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": "items",
+        "paginator": DodoPaymentsPaginator() if config.paginated else "single_page",
+        # Every list endpoint wraps its rows in `items`; a body without it is a response
+        # shape change, which should fail loud rather than sync zero rows.
+        "data_selector_required": True,
+        "data_selector_empty_ok": True,
+    }
+    if config.fanout is not None and config.fanout.child_response_actions:
+        endpoint_config["response_actions"] = config.fanout.child_response_actions
+
+    resource: EndpointResource = {
         "name": endpoint,
         "table_name": endpoint,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
@@ -112,17 +144,19 @@ def get_resource(
         else "replace",
         "table_format": "delta",
         "primary_key": config.primary_keys,
-        "endpoint": {
-            "path": config.path,
-            "params": params,
-            "data_selector": "items",
-            "paginator": DodoPaymentsPaginator() if config.paginated else "single_page",
-            # Every list endpoint wraps its rows in `items`; a body without it is a response
-            # shape change, which should fail loud rather than sync zero rows.
-            "data_selector_required": True,
-            "data_selector_empty_ok": True,
-        },
+        "endpoint": endpoint_config,
     }
+    if config.fanout is not None and config.fanout.include_from_parent:
+        resource["include_from_parent"] = config.fanout.include_from_parent
+    return resource
+
+
+def _resume_state(resume: DodoPaymentsResumeConfig, fanout: bool) -> Optional[dict[str, Any]]:
+    if fanout:
+        if not (resume.completed or resume.current):
+            return None
+        return {"completed": resume.completed or [], "current": resume.current, "child_state": resume.child_state}
+    return {"page_number": resume.page_number} if resume.page_number is not None else None
 
 
 def dodopayments_source(
@@ -161,24 +195,58 @@ def dodopayments_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"page_number": resume.page_number}
+            initial_paginator_state = _resume_state(resume, fanout=config.fanout is not None)
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Fires after a page has been yielded, so a crash re-yields that page (the merge dedupes
         # on the primary key) instead of skipping it.
-        if state and state.get("page_number") is not None:
+        if not state:
+            return
+        if config.fanout is not None:
+            resumable_source_manager.save_state(
+                DodoPaymentsResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+        elif state.get("page_number") is not None:
             resumable_source_manager.save_state(DodoPaymentsResumeConfig(page_number=int(state["page_number"])))
 
-    resource_iter = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        # The date filter is already baked into the request params above, so the framework's own
-        # incremental param injection is intentionally unused.
-        db_incremental_field_last_value=None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    if config.fanout is None:
+        resource_iter = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            # The date filter is already baked into the request params above, so the framework's own
+            # incremental param injection is intentionally unused.
+            db_incremental_field_last_value=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+    else:
+        # An incremental child's cursor is a parent field copied onto its rows, so the watermark
+        # filters the parent listing, not the child request.
+        rest_config["resources"].insert(
+            0,
+            get_resource(
+                config.fanout.parent_name,
+                should_use_incremental_field and bool(config.incremental_fields),
+                incremental_start_value,
+            ),
+        )
+        resources = rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        child = next(r for r in resources if r.name == endpoint)
+        resource_iter = child.add_map(
+            rename_parent_fields(config.fanout.parent_name, config.fanout.parent_field_renames)
+        )
 
     partition_kwargs: dict[str, Any] = {}
     if config.partition_key is not None:
