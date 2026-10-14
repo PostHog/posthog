@@ -1096,7 +1096,7 @@ def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage]
     )
 
 
-def _schedule_user_repo_cache_refresh(user_integration_id: int) -> None:
+def _schedule_user_repo_cache_refresh(user_integration_id: str) -> None:
     # noqa reason: the task module imports this module, so a module-level import here would be circular.
     from products.slack_app.backend.tasks import refresh_user_github_repository_cache  # noqa: PLC0415
 
@@ -1133,7 +1133,7 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
         # and refreshed in the background for the next mention.
         has_snapshot = record.repository_cache_updated_at is not None
         if has_snapshot and github.repository_cache_is_stale():
-            _schedule_user_repo_cache_refresh(record.id)
+            _schedule_user_repo_cache_refresh(str(record.id))
         repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=not has_snapshot)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])

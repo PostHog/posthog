@@ -151,7 +151,7 @@ class TestGetFullRepoNames:
         assert result == ["posthog/posthog"]
         assert mock_github.list_all_cached_repositories.call_args.kwargs["allow_refresh"] is expected_allow_refresh
         if expected_scheduled:
-            mock_schedule.assert_called_once_with(record.id)
+            mock_schedule.assert_called_once_with(str(record.id))
         else:
             mock_schedule.assert_not_called()
 

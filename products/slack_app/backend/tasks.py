@@ -43,14 +43,17 @@ def mirror_slack_message_event(
 
 
 @shared_task(ignore_result=True)
-def refresh_user_github_repository_cache(*, user_integration_id: int) -> None:
+def refresh_user_github_repository_cache(*, user_integration_id: str) -> None:
     """Refresh the repo snapshot that a mention served stale.
 
     The save in `sync_repository_cache` also clears the per-user repo list cache, so the next
     mention reads the new snapshot. Several mentions can schedule this at once; the refresh
     interval makes all but the first one a no-op.
     """
-    record = UserIntegration.objects.filter(id=user_integration_id, kind=UserIntegration.IntegrationKind.GITHUB).first()
+    # UserIntegration belongs to a user, not a team, so there is no team scope to apply.
+    record = UserIntegration.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+        id=user_integration_id, kind=UserIntegration.IntegrationKind.GITHUB
+    ).first()
     if record is None:
         return
     github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
