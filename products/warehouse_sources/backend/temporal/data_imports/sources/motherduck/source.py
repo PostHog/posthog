@@ -114,6 +114,17 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             MOTHERDUCK_ERROR_CLASSES["Invalid Input Error"]: _CONNECTION_DETAILS_MESSAGE,
             "Invalid MotherDuck token": None,
             "UNAUTHENTICATED": "Your MotherDuck token is invalid or expired. Generate a new access token and reconnect.",
+            # Raised uncaught from `get_rows`/discovery queries (they run outside `connect()`'s
+            # translation), so the raw DuckDB class prefix reaches here. The MotherDuck compute
+            # instance ("duckling") backing this token ran out of memory/temp space running our
+            # query — a ceiling on the customer's account, same as the Postgres/MySQL/ClickHouse
+            # source-side OOM entries. Retrying re-runs the same query against the same duckling.
+            "Out of Memory Error": (
+                "MotherDuck ran out of memory running this sync's query. This usually means the "
+                "duckling (MotherDuck's compute instance) is too small for the amount of data being "
+                "read. Use a larger duckling size, or narrow the sync (switch to incremental, or "
+                "sync fewer tables/columns), then resync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

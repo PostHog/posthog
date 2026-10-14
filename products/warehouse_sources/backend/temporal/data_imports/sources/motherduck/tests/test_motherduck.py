@@ -320,6 +320,19 @@ class TestMotherDuck:
         assert not error_message_matches(str(exc_info.value), source.get_non_retryable_errors())
         assert error_message_matches(str(exc_info.value), source.get_retryable_errors())
 
+    def test_duckling_out_of_memory_is_non_retryable(self, source):
+        # Raised uncaught from `get_rows`/discovery queries, which run outside `connect()`'s
+        # translation, so classification has to match DuckDB's raw error class text directly.
+        # The duckling's memory ceiling doesn't move between retries, so this must stop the sync
+        # instead of burning the retry budget against the same wall.
+        message = (
+            "Out of Memory Error: failed to offload data block of size 256.0 KiB "
+            "(244.0 GiB/244.0 GiB used).\n\nConsider using a larger duckling size than Standard "
+            "or optimizing your query to reduce memory usage."
+        )
+        assert error_message_matches(message, source.get_non_retryable_errors())
+        assert not error_message_matches(message, source.get_retryable_errors())
+
     def test_validate_credentials_requires_an_access_token(self, source):
         ok, message = source.validate_credentials(_make_config(access_token=""), team_id=1)
         assert ok is False
