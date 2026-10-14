@@ -133,20 +133,76 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    def test_paginates_and_progresses_page(self):
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("customers", "/api/v1/customers"),
+            ("taxes", "/api/v1/taxes"),
+            ("payment_requests", "/api/v1/payment_requests"),
+            ("payment_receipts", "/api/v1/payment_receipts"),
+        ],
+    )
+    def test_paginates_and_progresses_page(self, endpoint, path):
         result = _driver().run(
-            "customers",
+            endpoint,
             [
-                _page([{"lago_id": "1"}, {"lago_id": "2"}], total_pages=2, next_page=2),
-                _page([{"lago_id": "3"}], total_pages=2),
+                _page([{"lago_id": "1"}, {"lago_id": "2"}], total_pages=2, next_page=2, data_key=endpoint),
+                _page([{"lago_id": "3"}], total_pages=2, data_key=endpoint),
             ],
         )
 
         assert result.raised is None
         assert [row["lago_id"] for row in result.rows] == ["1", "2", "3"]
+        assert result.paths == [path, path]
         # First request page=1, second request page=2, both carry per_page.
         assert result.params("page") == ["1", "2"]
         assert result.params("per_page") == ["100", "100"]
+
+    @pytest.mark.parametrize(
+        "endpoint, path, data_key, row",
+        [
+            ("billing_entities", "/api/v1/billing_entities", "billing_entities", {"lago_id": "be1", "code": "acme"}),
+            (
+                "analytics_mrr",
+                "/api/v1/analytics/mrr",
+                "mrrs",
+                {"month": "2024-01-01T00:00:00.000Z", "amount_cents": None, "currency": None},
+            ),
+            (
+                "analytics_gross_revenue",
+                "/api/v1/analytics/gross_revenue",
+                "gross_revenues",
+                {"month": "2024-01-01T00:00:00.000Z", "amount_cents": 1200, "currency": "EUR"},
+            ),
+            (
+                "analytics_invoice_collection",
+                "/api/v1/analytics/invoice_collection",
+                "invoice_collections",
+                {"month": "2024-01-01T00:00:00.000Z", "payment_status": "succeeded", "invoices_count": 3},
+            ),
+            (
+                "analytics_invoiced_usage",
+                "/api/v1/analytics/invoiced_usage",
+                "invoiced_usages",
+                {"month": "2024-01-01T00:00:00.000Z", "code": "api_calls", "currency": "USD"},
+            ),
+            (
+                "analytics_overdue_balance",
+                "/api/v1/analytics/overdue_balance",
+                "overdue_balances",
+                {"month": "2024-01-01T00:00:00.000Z", "lago_invoice_ids": ["inv-1"], "currency": "USD"},
+            ),
+        ],
+    )
+    def test_unpaginated_endpoint_makes_one_request_without_page_params(self, endpoint, path, data_key, row):
+        # These bodies carry no `meta`, so page-number pagination must not apply.
+        result = _driver().run(endpoint, [ScriptedResponse(json={data_key: [row, row]})])
+
+        assert result.raised is None
+        assert result.rows == [row, row]
+        assert result.paths == [path]
+        assert result.params("page") == [None]
+        assert result.params("per_page") == [None]
 
     def test_resumes_from_saved_state(self):
         result = _driver().run(
