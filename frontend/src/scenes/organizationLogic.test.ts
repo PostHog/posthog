@@ -152,6 +152,7 @@ describe('organizationLogic', () => {
             ['deactivated keeps an invite link', { is_active: false }, '/signup/abc', true],
             ['deactivated keeps billing', { is_active: false }, '/organization/billing', true],
             ['deactivated keeps the Stripe return route', { is_active: false }, '/billing/authorization_status', true],
+            ['deactivated keeps partner consent', { is_active: false }, '/agentic/authorize', true],
             [
                 'deactivated keeps its own page under a project prefix',
                 { is_active: false },
@@ -160,6 +161,7 @@ describe('organizationLogic', () => {
             ],
             ['deactivated drops the app', { is_active: false }, '/dashboard', false],
             ['pending deletion keeps an invite link', { is_pending_deletion: true }, '/signup/abc', true],
+            ['pending deletion keeps partner consent', { is_pending_deletion: true }, '/agentic/authorize', true],
             ['pending deletion drops billing', { is_pending_deletion: true }, '/organization/billing', false],
         ])('%s', async (_name, organization, pathname, open) => {
             mountWith(organization as unknown as Partial<OrganizationType>)

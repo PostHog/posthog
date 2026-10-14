@@ -338,6 +338,7 @@ class TestTask(TestCase):
             (Task.OriginProduct.SIGNAL_REPORT,),
             (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
             (Task.OriginProduct.AUTORESEARCH,),
+            (Task.OriginProduct.ACCOUNT_AUDIT,),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

@@ -25,13 +25,16 @@ export const GENERIC_LOSS_ISSUE = 'Parts of the query will change.'
 
 // The aggregations the builder's clause rows can show (see isBuilderCompatibleQuery in metricsViewerLogic).
 const BUILDER_EDITOR_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'min', 'max'])
+const BUILDER_EDITOR_HISTOGRAM_QUANTILES = new Set([0.5, 0.95, 0.99])
 
 /** Parts of a builder query that the builder can chart but not show in its clause rows. */
 function builderEditorLimits(query: BuilderQuery): string[] {
     const limits: string[] = []
     for (const clause of query.clauses.map(normalizeClause)) {
         if (clause.aggregation === 'histogram_quantile') {
-            limits.push(`series ${clause.name} uses a histogram quantile`)
+            if (clause.quantile === undefined || !BUILDER_EDITOR_HISTOGRAM_QUANTILES.has(clause.quantile)) {
+                limits.push(`series ${clause.name} uses a histogram quantile`)
+            }
         } else if (
             clause.aggregation &&
             !BUILDER_EDITOR_AGGREGATIONS.has(clause.aggregation) &&

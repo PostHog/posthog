@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
+    codebase_detection = detect(env=("^(NEWS_API|NEWSAPI)_",), npm=("newsapi",), pypi=("newsapi-python",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://newsapi.org/docs"

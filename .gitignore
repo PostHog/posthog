@@ -243,3 +243,5 @@ corpora/
 # Agent workspace scratch directory. Holds live browser profiles and run output
 # for local scripts, so it must never reach a commit.
 /.context/
+# Rendered by the image build with `manage.py render_wizard_tool_catalog`
+/products/wizard/tool-catalog.json

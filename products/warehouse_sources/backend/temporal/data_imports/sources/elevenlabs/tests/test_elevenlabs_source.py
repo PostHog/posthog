@@ -27,6 +27,9 @@ class TestElevenLabsSchemas:
             ("tools", False, False),
             # Executions take a server-side `start_time` filter, so they merge incrementally.
             ("tool_executions", True, False),
+            ("phone_numbers", False, False),
+            ("batch_calls", False, False),
+            ("subscription", False, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:

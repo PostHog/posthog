@@ -99,7 +99,6 @@ export type ProjectTreeProps = ProjectTreeBaseProps &
           }
     )
 
-export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
