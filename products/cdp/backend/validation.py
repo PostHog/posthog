@@ -1107,7 +1107,10 @@ def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
         for entry in entries if isinstance(entries, list) else []:
             if isinstance(entry, dict) and entry.get("type") == "actions":
                 with contextlib.suppress(KeyError, TypeError, ValueError, OverflowError):
-                    action_ids.add(int(entry["id"]))
+                    action_id = int(entry["id"])
+                    # Postgres rejects an id outside the bigint range in a query, and no row can match one.
+                    if 0 < action_id < 2**63:
+                        action_ids.add(action_id)
     return action_ids
 
 
