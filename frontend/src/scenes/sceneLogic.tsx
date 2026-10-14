@@ -958,8 +958,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
                             !location.pathname.startsWith(urls.settings('user')) &&
-                            // A partner that pays for its customers creates the organization when
-                            // the user approves it here, so approving must not require one first.
+                            // The agentic consent page picks or creates the organization and project
+                            // it uses, so approving there must not require either first.
                             !location.pathname.startsWith(urls.agenticAuthorize())
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
@@ -975,7 +975,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             // Allow settings to be opened, otherwise route to project creation
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
-                                !location.pathname.startsWith('/settings')
+                                !location.pathname.startsWith('/settings') &&
+                                !location.pathname.startsWith(urls.agenticAuthorize())
                             ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'

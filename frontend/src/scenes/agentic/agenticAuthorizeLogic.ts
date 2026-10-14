@@ -22,6 +22,7 @@ export type AgenticPendingAuth = {
     partner_name: string
     scopes: string[]
     pays_for_customers: boolean
+    partner_organization_id: string | null
     partner_organization_name: string | null
 }
 
@@ -83,6 +84,12 @@ function describeConfirmFailure(error: unknown, partnerName: string): ConfirmFai
             return {
                 reason: code,
                 message: `${partnerName} has no redirect URL set, so PostHog cannot finish. Contact ${partnerName}.`,
+                retryable: false,
+            }
+        case 'consent_changed':
+            return {
+                reason: code,
+                message: 'This authorization request changed while the page was open. Start over to review it.',
                 retryable: false,
             }
         default:
@@ -305,7 +312,14 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     response = await api.create(
                         'api/agentic/authorize/confirm/',
-                        { state: values.state, team_id: formValues.scoped_teams[0] },
+                        {
+                            state: values.state,
+                            team_id: formValues.scoped_teams[0],
+                            // The server refuses the confirm when the terms this page showed changed
+                            // while it was open, so the user approves only what they saw.
+                            pays_for_customers: values.paysForCustomers,
+                            partner_organization_id: values.pendingAuth?.partner_organization_id ?? null,
+                        },
                         { signal: controller.signal }
                     )
                 } catch (error) {

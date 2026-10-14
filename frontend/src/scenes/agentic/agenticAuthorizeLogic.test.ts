@@ -71,6 +71,11 @@ describe('agenticAuthorizeLogic', () => {
             403,
             'the requesting app is no longer active, so PostHog cannot finish the authorization.',
         ],
+        [
+            'consent_changed',
+            409,
+            'This authorization request changed while the page was open. Start over to review it.',
+        ],
     ])('maps the %s error to a specific message', async (code, status, message) => {
         confirmResponse = [status as number, { error: code }]
         startConfirm()
@@ -86,7 +91,7 @@ describe('agenticAuthorizeLogic', () => {
         })
     })
 
-    it('confirms a paying partner without asking for a project', async () => {
+    it('confirms a paying partner with the terms the page showed and no project', async () => {
         const redirectUrl = 'https://app.example.com/callback?code=example_code&state=valid_state'
         let confirmBody: unknown
         useMocks({
@@ -97,7 +102,8 @@ describe('agenticAuthorizeLogic', () => {
                         partner_name: 'Example App',
                         scopes: [],
                         pays_for_customers: true,
-                        partner_organization_name: null,
+                        partner_organization_id: 'example-organization-id',
+                        partner_organization_name: 'Example organization',
                     },
                 ],
             },
@@ -124,7 +130,11 @@ describe('agenticAuthorizeLogic', () => {
                 'submitAgenticAuthorizationSuccess',
             ])
 
-            expect(confirmBody).toEqual({ state: 'valid_state' })
+            expect(confirmBody).toEqual({
+                state: 'valid_state',
+                pays_for_customers: true,
+                partner_organization_id: 'example-organization-id',
+            })
             expect(window.location.href).toBe(redirectUrl)
         } finally {
             Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation })

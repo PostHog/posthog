@@ -30,6 +30,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.accounts import (
+    PartnerOrganizationChanged,
     find_partner_organization,
     get_callback_url,
     get_or_create_partner_organization_team,
@@ -61,6 +62,11 @@ def _consent_page_redirect(state: str) -> HttpResponseRedirect:
 
 def _paying_partner(partner: OAuthApplication | None) -> OAuthApplication | None:
     return partner if partner is not None and partner.provisioning.pays_for_customers else None
+
+
+def _consent_changed_response(partner: OAuthApplication | None) -> Response:
+    capture_provisioning_event("authorize_confirm", "consent_changed", partner=partner)
+    return Response({"error": "consent_changed"}, status=409)
 
 
 @login_required
@@ -180,6 +186,7 @@ class AuthorizePendingView(APIView):
                 "partner_name": pending.get("partner_name", "the requesting app"),
                 "scopes": pending.get("scopes", []),
                 "pays_for_customers": paying_partner is not None,
+                "partner_organization_id": str(partner_organization.id) if partner_organization is not None else None,
                 "partner_organization_name": partner_organization.name if partner_organization is not None else None,
             }
         )
@@ -200,8 +207,20 @@ class AuthorizeConfirmView(APIView):
             capture_provisioning_event("authorize_confirm", "expired_state")
             return Response({"error": "expired_or_invalid_state"}, status=400)
 
+        user = cast(User, request.user)
+
+        if user.email != pending["email"]:
+            capture_provisioning_event("authorize_confirm", "email_mismatch")
+            return Response({"error": "email_mismatch"}, status=403)
+
         confirm_partner = resolve_pending_partner(pending.get("partner_id", ""))
         paying_partner = _paying_partner(confirm_partner)
+
+        # The consent page sends back what it showed: whether the partner pays, and the partner
+        # organization. Both can change while the page is open, and the user approved only what
+        # the page showed.
+        if (request.data.get("pays_for_customers") is True) != (paying_partner is not None):
+            return _consent_changed_response(confirm_partner)
 
         # A paying partner's consent page has no project picker, so it sends no team_id, and
         # a team_id sent anyway is ignored.
@@ -209,12 +228,6 @@ class AuthorizeConfirmView(APIView):
         if team_id is None and paying_partner is None:
             capture_provisioning_event("authorize_confirm", "invalid_request")
             return Response({"error": "state and team_id are required"}, status=400)
-
-        user = cast(User, request.user)
-
-        if user.email != pending["email"]:
-            capture_provisioning_event("authorize_confirm", "email_mismatch")
-            return Response({"error": "email_mismatch"}, status=403)
 
         if paying_partner is None:
             try:
@@ -245,7 +258,12 @@ class AuthorizeConfirmView(APIView):
         if paying_partner is not None:
             # Resolved only once every check above has passed, so a refused confirm leaves no
             # organization behind.
-            team, created = get_or_create_partner_organization_team(user, paying_partner)
+            try:
+                team, created = get_or_create_partner_organization_team(
+                    user, paying_partner, approved_organization_id=request.data.get("partner_organization_id")
+                )
+            except PartnerOrganizationChanged:
+                return _consent_changed_response(confirm_partner)
             success_properties["partner_organization"] = "created" if created else "reused"
 
         # Mint the auth code BEFORE deleting pending state so a cache hiccup

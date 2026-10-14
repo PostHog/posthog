@@ -247,23 +247,35 @@ def find_partner_team(user: User, partner: OAuthApplication, organization: Organ
     # partner a project that a user created there.
     configs = (
         TeamProvisioningConfig.objects.filter(application=partner, team__organization=organization, team__is_demo=False)
+        .exclude(team__project__is_pending_deletion=True)
         .select_related("team")
         .order_by("team_id")
     )
     return next((config.team for config in configs if user_can_access_team(user, config.team)), None)
 
 
-def get_or_create_partner_organization_team(user: User, partner: OAuthApplication) -> tuple[Team, bool]:
+class PartnerOrganizationChanged(Exception):
+    pass
+
+
+def get_or_create_partner_organization_team(
+    user: User, partner: OAuthApplication, approved_organization_id: str | None
+) -> tuple[Team, bool]:
     """Billing works per organization, so the project of a partner that pays for its customers
     must not go in one of the user's own organizations, where the user would pay for the
     partner's usage. It goes in an organization the partner pays for: one the user already
     owns, or a new one.
+
+    approved_organization_id is the organization the consent page showed, or None when it showed
+    a new one.
     """
     with transaction.atomic():
         # Serializes one user's consents, so two concurrent confirms cannot both miss the
         # organization or project that the other one is creating and each create one.
         locked_user = User.objects.select_for_update(no_key=True).get(pk=user.pk)
         organization = find_partner_organization(locked_user, partner)
+        if (str(organization.id) if organization is not None else None) != approved_organization_id:
+            raise PartnerOrganizationChanged
         if organization is not None:
             team = find_partner_team(locked_user, partner, organization)
             if team is None:

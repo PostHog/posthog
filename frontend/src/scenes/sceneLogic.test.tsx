@@ -1,4 +1,10 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
 
 import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
@@ -14,6 +20,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
@@ -399,8 +406,20 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
     })
 
-    it('keeps a signed-in user without an organization on the agentic consent page', async () => {
-        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+    it.each([
+        ['without an organization', (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)],
+        [
+            'whose organization has no projects',
+            (): void => {
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
+                })
+                teamLogic.actions.loadCurrentTeamSuccess(null)
+            },
+        ],
+    ])('keeps a signed-in user %s on the agentic consent page', async (_label, setUpUser) => {
+        setUpUser()
         const originalPath = window.location.pathname
         // openScene reads window.location, which the test router's memory history never moves.
         window.history.replaceState(null, '', urls.agenticAuthorize())
