@@ -1098,7 +1098,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.doNotLoad) {
-                        return props.cachedResults
+                        return props.cachedResults ?? null
                     }
 
                     const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
