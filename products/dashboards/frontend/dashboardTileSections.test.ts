@@ -6,6 +6,7 @@ import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getSectionLayouts,
+    hasSectionLayoutChanged,
     stackSectionLayouts,
 } from './dashboardTileSections'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
@@ -133,6 +134,16 @@ describe('dashboardTileSections', () => {
         },
     ])('stackSectionLayouts stacks $name', ({ sections, expected }) => {
         expect(stackSectionLayouts(sections)).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'the same tiles in another order', after: [box(2, 6, 0), box(1, 0, 0)], expected: false },
+        { name: 'a tile moved sideways', after: [box(1, 6, 0), box(2, 0, 0)], expected: true },
+        { name: 'a tile moved down', after: [box(1, 0, 2), box(2, 6, 0)], expected: true },
+        { name: 'a tile resized', after: [box(1, 0, 0, 4), box(2, 6, 0)], expected: true },
+        { name: 'a tile added', after: [box(1, 0, 0), box(2, 6, 0), box(3, 0, 2)], expected: true },
+    ])('hasSectionLayoutChanged is $expected for $name', ({ after, expected }) => {
+        expect(hasSectionLayoutChanged([box(1, 0, 0), box(2, 6, 0)], after)).toBe(expected)
     })
 
     it.each<CollapsedCase>([
