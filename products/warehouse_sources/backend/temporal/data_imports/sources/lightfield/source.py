@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
+    codebase_detection = detect(
+        env=("^LIGHTFIELD_",),
+        npm=("lightfield",),
+        pypi=("lightfield",),
+        go=("github.com/Lightfld/lightfield-go", "github.com/Lightfld/lightfield-cli"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-03-01",)
     default_version = "2026-03-01"

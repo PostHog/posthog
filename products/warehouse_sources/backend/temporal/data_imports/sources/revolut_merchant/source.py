@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RevolutMerchantSource(ResumableSource[RevolutMerchantSourceConfig, RevolutMerchantResumeConfig]):
+    codebase_detection = detect(
+        env=("^(REVOLUT_MERCHANT|REVOLUTMERCHANT)_",),
+        script_hosts=("merchant.revolut.com",),
+        npm=("@revolut/checkout",),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://developer.revolut.com/docs/api/merchant"
     supported_versions = (API_VERSION,)

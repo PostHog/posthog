@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -49,6 +50,11 @@ INVALID_URL_MESSAGE = (
 
 @SourceRegistry.register
 class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^MEDUSA_", "^NEXT_PUBLIC_MEDUSA_"),
+        npm=("@medusajs/medusa", "@medusajs/js-sdk", "@medusajs/framework", "@medusajs/medusa-js", "medusa-react"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     # The v2 Admin API carries no version token on the wire (no version path segment, header,
