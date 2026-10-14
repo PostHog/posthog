@@ -162,6 +162,59 @@ class TestAhaIdeasSourceFanout:
         assert result.response.partition_keys == ["created_at"]
 
 
+class TestAhaIdeasWorkflowStatusTimes:
+    def test_explodes_status_times_per_idea(self) -> None:
+        result = _driver().run(
+            "workflow_status_times",
+            [
+                _response(
+                    "ideas",
+                    [
+                        {
+                            "id": "idea_1",
+                            "updated_at": "2026-03-04T00:00:00Z",
+                            "workflow_status_times": [
+                                {"status_id": "s1", "status_name": "New", "started_at": "2026-01-01T00:00:00Z"},
+                                {"status_id": "s2", "status_name": "Shipped", "started_at": "2026-02-01T00:00:00Z"},
+                            ],
+                        },
+                        {"id": "idea_2", "updated_at": "2026-03-05T00:00:00Z", "workflow_status_times": None},
+                        {"id": "idea_3", "updated_at": "2026-03-06T00:00:00Z"},
+                    ],
+                    total_pages=1,
+                )
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [(row["idea_id"], row["status_id"], row["idea_updated_at"]) for row in result.rows] == [
+            ("idea_1", "s1", "2026-03-04T00:00:00Z"),
+            ("idea_1", "s2", "2026-03-04T00:00:00Z"),
+        ]
+        assert result.paths == ["/api/v1/ideas"]
+        assert result.params("fields") == ["id,updated_at,workflow_status_times"]
+        assert result.params("updated_since") == ["2026-03-01T00:00:00Z"]
+
+
+class TestAhaIdeasWorkflows:
+    def test_workflows_fan_out_over_products_without_paging(self) -> None:
+        result = _driver().run(
+            "workflows",
+            [
+                _response("products", [{"id": "p1"}, {"id": "p2"}], total_pages=1),
+                _response("workflows", [{"id": 10, "name": "Idea workflow"}]),
+                _response("workflows", [{"id": 10, "name": "Idea workflow"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["id"], row["product_id"]) for row in result.rows] == [(10, "p1"), (10, "p2")]
+        assert result.paths == ["/api/v1/products", "/api/v1/products/p1/workflows", "/api/v1/products/p2/workflows"]
+        assert result.params("page") == ["1", None, None]
+
+
 class TestValidateCredentials:
     def test_ok(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:

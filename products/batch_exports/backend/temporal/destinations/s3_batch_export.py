@@ -388,8 +388,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_model=inputs.batch_export_model,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             legacy_parquet_extension=inputs.legacy_parquet_extension,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=s3_default_fields(),
         )

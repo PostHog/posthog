@@ -30,9 +30,14 @@ function Tooltip<Payload>({ onOpenChangeComplete, ...props }: TooltipPrimitive.R
     )
 }
 
-function TooltipTrigger<Payload>({ ...props }: TooltipPrimitive.Trigger.Props<Payload>): React.ReactElement {
-    return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
+// The cast restores the `Payload` generic, because forwardRef cannot carry a generic signature.
+// Props already type `ref`, so adding React.RefAttributes would break contextual typing of `render` callbacks.
+const TooltipTrigger = React.forwardRef(function TooltipTrigger(
+    props: TooltipPrimitive.Trigger.Props,
+    ref: React.ForwardedRef<HTMLButtonElement>
+): React.ReactElement {
+    return <TooltipPrimitive.Trigger ref={ref} data-slot="tooltip-trigger" {...props} />
+}) as <Payload>(props: TooltipPrimitive.Trigger.Props<Payload>) => React.ReactElement
 
 function TooltipContent({
     className,

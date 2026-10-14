@@ -4,8 +4,8 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    GroupKey, PersonVersionFloorResult, StorageError, TombstoneTarget, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    GroupKey, PersonVersionFloorResult, StorageError, TimeoutKind, TombstoneTarget,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 use rand::Rng;
 use rstest::rstest;
@@ -1599,23 +1599,14 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
     ctx.cleanup().await.ok();
 }
 
-#[rstest]
-#[case::statement_timeout(Some(200), "statement timeout")]
-#[case::lock_timeout(None, "lock timeout")]
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
-    #[case] statement_timeout_ms: Option<u64>,
-    #[case] expected_error: &str,
-) {
+async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row() {
     let ctx = TestContext::new().await;
     let person = ctx
         .insert_person("upsert_locked_user", None)
         .await
         .expect("Failed to insert person");
-    let storage = match statement_timeout_ms {
-        Some(ms) => TestContext::storage_with_statement_timeout(ms),
-        None => ctx.storage.clone(),
-    };
+    let storage = ctx.storage_with_hash_key_override_statement_timeout(200);
 
     // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
     // person row.
@@ -1637,9 +1628,12 @@ async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
     assert!(
         matches!(
             &result,
-            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains(expected_error)
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Statement,
+                ..
+            })
         ),
-        "expected a {expected_error}, got {result:?}"
+        "expected a statement timeout, got {result:?}"
     );
     assert_eq!(ctx.hash_key_override_count(person.id).await.unwrap(), 0);
 
@@ -4284,7 +4278,13 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
     };
 
     assert!(
-        matches!(result, Err(StorageError::Query(_))),
+        matches!(
+            result,
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Lock,
+                ..
+            })
+        ),
         "expected the lock_timeout to fail the request, got {result:?}"
     );
     assert!(started.elapsed() < Duration::from_secs(20));

@@ -27,7 +27,7 @@ from products.signals.backend.ranking.features import (
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION, PARQUET_PART_NAME
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.dataset.project_vectors import EMBEDDING_COLUMNS, LABEL_COLUMNS
-from products.signals.dags.inbox_ranking.multihead.network import NetworkConfig
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.prototype import (
     ABLATIONS,
     REPORT_ONLY,

@@ -715,12 +715,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ("shared_primary_metric_counts", {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
             ("shared_secondary_metric_counts", {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
             ("shared_metric_without_type_counts", {}, {}, [_HEALTH_PAUSED]),
+            (
+                "baseline_not_a_variant",
+                {"metrics": [_HEALTH_METRIC], "stats_config": {"baseline_variant_key": "holdout"}},
+                None,
+                [_HEALTH_PAUSED, ("flag_variants_mismatch", "no_control_variant")],
+            ),
         ]
     )
     def test_health_reports_findings(
         self,
         _name: str,
-        inline_metrics: dict[str, list[dict[str, Any]]],
+        experiment_fields: dict[str, Any],
         shared_metric_link: dict[str, Any] | None,
         expected: list[tuple[str, str | None]],
     ) -> None:
@@ -743,8 +749,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             ),
             start_date=timezone.now() - timedelta(days=3),
-            metrics=inline_metrics.get("metrics", []),
-            metrics_secondary=inline_metrics.get("metrics_secondary", []),
+            metrics=experiment_fields.get("metrics", []),
+            metrics_secondary=experiment_fields.get("metrics_secondary", []),
+            stats_config=experiment_fields.get("stats_config", {}),
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(

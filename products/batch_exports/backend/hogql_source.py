@@ -25,6 +25,8 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 
+from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
+
 if typing.TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -41,10 +43,6 @@ _VALIDATION_DATA_INTERVAL_END = dt.datetime(2000, 1, 2, tzinfo=dt.UTC)
 _SUPPORTED_PLACEHOLDERS = f"{{{DATA_INTERVAL_START_PLACEHOLDER}}} and {{{DATA_INTERVAL_END_PLACEHOLDER}}}"
 
 LOGGER = structlog.get_logger(__name__)
-
-
-class UnsupportedHogQLQueryError(Exception):
-    """Raised when a HogQL query cannot be used to power a batch export."""
 
 
 def parse_hogql_select_for_batch_export(hogql_query: str) -> ast.SelectQuery | ast.SelectSetQuery:

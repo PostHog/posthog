@@ -44,7 +44,11 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
-from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
+from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    PROMPT_CACHE_MARKER,
+    load_template_and_schema,
+    without_cache_marker,
+)
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
 
 logger = logging.getLogger(__name__)
@@ -53,18 +57,6 @@ SINGLE_AGENT_PROMPT_DIR = "single_agent_review"
 SINGLE_AGENT_PROMPT_PATH = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR
 SINGLE_AGENT_CORE_FILE = SINGLE_AGENT_PROMPT_PATH / "core.md"
 LENS_PRIORITY_FILE = SINGLE_AGENT_PROMPT_PATH / "lens_priority.md"
-
-# The AI gateway turns this line into an OpenAI prompt cache breakpoint. Everything above it is the
-# same for the main session and the lens sessions of one part, so they read it from one cache entry.
-PROMPT_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint -->"
-# What a copy of the marker in pull request text becomes, so the prompt holds only ours.
-_QUOTED_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint (quoted) -->"
-
-
-def without_cache_marker(text: str) -> str:
-    """Pull request text with any copy of the cache marker defused, so it cannot pose as the real one."""
-    return text.replace(PROMPT_CACHE_MARKER, _QUOTED_CACHE_MARKER)
-
 
 # The leading HTML comment of a prompt file holds attribution for maintainers, not instructions.
 _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
@@ -594,14 +586,14 @@ class ChangedSinceReview:
 
 
 def _old_code_findings(issues: list[Issue], changed_since: ChangedSinceReview | None) -> list[Issue]:
-    """A follow-up turn's P2 and P3 findings on code that did not change since the last reviewed head.
+    """A follow-up turn's P3 findings on code that did not change since the last reviewed head.
 
-    Authors act on these about half as often as on first-turn findings, because the first review already
-    covered that code. A P0 or P1 still posts, since a new commit can break code it did not touch.
+    A P2 or higher on old code still goes through dedup: the earlier review may have missed it, and dedup
+    against earlier turns' findings already removes one that a turn posted before.
     """
     if changed_since is None:
         return []
-    return [issue for issue in issues if issue.priority != IssuePriority.MUST_FIX and not changed_since.touches(issue)]
+    return [issue for issue in issues if issue.priority == IssuePriority.CONSIDER and not changed_since.touches(issue)]
 
 
 async def dedupe_flash_findings(
@@ -627,7 +619,7 @@ async def dedupe_flash_findings(
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
-    On a follow-up turn, `changed_since` drops the P2 and P3 findings on unchanged code before dedup.
+    On a follow-up turn, `changed_since` drops the P3 findings on unchanged code before dedup.
     """
     old_code = _old_code_findings(issues, changed_since)
     old_code_ids = {issue.id for issue in old_code}

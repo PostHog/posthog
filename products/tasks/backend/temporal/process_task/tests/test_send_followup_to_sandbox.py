@@ -794,7 +794,7 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["user_msg"].assert_not_called()
 
     def test_a_cancelled_status_run_rejects_before_rebinding_credentials(self, _patches):
-        # Loop overlap and lifecycle cancellation set CANCELLED without the cancel marker,
+        # Out-of-band cancellation sets CANCELLED without the cancel marker,
         # so the status alone must reject the follow-up.
         _patches["task_run"].state = {}
         _patches["task_run"].status = _patches["task_run_cls"].Status.CANCELLED

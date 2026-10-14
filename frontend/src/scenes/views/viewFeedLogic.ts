@@ -43,7 +43,7 @@ function settledSources(sources: Record<string, ViewSourceState>): Record<string
 }
 
 function withoutOldSearches(sources: Record<string, ViewSourceState>): Record<string, ViewSourceState> {
-    const searchKeys = Object.keys(sources).filter((key) => sources[key].search)
+    const searchKeys = Object.keys(sources).filter((key) => sources[key].search || sources[key].createdBy)
     const dropped = new Set(searchKeys.slice(0, Math.max(0, searchKeys.length - MAX_SEARCH_SOURCES)))
     return dropped.size ? Object.fromEntries(Object.entries(sources).filter(([key]) => !dropped.has(key))) : sources
 }
@@ -56,7 +56,9 @@ export function selectViewFeed(
 ): ViewFeed {
     return viewFeedFromSources(
         viewFeedTypes(query).map((type) =>
-            projectId ? sources[viewSourceKey(String(projectId), query.search, type)] : undefined
+            projectId
+                ? sources[viewSourceKey(String(projectId), query.search, type, query.createdBy ?? null)]
+                : undefined
         ),
         spaceNames
     )
@@ -104,8 +106,10 @@ export interface viewFeedLogicActions {
         key: string,
         projectId: string,
         search: string,
-        type: ViewType
+        type: ViewType,
+        createdBy: string | null
     ) => {
+        createdBy: string | null
         key: string
         projectId: string
         search: string
@@ -144,11 +148,12 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
     actions({
         ensureFeed: (query: ViewFeedQuery, count: number) => ({ query, count }),
         refreshFeed: (query: ViewFeedQuery) => ({ query }),
-        refreshSource: (key: string, projectId: string, search: string, type: ViewType) => ({
+        refreshSource: (key: string, projectId: string, search: string, type: ViewType, createdBy: string | null) => ({
             key,
             projectId,
             search,
             type,
+            createdBy,
         }),
         sourceRefreshed: (key: string, generation: number, page: ViewSourcePage | null) => ({
             key,
@@ -192,7 +197,7 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
             {} as Record<string, ViewSourceState>,
             {
                 restoreSnapshot: (state, { snapshot }) => ({ ...snapshot.sources, ...state }),
-                refreshSource: (state, { key, projectId, search, type }) => {
+                refreshSource: (state, { key, projectId, search, type, createdBy }) => {
                     const { [key]: current, ...rest } = state
                     return withoutOldSearches({
                         ...rest,
@@ -201,6 +206,7 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
                             : {
                                   projectId,
                                   search,
+                                  createdBy,
                                   type,
                                   items: [],
                                   offset: 0,
@@ -265,10 +271,11 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
                 return
             }
             const projectId = String(values.currentTeamId)
+            const createdBy = query.createdBy ?? null
             for (const type of viewFeedTypes(query)) {
-                const key = viewSourceKey(projectId, query.search, type)
+                const key = viewSourceKey(projectId, query.search, type, createdBy)
                 if (!values.sources[key]?.refreshing) {
-                    actions.refreshSource(key, projectId, query.search.trim(), type)
+                    actions.refreshSource(key, projectId, query.search.trim(), type, createdBy)
                 }
             }
         },
@@ -277,7 +284,9 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
                 return
             }
             const projectId = String(values.currentTeamId)
-            const keys = viewFeedTypes(query).map((type) => viewSourceKey(projectId, query.search, type))
+            const keys = viewFeedTypes(query).map((type) =>
+                viewSourceKey(projectId, query.search, type, query.createdBy ?? null)
+            )
             if (keys.some((key) => !values.sources[key])) {
                 actions.refreshFeed(query)
                 return
@@ -288,13 +297,15 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
             }
             for (const source of blocking) {
                 if (source.initialized && !source.loading && !source.refreshing) {
-                    actions.loadSourcePage(viewSourceKey(source.projectId, source.search, source.type))
+                    actions.loadSourcePage(
+                        viewSourceKey(source.projectId, source.search, source.type, source.createdBy)
+                    )
                 }
             }
         },
-        refreshSource: async ({ key, projectId, search, type }) => {
+        refreshSource: async ({ key, projectId, search, type, createdBy }) => {
             const generation = values.sources[key].generation
-            const page = await fetchViewSourcePage(projectId, type, search, 0).catch(() => null)
+            const page = await fetchViewSourcePage(projectId, type, search, createdBy, 0).catch(() => null)
             actions.sourceRefreshed(key, generation, page)
         },
         loadSourcePage: async ({ key }) => {
@@ -303,9 +314,13 @@ export const viewFeedLogic = kea<viewFeedLogicType>([
                 return
             }
             const { generation, offset } = source
-            const page = await fetchViewSourcePage(source.projectId, source.type, source.search, offset).catch(
-                () => null
-            )
+            const page = await fetchViewSourcePage(
+                source.projectId,
+                source.type,
+                source.search,
+                source.createdBy,
+                offset
+            ).catch(() => null)
             actions.sourcePageLoaded(key, generation, offset, page)
         },
     })),

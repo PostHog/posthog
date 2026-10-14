@@ -1,6 +1,7 @@
 import io
 import random
 import string
+import asyncio
 import collections.abc
 
 import pytest
@@ -133,3 +134,18 @@ async def test_record_batch_reader_resumes_from_byte_offset(batches_before_resum
     batches_resumed = [batch async for batch in resumed_reader]
 
     assert batches_resumed == batches[batches_before_resume:]
+
+
+async def test_message_reader_stops_waiting_for_a_stalled_error_tail(monkeypatch):
+    async def stalled_stream():
+        yield b"Code: 241. DB::Exception: an error"
+        await asyncio.Event().wait()
+        yield b""
+
+    monkeypatch.setattr(asyncpa, "UNPARSED_READ_TIMEOUT_SECONDS", 0.1)
+    reader = asyncpa.AsyncMessageReader(stalled_stream())
+
+    with pytest.raises(asyncpa.InvalidMessageFormat) as exc_info:
+        await asyncio.wait_for(reader.read_next_message(), timeout=5)
+
+    assert exc_info.value.unparsed == b"Code: 241. DB::Exception: an error"
