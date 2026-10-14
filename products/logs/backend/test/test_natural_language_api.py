@@ -40,14 +40,13 @@ class TestLogsNaturalLanguageQueryPermissions(APIBaseTest):
             access_level=access_level,
             organization_member=self.organization_membership,
         )
-        headers = {}
         if scopes is not None:
             key = self.create_personal_api_key_with_scopes(scopes)
             self.client.logout()
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
         with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = self.client.post(self.url, {}, format="json", **headers)
+            response = self.client.post(self.url, {}, format="json")
 
         assert response.status_code == expected_status, response.json()
         if expected_status == 400:
