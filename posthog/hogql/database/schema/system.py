@@ -824,7 +824,7 @@ class _DataWarehouseTablesTable(PostgresTable):
         )
 
         if team_id is None:
-            return super().blocked_object_ids(user_access_control, team_id)
+            raise ValueError("system.data_warehouse_tables needs a team to resolve table access")
         return frozenset(str(table_id) for table_id in denied_table_ids(team_id, user_access_control))
 
 

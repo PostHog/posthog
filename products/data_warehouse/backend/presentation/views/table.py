@@ -535,6 +535,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         queryset = super()._filter_queryset_by_access_level(queryset)
         if self.action != "list" or is_service_auth(self.request):
             return queryset
+        # Without resource access the generic filter already keeps only explicit grants and the
+        # reader's own tables, and a rule on a source cannot override either.
+        if not self.user_access_control.has_resource_access("warehouse_table"):
+            return queryset
         # The generic filter reads rules on tables only. A table also resolves through its source,
         # so a rule that denies the source must hide its tables from the list too.
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
