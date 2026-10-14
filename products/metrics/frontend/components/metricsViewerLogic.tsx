@@ -238,6 +238,13 @@ const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [OtelM
 export const supportsHistogramQuantile = (metricType: OtelMetricTypeEnumApi | null): boolean =>
     !!metricType && HISTOGRAM_QUANTILE_METRIC_TYPES.includes(metricType)
 
+// The backend rejects histogram_quantile together with a range function, so a clause with a range
+// function never defaults to a histogram percentile.
+const defaultsToHistogramQuantile = (
+    metricType: OtelMetricTypeEnumApi | null,
+    rangeFunction: MetricRangeFunction | null
+): boolean => !rangeFunction && supportsHistogramQuantile(metricType)
+
 // Grouping needs an aggregation to combine series, so a grouped clause falls back to sum, not to none.
 const fallbackAggregation = (groupByKeys: string[]): MetricAggregation | null => (groupByKeys.length ? 'sum' : null)
 
@@ -1028,7 +1035,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             return clause
                         }
                         let aggregation = clause.aggregation
-                        if (!aggregation && !clause.rangeFunction && supportsHistogramQuantile(metricType)) {
+                        if (!aggregation && defaultsToHistogramQuantile(metricType, clause.rangeFunction)) {
                             aggregation = DEFAULT_HISTOGRAM_AGGREGATION
                         } else if (
                             isHistogramQuantileAggregation(aggregation) &&
@@ -1065,7 +1072,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         groupByKeys,
                         aggregation:
                             clause.aggregation ??
-                            (groupByKeys.length && supportsHistogramQuantile(clause.selectedMetricType)
+                            (groupByKeys.length &&
+                            defaultsToHistogramQuantile(clause.selectedMetricType, clause.rangeFunction)
                                 ? DEFAULT_HISTOGRAM_AGGREGATION
                                 : fallbackAggregation(groupByKeys)),
                     })),

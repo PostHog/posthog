@@ -28,7 +28,13 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { createViewerClause, isBuilderCompatibleQuery, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
+import {
+    MetricRangeFunction,
+    createViewerClause,
+    isBuilderCompatibleQuery,
+    metricsViewerLogic,
+    resolveDate,
+} from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -178,16 +184,22 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.groupByKeys).toEqual([])
     })
 
-    it.each([
-        ['queue_depth', 'sum'],
-        ['request_duration', 'histogram_p95'],
-    ])('adds an aggregation when grouping %s without one: %s', (metricName, expected) => {
-        logic.actions.setMetricName(metricName)
-        logic.actions.setAggregation(null)
-        logic.actions.setGroupByKeys(['container'])
-        expect(logic.values.aggregation).toBe(expected)
-        expect(logic.values.groupByKeys).toEqual(['container'])
-    })
+    it.each<[string, MetricRangeFunction | null, string]>([
+        ['queue_depth', null, 'sum'],
+        ['request_duration', null, 'histogram_p95'],
+        ['request_duration', 'rate', 'sum'],
+    ])(
+        'adds an aggregation when grouping %s with range function %s and no aggregation: %s',
+        (metricName, rangeFunction, expected) => {
+            logic.actions.setMetricName(metricName)
+            logic.actions.setAggregation(null)
+            logic.actions.setRangeFunction(rangeFunction)
+            logic.actions.setGroupByKeys(['container'])
+            expect(logic.values.aggregation).toBe(expected)
+            expect(logic.values.rangeFunction).toBe(rangeFunction)
+            expect(logic.values.groupByKeys).toEqual(['container'])
+        }
+    )
 
     it('keeps the chosen aggregation when grouping', () => {
         logic.actions.setMetricName('queue_depth')
