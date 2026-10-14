@@ -297,27 +297,26 @@ def test_projected_metrics_fan_out_over_recommendations(
         "endTime": child["endTime"],
     }
     assert child["endTime"] % 86400 == 0
-    assert result.committed_states == [
-        AwsComputeOptimizerResumeConfig(next_token=None, parent_offset=1),
-        AwsComputeOptimizerResumeConfig(next_token="p2"),
-        AwsComputeOptimizerResumeConfig(complete=True),
-    ]
+    assert [
+        (state.next_token, [tuple(parent) for parent in state.pending], state.complete)
+        for state in result.committed_states
+    ] == [("p2", [(arn, 32)], False), ("p2", [], False), (None, [], True)]
     assert result.completed_state is None
 
 
-def test_projected_metrics_resume_skips_finished_parents() -> None:
+def test_projected_metrics_resume_processes_pending_parents_without_refetching_page() -> None:
     result = driver().run(
         "ec2_recommendation_projected_metrics",
-        [
-            ScriptedResponse(json={"instanceRecommendations": [{"instanceArn": "arn:done"}, {"instanceArn": EC2_ARN}]}),
-            ScriptedResponse(json={"recommendedOptionProjectedMetrics": []}),
-        ],
-        resume_state=AwsComputeOptimizerResumeConfig(next_token="p2", parent_offset=1),
+        [ScriptedResponse(json={"recommendedOptionProjectedMetrics": []})],
+        resume_state=AwsComputeOptimizerResumeConfig(pending=((EC2_ARN, 14),)),
     )
     assert result.raised is None
-    assert [json.loads(request.body or b"{}").get("instanceArn") for request in result.requests] == [None, EC2_ARN]
-    assert json.loads(result.requests[0].body or b"{}") == {"maxResults": 100, "nextToken": "p2"}
-    assert result.final_state == AwsComputeOptimizerResumeConfig(complete=True)
+    assert [json.loads(request.body or b"{}").get("instanceArn") for request in result.requests] == [EC2_ARN]
+    assert (result.final_state.next_token, list(result.final_state.pending), result.final_state.complete) == (
+        None,
+        [],
+        True,
+    )
 
 
 def test_completed_resume_does_not_refetch() -> None:
@@ -420,10 +419,7 @@ def test_partial_error_does_not_commit_incomplete_data(session: MagicMock) -> No
     session.close.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    "schema,valid",
-    [(None, True), ("ec2_instance_recommendations", False), ("ec2_recommendation_projected_metrics", False)],
-)
+@pytest.mark.parametrize("schema,valid", [(None, True), ("ec2_instance_recommendations", False)])
 def test_missing_permission_at_creation_and_per_table(session: MagicMock, schema: str | None, valid: bool) -> None:
     session.post.return_value = response({"__type": "AccessDeniedException"}, 400)
     result, message = validate_credentials(config(), schema)
@@ -436,6 +432,37 @@ def test_missing_permission_at_creation_and_per_table(session: MagicMock, schema
         assert message and "compute-optimizer:GetEC2InstanceRecommendations" in message
         assert json.loads(session.post.call_args.kwargs["data"]) == {"maxResults": 1}
     session.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "listing,metrics,valid,targets",
+    [
+        (
+            [{"instanceArn": EC2_ARN}],
+            ScriptedResponse(status=400, json={"__type": "AccessDeniedException"}),
+            False,
+            ["GetEC2InstanceRecommendations", "GetEC2RecommendationProjectedMetrics"],
+        ),
+        (
+            [{"instanceArn": EC2_ARN}],
+            ScriptedResponse(json={"recommendedOptionProjectedMetrics": []}),
+            True,
+            ["GetEC2InstanceRecommendations", "GetEC2RecommendationProjectedMetrics"],
+        ),
+        ([], None, True, ["GetEC2InstanceRecommendations"]),
+    ],
+)
+def test_projected_metrics_validation_probes_metrics_permission(
+    listing: list[dict[str, Any]], metrics: ScriptedResponse | None, valid: bool, targets: list[str]
+) -> None:
+    script = [ScriptedResponse(json={"instanceRecommendations": listing}), *([metrics] if metrics else [])]
+    with scripted_network(script) as network:
+        result, message = validate_credentials(config(), "ec2_recommendation_projected_metrics")
+    assert result is valid
+    assert (message is None) is valid
+    if not valid:
+        assert message and "compute-optimizer:GetEC2RecommendationProjectedMetrics" in message
+    assert [request.headers["x-amz-target"].rsplit(".", 1)[-1] for request in network.requests_log] == targets
 
 
 @pytest.mark.parametrize("status,valid", [("Active", True), ("Inactive", False), ("Pending", False), ("Failed", False)])
