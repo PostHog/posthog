@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, kea, path, reducers } from 'kea'
 
+import { getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+
 /** Whether each group is collapsed, keyed by dashboard id and then by group key. */
 export type TileGroupChoices = Record<string, Record<string, boolean>>
 
@@ -36,10 +38,12 @@ export const dashboardTileGroupChoicesLogic = kea<dashboardTileGroupChoicesLogic
             collapsed,
         }),
     }),
-    reducers({
+    reducers(() => ({
         tileGroupChoices: [
             {} as TileGroupChoices,
-            { persist: true },
+            // Keyed by user, so a person who signs in after another one in this browser does not get their choices.
+            // Not keyed by project, because dashboard ids are unique across projects and shared dashboards can have no project.
+            { persist: true, prefix: `${getCurrentUserIdOrNone() ?? 'anonymous'}__` },
             {
                 setTileGroupCollapsed: (state, { dashboardId, groupKey, collapsed }) => ({
                     ...state,
@@ -47,5 +51,5 @@ export const dashboardTileGroupChoicesLogic = kea<dashboardTileGroupChoicesLogic
                 }),
             },
         ],
-    }),
+    })),
 ])
