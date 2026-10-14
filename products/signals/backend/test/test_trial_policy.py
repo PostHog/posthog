@@ -210,6 +210,32 @@ class TestTrialPolicy(BaseTest):
             gate = self_driving_quota_gate(self.team)
         assert gate.limited and gate.enforced
 
+    @parameterized.expand([(True,), (False,)])
+    def test_cancelled_unprovisioned_run_releases_only_a_complete_reservation(self, gateway_complete: bool) -> None:
+        grant = self.claim()
+        operation = self.admit(stage=SignalTrialOperation.Stage.IMPLEMENTATION)
+        task_model = apps.get_model("tasks", "Task")
+        task = task_model.objects.create(team=self.team, title="Queued implementation", origin_product="signal_report")
+        run = task.create_run(_trial_admission=None)
+        run.status = "cancelled"
+        run.save(update_fields=["status"])
+        operation.task_run_id = run.id
+        operation.save(update_fields=["task_run_id"])
+
+        with patch(
+            "products.signals.backend.trial_tasks.fetch_trial_gateway_cost",
+            return_value=TrialGatewayCost(token_cost_microusd=0, complete=gateway_complete),
+        ):
+            reconcile_trial_operation(self.team.id, str(operation.id))
+            reconcile_trial_operation(self.team.id, str(operation.id))
+
+        operation.refresh_from_db()
+        grant.refresh_from_db()
+        assert operation.accounting_complete is gateway_complete
+        assert operation.reserved_microusd == (0 if gateway_complete else 100_000)
+        assert grant.reserved_microusd == operation.reserved_microusd
+        assert grant.settled_microusd == 0
+
     def test_recovery_leases_lost_jobs_and_recovers_late_costs(self) -> None:
         self.claim()
         operation = self.admit()

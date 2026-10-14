@@ -14,7 +14,6 @@ from posthog.llm.gateway_client import (
     get_async_anthropic_gateway_client,
     resolve_ai_gateway_config,
 )
-
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.llm_spend import generate_with_spend
