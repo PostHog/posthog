@@ -9,6 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    DomainConnectApplyUrlRequestApi,
+    DomainConnectApplyUrlResponseApi,
+    DomainConnectCheckResponseApi,
+    EmailDomainVerificationApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
@@ -23,6 +27,7 @@ import type {
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsDomainConnectCheckRetrieveParams,
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
@@ -37,7 +42,7 @@ import type {
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
-    PatchedIntegrationConfigApi,
+    PatchedEmailSenderUpdateRequestApi,
     PatchedOrganizationIntegrationApi,
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
@@ -383,17 +388,20 @@ export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: numb
     return `/api/projects/${projectId}/integrations/${id}/email/`
 }
 
+/**
+ * @summary Update an email sender
+ */
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedIntegrationConfigApi?: NonReadonly<PatchedIntegrationConfigApi>,
+    patchedEmailSenderUpdateRequestApi?: PatchedEmailSenderUpdateRequestApi,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedIntegrationConfigApi),
+        body: JSON.stringify(patchedEmailSenderUpdateRequestApi),
     })
 }
 
@@ -401,17 +409,18 @@ export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: numbe
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
+/**
+ * Ask the email provider to check the sending domain's DNS records and return each record with its status. When every record is verified, all senders on the domain in this project become able to send.
+ * @summary Verify an email sender's domain
+ */
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
+): Promise<EmailDomainVerificationApi> => {
+    return apiMutator<EmailDomainVerificationApi>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
     })
 }
 
@@ -816,34 +825,50 @@ export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string)
 }
 
 /**
- * Unified endpoint for generating Domain Connect apply URLs.
- *
- * Accepts a context ("email" or "proxy") and the relevant resource ID.
- * The backend resolves the domain, template variables, and service ID
- * based on context, then builds the signed apply URL.
+ * Build the signed URL that sends a person to their DNS host to approve the records for an email sending domain or a reverse proxy domain.
+ * @summary Generate a Domain Connect apply URL
  */
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    domainConnectApplyUrlRequestApi: DomainConnectApplyUrlRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDomainConnectApplyUrlCreateUrl(projectId), {
+): Promise<DomainConnectApplyUrlResponseApi> => {
+    return apiMutator<DomainConnectApplyUrlResponseApi>(getIntegrationsDomainConnectApplyUrlCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(domainConnectApplyUrlRequestApi),
     })
 }
 
-export const getIntegrationsDomainConnectCheckRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/domain-connect/check/`
+export const getIntegrationsDomainConnectCheckRetrieveUrl = (
+    projectId: string,
+    params: IntegrationsDomainConnectCheckRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/domain-connect/check/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/domain-connect/check/`
 }
 
+/**
+ * @summary Check Domain Connect support for a domain
+ */
 export const integrationsDomainConnectCheckRetrieve = async (
     projectId: string,
+    params: IntegrationsDomainConnectCheckRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
+): Promise<DomainConnectCheckResponseApi> => {
+    return apiMutator<DomainConnectCheckResponseApi>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
