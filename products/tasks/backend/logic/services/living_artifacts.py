@@ -441,6 +441,7 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
     resolved = resolve_living_artifact_version(artifact, version)
     if resolved is None:
         return None
+    written_with_open_network = resolved.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
 
     if resolved.storage_path:
         size = _stored_version_size(resolved)
@@ -449,12 +450,20 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
         payload = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
         if payload is None:
             return None
-        return LivingArtifactVersionContent(name=artifact.name, content_type=resolved.content_type, content=payload)
+        return LivingArtifactVersionContent(
+            name=artifact.name,
+            content_type=resolved.content_type,
+            content=payload,
+            written_with_open_network=written_with_open_network,
+        )
 
     text = resolved.record.get("content")
     if isinstance(text, str):
         return LivingArtifactVersionContent(
-            name=artifact.name, content_type=resolved.content_type, content=text.encode("utf-8")
+            name=artifact.name,
+            content_type=resolved.content_type,
+            content=text.encode("utf-8"),
+            written_with_open_network=written_with_open_network,
         )
     return None
 

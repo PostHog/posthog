@@ -1062,6 +1062,7 @@ class LivingArtifactVersionContent:
     name: str
     content_type: str
     content: bytes
+    written_with_open_network: bool
 
 
 @dataclass(frozen=True, kw_only=True)
