@@ -15,7 +15,7 @@ export type SessionState = {
     uuid: string
 }
 
-// Per-MCP-session context, keyed on the protocol session id (not the token).
+// Per-MCP-session context, keyed on the protocol session id, or else the conversation id (not the token).
 // `activeOrgId`/`activeProjectId` record an in-session switch-organization /
 // switch-project; `appliedPin*` record the request pin the session last saw so
 // the resolver can tell a resent pin from a genuinely changed one. See
@@ -146,9 +146,7 @@ export type Context = {
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
     /**
      * Record an in-session context switch so a pinned connection's resent pin
-     * doesn't revert it (see RequestStateResolver.resolvePinnedContext). Absent
-     * when the request carries no MCP session id — there is no cross-request
-     * session state to record for.
+     * doesn't revert it (see RequestStateResolver.resolvePinnedContext).
      */
     setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
     /**
