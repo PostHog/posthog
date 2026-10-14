@@ -400,6 +400,7 @@ export const RememberedEventsWithRecents: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY],
         mockDate: '2026-10-14T12:00:00Z',
+        testOptions: { viewport: { width: 760, height: 720 } },
     },
     play: async ({ canvasElement }) => {
         const body = within(document.body)
@@ -447,6 +448,7 @@ export const RecentPicksAfterRememberedEvents: Story = {
         const body = within(document.body)
         await userEvent.click(await body.findByRole('button', { name: /Current category: Events/ }))
         await userEvent.click(await body.findByRole('menuitem', { name: 'Recent' }))
+        await userEvent.click(await body.findByRole('button', { name: /Current category: Recent/ }))
         await body.findAllByText('signed up')
         await body.findByText(mockActionDefinition.name)
     },
