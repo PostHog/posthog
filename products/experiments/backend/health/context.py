@@ -103,7 +103,7 @@ def parse_flag_state(
     early_exit: bool = False,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
-    flag_variants = tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
+    flag_variants = parse_variants(variants)
     variant_keys = {variant.key for variant in flag_variants if variant.key}
     reachable = reachable_conditions(conditions, flag_aggregation=aggregation_group_type_index, early_exit=early_exit)
     return FlagState(
@@ -138,9 +138,7 @@ def _variant(variant: object) -> FlagVariant:
     )
 
 
-def parse_split(filters: object) -> Split:
-    multivariate = filters.get("multivariate") if isinstance(filters, dict) else None
-    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
+def parse_variants(variants: object) -> Split:
     return tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
 
 

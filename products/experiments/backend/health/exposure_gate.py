@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from time import monotonic
 
 from django.core.cache import cache
+from django.db.models import F, Func, JSONField, Value
+from django.db.models.fields.json import KT
 from django.utils import timezone
 
 from posthog.schema import ActionsNode
@@ -57,6 +59,8 @@ _ANSWER_CACHE_SECONDS = int(timedelta(days=30).total_seconds())
 _TOO_EXPENSIVE_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 _FAILED_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 _UNKNOWN = "unknown"
+_BEFORE_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").before.multivariate.variants'
+_AFTER_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").after.multivariate.variants'
 # Events can arrive after the window ends, so a "nobody" answer for a recent window can still change.
 _SETTLED_AFTER = timedelta(hours=1)
 # The scan is too large for a request. These are expected, so they are not reported.
@@ -267,7 +271,22 @@ def _split_changes_since(*, team_id: int, feature_flag_id: int, since: datetime)
             detail__contains={"changes": [{"field": "filters"}]},
         )
         .order_by("created_at")
-        .values_list("created_at", "detail")
+        # Only the variants decide the split, and the whole `detail` of a flag edit can be large.
+        .annotate(
+            job_type=KT("detail__trigger__job_type"),
+            before_variants=_variants_of_filters_change(_BEFORE_VARIANTS_PATH),
+            after_variants=_variants_of_filters_change(_AFTER_VARIANTS_PATH),
+        )
+        .values_list("created_at", "job_type", "before_variants", "after_variants")
     )
-    changes = [split_change_from_activity(detail, changed_at) for changed_at, detail in rows]
+    changes = [
+        split_change_from_activity(
+            changed_at=changed_at, job_type=job_type, before_variants=before_variants, after_variants=after_variants
+        )
+        for changed_at, job_type, before_variants, after_variants in rows
+    ]
     return [change for change in changes if change is not None]
+
+
+def _variants_of_filters_change(path: str) -> Func:
+    return Func(F("detail"), Value(path), function="jsonb_path_query_first", output_field=JSONField())

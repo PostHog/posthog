@@ -17,7 +17,7 @@ from products.experiments.backend.health.context import (
     SplitChange,
     SplitHistory,
     parse_flag_state,
-    parse_split,
+    parse_variants,
 )
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
@@ -58,8 +58,8 @@ def _context(
     changes = tuple(
         SplitChange(
             changed_at=FIRST_CHANGE_AT + timedelta(minutes=17 * index),
-            before=parse_split({"multivariate": {"variants": before}}),
-            after=parse_split({"multivariate": {"variants": after}}),
+            before=parse_variants(before),
+            after=parse_variants(after),
         )
         for index, (before, after) in enumerate(zip(splits, splits[1:]))
     )

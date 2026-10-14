@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.health.context import Split, SplitChange, SplitHistory, parse_split
+from products.experiments.backend.health.context import Split, SplitChange, SplitHistory, parse_variants
 
 
 class SplitChangeShape(StrEnum):
@@ -43,24 +43,17 @@ class SplitNetEffect:
 _SKIPPED_JOB_TYPES = frozenset({"experiment_exposure_frozen", "experiment_exposure_unfrozen"})
 
 
-def split_change_from_activity(detail: object, changed_at: datetime) -> SplitChange | None:
+def split_change_from_activity(
+    *, changed_at: datetime, job_type: object, before_variants: object, after_variants: object
+) -> SplitChange | None:
     """The split change in one activity log row of the flag, or None when the row does not change the split."""
-    if not isinstance(detail, dict):
+    if job_type in _SKIPPED_JOB_TYPES:
         return None
-    trigger = detail.get("trigger")
-    if isinstance(trigger, dict) and trigger.get("job_type") in _SKIPPED_JOB_TYPES:
+    before = parse_variants(before_variants)
+    after = parse_variants(after_variants)
+    if same_assignment(before, after):
         return None
-    changes = detail.get("changes")
-    if not isinstance(changes, list):
-        return None
-    for change in changes:
-        if isinstance(change, dict) and change.get("field") == "filters":
-            before = parse_split(change.get("before"))
-            after = parse_split(change.get("after"))
-            if same_assignment(before, after):
-                return None
-            return SplitChange(changed_at=changed_at, before=before, after=after)
-    return None
+    return SplitChange(changed_at=changed_at, before=before, after=after)
 
 
 def split_shape(before: Split, after: Split) -> SplitChangeShape:
