@@ -1262,14 +1262,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(actions_condition, dict) or not isinstance(self.context["request"].user, User):
             return
 
+        action_ids: set[int] | None
         try:
-            action_ids = {value.get("id") for value in actions_condition.get("values") or [] if isinstance(value, dict)}
-            added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
-            if self.instance is not None:
-                added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
-            added = list(added_actions)
-        except (TypeError, ValueError):
-            raise serializers.ValidationError("Each action in the survey conditions needs a numeric id.")
+            action_ids = {
+                int(value["id"])
+                for value in actions_condition.get("values") or []
+                if isinstance(value, dict) and value.get("id") is not None
+            }
+        except (TypeError, ValueError, OverflowError):
+            action_ids = None
+        # Postgres rejects an id outside the bigint range in a query, so check the range before the lookup.
+        if action_ids is None or not all(0 < action_id < 2**63 for action_id in action_ids):
+            raise serializers.ValidationError("Each action in the survey conditions needs a valid id.")
+
+        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
+        if self.instance is not None:
+            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+        added = list(added_actions)
         access_controls = self.context["view"].user_access_control.for_team_ids({action.team_id for action in added})
         denied_ids = sorted(
             action.id

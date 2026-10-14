@@ -5025,8 +5025,8 @@ class TestSurveyWithActions(APIBaseTest):
         assert not Survey.objects.filter(team=self.team, name="new").exists()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
 
-    @parameterized.expand([("text", "abc"), ("object", {"id": 1})])
-    def test_linking_an_action_rejects_a_non_numeric_id(self, _name: str, action_id: object) -> None:
+    @parameterized.expand([("text", "abc"), ("object", {"id": 1}), ("too_large", "9" * 30)])
+    def test_linking_an_action_rejects_an_invalid_id(self, _name: str, action_id: object) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
