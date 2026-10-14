@@ -164,15 +164,27 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                 assert action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
             assert body["trigger"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
 
-    def test_scope_only_update_drops_secret_inputs_stored_before(self):
-        legacy = self._template_with_secret_inputs("LEGACY-SECRET")
-        template = HogFlowTemplate.objects.create(
+    def _template_stored_with_secrets(self) -> HogFlowTemplate:
+        stored = self._template_with_secret_inputs("STORED-SECRET")
+        return HogFlowTemplate.objects.create(
             team=self.team,
-            name=legacy["name"],
+            name=stored["name"],
             scope="team",
-            actions=legacy["actions"],
-            trigger=legacy["actions"][0]["config"],
+            actions=stored["actions"],
+            trigger=stored["actions"][0]["config"],
         )
+
+    def test_reading_a_template_stored_with_secrets_drops_them(self):
+        template = self._template_stored_with_secrets()
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}").json()
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates").json()
+
+        assert "STORED-SECRET" not in json.dumps([retrieved, listed])
+        assert retrieved["actions"][1]["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    def test_scope_only_update_drops_secret_inputs_stored_before(self):
+        template = self._template_stored_with_secrets()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}",
@@ -181,9 +193,9 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         )
 
         assert response.status_code == 200, response.json()
-        stored = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}").json()
-        assert stored["scope"] == "organization"
-        assert "LEGACY-SECRET" not in json.dumps(stored)
+        template.refresh_from_db()
+        assert template.scope == "organization"
+        assert "STORED-SECRET" not in json.dumps([template.actions, template.trigger])
 
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
