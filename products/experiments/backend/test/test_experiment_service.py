@@ -7560,6 +7560,22 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
 
+    def test_requesting_timeseries_recalculation_on_restricted_table_is_denied(self):
+        # The backfill runs the submitted metric without a user, so the request itself must be denied.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dw-recalc",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, created_by=self.user, name="E", feature_flag=flag, start_date=timezone.now()
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.request_timeseries_recalculation(experiment, metric=self._dw_metric(), fingerprint="fp1")
+        assert not ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).exists()
+
 
 class TestDeprecatedFieldsInRequest(SimpleTestCase):
     @parameterized.expand(

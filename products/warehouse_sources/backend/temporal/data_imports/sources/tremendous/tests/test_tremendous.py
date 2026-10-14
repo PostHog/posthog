@@ -1,155 +1,87 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tremendous import (
+    TremendousSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import (
     ENDPOINTS,
     TREMENDOUS_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source import TremendousSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
     TremendousResumeConfig,
     _balance_transaction_row_id,
     _to_iso_datetime,
     base_url_for_environment,
-    tremendous_source,
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the tremendous module.
-TREMENDOUS_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous.make_tracked_session"
-)
+
+def _response(items: list[dict[str, Any]], *, data_key: str = "orders") -> ScriptedResponse:
+    return ScriptedResponse(json={data_key: items, "total_count": len(items)})
 
 
-def _response(items: list[dict[str, Any]], *, data_key: str = "orders") -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({data_key: items, "total_count": len(items)}).encode()
-    return resp
-
-
-def _raw_response(body: Any) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: TremendousResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(
+def _run(
     endpoint: str,
-    manager: mock.MagicMock,
-    *,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    environment: str = "production",
-) -> Any:
-    return tremendous_source(
-        api_key="tremendous-key",
-        environment=environment,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    script: Script,
+    resume_state: TremendousResumeConfig | None = None,
+    **kwargs: Any,
+) -> DriveResult:
+    driver = SourceDriver(TremendousSource(), TremendousSourceConfig(api_key="tremendous-key"))
+    return driver.run(endpoint, script, resume_state=resume_state, **kwargs)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "X"}])])
-
-        manager = _make_manager(TremendousResumeConfig(offset=1000))
-        _rows(_source("orders", manager))
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _run("orders", [_response([{"id": "X"}])], resume_state=TremendousResumeConfig(offset=1000))
 
         # The initial (offset=0) page must never be re-fetched on resume.
-        assert [p["offset"] for p in params] == [1000]
+        assert result.params("offset") == ["1000"]
 
     @parameterized.expand([("orders",), ("balance_transactions",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_watermark_sent_as_created_at_gte_on_every_page(
-        self, endpoint: str, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
+    def test_incremental_watermark_sent_as_created_at_gte_on_every_page(self, endpoint: str) -> None:
         config = TREMENDOUS_ENDPOINTS[endpoint]
         full_page = [{"created_at": f"2026-01-03T00:00:{i:02d}Z"} for i in range(config.page_size)]
-        params = _wire(
-            session, [_response(full_page, data_key=config.data_key), _response([], data_key=config.data_key)]
+
+        result = _run(
+            endpoint,
+            [_response(full_page, data_key=config.data_key), _response([], data_key=config.data_key)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                endpoint,
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-            )
-        )
+        assert len(result.requests) == 2
+        assert result.params("created_at[gte]") == ["2026-01-02T03:04:05+00:00"] * 2
 
-        assert len(params) == 2
-        assert all(p["created_at[gte]"] == "2026-01-02T03:04:05+00:00" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pins_redirects_off(self, MockSession: mock.MagicMock) -> None:
+    def test_pins_redirects_off(self) -> None:
         # Redirect-following would replay the Bearer key to whatever host Tremendous redirects to.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "A"}])])
+        result = _run(
+            "orders",
+            always(ScriptedResponse(status=302, headers={"Location": "https://attacker.example/steal"})),
+        )
 
-        _rows(_source("orders", _make_manager()))
+        assert result.raised is not None
+        assert {request.origin for request in result.requests} == {"https://www.tremendous.com"}
 
-        assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_payload_is_retryable(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
+    def test_unexpected_payload_is_retryable(self) -> None:
         # A 200 whose body isn't the expected {data_key: [...]} shape is retried, then re-raised.
-        session = MockSession.return_value
-        _wire(session, [_raw_response({"total_count": 0})] * 5)
+        result = _run("orders", always(ScriptedResponse(json={"total_count": 0})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("orders", _make_manager()))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
     @parameterized.expand(
         [
@@ -158,16 +90,10 @@ class TestPagination:
             ("data_key_not_a_list", {"orders": {"id": "A"}}),
         ]
     )
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_payload_shapes_are_retryable(
-        self, _name: str, body: Any, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response(body)] * 5)
+    def test_unexpected_payload_shapes_are_retryable(self, _name: str, body: Any) -> None:
+        result = _run("orders", always(ScriptedResponse(json=body)))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("orders", _make_manager()))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
 
 class TestHelpers:
@@ -249,15 +175,6 @@ class TestBalanceTransactionRowId:
 
 
 class TestValidateCredentials:
-    @staticmethod
-    def _session(response: Any) -> mock.MagicMock:
-        session = mock.MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -266,35 +183,30 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Tremendous returned HTTP 500"),
         ]
     )
-    @mock.patch(TREMENDOUS_SESSION_PATCH)
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_session: mock.MagicMock,
-    ) -> None:
-        mock_session.return_value = self._session(mock.MagicMock(status_code=status))
-        assert validate_credentials("tremendous-key", "production") == (expected_valid, expected_message)
+    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            assert validate_credentials("tremendous-key", "production") == (expected_valid, expected_message)
 
-    @mock.patch(TREMENDOUS_SESSION_PATCH)
-    def test_connection_error_is_not_validated(self, mock_session: mock.MagicMock) -> None:
+    def test_connection_error_is_not_validated(self) -> None:
         # A credential probe must never raise; a transport failure means "not validated".
-        mock_session.return_value = self._session(ConnectionError("boom"))
-        assert validate_credentials("tremendous-key", "production") == (False, "Could not validate Tremendous API key")
+        with scripted_network(always(ConnectionError("boom"))):
+            assert validate_credentials("tremendous-key", "production") == (
+                False,
+                "Could not validate Tremendous API key",
+            )
 
-    @mock.patch(TREMENDOUS_SESSION_PATCH)
-    def test_pins_redirects_off(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value = self._session(mock.MagicMock(status_code=200))
-        validate_credentials("tremendous-key", "production")
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+    def test_pins_redirects_off(self) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("tremendous-key", "production")
+        assert network.session_options
+        assert all(options["allow_redirects"] is False for options in network.session_options)
 
 
 class TestTremendousSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
+        response = _run(endpoint, []).response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # Tremendous lists are creation-date DESC; declaring asc would corrupt the incremental watermark.

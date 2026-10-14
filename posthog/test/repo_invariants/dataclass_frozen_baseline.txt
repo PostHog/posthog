@@ -214,9 +214,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/active_campaign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/adjust.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/adobe_analytics.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/adroll.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/settings.py
@@ -228,7 +226,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/aha.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/aha_ideas.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/airbrake.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aircall/aircall.py
@@ -952,7 +949,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/qualaroo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualys_vmdr/qualys_vmdr.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/qualys_vmdr/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/railway/railway.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/railway/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ramp/ramp.py

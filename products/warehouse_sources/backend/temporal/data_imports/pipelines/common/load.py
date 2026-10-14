@@ -456,11 +456,10 @@ async def _register_table(
     # snapshot rather than from another log read.
     delta_table = await delta_table_ref.get_delta_table()
     delta_schema_json = delta_table.schema().to_json() if delta_table is not None else None
-    # Only a table whose run count is not its size reads the count. The handle is the one the publish
-    # step listed, so the count matches the files the query folder now holds.
-    live_row_count = (
-        await delta_table_ref.get_live_row_count() if schema.table_row_count_is_cumulative or row_count == 0 else None
-    )
+    # The run count is not the table size, even for a full refresh: a run that resumes counts only
+    # the rows of its last attempt. The handle is the one the publish step listed, so the count
+    # matches the files the query folder now holds.
+    live_row_count = await delta_table_ref.get_live_row_count()
     # Same handle, so the size is the size of the files the query folder now holds. Maintenance ran
     # before the publish step, so a compaction in this run is already in the number.
     live_size_mib = await delta_table_ref.get_live_size_mib()

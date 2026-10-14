@@ -22,7 +22,7 @@ Design notes:
 
 from collections.abc import Mapping
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -54,7 +54,7 @@ def _sitemap_index_xml(children: list[str]) -> str:
     )
 
 
-class TestDiscoverSitemap(BaseTest):
+class TestDiscoverSitemap(SimpleTestCase):
     def test_parses_flat_sitemap(self) -> None:
         sitemap = _sitemap_xml(
             [
@@ -255,7 +255,7 @@ def _no_robots(url: str, max_bytes: int = 0) -> str:
     raise AssertionError(f"unexpected metadata fetch: {url}")
 
 
-class TestDiscoverSameOrigin(BaseTest):
+class TestDiscoverSameOrigin(SimpleTestCase):
     def test_stays_on_origin_and_respects_depth(self) -> None:
         pages = {
             "https://ex.com/a": '<a href="/b">b</a><a href="https://other.com/x">external</a>',
@@ -692,6 +692,97 @@ class TestRefreshCrawlSource(APIBaseTest):
         doc_a.refresh_from_db()
         assert doc_a.content_hash != ""
 
+    def test_failed_refresh_with_no_documents_stays_an_error(self) -> None:
+        source = KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="Empty crawl",
+            source_type="url",
+            status=SourceStatus.ERROR,
+            error_message="All pages failed to fetch.",
+            source_url="https://example.com/sitemap.xml",
+            crawl_mode="sitemap",
+            crawl_config={"max_pages": 10},
+            last_refresh_status="error",
+            last_refresh_error="All pages failed to fetch.",
+        )
+        sitemap = _sitemap_xml(["https://example.com/a"])
+        behaviours = {"https://example.com/a": url_fetch.UrlFetchError("Remote responded with status 403.")}
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            refreshed = refresh_source(source_id=source.id, team_id=self.team.id)
+
+        assert refreshed is not None
+        assert refreshed.status == SourceStatus.ERROR
+        assert refreshed.last_refresh_status == "error"
+        assert refreshed.error_message == "Remote responded with status 403."
+        assert refreshed.last_refresh_error == "Remote responded with status 403."
+        assert not KnowledgeDocument.objects.unscoped().filter(source=source).exists()
+
+    def test_failed_refresh_keeps_existing_documents(self) -> None:
+        source = self._seed(["https://example.com/a"])
+        doc = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
+        chunks_before = KnowledgeChunk.objects.unscoped().filter(document_id=doc.id).count()
+        assert chunks_before > 0
+
+        sitemap = _sitemap_xml(["https://example.com/a"])
+        behaviours = {"https://example.com/a": url_fetch.UrlFetchError("Remote responded with status 403.")}
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            refreshed = refresh_source(source_id=source.id, team_id=self.team.id)
+
+        assert refreshed is not None
+        assert refreshed.status == SourceStatus.READY
+        assert refreshed.error_message == ""
+        assert refreshed.last_refresh_status == "error"
+        assert refreshed.last_refresh_error == "Remote responded with status 403."
+        doc.refresh_from_db()
+        assert doc.tombstoned_at is None
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc.id).count() == chunks_before
+
+    def test_failed_replacement_does_not_leave_an_empty_ready_source(self) -> None:
+        source = self._seed(["https://example.com/a"])
+        doc_a = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
+
+        sitemap = _sitemap_xml(["https://example.com/b"])
+        behaviours = {"https://example.com/b": url_fetch.UrlFetchError("Remote responded with status 403.")}
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            refreshed = refresh_source(source_id=source.id, team_id=self.team.id)
+
+        assert refreshed is not None
+        assert refreshed.status == SourceStatus.ERROR
+        assert refreshed.last_refresh_status == "error"
+        assert refreshed.error_message == "Remote responded with status 403."
+        doc_a.refresh_from_db()
+        assert doc_a.tombstoned_at is not None
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_a.id).count() == 0
+        assert not KnowledgeDocument.objects.unscoped().filter(source=source, tombstoned_at__isnull=True).exists()
+
+    def test_empty_discovery_keeps_existing_documents(self) -> None:
+        source = self._seed(["https://example.com/a"])
+        doc = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
+        chunks_before = KnowledgeChunk.objects.unscoped().filter(document_id=doc.id).count()
+
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml([])),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=AssertionError("must not fetch")),
+        ):
+            refreshed = refresh_source(source_id=source.id, team_id=self.team.id)
+
+        assert refreshed is not None
+        assert refreshed.status == SourceStatus.READY
+        assert refreshed.last_refresh_status == "error"
+        assert refreshed.last_refresh_error == "Crawl discovered no URLs. Check the entry URL and globs."
+        doc.refresh_from_db()
+        assert doc.tombstoned_at is None
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc.id).count() == chunks_before
+
     def test_ssrf_block_during_refresh_does_not_tombstone(self) -> None:
         """
         Regression: `discovered_set` was previously built from `outcomes`,
@@ -788,7 +879,7 @@ class TestChunkIdIsolation(APIBaseTest):
         assert a_chunks.isdisjoint(b_chunks), "chunk UUIDs must not collide across sources"
 
 
-class TestDiscoverSSRF(BaseTest):
+class TestDiscoverSSRF(SimpleTestCase):
     """
     Regression: `discover._http_get_text` used to auto-follow redirects
     (`allow_redirects=True`), so a sitemap or link page could 302 to

@@ -121,6 +121,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
 )
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -165,6 +166,12 @@ async def create_run_quota_limiting_schedule(client: Client):
 
     This schedule runs every 15 minutes.
     """
+    # Quota limiting queries AI credit usage, which requires a cloud region.
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV"):
+        if await a_schedule_exists(client, "run-quota-limiting-schedule"):
+            await a_delete_schedule(client, "run-quota-limiting-schedule")
+        return
+
     run_quota_limiting_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-quota-limiting",
@@ -994,6 +1001,7 @@ schedules = [
     create_reconcile_metric_schedules_schedule,
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

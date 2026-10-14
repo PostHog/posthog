@@ -3,15 +3,13 @@ import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
 import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenuItems, Link } from '@posthog/lemon-ui'
+import { LemonMenuItems, Link } from '@posthog/lemon-ui'
 
-import { SettingsBar, SettingsButton, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
+import { SettingsButton, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import {
     ModesWithInteractions,
     PLAYBACK_SPEEDS,
@@ -20,26 +18,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import { SessionRecordingType } from '~/types'
-
-function PlayerControlsLayoutToggle(): JSX.Element {
-    const { playerControlsOverlay } = useValues(sessionRecordingPlayerLogic)
-    const { setPlayerControlsOverlay } = useActions(sessionRecordingPlayerLogic)
-
-    return (
-        <SettingsToggle
-            title={
-                playerControlsOverlay
-                    ? 'Player controls float over the recording and only show on hover. Click to pin them below the recording instead.'
-                    : 'Player controls are pinned below the recording. Click to make them float over the recording on hover instead.'
-            }
-            label={playerControlsOverlay ? 'Floating controls' : 'Pinned controls'}
-            icon={<IconBottomPanel />}
-            active={!playerControlsOverlay}
-            onClick={() => setPlayerControlsOverlay(!playerControlsOverlay)}
-            data-attr="toggle-player-controls-overlay"
-        />
-    )
-}
 
 export function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -106,68 +84,19 @@ export function useReportLowTtlViewed(): void {
     }, [sessionPlayerMetaData, lowTtl])
 }
 
-export function TTLWarning({ variant = 'button' }: { variant?: 'button' | 'inline' }): JSX.Element | null {
+export function TTLWarning(): JSX.Element | null {
     const { sessionPlayerMetaData, lowTtl } = useLowTtlMeta()
 
     if (!lowTtl || !sessionPlayerMetaData) {
         return null
     }
 
-    if (variant === 'inline') {
-        return (
-            <div className="text-xs text-danger">
-                Expires in {sessionPlayerMetaData.recording_ttl} days.{' '}
-                <Link to={urls.settings('project-replay', 'replay-retention')} data-attr="player-ttl-open-settings">
-                    Extend retention
-                </Link>
-            </div>
-        )
-    }
-
     return (
-        <div className="font-medium">
-            <LemonButton
-                status="danger"
-                size="xsmall"
-                className={cn('rounded-[0px]')}
-                data-attr="recording-ttl-dialog"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Recording about to expire',
-                        description: (
-                            <span>
-                                <br />
-                                This recording will expire in{' '}
-                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>.
-                                <br />
-                                <br />
-                                Go to{' '}
-                                <Link
-                                    data-attr="player-ttl-open-settings"
-                                    to={urls.settings('project-replay', 'replay-retention')}
-                                >
-                                    Session Replay settings
-                                </Link>{' '}
-                                to increase your retention period to keep future recordings around for longer.
-                                <br />
-                                <br />
-                                Refer to{' '}
-                                <Link
-                                    to="https://posthog.com/docs/session-replay/data-retention"
-                                    disableClientSideRouting
-                                    target="_blank"
-                                >
-                                    this page
-                                </Link>{' '}
-                                for more information about data retention in Session Replay.
-                            </span>
-                        ),
-                    })
-                }}
-                noPadding
-            >
-                This recording will expire in {sessionPlayerMetaData.recording_ttl} days
-            </LemonButton>
+        <div className="text-xs text-danger">
+            Expires in {sessionPlayerMetaData.recording_ttl} days.{' '}
+            <Link to={urls.settings('project-replay', 'replay-retention')} data-attr="player-ttl-open-settings">
+                Extend retention
+            </Link>
         </div>
     )
 }
@@ -202,65 +131,5 @@ export function usePlayerChromeMenuItems(): LemonMenuItems {
             },
         ],
         [showControlsLayoutToggle, playerControlsOverlay, showHeatmap, setPlayerControlsOverlay, setPause, openHeatmap]
-    )
-}
-
-export function PlayerMetaTopSettings(): JSX.Element {
-    const {
-        logicProps: { withSidebar, mode },
-        hoverModeIsEnabled,
-        showPlayerChrome,
-    } = useValues(sessionRecordingPlayerLogic)
-    const { modalContext } = useValues(sessionPlayerModalLogic)
-    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-
-    const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
-
-    return (
-        <div
-            className={cn(
-                hoverModeIsEnabled
-                    ? 'absolute top-full left-0 right-0 z-10 transition-all duration-25 ease-in-out'
-                    : '',
-                hoverModeIsEnabled && showPlayerChrome
-                    ? 'opacity-100 pointer-events-auto'
-                    : hoverModeIsEnabled
-                      ? // invisible releases the hidden overlay's raster backing; transition-all
-                        // already covers visibility so the fade still plays (see PanelLayout scrims)
-                        'opacity-0 pointer-events-none invisible'
-                      : ''
-            )}
-        >
-            <SettingsBar border="top">
-                <div className="flex w-full justify-between items-center gap-0.5">
-                    <div className="flex flex-row gap-0.5 h-full items-center">
-                        <SetPlaybackSpeed />
-                        {showControlsLayoutToggle && <PlayerControlsLayoutToggle />}
-                    </div>
-
-                    <div>
-                        <TTLWarning />
-                    </div>
-
-                    <div className="flex flex-row gap-0.5">
-                        {modalContext?.type !== 'heatmap-background-selection' ? (
-                            <SettingsButton
-                                size="xsmall"
-                                icon={<IconHeatmap />}
-                                onClick={() => {
-                                    setPause()
-                                    openHeatmap()
-                                }}
-                                label="View heatmap"
-                                data-attr="player-view-heatmap"
-                                tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
-                            />
-                        ) : null}
-                        {withSidebar && <InspectDOM />}
-                        {withSidebar && <PlayerInspectorButton />}
-                    </div>
-                </div>
-            </SettingsBar>
-        </div>
     )
 }
