@@ -1,5 +1,7 @@
 """What the team already has: workflows, integrations and saved email templates."""
 
+from typing import Any
+
 from posthog.models import Team
 from posthog.models.integration import Integration
 
@@ -20,6 +22,16 @@ def used_trigger_events(team: Team) -> set[str]:
             if isinstance(event, dict) and isinstance(event.get("id"), str):
                 used.add(event["id"])
     return used
+
+
+def saved_workflow_actions(team: Team, workflow_id: str) -> list[dict[str, Any]] | None:
+    """The actions of a draft a build saved, or None when it was deleted or archived."""
+    return (
+        HogFlow.objects.filter(team_id=team.id, id=workflow_id)
+        .exclude(status="archived")
+        .values_list("actions", flat=True)
+        .first()
+    )
 
 
 def channels(team: Team) -> frozenset[Channel]:

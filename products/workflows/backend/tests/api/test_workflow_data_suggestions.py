@@ -691,6 +691,30 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         # The project has no sender, so the agent learns it must add one before it can fill the field.
         assert [item["field"] for item in built["missing_inputs"]] == [NO_SENDER_FIELD]
 
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_saved_build_is_read_again_from_its_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+        build = {"suggestion_id": suggestion_id, "save_draft": True}
+
+        first = self.client.post(build_url, build, format="json").json()
+        Integration.objects.create(team=self.team, kind="email", config={"email": "hi@example.com", "verified": True})
+        cached = self.client.post(build_url, build, format="json").json()
+        HogFlow.objects.filter(team=self.team, id=first["workflow_id"]).delete()
+        rebuilt = self.client.post(build_url, build, format="json").json()
+
+        assert [item["field"] for item in first["missing_inputs"]] == [NO_SENDER_FIELD]
+        assert cached["workflow_id"] == first["workflow_id"]
+        assert [item["field"] for item in cached["missing_inputs"]] == ["Email sender"]
+        assert rebuilt["status"] == "ready"
+        assert rebuilt["workflow_id"] != first["workflow_id"]
+        assert plan_steps.call_count == 2
+
     @parameterized.expand(
         [
             ("the project default", ["old@example.com", "new@example.com"], "new@example.com", "new@example.com"),

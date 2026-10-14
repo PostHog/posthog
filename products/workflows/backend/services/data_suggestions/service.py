@@ -163,7 +163,7 @@ def start_build(
     """
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
-    stored = _read_build(team.id, suggestion_id, caller)
+    stored = _current_build(team, suggestion_id, caller)
     if stored is not None and not (retry and stored.status == "failed"):
         return stored
     # A second click or tab while a build runs would pay for another plan.
@@ -190,7 +190,7 @@ def build_caller(event_source: str, *, save: bool) -> str:
 
 def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
-    stored = _read_build(team.id, suggestion_id, caller)
+    stored = _current_build(team, suggestion_id, caller)
     reusable = stored is not None and not (retry and stored.status == "failed")
     return not reusable and cache.get(_build_lock_key(team.id, suggestion_id, caller)) is None
 
@@ -295,13 +295,29 @@ def _plan_and_build(
         status="ready",
         workflow=built.workflow,
         uses_saved_template=built.uses_saved_template,
-        missing_inputs=missing_inputs(
-            built.workflow,
-            _input_schemas(built.workflow),
-            sender_field="Email sender" if team_context.has_verified_email_sender(team) else NO_SENDER_FIELD,
-        ),
+        missing_inputs=_missing_inputs(team, built.workflow),
     )
     return result, validated
+
+
+def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggestion | None:
+    """The stored build. A saved draft is read again, so a deleted draft gets a new build and the blank settings
+    match the draft as it is now, for example after the team added a sender."""
+    stored = _read_build(team.id, suggestion_id, caller)
+    if stored is None or stored.workflow_id is None:
+        return stored
+    actions = team_context.saved_workflow_actions(team, stored.workflow_id)
+    if actions is None:
+        return None
+    return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
+
+
+def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
+    return missing_inputs(
+        workflow,
+        _input_schemas(workflow),
+        sender_field="Email sender" if team_context.has_verified_email_sender(team) else NO_SENDER_FIELD,
+    )
 
 
 def _input_schemas(workflow: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
