@@ -357,11 +357,11 @@ export class RequestStateResolver {
      * Many clients send the pin only on `initialize`. A later request in the same
      * session that omits the pin restores the session's saved pin and switch, so
      * it does not fall back to whatever another session left in the token cache.
-     * A session that never sent a pin stays on the token selection, even when it
-     * recorded a switch. A pin that differs in either field replaces the whole
+     * A session that never sent a pin stays on the token selection until it
+     * records a switch. A pin that differs in either field replaces the whole
      * saved pin and discards the recorded switch.
      *
-     * Without an MCP session id nothing records a switch across requests, so the
+     * Without an MCP session id or conversation id nothing records a switch across requests, so the
      * pin wins on every request and the switch tools refuse to switch.
      */
     private async resolvePinnedContext(
@@ -394,7 +394,7 @@ export class RequestStateResolver {
         if (!hasSessionState && (legacyPinOrg || legacyPinProject)) {
             throw new McpSessionResetRequiredError()
         }
-        if (!hasPin && !appliedPinOrg && !appliedPinProject) {
+        if (!hasPin && !hasSessionState) {
             return undefined
         }
 
