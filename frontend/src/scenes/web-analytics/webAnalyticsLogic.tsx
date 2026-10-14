@@ -95,7 +95,7 @@ import {
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { CompareFilter, CurrencyCode, HogQLQueryModifiers } from '../../queries/schema/schema-general'
+import type { CompareFilter, CurrencyCode, WebAnalyticsQueryModifiers } from '../../queries/schema/schema-general'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
@@ -197,7 +197,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
-    effectiveWebQueryModifiers: HogQLQueryModifiers
+    effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
     exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
@@ -263,7 +263,7 @@ export interface webAnalyticsLogicValues {
     useWebAnalyticsPrecompute: boolean | null
     warmablePresetShortId: string | null
     webAnalyticsFilters: WebAnalyticsPropertyFilters
-    webQueryModifiers: HogQLQueryModifiers
+    webQueryModifiers: WebAnalyticsQueryModifiers
     webVitalsMetricQuery: InsightVizNode<TrendsQuery>
     webVitalsPercentile: WebVitalsPercentile
     webVitalsTab: WebVitalsMetric
@@ -531,8 +531,8 @@ export interface webAnalyticsLogicActions {
     setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => {
         useWebAnalyticsPrecompute: boolean | null
     }
-    setWebQueryModifiers: (patch: HogQLQueryModifiers) => {
-        patch: HogQLQueryModifiers
+    setWebQueryModifiers: (patch: WebAnalyticsQueryModifiers) => {
+        patch: WebAnalyticsQueryModifiers
     }
     setWebVitalsPercentile: (percentile: WebVitalsPercentile) => {
         percentile: WebVitalsPercentile
@@ -725,12 +725,12 @@ export interface webAnalyticsLogicMeta {
             warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
         effectiveWebQueryModifiers: (
-            webQueryModifiers: HogQLQueryModifiers,
+            webQueryModifiers: WebAnalyticsQueryModifiers,
             featureFlags: FeatureFlagsSet
-        ) => HogQLQueryModifiers
+        ) => WebAnalyticsQueryModifiers
         tiles: (
             tilesWithoutQueryModifiers: WebAnalyticsTile[],
-            effectiveWebQueryModifiers: HogQLQueryModifiers
+            effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
         ) => WebAnalyticsTile[]
         getNewInsightUrl: (
             tiles: WebAnalyticsTile[]
@@ -843,7 +843,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => ({ useWebAnalyticsPrecompute }),
-        setWebQueryModifiers: (patch: HogQLQueryModifiers) => ({ patch }),
+        setWebQueryModifiers: (patch: WebAnalyticsQueryModifiers) => ({ patch }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -1082,14 +1082,14 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 },
             ],
             webQueryModifiers: [
-                {} as HogQLQueryModifiers,
+                {} as WebAnalyticsQueryModifiers,
                 persistConfig,
                 {
                     // A key set to `undefined` in the patch is removed, so the query falls back to the team default.
                     setWebQueryModifiers: (state, { patch }) =>
                         Object.fromEntries(
                             Object.entries({ ...state, ...patch }).filter(([, value]) => value !== undefined)
-                        ) as HogQLQueryModifiers,
+                        ) as WebAnalyticsQueryModifiers,
                 },
             ],
             useWebAnalyticsPrecompute: [
@@ -3231,13 +3231,16 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         ],
         effectiveWebQueryModifiers: [
             (s) => [s.webQueryModifiers, s.featureFlags],
-            (webQueryModifiers: HogQLQueryModifiers, featureFlags: FeatureFlagsSet): HogQLQueryModifiers =>
+            (
+                webQueryModifiers: WebAnalyticsQueryModifiers,
+                featureFlags: FeatureFlagsSet
+            ): WebAnalyticsQueryModifiers =>
                 // Stored modifiers apply only while the flag is on, so turning the flag off stops sending them.
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] ? webQueryModifiers : {},
         ],
         tiles: [
             (s) => [s.tilesWithoutQueryModifiers, s.effectiveWebQueryModifiers],
-            (tiles: WebAnalyticsTile[], effectiveWebQueryModifiers: HogQLQueryModifiers): WebAnalyticsTile[] =>
+            (tiles: WebAnalyticsTile[], effectiveWebQueryModifiers: WebAnalyticsQueryModifiers): WebAnalyticsTile[] =>
                 applyWebQueryModifiers(tiles, effectiveWebQueryModifiers),
         ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],

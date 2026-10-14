@@ -139,15 +139,13 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                                     data-attr="web-analytics-dimensional-tables-toggle"
                                     onClick={() => {
                                         setWebQueryModifiers({
-                                            useWebAnalyticsDimensionalTables:
-                                                webQueryModifiers.useWebAnalyticsDimensionalTables ? undefined : true,
+                                            useDimensionalTables: webQueryModifiers.useDimensionalTables
+                                                ? undefined
+                                                : true,
                                         })
                                     }}
                                 >
-                                    <LemonSwitch
-                                        checked={!!webQueryModifiers.useWebAnalyticsDimensionalTables}
-                                        size="xsmall"
-                                    />
+                                    <LemonSwitch checked={!!webQueryModifiers.useDimensionalTables} size="xsmall" />
                                     Use dimensional tables
                                 </ButtonPrimitive>
                             </Tooltip>

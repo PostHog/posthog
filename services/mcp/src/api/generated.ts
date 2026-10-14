@@ -2655,8 +2655,6 @@ export namespace Schemas {
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
-      /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
-      useWebAnalyticsDimensionalTables?: boolean | null;
       useWebAnalyticsPreAggregatedTables?: boolean | null;
       /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
       webAnalyticsFirstPageviewFilters?: boolean | null;
@@ -6609,6 +6607,11 @@ export namespace Schemas {
       forceSamplingRate?: SamplingRate | null;
     }
 
+    export interface WebAnalyticsQueryModifiers {
+      /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+      useDimensionalTables?: boolean | null;
+    }
+
     export interface WebStatsTableQuery {
       /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
@@ -6645,6 +6648,8 @@ export namespace Schemas {
       useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type WebAnalyticsItemKind = typeof WebAnalyticsItemKind[keyof typeof WebAnalyticsItemKind];
@@ -6722,6 +6727,8 @@ export namespace Schemas {
       useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface InsightActorsQuery {
@@ -9346,6 +9353,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type WebBotsBreakdown = typeof WebBotsBreakdown[keyof typeof WebBotsBreakdown];
@@ -9411,6 +9420,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface WebGoalsQueryResponse {
@@ -9473,6 +9484,8 @@ export namespace Schemas {
       useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface WebVitalsQuery {
@@ -9502,6 +9515,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type WebVitalsMetric = typeof WebVitalsMetric[keyof typeof WebVitalsMetric];
@@ -9587,6 +9602,8 @@ export namespace Schemas {
       useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface Filters {
@@ -9924,6 +9941,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
@@ -9988,6 +10007,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
@@ -56405,6 +56426,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface MarketingAnalyticsAttributionPathRow {
@@ -56496,6 +56519,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type MarketingAnalyticsRetentionInterval = typeof MarketingAnalyticsRetentionInterval[keyof typeof MarketingAnalyticsRetentionInterval];
@@ -56614,6 +56639,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface MarketingAnalyticsSearchConversionGoal {
@@ -56824,6 +56851,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export interface PageURL {
@@ -56884,6 +56913,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type WebAnalyticsExternalSummaryQueryResponseData = { [key: string]: unknown };
@@ -56964,6 +56995,8 @@ export namespace Schemas {
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /** Per-request switches for how web analytics serves this query. */
+      webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
     export type LogsOrderBy = typeof LogsOrderBy[keyof typeof LogsOrderBy];

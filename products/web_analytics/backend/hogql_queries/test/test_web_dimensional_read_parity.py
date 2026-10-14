@@ -22,6 +22,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
+    WebAnalyticsQueryModifiers,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -49,7 +50,7 @@ WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
-DIMENSIONAL = HogQLQueryModifiers(useWebAnalyticsDimensionalTables=True)
+OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
 
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
@@ -136,17 +137,21 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
         ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
 
-    def _query(self, breakdown: WebStatsBreakdown, properties=None) -> WebStatsTableQuery:
-        return WebStatsTableQuery(
-            dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            properties=properties or [],
-            breakdownBy=breakdown,
-            limit=100,
-        )
-
-    def _run(self, breakdown: WebStatsBreakdown, modifiers: HogQLQueryModifiers, properties=None) -> tuple[str, list]:
+    def _run(
+        self,
+        breakdown: WebStatsBreakdown,
+        modifiers: HogQLQueryModifiers | None,
+        web_query_modifiers: WebAnalyticsQueryModifiers | None,
+        properties=None,
+    ) -> tuple[str, list]:
         runner = WebStatsTableQueryRunner(
-            query=self._query(breakdown, properties),
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=properties or [],
+                breakdownBy=breakdown,
+                limit=100,
+                webQueryModifiers=web_query_modifiers,
+            ),
             team=self.team,
             modifiers=modifiers,
         )
@@ -174,9 +179,11 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
     )
     def test_dimensional_matches_v2(self, _name, properties, expected_counts):
-        v2_strategy, v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, LEGACY, properties=properties)
-        # Only the dimensional modifier: the legacy one must not be needed to reach this path.
-        dimensional_strategy, dimensional = self._run(WebStatsBreakdown.DEVICE_TYPE, DIMENSIONAL, properties=properties)
+        v2_strategy, v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, LEGACY, None, properties=properties)
+        # Only the request opt-in: the legacy modifier must not be needed to reach this path.
+        dimensional_strategy, dimensional = self._run(
+            WebStatsBreakdown.DEVICE_TYPE, None, OPT_IN, properties=properties
+        )
 
         assert v2_strategy == "stats_table_preaggregated"
         assert dimensional_strategy == "stats_table_dimensional"
@@ -185,12 +192,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
     @parameterized.expand(
         [
-            (
-                "legacy_on_falls_back_to_v2",
-                HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, useWebAnalyticsDimensionalTables=True),
-                True,
-            ),
-            ("legacy_off_falls_back_to_live", DIMENSIONAL, False),
+            ("legacy_on_falls_back_to_v2", LEGACY, True),
+            ("legacy_off_falls_back_to_live", None, False),
         ]
     )
     def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2):
@@ -204,6 +207,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 properties=[],
                 breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
                 limit=100,
+                webQueryModifiers=OPT_IN,
             ),
             modifiers=modifiers,
         )

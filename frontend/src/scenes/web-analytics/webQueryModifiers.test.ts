@@ -6,11 +6,15 @@ import { applyWebQueryModifiers } from './webQueryModifiers'
 const overview: QuerySchema = {
     kind: NodeKind.WebOverviewQuery,
     properties: [],
-    modifiers: { convertToProjectTimezone: false },
+    useWebAnalyticsPrecompute: true,
 }
 const statsTable: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.WebStatsTableQuery, properties: [], breakdownBy: WebStatsBreakdown.Page },
+}
+const trends: QuerySchema = {
+    kind: NodeKind.InsightVizNode,
+    source: { kind: NodeKind.TrendsQuery, series: [] },
 }
 
 const layout = { colSpanClassName: 'md:col-span-full' as const }
@@ -33,6 +37,7 @@ const tiles: WebAnalyticsTile[] = [
             },
         ],
     },
+    { kind: 'query', tileId: TileId.GRAPHS, layout, query: trends, insightProps },
     { kind: 'replay', tileId: TileId.REPLAY, layout },
 ]
 
@@ -41,28 +46,20 @@ describe('applyWebQueryModifiers', () => {
         expect(applyWebQueryModifiers(tiles, {})).toBe(tiles)
     })
 
-    it('merges modifiers into every query, including wrapped sources inside sections and tabs', () => {
-        const [overviewTile, sectionTile, replayTile] = applyWebQueryModifiers(tiles, {
-            useWebAnalyticsDimensionalTables: true,
+    it('sets the modifiers on web analytics queries only, including wrapped sources inside sections and tabs', () => {
+        const [overviewTile, sectionTile, trendsTile, replayTile] = applyWebQueryModifiers(tiles, {
+            useDimensionalTables: true,
         })
 
         expect(overviewTile).toMatchObject({
-            query: { modifiers: { convertToProjectTimezone: false, useWebAnalyticsDimensionalTables: true } },
+            query: { useWebAnalyticsPrecompute: true, webQueryModifiers: { useDimensionalTables: true } },
         })
         expect(sectionTile).toMatchObject({
-            tiles: [
-                {
-                    tabs: [
-                        {
-                            query: {
-                                kind: NodeKind.DataTableNode,
-                                source: { modifiers: { useWebAnalyticsDimensionalTables: true } },
-                            },
-                        },
-                    ],
-                },
-            ],
+            tiles: [{ tabs: [{ query: { source: { webQueryModifiers: { useDimensionalTables: true } } } }] }],
         })
-        expect(replayTile).toBe(tiles[2])
+        // TrendsQuery does not accept the field, so the backend would reject the whole tile.
+        expect(trendsTile).toMatchObject({ query: { source: trends.source } })
+        expect((trendsTile as { query: { source: object } }).query.source).not.toHaveProperty('webQueryModifiers')
+        expect(replayTile).toBe(tiles[3])
     })
 })

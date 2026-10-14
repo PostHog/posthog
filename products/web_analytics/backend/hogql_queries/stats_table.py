@@ -117,13 +117,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def _can_serve_preaggregated(self) -> bool:
-        if not self.modifiers or self.query.includeAvgTimeOnPage or self.query.conversionGoal:
+        if self.query.includeAvgTimeOnPage or self.query.conversionGoal:
             return False
         builder = self.preaggregated_query_builder
         if not builder.can_use_preaggregated_tables():
             return False
+        if self.modifiers and self.modifiers.useWebAnalyticsPreAggregatedTables:
+            return True
         # The dimensional check reads READY jobs from Postgres, so it runs last.
-        return bool(self.modifiers.useWebAnalyticsPreAggregatedTables) or builder.use_dimensional_tables()
+        return builder.use_dimensional_tables()
 
     def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
         if self._can_serve_preaggregated():

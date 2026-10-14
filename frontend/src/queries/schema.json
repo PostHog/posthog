@@ -30301,10 +30301,6 @@
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
                 },
-                "useWebAnalyticsDimensionalTables": {
-                    "description": "Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.",
-                    "type": "boolean"
-                },
                 "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
                 },
@@ -35574,6 +35570,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -35827,6 +35827,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["conversionGoalId", "kind", "properties"],
@@ -36032,6 +36036,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["conversionGoalId", "kind", "properties"],
@@ -36455,6 +36463,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -37128,6 +37140,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -58033,6 +58049,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties", "queryType"],
@@ -58349,6 +58369,16 @@
             },
             "type": "array"
         },
+        "WebAnalyticsQueryModifiers": {
+            "additionalProperties": false,
+            "properties": {
+                "useDimensionalTables": {
+                    "description": "Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "WebAnalyticsSampling": {
             "additionalProperties": false,
             "properties": {
@@ -58455,6 +58485,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -58629,6 +58663,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -58807,6 +58845,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59024,6 +59066,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59212,6 +59258,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59390,6 +59440,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59619,6 +59673,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -59862,6 +59920,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "metric", "percentile", "properties", "thresholds"],
@@ -60069,6 +60131,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties", "source"],

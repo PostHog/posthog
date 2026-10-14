@@ -256,14 +256,14 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         return combined
 
     def get_pre_aggregated_response(self):
-        if not self.modifiers or self.query.conversionGoal:
+        if self.query.conversionGoal:
             return None
         builder = self.preaggregated_query_builder
         if not builder.can_use_preaggregated_tables():
             return None
         # The dimensional check reads READY jobs from Postgres, so it runs last.
         use_dimensional = builder.use_dimensional_tables()
-        if not (self.modifiers.useWebAnalyticsPreAggregatedTables or use_dimensional):
+        if not (self.modifiers and self.modifiers.useWebAnalyticsPreAggregatedTables) and not use_dimensional:
             return None
 
         try:

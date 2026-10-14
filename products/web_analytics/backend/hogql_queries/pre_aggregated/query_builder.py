@@ -52,8 +52,8 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         """Serve opted-in queries from the dimensional precompute tables when both
         stats and bounces have READY data for the window; otherwise fall back to v2.
         """
-        modifiers = self.runner.modifiers
-        if not (modifiers and modifiers.useWebAnalyticsDimensionalTables):
+        web_query_modifiers = self.runner.query.webQueryModifiers
+        if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
             return False
         return bool(self._job_ids_for("stats")) and bool(self._job_ids_for("bounces"))
 

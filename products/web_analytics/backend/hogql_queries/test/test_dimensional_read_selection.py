@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import WebAnalyticsQueryModifiers
 
 from posthog.hogql import ast
 
@@ -20,7 +20,7 @@ _QB = "products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder
 
 def _runner(opted_in: bool) -> MagicMock:
     runner = MagicMock()
-    runner.modifiers = HogQLQueryModifiers(useWebAnalyticsDimensionalTables=opted_in)
+    runner.query.webQueryModifiers = WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
     runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=UTC)
     runner.query_date_range.date_to.return_value = datetime(2026, 6, 1, tzinfo=UTC)
     runner.query_compare_to_date_range = None
