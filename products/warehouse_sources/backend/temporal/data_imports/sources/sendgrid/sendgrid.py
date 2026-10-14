@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 SENDGRID_BASE_URL = "https://api.sendgrid.com/v3"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SendGridResumeConfig:
     # Full next-page URL to fetch within the current sync. Set by metadata pagination (the API
     # hands us the whole next URL) and by pre-migration saved states (which stored the offset URL
@@ -419,6 +419,7 @@ def _fanout_resource(
         child_endpoint_extra={
             "paginator": SendGridMetadataPaginator(),
             "data_selector": config.data_key,
+            "data_selector_required": True,
         },
     )
 

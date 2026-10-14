@@ -35,7 +35,7 @@ ResponseShape = Literal["array", "daily_stats"]
 STATS_DEFAULT_BACKFILL_DAYS = 365
 
 
-@dataclass
+@dataclass(frozen=False)
 class SendGridEndpointConfig:
     name: str
     path: str
