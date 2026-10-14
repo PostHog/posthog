@@ -32,6 +32,10 @@ import {
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterCategoryLayoutLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
+import {
+    LastCategoryState,
+    taxonomicFilterLastCategoryLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterLastCategoryLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
@@ -515,6 +519,7 @@ export interface taxonomicFilterLogicValues {
     eventMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
     personMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
     categoryRailPinned: boolean // taxonomicFilterCategoryLayoutLogic
+    lastCategories: LastCategoryState // taxonomicFilterLastCategoryLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     activeTab: TaxonomicFilterGroupType
@@ -555,6 +560,7 @@ export interface taxonomicFilterLogicValues {
         [k: string]: number
     }
     intentPromotedGroupType: TaxonomicFilterGroupType | null
+    lastCategory: TaxonomicFilterGroupType | null
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
     metaGroupTypes: Set<string>
@@ -793,11 +799,17 @@ export interface taxonomicFilterLogicMeta {
         }
         value: (arg: any) => any
         groupType: (arg: any) => any
+        lastCategory: (
+            lastCategories: LastCategoryState,
+            arg: any,
+            featureFlags: FeatureFlagsSet
+        ) => TaxonomicFilterGroupType | null
         activeTab: (
             explicitActiveTab: TaxonomicFilterGroupType | null,
             groupType: any,
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            metaGroupTypes: Set<string>,
+            lastCategory: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType
         currentTabIndex: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -858,6 +870,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['featureFlags'],
             taxonomicFilterCategoryLayoutLogic,
             ['categoryRailPinned'],
+            taxonomicFilterLastCategoryLogic,
+            ['lastCategories'],
             primaryEventPropertiesModel,
             ['primaryProperties'],
         ],
@@ -2420,13 +2434,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
+        lastCategory: [
+            (s) => [s.lastCategories, (_, props) => props.rememberCategoryKey, s.featureFlags],
+            (
+                lastCategories: LastCategoryState,
+                rememberCategoryKey: string | undefined,
+                featureFlags: FeatureFlagsSet
+            ): TaxonomicFilterGroupType | null =>
+                rememberCategoryKey && featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]
+                    ? (lastCategories.categoryByKey[rememberCategoryKey] ?? null)
+                    : null,
+        ],
         activeTab: [
-            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes],
+            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes, s.lastCategory],
             (
                 explicitActiveTab: TaxonomicFilterGroupType | null,
                 propsGroupType,
                 groupTypes: TaxonomicFilterGroupType[],
-                metaGroupTypes: Set<string>
+                metaGroupTypes: Set<string>,
+                lastCategory: TaxonomicFilterGroupType | null
             ): TaxonomicFilterGroupType => {
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
                     return explicitActiveTab
@@ -2440,6 +2466,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupTypes.includes(propsGroupType)
                 ) {
                     return propsGroupType
+                }
+                // Reopen on the category last chosen on this page, so building several series
+                // from one category does not mean picking that category each time.
+                if (lastCategory && groupTypes.includes(lastCategory)) {
+                    return lastCategory
                 }
                 // Otherwise lead with the All (Suggested filters) surface so reopening on an
                 // existing selection still shows recents/pinned + a cross-category search,
@@ -2607,6 +2638,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setActiveTab: ({ activeTab }) => {
+            if (props.rememberCategoryKey && values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]) {
+                taxonomicFilterLastCategoryLogic.actions.rememberCategory(props.rememberCategoryKey, activeTab)
+            }
+        },
         selectItem: ({ group, value, item, meta }) => {
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
@@ -2634,6 +2670,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     position: meta?.position,
                     query: values.searchQuery || undefined,
                     wasStale,
+                    ...(props.rememberCategoryKey && {
+                        wasOnLastCategory: !values.explicitActiveTab && values.lastCategory === values.activeTab,
+                    }),
                     ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,

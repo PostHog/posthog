@@ -177,6 +177,8 @@ export interface TaxonomicFilterProps {
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
+    /** Reopen on the category last chosen on this page. Pickers that share a key share the category. */
+    rememberCategoryKey?: string
     /** Hide the built-in search input when an external input drives the search query.
      *  Note: the pill category-dropdown affordance lives inside the built-in input,
      *  so when you hide it the host is responsible for rendering `CategoryDropdown` itself
