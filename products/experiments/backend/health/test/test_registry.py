@@ -41,7 +41,6 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
     primary_metric_count=1,
     secondary_metric_count=0,
     exposures=UNEVEN_SPLIT_TOTALS,
-    excluded_variant_keys=(),
     split_history=None,
 )
 

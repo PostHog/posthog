@@ -78,7 +78,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
         sentences=[
             _what_changed(history, effect),
             *_delay(history, effect),
-            *_consequence(ctx, history, effect),
+            *_consequence(history, effect),
             f"A sample ratio mismatch or users in more than one variant can come from {_the_change(effect, 'this')}.",
         ],
     )
@@ -118,7 +118,7 @@ def _what_changed(history: SplitHistory, effect: SplitNetEffect) -> str:
             return f"The split changed from {from_split} to {to_split} on {at}."
 
 
-def _consequence(ctx: HealthContext, history: SplitHistory, effect: SplitNetEffect) -> list[str]:
+def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
     last_at = format_change_time(effect.last.changed_at, history.team_timezone)
     the_change = _the_change(effect, "the")
     match effect.shape:
@@ -141,20 +141,19 @@ def _consequence(ctx: HealthContext, history: SplitHistory, effect: SplitNetEffe
                 f"Reset the experiment, or move its start date to {last_at}.",
             ]
         case SplitChangeShape.VARIANT_ZEROED:
-            zeroed = zeroed_variant_keys(effect.from_split, effect.to_split)
-            keys = _quoted(zeroed, conjunction="and")
-            to_exclude = [key for key in zeroed if key not in ctx.excluded_variant_keys]
-            advice = (
-                f"Exclude {_quoted(to_exclude, conjunction='and')} from the analysis in the experiment's settings, "
-                "or reset the experiment."
-                if to_exclude
-                else "Reset the experiment."
-            )
-            return [f"People who had {keys} may have switched variants, and no new users get {keys}.", advice]
-        case SplitChangeShape.REORDERED:
+            # The zeroed share goes to other variants, which moves their boundaries too. Excluding the zeroed
+            # variant from the analysis therefore leaves mixed assignments in the variants that remain.
+            keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
             return [
-                "The order decides who gets which variant, so people may have switched variants.",
-                "Restore the previous order, or reset the experiment.",
+                f"People exposed before {the_change} may have switched variants, and no new users get {keys}.",
+                f"Reset the experiment, or move its start date to {last_at}.",
+            ]
+        case SplitChangeShape.REORDERED:
+            # Restoring the order moves the people exposed since the change a second time.
+            return [
+                f"The order decides who gets which variant, so people exposed before {the_change} may have "
+                "switched variants.",
+                f"Reset the experiment, or move its start date to {last_at}.",
             ]
         case _:
             return [

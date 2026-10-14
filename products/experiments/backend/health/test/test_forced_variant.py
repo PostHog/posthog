@@ -42,7 +42,6 @@ def _context(
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,
-        excluded_variant_keys=(),
         split_history=None,
     )
 

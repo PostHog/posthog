@@ -89,7 +89,6 @@ class HealthContext:
     primary_metric_count: int
     secondary_metric_count: int
     exposures: ExposureTotals | None
-    excluded_variant_keys: tuple[str, ...]
     # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
     split_history: SplitHistory | None
 
@@ -193,6 +192,5 @@ def load_health_context(
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,
-        excluded_variant_keys=tuple(experiment.excluded_variants or ()),
         split_history=split_history,
     )

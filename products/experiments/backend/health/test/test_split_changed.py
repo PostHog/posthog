@@ -52,7 +52,6 @@ def _context(
     exposed_before_first: bool | None = True,
     exposed_between: bool | None = None,
     launched_at: datetime = LAUNCHED_AT,
-    excluded: tuple[str, ...] = (),
     archived: bool = False,
     deleted: bool = False,
 ) -> HealthContext:
@@ -73,7 +72,6 @@ def _context(
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,
-        excluded_variant_keys=excluded,
         split_history=SplitHistory(
             launched_at=launched_at,
             team_timezone="Europe/Berlin",
@@ -128,25 +126,18 @@ class TestSplitChangedMidRun(TestCase):
                 _context(THREE_WAY, BLUE_ZEROED),
                 ("variant_zeroed", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f'Variant "blue" was set to 0% on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
-                'control 50% / test 50% / blue 0%). People who had "blue" may have switched variants, and no new '
-                'users get "blue". Exclude "blue" from the analysis in the experiment\'s settings, or reset the '
-                f"experiment. {MIXED_ASSIGNMENTS}",
-            ),
-            (
-                "variant_zeroed_and_excluded",
-                _context(THREE_WAY, BLUE_ZEROED, excluded=("blue",)),
-                ("variant_zeroed", ExperimentHealthFindingSeverity.WARNING, "E3"),
-                f'Variant "blue" was set to 0% on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
-                'control 50% / test 50% / blue 0%). People who had "blue" may have switched variants, and no new '
-                f'users get "blue". Reset the experiment. {MIXED_ASSIGNMENTS}',
+                "control 50% / test 50% / blue 0%). People exposed before the change may have switched variants, "
+                f'and no new users get "blue". Reset the experiment, or move its start date to {FIRST_CHANGE}. '
+                f"{MIXED_ASSIGNMENTS}",
             ),
             (
                 "reordered",
                 _context(EVEN, _split(("test", 50), ("control", 50))),
                 ("reordered", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The order of the variants changed on {FIRST_CHANGE} (from control 50% / test 50% to test 50% / "
-                "control 50%). The order decides who gets which variant, so people may have switched variants. "
-                f"Restore the previous order, or reset the experiment. {MIXED_ASSIGNMENTS}",
+                "control 50%). The order decides who gets which variant, so people exposed before the change may "
+                f"have switched variants. Reset the experiment, or move its start date to {FIRST_CHANGE}. "
+                f"{MIXED_ASSIGNMENTS}",
             ),
             (
                 "variant_rolled_out_inside_targeted_conditions",
