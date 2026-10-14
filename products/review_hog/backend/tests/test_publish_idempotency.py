@@ -282,22 +282,26 @@ class TestPublishIdempotency(BaseTest):
 
     @parameterized.expand(
         [
-            ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review"),
-            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to"),
-            ("automatic_ready", "automatic", False, True, None),
+            ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review", False),
+            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to", False),
+            ("automatic_ready", "automatic", False, True, None, False),
             # A label review also runs for authors without automatic reviews, so it cannot promise one on ready.
-            ("label_draft", "label", True, True, None),
+            ("label_draft", "label", True, True, None, True),
+            ("comment_ready", "comment", False, True, None, True),
+            ("ui_ready", "ui", False, True, None, True),
+            ("inbox_ready", "inbox", False, True, None, False),
         ]
     )
     @patch(_PUBLISH)
     @patch(_AUTH, return_value=("tok", None))
-    def test_an_automatic_review_of_a_draft_says_when_the_next_review_runs(
+    def test_the_publish_notes_follow_the_trigger(
         self,
         _name: str,
         trigger_source: str,
         draft: bool,
         commands_on: bool,
         expected_trigger: str | None,
+        expects_reply: bool,
         _auth,
         mock_publish,
     ) -> None:
@@ -315,6 +319,7 @@ class TestPublishIdempotency(BaseTest):
         ):
             _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source=trigger_source))
 
+        assert mock_publish.call_args.kwargs["answers_request"] is expects_reply
         findings_footer = mock_publish.call_args.kwargs["findings_footer"]
         if expected_trigger is None:
             assert findings_footer == ""
