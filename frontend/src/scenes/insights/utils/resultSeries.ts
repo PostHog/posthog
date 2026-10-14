@@ -1,5 +1,11 @@
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
-import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
+import {
+    SeriesNode,
+    isActionsSeriesNode,
+    isEventsSeriesNode,
+    isGroupSeriesNode,
+    isWarehouseSeriesNode,
+} from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, isLifecycleQuery, isTrendsQuery } from '~/queries/utils'
@@ -70,19 +76,61 @@ export function getResultSeries(
 }
 
 /**
+ * The key the runner labels a series with: its event, its table, or a group's member keys joined by commas. Null for
+ * an all-events series, an action, and a group that holds an action saved without a name.
+ */
+function getSeriesKey(node: SeriesNode): string | null {
+    if (isEventsSeriesNode(node)) {
+        return node.event ?? null
+    }
+    if (isWarehouseSeriesNode(node)) {
+        return node.table_name
+    }
+    if (!isGroupSeriesNode(node)) {
+        return null
+    }
+    const memberKeys = node.nodes.map((member) =>
+        isEventsSeriesNode(member)
+            ? (member.event ?? 'All events')
+            : isActionsSeriesNode(member)
+              ? ensureStringIsNotBlank(member.name)
+              : getSeriesKey(member)
+    )
+    return memberKeys.every((key) => key !== null) ? memberKeys.join(', ') : null
+}
+
+/**
+ * The series' rename, by the rule the runner applies to `custom_name`: the custom name, or a `name` other than the
+ * key the series queries. An action's key is its database name, which the query does not hold, so only its
+ * `custom_name` counts.
+ */
+export function getResultSeriesCustomName(node: SeriesNode): string | null {
+    const customName = ensureStringIsNotBlank(node.custom_name)
+    if (customName) {
+        return customName
+    }
+    const name = ensureStringIsNotBlank(node.name)
+    return name && !isActionsSeriesNode(node) && name !== getSeriesKey(node) ? name : null
+}
+
+/**
  * A series saved without a `name` displays the raw key it queries, as the runner's label does. A nameless action
  * has no key worth showing, so it takes the name the runner resolved from the database while responses still
- * carry `action`.
+ * carry `action`. So does a group that holds a nameless action.
  */
 function withDisplayName(node: SeriesNode, result: ResultSeriesRow): SeriesNode {
     if (ensureStringIsNotBlank(node.name)) {
         return node
     }
-    if (isEventsSeriesNode(node) && node.event) {
-        return { ...node, name: node.event }
-    }
-    const actionName = isActionsSeriesNode(node) ? ensureStringIsNotBlank(result.action?.name) : null
-    return actionName ? { ...node, name: actionName } : node
+    const runnerName = ensureStringIsNotBlank(result.action?.name)
+    const name = isEventsSeriesNode(node)
+        ? node.event
+        : isGroupSeriesNode(node)
+          ? (getSeriesKey(node) ?? runnerName)
+          : isActionsSeriesNode(node)
+            ? runnerName
+            : null
+    return name ? { ...node, name } : node
 }
 
 function getRunnerMath(querySource: InsightQueryNode | null | undefined, node: SeriesNode): ResultSeriesMath {

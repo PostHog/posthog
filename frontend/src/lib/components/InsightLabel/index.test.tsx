@@ -46,8 +46,11 @@ describe('InsightLabel — hideHogQLTagWhenCustomName', () => {
         )
     }
 
-    it('hides the SQL expression tag when the flag is on, the series is named, and math is hogql', () => {
-        renderLabel({ series: hogqlSeries({ custom_name: 'Revenue' }), hideHogQLTagWhenCustomName: true })
+    it.each<[string, Partial<EventsNode>]>([
+        ['a custom name', { custom_name: 'Revenue' }],
+        ['a rename through its name', { name: 'Revenue' }],
+    ])('hides the SQL expression tag when the flag is on, the series has %s, and math is hogql', (_, overrides) => {
+        renderLabel({ series: hogqlSeries(overrides), hideHogQLTagWhenCustomName: true })
 
         expect(screen.queryByText(HOGQL_EXPRESSION)).not.toBeInTheDocument()
     })
