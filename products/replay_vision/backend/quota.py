@@ -513,23 +513,22 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
     """The org's spend against a cap the caller already resolved, so the two cannot straddle a period boundary."""
     period = cap.period
     # In-flight rows aren't in the ledger yet (receipt is written on success), so reserve their credits live,
-    # priced from the frozen snapshot model exactly as the eventual receipt will be. One created just before
-    # a period rollover settles into the next window, so it is briefly counted in neither; accepted.
+    # priced from the frozen snapshot model exactly as the eventual receipt will be. Every one counts toward
+    # the current period, even one started before rollover, because that is where its receipt will land.
     # Read before the ledger: an observation settling between the two reads is then counted twice, which
     # fails toward capped, never in neither.
     in_flight_models = Counter(
         ReplayObservation.objects.filter(
             team__organization_id=organization_id,
             status__in=IN_FLIGHT_STATUSES,
-            created_at__gte=period.start,
-            created_at__lt=period.end,
         ).values_list("scanner_snapshot__model", flat=True)
     )
-    # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
+    # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it. Bucketed by receipt
+    # write time, as billing buckets it, so the cap and the bill agree on which period a receipt belongs to.
     consumed = ReplayObservationUsage.objects.filter(
         organization_id=organization_id,
-        observation_created_at__gte=period.start,
-        observation_created_at__lt=period.end,
+        created_at__gte=period.start,
+        created_at__lt=period.end,
     ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
     reserved = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     return QuotaState(
@@ -586,10 +585,11 @@ def daily_spend_series(organization_id: UUID) -> DailySpendSeries:
     rows = (
         ReplayObservationUsage.objects.filter(
             organization_id=organization_id,
-            observation_created_at__gte=period.start,
-            observation_created_at__lt=period.end,
+            created_at__gte=period.start,
+            created_at__lt=period.end,
         )
-        .annotate(day=TruncDay("observation_created_at", tzinfo=UTC))
+        # Receipt write time, the same bucketing as the quota meter, so the days add up to its total.
+        .annotate(day=TruncDay("created_at", tzinfo=UTC))
         .values("day")
         .annotate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
         .order_by()
