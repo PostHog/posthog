@@ -1064,7 +1064,17 @@ describe('PushNotificationService', () => {
                 await send()
                 mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
 
-                for (const result of [await send(), await send()]) {
+                const rescheduled = await send()
+                // The retry can run on a pod that has not delivered with this key yet.
+                const otherPod = new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                )
+                const retried = await otherPod.executeSendPushNotification(rescheduled.invocation)
+
+                for (const result of [rescheduled, retried]) {
                     expect(result.finished).toBe(false)
                     expect(result.invocation.queueScheduledAt).toBeDefined()
                     expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))

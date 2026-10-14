@@ -228,6 +228,8 @@ function retriableTokenRejection(error: PushSendError): PushSendError {
     )
 }
 
+type PushQueueMetadata = { tries?: number; apnsKeyAccepted?: boolean }
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
@@ -285,7 +287,7 @@ export class PushNotificationService {
 
         // How many times this send has already been rescheduled after a transient failure, carried on the
         // invocation's queue metadata across reschedules.
-        const metadata = (invocation.queueMetadata as { tries?: number }) || {}
+        const metadata = (invocation.queueMetadata as PushQueueMetadata) || {}
         const tries = metadata.tries ?? 0
 
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
@@ -382,7 +384,15 @@ export class PushNotificationService {
             // routes on an undefined queue type and resumes the hog VM instead of re-running this send,
             // which pops an empty stack and throws a bytecode error, dropping the notification.
             result.invocation.queueParameters = invocation.queueParameters
-            result.invocation.queueMetadata = { ...metadata, tries: nextTries }
+            // A retry can land on a pod that has not delivered with this key yet, so carry the evidence that the key works.
+            const apnsKeyAccepted =
+                metadata.apnsKeyAccepted ||
+                retriableErrors.some((e) => e.code !== undefined && APNS_REJECTED_TOKEN_CODES.has(e.code))
+            result.invocation.queueMetadata = {
+                ...metadata,
+                tries: nextTries,
+                ...(apnsKeyAccepted ? { apnsKeyAccepted: true } : {}),
+            }
             result.invocation.queuePriority = nextTries
             // Retrying re-attempts every failed channel, so wait out the LONGEST Retry-After any channel
             // asked for; fall back to exponential backoff when none provided one.
@@ -652,9 +662,10 @@ export class PushNotificationService {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                const error = this.apnsKeyAcceptedRecently(keyFingerprint)
-                    ? retriableTokenRejection(outcome.error)
-                    : outcome.error
+                const keyAccepted =
+                    (invocation.queueMetadata as PushQueueMetadata | undefined)?.apnsKeyAccepted ||
+                    this.apnsKeyAcceptedRecently(keyFingerprint)
+                const error = keyAccepted ? retriableTokenRejection(outcome.error) : outcome.error
                 failures.push(error)
                 retriableFailure = longestRetriableFailure(retriableFailure, error)
             }
