@@ -244,6 +244,32 @@ The full search connection card appears only when no search source is connected,
 The rescan cooldown uses the server scan time. Failed plan requests can retry without a fresh scan.
 Search controls and the Search Console connection action remain available during paid sync.
 
+Source refresh failures preserve the last successful source list and retry with a bounded backoff while the onboarding flow is mounted.
+An initial connection failure offers a retry in both paid and search sections.
+The one-hour rescan cooldown uses the server's seven-day source scan timestamp; loading a cached plan does not start a new cooldown.
+A failed plan request can retry during the cooldown without forcing an event scan.
+Dashboard dismissals share Setup's restore controls; existing dashboard dismissals migrate to the shared list.
+When all detected platforms are dismissed, the card offers Restore suggestions instead of reporting no detections.
+Required tables that are missing, disabled, failed, paused, or canceled show Needs attention with a Manage source link before the first sync.
+Search date and comparison controls remain available with only Search Console connected, and Search Console can be connected while paid sources sync.
+Background source refreshes keep the Search performance table mounted.
+Manual source setup opens with the originating project in the URL.
+
+The redesigned dashboard preserves its existing source suggestions and dashboard view when source onboarding is disabled.
+
+After ad data is ready, remaining source suggestions use a compact card without first-sync messages or already-ready connections.
+Connections needing attention remain actionable beside the suggestions.
+Source setup component stories cover panel states; source onboarding stories cover only dashboard integration, independent search sources, and flag rollback.
+
+Ad and Search setup cards use the same heading size and content inset.
+Source onboarding stories cover the current dashboard; they do not add snapshots for the experimental dashboard.
+
+A missing setup plan stays in the scanning state until a request fails.
+Manual retries bypass the event scan cache, including retries without a loaded plan.
+Managed external tables count as ready only when their schema sync status is completed; self-managed mapped tables remain available directly.
+
+The source onboarding header opens the in-app feedback form directly. The legacy feedback banner remains unchanged when source onboarding is disabled.
+
 ## Bing Ads reconnection warning
 
 The `legacy-oauth-reconnect-warning` feature flag controls the reconnection banner in Marketing analytics and its settings.
