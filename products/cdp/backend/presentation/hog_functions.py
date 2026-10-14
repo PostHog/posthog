@@ -18,4 +18,5 @@ from products.cdp.backend.flag_gated_templates import (
 from products.cdp.backend.validation import (
     build_html_wrap_design as build_html_wrap_design,
     generate_template_bytecode as generate_template_bytecode,
+    validate_realtime_cohorts as validate_realtime_cohorts,
 )

@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.db import models
@@ -1209,11 +1210,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
     def _validate_realtime_cohorts(self, data: dict, team: Team) -> set[int]:
-        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member.
+        """Validate every cohort these filters reference, including inside referenced Actions.
 
         Returns the validated ids so the compiler can reject any IN COHORT operand outside them.
-        Error messages carry the id rather than the name: they surface to callers holding only
-        workflow scopes, and a name would hand them a cohort-metadata oracle.
         """
         collected = set(filter_cohort_ids(data))
         action_ids = filter_action_ids(data)
@@ -1222,25 +1221,33 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
-        cohort_ids = sorted(collected)
-        if not cohort_ids:
-            return set()
+        validate_realtime_cohorts(collected, team)
+        return collected
 
-        cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=cohort_ids, team=team, deleted=False)}
-        for cohort_id in cohort_ids:
-            cohort = cohorts.get(cohort_id)
-            if cohort is None:
-                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
-            if cohort.is_static:
-                raise serializers.ValidationError(
-                    f"Cohort {cohort_id} is a static cohort. Conditions can only use realtime cohorts."
-                )
-            if not cohort.is_flag_compatible:
-                raise serializers.ValidationError(
-                    f"Cohort {cohort_id} isn't ready for realtime evaluation. "
-                    f"Conditions can only use realtime cohorts that have finished calculating."
-                )
-        return set(cohort_ids)
+
+def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team) -> None:
+    """Reject any cohort without maintained cohort_membership rows, which would treat everyone as a non-member.
+
+    Error messages carry the id rather than the name: they surface to callers holding only workflow
+    scopes, and a name would hand them a cohort-metadata oracle.
+    """
+    ids = sorted(set(cohort_ids))
+    if not ids:
+        return
+    cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=ids, team=team, deleted=False)}
+    for cohort_id in ids:
+        cohort = cohorts.get(cohort_id)
+        if cohort is None:
+            raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
+        if cohort.is_static:
+            raise serializers.ValidationError(
+                f"Cohort {cohort_id} is a static cohort. Workflows can only use realtime cohorts."
+            )
+        if not cohort.is_flag_compatible:
+            raise serializers.ValidationError(
+                f"Cohort {cohort_id} isn't ready for realtime evaluation. "
+                f"Workflows can only use realtime cohorts that have finished calculating."
+            )
 
 
 class FunctionInputsSerializer(serializers.Serializer):

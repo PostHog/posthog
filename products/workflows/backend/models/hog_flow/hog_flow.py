@@ -60,8 +60,12 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "internal-event",
+        "cohort",
     }
 )
+
+# Membership changes a cohort trigger can start a run on.
+COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 
 # The internal events a workflow may subscribe to. The internal-events stream carries payloads
 # that each owning product gates behind its own scopes — recording content, exception detail,
