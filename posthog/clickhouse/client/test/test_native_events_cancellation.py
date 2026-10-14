@@ -1,5 +1,5 @@
-from concurrent.futures import Future, ThreadPoolExecutor
-from contextvars import copy_context
+import json
+from concurrent.futures import Future
 from threading import Event
 from typing import Any
 
@@ -11,9 +11,8 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import validated_client_query_id
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.metadata_worker import run_metadata_job
+from posthog.clickhouse.query_tagging import tag_queries
 
 
 class TestNativeEventsQueryCancellation(SimpleTestCase):
@@ -24,6 +23,12 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        worker = patch(
+            "posthog.clickhouse.native_metadata._run_metadata_process",
+            side_effect=lambda payload, _: run_metadata_job(json.loads(payload)),
+        )
+        worker.start()
+        self.addCleanup(worker.stop)
 
     @parameterized.expand([("legacy",), ("native",)])
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
@@ -55,6 +60,24 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             cancel_query_on_cluster(44, "example-query")
         self.assertFalse(legacy.done())
 
+    @parameterized.expand([("legacy",), ("native",)])
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_connection_preparation_failure_does_not_block_the_other_cluster(self, failed: str) -> None:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+        healthy: Future[bool] = Future()
+        healthy.set_result(True)
+        failure = RuntimeError("credentials unavailable")
+        with (
+            patch(
+                "posthog.clickhouse.cancel.metadata_connection",
+                side_effect=[failure, {}] if failed == "legacy" else [{}, failure],
+            ),
+            patch("posthog.clickhouse.cancel.submit_legacy_metadata", return_value=healthy),
+            patch("posthog.clickhouse.cancel.submit_native_metadata", return_value=healthy),
+        ):
+            cancel_query_on_cluster(44, "example-query")
+
     def test_legacy_cancellation_survives_native_host_setting_failure(self) -> None:
         from posthog.clickhouse.cancel import cancel_query_on_cluster
 
@@ -82,65 +105,16 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
         with (
             patch("posthog.clickhouse.cancel.submit_native_metadata", return_value=None),
-            patch("posthog.clickhouse.cancel.default_client"),
-            patch(
-                "posthog.clickhouse.cancel.sync_execute",
-                side_effect=[[("legacy.example.com", "44_example-query_12345678")], []] if legacy_found else [[]],
-            ),
+            patch("posthog.clickhouse.cancel.submit_legacy_metadata") as submit_legacy,
         ):
+            legacy: Future[bool] = Future()
+            legacy.set_result(legacy_found)
+            submit_legacy.return_value = legacy
             if legacy_found:
                 cancel_query_on_cluster(44, "example-query")
             else:
                 with self.assertRaisesRegex(RuntimeError, "Native query cancellation is busy"):
                     cancel_query_on_cluster(44, "example-query")
-
-    @override_settings(
-        CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=False
-    )
-    def test_legacy_cancellation_finishes_while_native_is_stalled_and_keeps_tags_isolated(self) -> None:
-        from posthog.clickhouse.cancel import cancel_query_on_cluster
-
-        native_started, release_native, native_finished, legacy_killed = Event(), Event(), Event(), Event()
-        native_client, legacy_client = MagicMock(), MagicMock()
-        native_client.__enter__.return_value = native_client
-        legacy_client.__enter__.return_value = legacy_client
-        tag_queries(team_id=44, name="legacy-cancel", client_query_id="example-query")
-
-        def get_client(**kwargs: object) -> MagicMock:
-            return native_client if kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER else legacy_client
-
-        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
-            if kwargs["sync_client"] is native_client:
-                self.assertIsNone(get_query_tags().team_id)
-                self.assertIsNone(get_query_tags().client_query_id)
-                get_query_tags().name = "native-thread"
-                native_started.set()
-                try:
-                    self.assertTrue(release_native.wait(3))
-                    raise RuntimeError("native unavailable")
-                finally:
-                    native_finished.set()
-            if "distributed_system_processes" in query:
-                self.assertIsNone(get_query_tags().client_query_id)
-                return [("legacy.example.com", "44_example-query_12345678")]
-            legacy_killed.set()
-            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
-
-        with (
-            patch("posthog.clickhouse.cancel.default_client", side_effect=get_client),
-            patch("posthog.clickhouse.cancel.sync_execute", side_effect=execute),
-            ThreadPoolExecutor(max_workers=1) as caller,
-        ):
-            future = caller.submit(copy_context().run, cancel_query_on_cluster, 44, "example-query")
-            try:
-                self.assertTrue(native_started.wait(1))
-                self.assertTrue(legacy_killed.wait(0.5))
-                future.result(timeout=0.5)
-                self.assertEqual(get_query_tags().name, "legacy-cancel")
-                self.assertEqual(get_query_tags().client_query_id, "example-query")
-            finally:
-                release_native.set()
-                self.assertTrue(native_finished.wait(1))
 
     @parameterized.expand(
         [
@@ -165,27 +139,25 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         from posthog.clickhouse.cancel import cancel_query_on_cluster
         from posthog.clickhouse.client.connection import default_client
 
-        metadata_ids: list[str] = []
         tag_queries(team_id=44, client_query_id=query_id)
 
-        def capture_metadata_id(_query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
-            metadata_id = validated_client_query_id()
-            assert metadata_id is not None
-            metadata_ids.append(metadata_id)
-            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
-
         with (
-            patch("posthog.clickhouse.cancel.default_client"),
-            patch("posthog.clickhouse.cancel.sync_execute", side_effect=capture_metadata_id) as execute,
+            patch("posthog.clickhouse.metadata_worker.Client") as client,
         ):
+            execute = client.return_value.__enter__.return_value.execute
+            execute.return_value = []
             cancel_query_on_cluster(44, query_id)
         with default_client(database="system") as local_client:
             for call in execute.call_args_list:
+                self.assertNotIn("query_id", call.kwargs)
+                tags = json.loads(call.kwargs["settings"]["log_comment"])
+                self.assertIsNone(tags.get("team_id"))
+                self.assertIsNone(tags.get("client_query_id"))
                 predicate = call.args[0].split("WHERE", 1)[1].split("SETTINGS", 1)[0].strip()
                 # nosemgrep: clickhouse-fstring-param-audit - predicate comes from cancellation SQL above
                 result = sync_execute(
                     f"SELECT arrayFilter(query_id -> {predicate}, %(candidates)s)",
-                    {**call.args[1], "candidates": [*candidates, *metadata_ids]},
+                    {**call.args[1], "candidates": candidates},
                     sync_client=local_client,
                 )
                 self.assertEqual(result[0][0], expected)
@@ -224,7 +196,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         legacy_client.__enter__.return_value = legacy_client
 
         def get_client(**kwargs: object) -> MagicMock:
-            return native_client if kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER else legacy_client
+            return native_client if kwargs.get("host") == "native.example.com" else legacy_client
 
         def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             if kwargs["sync_client"] is legacy_client:
@@ -243,25 +215,24 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
         with (
             override_settings(CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=fallback),
-            patch("posthog.clickhouse.cancel.default_client", side_effect=get_client) as client,
-            patch("posthog.clickhouse.cancel.sync_execute", side_effect=execute) as executed,
+            patch("posthog.clickhouse.metadata_worker.Client", side_effect=get_client) as client,
         ):
+            native_client.execute.side_effect = lambda sql, params, **kwargs: execute(
+                sql, params, sync_client=native_client, **kwargs
+            )
+            legacy_client.execute.side_effect = lambda sql, params, **kwargs: execute(
+                sql, params, sync_client=legacy_client, **kwargs
+            )
             if error:
                 with self.assertRaisesRegex(RuntimeError, error):
                     cancel_query_on_cluster(44, "example-query")
             else:
                 cancel_query_on_cluster(44, "example-query")
             self.assertTrue(native_finished.wait(1))
-        native_calls = [
-            call for call in client.call_args_list if call.kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER
-        ]
+        native_calls = [call for call in client.call_args_list if call.kwargs.get("host") == "native.example.com"]
         self.assertEqual(len(native_calls), 2 if native_result == "confirmed" else 1)
         self.assertEqual(native_calls[0].kwargs["send_receive_timeout"], 15)
-        native_kills = [
-            call
-            for call in executed.call_args_list
-            if call.kwargs["sync_client"] is native_client and "KILL" in call.args[0]
-        ]
+        native_kills = [call for call in native_client.execute.call_args_list if "KILL" in call.args[0]]
         self.assertEqual(len(native_kills), 1 if native_result == "confirmed" else 0)
         if native_kills:
             self.assertIn("SYNC", native_kills[0].args[0])

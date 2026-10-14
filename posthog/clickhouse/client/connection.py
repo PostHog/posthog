@@ -531,7 +531,7 @@ def get_pool(
     return make_ch_pool(**kwargs)
 
 
-def default_client(
+def default_client_kwargs(
     host=None,
     password=None,
     *,
@@ -543,14 +543,6 @@ def default_client(
     team_id: int | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
-    """
-    Return a bare bones client for use in places where we are only interested in general ClickHouse state
-    DO NOT USE THIS FOR QUERYING DATA
-
-    user and password override CLICKHOUSE_USER and the static CLICKHOUSE_PASSWORD, for example with a
-    dedicated user's resolved file-backed token.
-    send_receive_timeout bounds each socket read and write; None keeps the driver default.
-    """
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         # We set "system" here as we don't necessarily have a "default" database,
@@ -581,7 +573,42 @@ def default_client(
         kwargs["send_receive_timeout"] = send_receive_timeout
     if connect_timeout is not None:
         kwargs["connect_timeout"] = connect_timeout
-    return ClickHouseClient(**kwargs)
+    return kwargs
+
+
+def default_client(
+    host=None,
+    password=None,
+    *,
+    user: str | None = None,
+    database: str = "system",
+    send_receive_timeout: int | None = None,
+    connect_timeout: int | None = None,
+    workload: Workload | None = None,
+    team_id: int | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+):
+    """
+    Return a bare bones client for use in places where we are only interested in general ClickHouse state
+    DO NOT USE THIS FOR QUERYING DATA
+
+    user and password override CLICKHOUSE_USER and the static CLICKHOUSE_PASSWORD, for example with a
+    dedicated user's resolved file-backed token.
+    send_receive_timeout bounds each socket read and write; None keeps the driver default.
+    """
+    return ClickHouseClient(
+        **default_client_kwargs(
+            host=host,
+            password=password,
+            user=user,
+            database=database,
+            send_receive_timeout=send_receive_timeout,
+            connect_timeout=connect_timeout,
+            workload=workload,
+            team_id=team_id,
+            ch_user=ch_user,
+        )
+    )
 
 
 class ClickHouseChPool(ChPool):

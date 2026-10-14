@@ -10,9 +10,9 @@ from typing import Any, Optional
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload, default_client
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
+from posthog.clickhouse.native_metadata import metadata_connection, submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event.new_events_schema import get_new_events_cluster_host
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -66,17 +66,36 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         """
 
     try:
-        native_enabled = bool(get_new_events_cluster_host())
+        native_host = get_new_events_cluster_host()
     except Exception:
         logger.exception("Failed to resolve native query progress host")
-        native_enabled = False
+        native_host = None
 
-    native = (
-        submit_native_metadata(partial(_get_native_query_results, SYSTEM_PROCESSES_SQL)) if native_enabled else None
-    )
+    native = None
+    if native_host:
+        try:
+            native = submit_native_metadata(
+                {
+                    "operation": "poll",
+                    "sql": SYSTEM_PROCESSES_SQL,
+                    "cluster": CLICKHOUSE_CLUSTER,
+                    "connection": metadata_connection(native_host=native_host, polling=True),
+                },
+                polling=True,
+            )
+        except Exception:
+            logger.exception("Failed to prepare native query progress")
     try:
-        if native_enabled:
-            legacy = submit_legacy_metadata(partial(_get_legacy_query_results, SYSTEM_PROCESSES_SQL))
+        if native_host:
+            legacy = submit_legacy_metadata(
+                {
+                    "operation": "poll",
+                    "sql": SYSTEM_PROCESSES_SQL,
+                    "cluster": CLICKHOUSE_CLUSTER,
+                    "connection": metadata_connection(polling=True),
+                },
+                polling=True,
+            )
             if legacy is None:
                 raw_results = []
             else:
@@ -93,13 +112,13 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
                 ch_user=ClickHouseUser.OPS,
             )
     except Exception:
-        if not native_enabled:
+        if not native_host:
             raise
         logger.exception("Failed to poll legacy query progress")
         raw_results = []
     # Publish healthy legacy results before waiting on the separate native cluster.
     yield _format_results(raw_results)
-    if not native_enabled:
+    if not native_host:
         return
     remaining = min(3.0, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
     if native is None:
@@ -111,29 +130,6 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         native.add_done_callback(partial(_log_detached_poll, "native"))
     except Exception:
         logger.exception("Failed to poll native query progress")
-
-
-def _get_legacy_query_results(sql: str) -> list[Any]:
-    with default_client(
-        workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS, connect_timeout=1, send_receive_timeout=2
-    ) as client:
-        return sync_execute(
-            sql + ", max_execution_time=2",
-            {"cluster": CLICKHOUSE_CLUSTER},
-            workload=Workload.ONLINE,
-            ch_user=ClickHouseUser.OPS,
-            sync_client=client,
-        )
-
-
-def _get_native_query_results(sql: str) -> list[Any]:
-    with default_client(
-        workload=Workload.NEW_EVENTS_CLUSTER,
-        ch_user=ClickHouseUser.OPS,
-        connect_timeout=1,
-        send_receive_timeout=2,
-    ) as client:
-        return sync_execute(sql + ", max_execution_time=2", {"cluster": CLICKHOUSE_CLUSTER}, sync_client=client)
 
 
 def _log_detached_poll(cluster: str, future: Future[list[Any]]) -> None:

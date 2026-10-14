@@ -1,3 +1,4 @@
+import json
 from threading import Event
 
 from unittest.mock import MagicMock, patch
@@ -8,14 +9,11 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 import posthog.tasks.tasks
+from posthog.clickhouse.native_metadata import metadata_connection
 from posthog.clickhouse.workload import Workload
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_HOST
-from posthog.tasks.poll_query_performance import (
-    _get_legacy_query_results,
-    poll_query_performance,
-    query_manager_from_initial_query_id,
-)
+from posthog.tasks.poll_query_performance import poll_query_performance, query_manager_from_initial_query_id
 from posthog.tasks.tasks import Polling
 
 
@@ -28,15 +26,25 @@ class TestPollQueryPerformance(SimpleTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+        def run(payload: str, _deadline: float):
+            job = json.loads(payload)
+            return posthog.tasks.poll_query_performance.sync_execute(
+                job["sql"],
+                {"cluster": job["cluster"]},
+                workload=Workload.DEFAULT if job["connection"]["host"] == "native.example.com" else Workload.ONLINE,
+            )
+
+        worker = patch("posthog.clickhouse.native_metadata._run_metadata_process", side_effect=run)
+        worker.start()
+        self.addCleanup(worker.stop)
+
     @override_settings(CLICKHOUSE_OFFLINE_CLUSTER_HOST="offline.example.com")
     def test_legacy_probe_stays_on_online_host_when_celery_defaults_to_offline(self) -> None:
         with (
             patch("posthog.clickhouse.client.connection._default_workload", Workload.OFFLINE),
-            patch("posthog.clickhouse.client.connection.ClickHouseClient") as client,
-            patch("posthog.tasks.poll_query_performance.sync_execute", return_value=[]),
         ):
-            _get_legacy_query_results("SELECT 1 SETTINGS skip_unavailable_shards=1")
-        self.assertEqual(client.call_args.kwargs["host"], CLICKHOUSE_HOST)
+            connection = metadata_connection(polling=True)
+        self.assertEqual(connection["host"], CLICKHOUSE_HOST)
 
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_healthy_native_progress_survives_stalled_legacy_probe(self) -> None:
@@ -58,7 +66,6 @@ class TestPollQueryPerformance(SimpleTestCase):
         with (
             patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
-            patch("posthog.tasks.poll_query_performance.default_client"),
             patch(
                 "posthog.tasks.poll_query_performance.perf_counter",
                 side_effect=lambda: 10.1 if legacy_finished.is_set() else 0,
@@ -94,7 +101,6 @@ class TestPollQueryPerformance(SimpleTestCase):
             patch("posthog.tasks.poll_query_performance.perf_counter", side_effect=[0, 8.9]),
             patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
-            patch("posthog.tasks.poll_query_performance.default_client"),
         ):
             try:
                 poll_query_performance()
@@ -118,7 +124,6 @@ class TestPollQueryPerformance(SimpleTestCase):
         with (
             patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
-            patch("posthog.tasks.poll_query_performance.default_client"),
         ):
             poll_query_performance()
         latest = manager.return_value.update_clickhouse_query_progresses.call_args.args[0]
@@ -145,7 +150,6 @@ class TestPollQueryPerformance(SimpleTestCase):
         with (
             patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
-            patch("posthog.tasks.poll_query_performance.default_client"),
             patch(
                 "posthog.tasks.poll_query_performance.perf_counter", side_effect=lambda: 10 if published_legacy else 0
             ),
@@ -172,7 +176,6 @@ class TestPollQueryPerformance(SimpleTestCase):
         with (
             patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
-            patch("posthog.tasks.poll_query_performance.default_client") as client,
         ):
             if failed == "settings":
                 with patch(
@@ -188,9 +191,6 @@ class TestPollQueryPerformance(SimpleTestCase):
             self.assertIn("550e8400-e29b-41d4-a716-446655440001", query_ids)
         if failed not in ("native", "settings"):
             self.assertIn("550e8400-e29b-41d4-a716-446655440002", query_ids)
-        if failed != "settings":
-            self.assertEqual(client.call_args.kwargs["connect_timeout"], 1)
-            self.assertEqual(client.call_args.kwargs["send_receive_timeout"], 2)
 
     def test_query_manager_from_initial_query_id_succeeds(self) -> None:
         self.assertIsNotNone(query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef"))
