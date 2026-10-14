@@ -44,6 +44,9 @@ GUEST_ALLOWED: Mapping[str, frozenset[str]] = {
     "annotation": frozenset({"list", "retrieve"}),
 }
 
+# Object types that only the guest model covers. Guest checks on them go to OpenFGA; members keep the legacy path.
+GUEST_V2_OBJECT_TYPES = frozenset({"notebook", "session_recording"})
+
 _STATE_ATTRIBUTE = "_guest_state"
 _LOOKUP_ERRORS = (AttributeError, KeyError, ValueError, NotFound, Http404, ObjectDoesNotExist, PermissionDenied)
 

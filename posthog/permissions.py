@@ -35,7 +35,16 @@ from posthog.authz import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
-from posthog.guest_access import GUEST_ALLOWED, GUEST_ANY_ACTION_SCOPES, GUEST_MODE_FEATURE, guest_state_for_view
+from posthog.guest_access import (
+    GUEST_ALLOWED,
+    GUEST_ANY_ACTION_SCOPES,
+    GUEST_MODE_FEATURE,
+    GUEST_V2_OBJECT_TYPES,
+    GuestState,
+    build_guest_state,
+    guest_state_for_view,
+    remember_guest_state,
+)
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -1131,7 +1140,10 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         resource = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
-        if resource in ("dashboard", "insight"):
+        # The guest model checks guest notebooks and recordings on OpenFGA. Members keep the legacy path for them.
+        if resource in ("dashboard", "insight") or (
+            resource in GUEST_V2_OBJECT_TYPES and guest_state_for_view(request, view).enforced
+        ):
             if isinstance(object, ObjectAccessRef) and object.team_id != view.team.pk:
                 return False
             if view.action == "access_controls" and request.method not in SAFE_METHODS:
@@ -1165,6 +1177,13 @@ class AccessControlPermission(ScopeBasePermission):
             return False
 
         return True
+
+    @staticmethod
+    def _enforced_guest(request: Request, uac: UserAccessControl) -> bool:
+        cached = getattr(request, "_guest_state", None)
+        if isinstance(cached, GuestState):
+            return cached.enforced
+        return remember_guest_state(request, build_guest_state(uac.organization_membership)).enforced
 
     def has_permission(self, request, view) -> bool:
         if isinstance(request.user, SharedLinkUser):
@@ -1241,6 +1260,17 @@ class AccessControlPermission(ScopeBasePermission):
         uac = self._get_user_access_control(request, view)
         pk = view.kwargs.get("pk")
         uac.preload_access_levels(team=team, resource=cast(APIScopeObject, scope_object), resource_id=pk)
+
+        # The guest model checks guest notebooks and recordings on OpenFGA. The member check below loads the
+        # same membership first, so reading it here adds no query and keeps the query order.
+        if scope_object in GUEST_V2_OBJECT_TYPES and self._enforced_guest(request, uac):
+            if not check_object_access(request.user, team, Action.VIEW):
+                return False
+            if pk is not None or not required_level:
+                return True
+            return check_resource_category_access(
+                request.user, team, ResourceType(scope_object), Action.VIEW, require_category=False
+            )
 
         is_member = uac.check_access_level_for_object(team, required_level="member")
 

@@ -29,6 +29,7 @@ from posthog.auth import (
 )
 from posthog.authz import filter_dashboard_queryset, filter_resource_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
+from posthog.guest_access import guest_state_for_view
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -400,6 +401,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return filter_dashboard_queryset(self.request.user, queryset)
         if self.scope_object == "insight":
             return filter_resource_queryset(self.request.user, queryset, ResourceType.INSIGHT)
+        if self.scope_object == "notebook" and guest_state_for_view(self.request, self).enforced:
+            return filter_resource_queryset(self.request.user, queryset, ResourceType.NOTEBOOK)
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
