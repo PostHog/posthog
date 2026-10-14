@@ -16,6 +16,11 @@ The rules, in order. The first rule that matches gives the reason:
 6. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
    so a draft decision keeps the System One answer and the push size for calibration.
+7. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
+   `PUSH_BUDGET.burst` reviews and gets one back every `3600 / PUSH_BUDGET.per_hour` seconds. A push
+   that every rule above lets through takes a token, and a push that finds the bucket empty waits:
+   the next turn that runs reviews everything since the last reviewed head. This caps bursts of
+   pushes, and it never schedules a review on its own.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
@@ -35,6 +40,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
+from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request, matches_app_bot
@@ -49,6 +55,10 @@ SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
 SKIP_DRAFT = True
+SKIP_THROTTLED = True
+
+# Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
+PUSH_BUDGET = Budget(burst=2, per_hour=2)
 
 # The JevK5 build PostHog hosts on the ai-gateway. The study calibrated the threshold on TypeSafe's
 # `jev-latest`, so the shadow decisions must confirm it holds for this model before SKIP_SYSTEM_ONE goes on.
@@ -94,7 +104,13 @@ _NON_CODE_FILE = re.compile(
 )
 
 SkipReason = Literal[
-    "no_new_commits", "reviewhog_commits_only", "merge_only", "docs_only", "system_one_below_threshold", "draft"
+    "no_new_commits",
+    "reviewhog_commits_only",
+    "merge_only",
+    "docs_only",
+    "system_one_below_threshold",
+    "draft",
+    "throttled",
 ]
 RunReason = Literal[
     "commits_removed",
@@ -160,6 +176,8 @@ def _rule_enabled(reason: SkipReason) -> bool:
         return SKIP_DOCS_ONLY
     if reason == "draft":
         return SKIP_DRAFT
+    if reason == "throttled":
+        return SKIP_THROTTLED
     return SKIP_SYSTEM_ONE
 
 
@@ -372,6 +390,22 @@ def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDeci
         return decision
     return _matched(
         "draft",
+        own_commits=decision.own_commits,
+        probability=decision.probability,
+        model=decision.model,
+        own_code_lines=decision.own_code_lines,
+    )
+
+
+def apply_throttle(decision: PushGateDecision, *, report_id: str) -> PushGateDecision:
+    """Rule 7, last: a push that the rules before it skip takes no token. Without Redis the push runs."""
+    if decision.skip:
+        return decision
+    bucket = consume(f"reviewhog_push_budget:{report_id}", PUSH_BUDGET)
+    if isinstance(bucket, BucketUnavailable) or bucket.allowed:
+        return decision
+    return _matched(
+        "throttled",
         own_commits=decision.own_commits,
         probability=decision.probability,
         model=decision.model,

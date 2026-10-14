@@ -121,6 +121,7 @@ from products.review_hog.backend.reviewer.push_gate import (
     PushGate,
     PushGateDecision,
     apply_draft_rule,
+    apply_throttle,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
@@ -2322,13 +2323,14 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         decision = apply_draft_rule(push_decision, draft=bool(draft))
         # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
         # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
-        # drops the ready request for the head this turn gates. So a draft skip reads GitHub again as its
-        # last step, which leaves only the moment between this read and the end of the turn.
+        # drops the ready request for the head this turn gates. So a draft skip reads GitHub again after the
+        # gate's other reads, which leaves only the moment between this read and the end of the turn.
         if decision.reason == "draft" and not _pr_is_draft_now(
             input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
         ):
             draft = False
             decision = push_decision
+    decision = apply_throttle(decision, report_id=input.report_id)
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
