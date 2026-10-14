@@ -29,6 +29,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin
@@ -759,14 +760,17 @@ def _build_user_content(
 
 
 def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
-    api_key = gemini_api_key()
     try:
-        client = genai.Client(
-            api_key=api_key,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        client = replay_gemini_client(
+            lambda: genai.Client(
+                api_key=gemini_api_key(),
+                # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+                posthog_privacy_mode=True,
+                posthog_client=posthoganalytics.default_client,
+                http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+            ),
+            timeout_ms=_MODEL_CALL_TIMEOUT_MS,
+            team_id=team_id,
         )
     except Exception as e:
         raise LearnedRulesError("model client unavailable") from e

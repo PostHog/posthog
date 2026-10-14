@@ -23,6 +23,11 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
+from products.replay_vision.backend.gemini_client import (
+    GatewayGeminiClient,
+    GatewaySpendLimitError,
+    replay_gemini_client,
+)
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 
@@ -133,20 +138,29 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
 
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
-    client = genai.AsyncClient(
-        api_key=gemini_api_key(),
-        posthog_privacy_mode=True,
-        posthog_properties={"ai_product": "replay_vision", "feature": "pii_rewrite", "team_id": team_id},
+    properties = {"ai_product": "replay_vision", "feature": "pii_rewrite", "team_id": team_id}
+    routed = replay_gemini_client(
+        lambda: genai.AsyncClient(api_key=gemini_api_key(), posthog_privacy_mode=True, posthog_properties=properties),
+        team_id=team_id,
+        properties=properties,
     )
-    response = await client.models.generate_content(
-        model=_REWRITE_MODEL,
-        contents=_REWRITE_INSTRUCTIONS.format(question=question, answer=json.dumps(text, ensure_ascii=False, indent=2)),
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_Rewrite),
-        posthog_distinct_id=replay_vision_distinct_id(team_id),
-        posthog_trace_id=trace_id,
-        posthog_properties={"$ai_span_name": "pii_rewrite"},
-        posthog_groups={"project": str(team_id)},
-    )
+    gateway = routed if isinstance(routed, GatewayGeminiClient) else None
+    client: Any = gateway.aio if gateway is not None else routed
+    try:
+        response = await client.models.generate_content(
+            model=_REWRITE_MODEL,
+            contents=_REWRITE_INSTRUCTIONS.format(
+                question=question, answer=json.dumps(text, ensure_ascii=False, indent=2)
+            ),
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_Rewrite),
+            posthog_distinct_id=replay_vision_distinct_id(team_id),
+            posthog_trace_id=trace_id,
+            posthog_properties={"$ai_span_name": "pii_rewrite"},
+            posthog_groups={"project": str(team_id)},
+        )
+    finally:
+        if gateway is not None:
+            await gateway.aclose()
     rewritten = _Rewrite.model_validate_json(response.text or "{}")
     return {field: new for field in text if isinstance(new := getattr(rewritten, field), str) and new.strip()}
 
@@ -195,6 +209,9 @@ async def keep_unrequested_pii_out(
         rewritten = output.model_copy(
             update=await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
         )
+    except GatewaySpendLimitError:
+        record_pii_check("failed", scanner_type)
+        raise
     except Exception as e:
         record_pii_check("failed", scanner_type)
         raise ScannerFailureError(

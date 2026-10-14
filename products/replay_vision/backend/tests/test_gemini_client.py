@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
@@ -15,15 +15,25 @@ from google.genai import (
     types,
 )
 
-from products.replay_vision.backend import prompt_questions, scanner_draft, search_suggestions, tag_suggestions
+from products.replay_vision.backend import (
+    learned_rules,
+    prompt_questions,
+    scanner_draft,
+    search_suggestions,
+    tag_suggestions,
+)
 from products.replay_vision.backend.gemini_client import (
     GATEWAY_FLAG,
     GatewayGeminiClient,
     GatewaySpendLimitError,
+    _send_before,
+    _warn_gateway_without_dedicated_key,
     assemble_stream,
+    replay_gateway_client,
     replay_gateway_enabled,
     replay_gemini_client,
 )
+from products.replay_vision.backend.temporal import pii_check
 from products.replay_vision.backend.temporal.errors import FailureKind
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error
 
@@ -31,10 +41,21 @@ _GATEWAY = {
     "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
     "AI_GATEWAY_API_KEY": "phs_shared",
     "REPLAY_VISION_AI_GATEWAY_API_KEY": "phs_replay_vision",
+    "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
 }
 _UNSET = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "REPLAY_VISION_AI_GATEWAY_API_KEY": ""}
 _OK = {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}
 _FLAG = "products.replay_vision.backend.gemini_client.feature_enabled_or_false"
+
+
+def _gateway_error(code: int) -> dict[str, Any]:
+    # The gateway's own envelope: Google's shape plus an ErrorInfo in the posthog.com domain.
+    info = {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "forbidden", "domain": "posthog.com"}
+    return {"error": {"code": code, "message": "refused", "status": "PERMISSION_DENIED", "details": [info]}}
+
+
+def _google_error(code: int) -> dict[str, Any]:
+    return {"error": {"code": code, "message": "You do not have permission", "status": "PERMISSION_DENIED"}}
 
 
 @pytest.fixture(autouse=True)
@@ -163,7 +184,7 @@ class TestReplayGeminiClient:
 
     @pytest.mark.parametrize("code", [401, 403])
     def test_gateway_refusals_retry_as_transient(self, code: int) -> None:
-        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json={"error": {"code": code}}))
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=_gateway_error(code)))
 
         with pytest.raises(genai_errors.ServerError) as sync_error:
             client.models.generate_content(model="gemini-test", contents="hi")
@@ -186,6 +207,19 @@ class TestReplayGeminiClient:
             assert classify_gemini_error(error) == FailureKind.INTERNAL_ERROR
             assert not FailureKind.INTERNAL_ERROR.is_retryable
             assert describe_gemini_error(error) == "PostHog's AI spend limit for Replay Vision was reached"
+
+    @pytest.mark.parametrize("code", [401, 403])
+    def test_googles_own_refusals_keep_their_direct_mode_class(self, code: int) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=_google_error(code)))
+
+        with pytest.raises(genai_errors.ClientError) as sync_error:
+            client.models.generate_content(model="gemini-test", contents="hi")
+        with pytest.raises(genai_errors.ClientError) as async_error:
+            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+
+        for error in (sync_error.value, async_error.value):
+            assert error.code == code
+            assert classify_gemini_error(error) == FailureKind.PROVIDER_REJECTED
 
     @pytest.mark.parametrize("code", [400, 413])
     def test_other_client_errors_pass_through(self, code: int) -> None:
@@ -258,6 +292,77 @@ def test_prompt_questions_use_the_gateway_when_configured() -> None:
         "config"
     ].http_options.headers
     assert json.loads(request_headers["X-PostHog-Properties"])["feature"] == "prompt_question"
+
+
+def test_learned_rules_use_the_gateway_when_configured() -> None:
+    with (
+        override_settings(**_GATEWAY),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+        patch.object(learned_rules.genai, "Client") as direct_client,
+    ):
+        gateway_client.return_value.models.generate_content.side_effect = RuntimeError("stop")
+        with pytest.raises(learned_rules.LearnedRulesError):
+            learned_rules._generate(user_content="x", team_id=1, trace_id="t")
+
+    direct_client.assert_not_called()
+    assert gateway_client.call_args.kwargs["http_options"].timeout == learned_rules._MODEL_CALL_TIMEOUT_MS
+    request_headers = gateway_client.return_value.models.generate_content.call_args.kwargs[
+        "config"
+    ].http_options.headers
+    assert json.loads(request_headers["X-PostHog-Properties"])["feature"] == "learned_rules"
+
+
+def test_pii_rewrite_uses_the_gateway_when_configured_and_closes_it() -> None:
+    with (
+        override_settings(**_GATEWAY),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+        patch.object(pii_check.genai, "AsyncClient") as direct_client,
+    ):
+        sdk = gateway_client.return_value
+        sdk.aio.models.generate_content_stream = AsyncMock(side_effect=RuntimeError("stop"))
+        sdk.aio.aclose = AsyncMock()
+        with pytest.raises(RuntimeError):
+            asyncio.run(pii_check.rewrite_without_pii(team_id=1, question="q", text={"a": "b"}, trace_id="t"))
+
+    direct_client.assert_not_called()
+    request_headers = sdk.aio.models.generate_content_stream.call_args.kwargs["config"].http_options.headers
+    labels = json.loads(request_headers["X-PostHog-Properties"])
+    assert (labels["feature"], labels["span_name"]) == ("pii_rewrite", "pii_rewrite")
+    sdk.close.assert_called_once()
+    sdk.aio.aclose.assert_awaited_once()
+
+
+def test_a_spend_limit_fails_the_pii_check_as_itself() -> None:
+    output = MagicMock()
+    with (
+        patch.object(pii_check, "answer_text", return_value={"a": "my email is x@y.z"}),
+        patch.object(pii_check, "asks_for_identity", return_value=False),
+        patch.object(pii_check, "contains_pii", return_value=True),
+        patch.object(
+            pii_check, "rewrite_without_pii", AsyncMock(side_effect=GatewaySpendLimitError("AI gateway returned 402"))
+        ),
+        pytest.raises(GatewaySpendLimitError),
+    ):
+        asyncio.run(
+            pii_check.keep_unrequested_pii_out(
+                output, team_id=1, question="q", identity_values=(), scanner_type="monitor", trace_id="t"
+            )
+        )
+
+
+def test_a_draft_does_not_retry_a_spend_limit() -> None:
+    with (
+        override_settings(**_GATEWAY),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+    ):
+        gateway_client.return_value.models.generate_content.side_effect = genai_errors.ClientError(
+            402, _gateway_error(402)
+        )
+        with pytest.raises(scanner_draft.DraftError) as exc_info:
+            _call_draft()
+
+    assert gateway_client.return_value.models.generate_content.call_count == 1
+    assert isinstance(exc_info.value.__cause__, GatewaySpendLimitError)
 
 
 def test_a_stream_assembles_into_the_buffered_response() -> None:
@@ -399,6 +504,24 @@ class TestReplayVisionKey:
             assert isinstance(replay_gemini_client(MagicMock(), team_id=42), GatewayGeminiClient)
         assert gateway_client.call_args.kwargs["api_key"] == "phs_replay_vision"
 
+    def test_the_gateway_needs_replay_visions_own_google_key(self) -> None:
+        # Without it, direct cleanup would use the shared project and miss the files the gateway stores.
+        direct = MagicMock()
+        no_google_key = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": ""}
+        _warn_gateway_without_dedicated_key.cache_clear()
+        with (
+            override_settings(**no_google_key),
+            patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+            patch("products.replay_vision.backend.gemini_client.logger") as replay_logger,
+        ):
+            assert replay_gemini_client(direct, team_id=42) is direct.return_value
+            assert not replay_gateway_enabled(42)
+            assert replay_gateway_client() is None
+        gateway_client.assert_not_called()
+        replay_logger.warning.assert_called_once()
+        assert "REPLAY_VISION_GEMINI_API_KEY" in replay_logger.warning.call_args.kwargs["reason"]
+        _warn_gateway_without_dedicated_key.cache_clear()
+
     def test_the_shared_key_alone_leaves_replay_vision_direct(self) -> None:
         direct = MagicMock()
         shared_only = {**_GATEWAY, "REPLAY_VISION_AI_GATEWAY_API_KEY": ""}
@@ -416,11 +539,40 @@ class TestReplayVisionKey:
 
 class TestGatewayFilesAndCaches:
     @pytest.mark.parametrize("code", [401, 403])
-    def test_cache_refusals_retry_as_transient(self, code: int) -> None:
-        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json={"error": {"code": code}}))
-        with pytest.raises(genai_errors.ServerError) as exc_info:
+    def test_file_and_cache_refusals_retry_as_transient(self, code: int) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=_gateway_error(code)))
+        with pytest.raises(genai_errors.ServerError) as cache_error:
             asyncio.run(client.aio.caches.delete(name="cachedContents/abc"))
-        assert classify_gemini_error(exc_info.value) == FailureKind.PROVIDER_TRANSIENT
+        with pytest.raises(genai_errors.ServerError) as async_file_error:
+            asyncio.run(client.aio.files.get(name="files/abc"))
+        with pytest.raises(genai_errors.ServerError) as file_error:
+            client.files.get(name="files/abc")
+        for error in (cache_error.value, async_file_error.value, file_error.value):
+            assert classify_gemini_error(error) == FailureKind.PROVIDER_TRANSIENT
+
+    @pytest.mark.parametrize("code", [403, 404])
+    def test_a_file_google_refuses_keeps_its_direct_mode_class(self, code: int) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=_google_error(code)))
+        with pytest.raises(genai_errors.ClientError) as file_error:
+            client.files.get(name="files/abc")
+        with pytest.raises(genai_errors.ClientError) as cache_error:
+            asyncio.run(client.aio.caches.get(name="cachedContents/abc"))
+        for error in (file_error.value, cache_error.value):
+            assert classify_gemini_error(error) == FailureKind.PROVIDER_REJECTED
+
+    def test_a_spend_limit_on_a_file_call_fails_without_retrying(self) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(402, json=_gateway_error(402)))
+        with pytest.raises(GatewaySpendLimitError):
+            client.files.get(name="files/abc")
+        with pytest.raises(GatewaySpendLimitError):
+            asyncio.run(client.aio.caches.delete(name="cachedContents/abc"))
+
+    def test_aclose_closes_both_transports(self) -> None:
+        client, _ = _wired_gateway_client({})
+        api_client = client.models._client._api_client
+        asyncio.run(client.aclose())
+        assert api_client._httpx_client.is_closed
+        assert api_client._async_httpx_client.is_closed
 
     def test_file_get_reads_through_the_gateway(self) -> None:
         file_json = {
@@ -445,19 +597,72 @@ class TestGatewayFilesAndCaches:
             return httpx.Response(200, json={"file": {"name": "files/abc", "state": "PROCESSING"}})
 
         real_client = httpx.Client
-        with patch(
-            "products.replay_vision.backend.gemini_client.httpx.Client",
-            lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
-        ):
+        client_kwargs: dict[str, Any] = {}
+
+        def wired(**kw: Any) -> httpx.Client:
+            client_kwargs.update(kw)
+            return real_client(transport=httpx.MockTransport(handler), **kw)
+
+        with patch("products.replay_vision.backend.gemini_client.httpx.Client", wired):
             uploaded = client.upload_file(b"mp4-bytes", mime_type="video/mp4", display_name="wf-1")
 
         assert uploaded.name == "files/abc"
         request = seen[0]
         assert request.url == "https://ai-gateway.example/v1beta/files:upload"
-        assert request.content == b"mp4-bytes"
+        assert request.read() == b"mp4-bytes"
         assert request.headers["x-goog-api-key"] == "phs_replay_vision"
         assert request.headers["content-type"] == "video/mp4"
+        assert request.headers["content-length"] == str(len(b"mp4-bytes"))
+        assert "transfer-encoding" not in request.headers
         assert request.headers["x-goog-upload-display-name"] == "wf-1"
+        # The upload runs in a thread Temporal can't cancel, so it must end before the activity's 10 minutes.
+        assert client_kwargs["trust_env"] is False
+        timeout = client_kwargs["timeout"]
+        assert timeout.connect == 10.0 and timeout.read == 60.0 and timeout.write == 60.0
+
+    def test_upload_stops_sending_at_its_deadline(self) -> None:
+        clock = iter([0.0, 1.0, 1000.0])
+        with patch("products.replay_vision.backend.gemini_client.time.monotonic", lambda: next(clock)):
+            chunks = _send_before(b"x" * (3 << 20), deadline=180.0)
+            assert len(next(chunks)) == 1 << 20
+            assert len(next(chunks)) == 1 << 20
+            with pytest.raises(httpx.WriteTimeout):
+                next(chunks)
+        assert classify_gemini_error(httpx.WriteTimeout("deadline")) == FailureKind.PROVIDER_TRANSIENT
+
+    @pytest.mark.parametrize("code", [401, 403])
+    def test_upload_retries_a_gateway_refusal(self, code: int) -> None:
+        with override_settings(**_GATEWAY):
+            client = replay_gemini_client(MagicMock(), team_id=42)
+        assert isinstance(client, GatewayGeminiClient)
+        real_client = httpx.Client
+        transport = httpx.MockTransport(lambda _: httpx.Response(code, json=_gateway_error(code)))
+        with (
+            patch(
+                "products.replay_vision.backend.gemini_client.httpx.Client",
+                lambda **kw: real_client(transport=transport, **kw),
+            ),
+            pytest.raises(genai_errors.ServerError) as exc_info,
+        ):
+            client.upload_file(b"x", mime_type="video/mp4", display_name="wf-1")
+        assert classify_gemini_error(exc_info.value) == FailureKind.PROVIDER_TRANSIENT
+
+    @pytest.mark.parametrize("code", [401, 403])
+    def test_upload_keeps_googles_own_refusal(self, code: int) -> None:
+        with override_settings(**_GATEWAY):
+            client = replay_gemini_client(MagicMock(), team_id=42)
+        assert isinstance(client, GatewayGeminiClient)
+        real_client = httpx.Client
+        transport = httpx.MockTransport(lambda _: httpx.Response(code, json=_google_error(code)))
+        with (
+            patch(
+                "products.replay_vision.backend.gemini_client.httpx.Client",
+                lambda **kw: real_client(transport=transport, **kw),
+            ),
+            pytest.raises(genai_errors.ClientError) as exc_info,
+        ):
+            client.upload_file(b"x", mime_type="video/mp4", display_name="wf-1")
+        assert exc_info.value.code == code
 
     def test_upload_maps_a_gateway_refusal_like_a_generate_call(self) -> None:
         with override_settings(**_GATEWAY):

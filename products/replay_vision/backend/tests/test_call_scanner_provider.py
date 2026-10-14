@@ -10,6 +10,7 @@ from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
+from products.replay_vision.backend.gemini_client import GatewaySpendLimitError
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _key_moment_session_ms,
@@ -109,8 +110,8 @@ def _gateway_scan_snapshot() -> MagicMock:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mission_fails", [False, True])
-async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_it(mission_fails: bool) -> None:
+@pytest.mark.parametrize("fails", [None, "mission", "cache"])
+async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_it(fails: str | None) -> None:
     from products.replay_vision.backend.gemini_client import GatewayGeminiClient
 
     scanner = MagicMock()
@@ -118,9 +119,9 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
     scanner.assemble.return_value = (MagicMock(), [])
     gateway = MagicMock(spec=GatewayGeminiClient)
     gateway.aio = MagicMock()
-    gateway.aio.aclose = AsyncMock()
-    create_cache = AsyncMock(return_value=None)
-    attempts = AsyncMock(side_effect=RuntimeError("mission failed") if mission_fails else None, return_value={})
+    gateway.aclose = AsyncMock()
+    create_cache = AsyncMock(side_effect=RuntimeError("cache failed") if fails == "cache" else None, return_value=None)
+    attempts = AsyncMock(side_effect=RuntimeError("mission failed") if fails == "mission" else None, return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
         patch(f"{module}.replay_gemini_client", return_value=gateway),
@@ -144,10 +145,11 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
 
     # The cache and the generations both run on Replay Vision's own key, through the gateway.
     assert create_cache.call_args.args[0] is gateway
-    assert attempts.call_args.kwargs["run"].keywords["client"] is gateway.aio
+    if fails != "cache":
+        assert attempts.call_args.kwargs["run"].keywords["client"] is gateway.aio
     direct_cls.assert_not_called()
     direct_cache_cls.assert_not_called()
-    gateway.aio.aclose.assert_awaited_once()
+    gateway.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -489,6 +491,29 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
 
 
 @pytest.mark.asyncio
+async def test_a_gateway_spend_limit_on_a_non_required_step_fails_the_scan() -> None:
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
+    ]
+    client = _FakeClient([_Resp(text='{"verdict":"yes"}'), GatewaySpendLimitError("AI gateway returned HTTP 402")])
+
+    with pytest.raises(GatewaySpendLimitError):
+        await _run(client, steps)
+
+
+@pytest.mark.asyncio
+async def test_a_spend_limit_skips_the_video_cache_never_silently() -> None:
+    caches = MagicMock()
+    caches.aio.caches.create = AsyncMock(side_effect=GatewaySpendLimitError("AI gateway returned HTTP 402"))
+    with pytest.raises(GatewaySpendLimitError):
+        await _maybe_create_video_cache(caches, "models/m", types.Part(text="v"), "PRE")
+
+    caches.aio.caches.create = AsyncMock(side_effect=RuntimeError("too short to cache"))
+    assert await _maybe_create_video_cache(caches, "models/m", types.Part(text="v"), "PRE") is None
+
+
+@pytest.mark.asyncio
 async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
     steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
 
@@ -635,6 +660,13 @@ class TestRunPass:
     async def test_transient_provider_error_is_not_retried_inline(self, error: Exception) -> None:
         run, calls = self._cached_run_failing_with(error)
         with pytest.raises(type(error)):
+            await _run_pass(run=run, cache=self._Cache(), model="m")
+        assert calls == ["cache-1"]
+
+    @pytest.mark.asyncio
+    async def test_a_spend_limit_is_not_retried_inline(self) -> None:
+        run, calls = self._cached_run_failing_with(GatewaySpendLimitError("AI gateway returned HTTP 402"))
+        with pytest.raises(GatewaySpendLimitError):
             await _run_pass(run=run, cache=self._Cache(), model="m")
         assert calls == ["cache-1"]
 

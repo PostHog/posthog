@@ -21,7 +21,7 @@ import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai import types
-from google.genai.errors import APIError
+from google.genai.errors import APIError, ClientError
 from parameterized import parameterized
 from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
@@ -3696,6 +3696,7 @@ class TestUploadThroughTheGateway:
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         uri = "https://generativelanguage.googleapis.com/v1beta/files/abc"
         gateway = MagicMock()
+        gateway.aclose = AsyncMock()
         gateway.upload_file.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
         gateway.files.get.return_value = types.File(
             name="files/abc", state=types.FileState.ACTIVE, uri=uri, mime_type="video/mp4"
@@ -3718,6 +3719,63 @@ class TestUploadThroughTheGateway:
         gateway.files.get.assert_called_once_with(name="files/abc")
         raw_client.assert_not_called()
         assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
+        gateway.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_rate_limited_poll_waits_instead_of_uploading_again(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        gateway = MagicMock()
+        gateway.aclose = AsyncMock()
+        gateway.upload_file.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
+        gateway.files.get.side_effect = [
+            types.File(name="files/abc", state=types.FileState.PROCESSING),
+            ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}}),
+            types.File(name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"),
+        ]
+        sleep = AsyncMock()
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        with (
+            patch(f"{module}.replay_gateway_enabled", return_value=True),
+            patch(f"{module}.replay_gateway_client", return_value=gateway),
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+            patch(f"{module}.asyncio.sleep", sleep),
+        ):
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        assert uploaded.gemini_file_name == "files/abc"
+        gateway.upload_file.assert_called_once()
+        # The poll slows down, and waits longest after a 429.
+        assert [call.args[0] for call in sleep.await_args_list] == [0.5, 1.0, 5.0]
+
+    @pytest.mark.asyncio
+    async def test_flag_off_uploads_direct_with_the_gateway_configured(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        gateway_settings = {
+            "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
+            "REPLAY_VISION_AI_GATEWAY_API_KEY": "phs_replay_vision",
+            "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
+        }
+        with (
+            override_settings(**gateway_settings),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
+            patch("products.replay_vision.backend.gemini_client.GatewayGeminiClient") as gateway_cls,
+            patch(f"{module}.RawGenAIClient") as raw_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+        ):
+            raw_client.return_value.files.upload.return_value = types.File(
+                name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"
+            )
+            await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        raw_client.assert_called_once_with(api_key="replay-vision-google-key")
+        gateway_cls.assert_not_called()
 
 
 class TestGeminiErrorRedaction:

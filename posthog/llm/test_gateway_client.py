@@ -659,6 +659,14 @@ class TestPrivateScoutGateway:
         assert client.call_args.kwargs["base_url"] == f"https://ai-gateway.example{suffix}"
         assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
 
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY
+    )
+    def test_an_explicit_key_wins_over_the_trial_credential(self) -> None:
+        with private_scout_gateway("phe_trial_credential"):
+            config = resolve_ai_gateway_config(api_key="phs_own_key")
+        assert config == AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phs_own_key")
+
     @pytest.mark.parametrize(
         ("enabled", "url", "token"),
         [

@@ -1,6 +1,8 @@
 """Replay Vision's Gemini client: the AI gateway when enabled for the team, else Google directly with our key."""
 
+import time
 import inspect
+import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, TypeVar
@@ -8,6 +10,7 @@ from typing import Any, TypeVar
 from django.conf import settings
 
 import httpx
+import structlog
 from google.genai import errors, types
 
 from posthog.llm.gateway_client import (
@@ -23,6 +26,8 @@ from posthog.ph_client import feature_enabled_or_false
 AI_PRODUCT = "replay_vision"
 GATEWAY_FLAG = "replay-vision-ai-gateway"
 
+logger = structlog.get_logger(__name__)
+
 _DirectClientT = TypeVar("_DirectClientT")
 
 
@@ -30,10 +35,23 @@ def resolve_replay_gateway_config() -> AIGatewayConfig | None:
     """The gateway with Replay Vision's own key, whose team the gateway binds to Replay Vision's Google project.
 
     None while the key is unset, so Replay Vision stays direct without the shared key's misconfiguration warning.
+    Also None without REPLAY_VISION_GEMINI_API_KEY: direct cleanup would then use the shared project's key and
+    could not see the files the gateway stores in Replay Vision's project.
     """
     if not settings.REPLAY_VISION_AI_GATEWAY_API_KEY:
         return None
+    if not settings.REPLAY_VISION_GEMINI_API_KEY:
+        _warn_gateway_without_dedicated_key()
+        return None
     return resolve_ai_gateway_config(api_key=settings.REPLAY_VISION_AI_GATEWAY_API_KEY)
+
+
+@functools.cache
+def _warn_gateway_without_dedicated_key() -> None:
+    logger.warning(
+        "replay_vision.gateway_disabled",
+        reason="REPLAY_VISION_AI_GATEWAY_API_KEY is set but REPLAY_VISION_GEMINI_API_KEY is not",
+    )
 
 
 def replay_gateway_enabled(team_id: int) -> bool:
@@ -54,6 +72,16 @@ def replay_gateway_enabled(team_id: int) -> bool:
 # The gateway's key and policy refusals are ours to fix and clear once we do, so they retry.
 _GATEWAY_REFUSAL_CODES = frozenset({401, 403})
 _GATEWAY_SPEND_LIMIT_CODE = 402
+# The gateway marks its own errors with this ErrorInfo domain; Google's errors pass through without it.
+_GATEWAY_ERROR_DOMAIN = "posthog.com"
+
+
+def _gateway_wrote(error: errors.APIError) -> bool:
+    body = error.details.get("error") if isinstance(error.details, dict) else None
+    details = body.get("details") if isinstance(body, dict) else None
+    return isinstance(details, list) and any(
+        isinstance(detail, dict) and detail.get("domain") == _GATEWAY_ERROR_DOMAIN for detail in details
+    )
 
 
 class GatewaySpendLimitError(Exception):
@@ -67,7 +95,8 @@ def _retry_gateway_refusals() -> Iterator[None]:
     except errors.ClientError as e:
         if e.code == _GATEWAY_SPEND_LIMIT_CODE:
             raise GatewaySpendLimitError("AI gateway returned HTTP 402") from e
-        if e.code not in _GATEWAY_REFUSAL_CODES:
+        # Google's own 401/403 (a file gone, another project) keeps the class it has in direct mode.
+        if e.code not in _GATEWAY_REFUSAL_CODES or not _gateway_wrote(e):
             raise
         raise errors.ServerError(
             503,
@@ -185,8 +214,11 @@ class _GatewayAio:
         await self._client.aclose()
 
 
-# Bounds one upload through the gateway, which then runs Google's upload.
-_UPLOAD_TIMEOUT_S = 600.0
+# The upload activity has 10 minutes and keeps 300s for Google's processing wait. A thread can't be
+# cancelled, so the upload must end on its own first: send for at most 180s, then wait 60s for the reply.
+_UPLOAD_SEND_DEADLINE_S = 180.0
+_UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+_UPLOAD_CHUNK_BYTES = 1 << 20
 
 
 class GatewayGeminiClient:
@@ -196,6 +228,7 @@ class GatewayGeminiClient:
     """
 
     def __init__(self, client: Any, base_properties: Mapping[str, Any], gateway: AIGatewayConfig | None = None) -> None:
+        self._client = client
         self.models = _GatewayModels(client, base_properties)
         self.aio = _GatewayAio(client.aio, base_properties)
         self.files = _RefusalRemap(client.files)
@@ -205,18 +238,32 @@ class GatewayGeminiClient:
         """Store `data` in Replay Vision's Files API; the gateway runs Google's resumable upload."""
         if self._gateway is None:
             raise ValueError("upload_file needs the gateway config the client was built with")
-        with _retry_gateway_refusals(), httpx.Client(trust_env=False, timeout=_UPLOAD_TIMEOUT_S) as http:
+        with _retry_gateway_refusals(), httpx.Client(trust_env=False, timeout=_UPLOAD_TIMEOUT) as http:
             response = http.post(
                 f"{anthropic_gateway_base_url(self._gateway.url)}/v1beta/files:upload",
-                content=data,
+                content=_send_before(data, time.monotonic() + _UPLOAD_SEND_DEADLINE_S),
                 headers={
                     "x-goog-api-key": self._gateway.api_key,
                     "Content-Type": mime_type,
+                    "Content-Length": str(len(data)),
                     "X-Goog-Upload-Display-Name": display_name,
                 },
             )
             errors.APIError.raise_for_response(response)
         return types.File.model_validate(response.json()["file"])
+
+    async def aclose(self) -> None:
+        """Close both SDK transports; the sync one carries `files` and `models`, the async one `aio`."""
+        self._client.close()
+        await self.aio.aclose()
+
+
+def _send_before(data: bytes, deadline: float) -> Iterator[bytes]:
+    view = memoryview(data)
+    for start in range(0, len(data), _UPLOAD_CHUNK_BYTES):
+        if time.monotonic() > deadline:
+            raise httpx.WriteTimeout(f"upload passed its {_UPLOAD_SEND_DEADLINE_S:.0f}s send deadline")
+        yield bytes(view[start : start + _UPLOAD_CHUNK_BYTES])
 
 
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:

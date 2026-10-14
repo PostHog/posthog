@@ -10,6 +10,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from google.genai import (
     Client as RawGenAIClient,
+    errors,
     types,
 )
 from temporalio import activity
@@ -19,7 +20,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.gemini_client import replay_gateway_client, replay_gateway_enabled
+from products.replay_vision.backend.gemini_client import (
+    GatewayGeminiClient,
+    replay_gateway_client,
+    replay_gateway_enabled,
+)
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import (
@@ -36,6 +41,9 @@ logger = structlog.get_logger(__name__)
 
 # Activity timeout is 10 minutes; this leaves buffer for the rest of the body.
 _MAX_PROCESSING_WAIT_SECONDS = 300
+# The poll starts fast and slows down, since gateway polls share Replay Vision's rate limit with its scans.
+_POLL_FIRST_SECONDS = 0.5
+_POLL_MAX_SECONDS = 5.0
 
 
 @activity.defn(name="replay_vision_upload_video_to_gemini_activity")
@@ -89,19 +97,28 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
+    gateway = replay_gateway_client() if replay_gateway_enabled(asset.team_id) else None
+    try:
+        return await _store_video(gateway, video_bytes, asset.export_format, workflow_id)
+    finally:
+        if gateway is not None:
+            await gateway.aclose()
+
+
+async def _store_video(
+    gateway: GatewayGeminiClient | None, video_bytes: bytes, mime_type: str, workflow_id: str
+) -> UploadedVideo:
     files: Any
-    if replay_gateway_enabled(asset.team_id) and (gateway := replay_gateway_client()) is not None:
+    if gateway is not None:
         # The gateway stores the file in Replay Vision's own Google project, the one the cleanup sweep manages.
         uploaded_file = await asyncio.to_thread(
-            gateway.upload_file, video_bytes, mime_type=asset.export_format, display_name=workflow_id
+            gateway.upload_file, video_bytes, mime_type=mime_type, display_name=workflow_id
         )
         files = gateway.files
     else:
         raw_client = RawGenAIClient(api_key=gemini_api_key())
         # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
-        uploaded_file = await asyncio.to_thread(
-            _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id
-        )
+        uploaded_file = await asyncio.to_thread(_write_and_upload, raw_client, video_bytes, mime_type, workflow_id)
         files = raw_client.files
 
     if uploaded_file.name is None:
@@ -124,6 +141,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
         raise
 
     wait_start = time.time()
+    delay = _POLL_FIRST_SECONDS
     while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
         elapsed = time.time() - wait_start
         if elapsed >= _MAX_PROCESSING_WAIT_SECONDS:
@@ -131,8 +149,15 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
                 f"Gemini file {gemini_file_name} stuck in PROCESSING after {elapsed:.1f}s; left for the cleanup sweep",
                 kind=FailureKind.PROVIDER_TRANSIENT,
             )
-        await asyncio.sleep(0.5)
-        uploaded_file = await sync_to_async(files.get, thread_sensitive=False)(name=gemini_file_name)
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, _POLL_MAX_SECONDS)
+        try:
+            uploaded_file = await sync_to_async(files.get, thread_sensitive=False)(name=gemini_file_name)
+        except errors.ClientError as e:
+            # A rate-limited poll waits for the next one; failing here would upload the whole video again.
+            if e.code != 429:
+                raise
+            delay = _POLL_MAX_SECONDS
 
     final_state = uploaded_file.state.name if uploaded_file.state else None
     if final_state != "ACTIVE":
@@ -155,7 +180,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
 
     return UploadedVideo(
         file_uri=uploaded_file.uri,
-        mime_type=uploaded_file.mime_type or asset.export_format,
+        mime_type=uploaded_file.mime_type or mime_type,
         gemini_file_name=gemini_file_name,
     )
 

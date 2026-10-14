@@ -40,7 +40,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gemini_client
+from products.replay_vision.backend.gemini_client import (
+    GatewayGeminiClient,
+    GatewaySpendLimitError,
+    replay_gemini_client,
+)
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
@@ -606,11 +610,6 @@ async def _run_mission(
             posthog_properties=properties,
         )
 
-    # Through the gateway, files and caches stay in Replay Vision's own Google project, as they do direct.
-    routed = replay_gemini_client(direct_client, team_id=team_id, properties=properties)
-    gateway = routed if isinstance(routed, GatewayGeminiClient) else None
-    client: Any = gateway.aio if gateway is not None else routed
-    cache_client: Any = gateway if gateway is not None else GoogleGenAIClient(api_key=gemini_api_key())
     model = f"models/{snapshot.model}"
     metric_labels = {
         "provider": snapshot.provider,
@@ -635,7 +634,6 @@ async def _run_mission(
             record(scanner_type, snapshot.model)
         return run_lookups(plan, events_index=events_index, network_index=network_index)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
     signal_duration_s = video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds)
     network_available = network_index.has_requests()
     steps: list[MissionStep] = []
@@ -655,6 +653,11 @@ async def _run_mission(
             )
         steps.append(step)
 
+    # Through the gateway, files and caches stay in Replay Vision's own Google project, as they do direct.
+    routed = replay_gemini_client(direct_client, team_id=team_id, properties=properties)
+    gateway = routed if isinstance(routed, GatewayGeminiClient) else None
+    client: Any = gateway.aio if gateway is not None else routed
+    cache_client: Any = gateway if gateway is not None else GoogleGenAIClient(api_key=gemini_api_key())
     run = functools.partial(
         _run_steps,
         client=client,
@@ -667,13 +670,15 @@ async def _run_mission(
         trace_id=trace_id,
         look_up=look_up,
     )
+    cache = None
     try:
+        cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
     finally:
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
         if gateway is not None:
-            await gateway.aio.aclose()
+            await gateway.aclose()
 
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(
@@ -731,8 +736,8 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     record_mission_pass(model=model, path="cached")
     try:
         return await run(cache_name=cache.name)
-    except ScannerFailureError:
-        raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
+    except (ScannerFailureError, GatewaySpendLimitError):
+        raise  # a required step couldn't be satisfied, or the spend cap would refuse the re-run too.
     except Exception as exc:
         # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
         # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
@@ -790,7 +795,7 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            if step.required:
+            if step.required or isinstance(exc, GatewaySpendLimitError):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
@@ -1068,6 +1073,8 @@ async def _maybe_create_video_cache(
                 ttl=_VIDEO_CACHE_TTL,
             ),
         )
+    except GatewaySpendLimitError:
+        raise
     except Exception as e:
         logger.info("replay_vision.video_cache.skipped", error=str(e))
         return None

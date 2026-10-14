@@ -41,7 +41,7 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.facade.replay import targetable_experiments
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.gemini_client import replay_gemini_client
+from products.replay_vision.backend.gemini_client import GatewaySpendLimitError, replay_gemini_client
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -662,6 +662,9 @@ def _generate(
 
     try:
         response = call_model()
+    except GatewaySpendLimitError as e:
+        # A second attempt would meet the same spend limit.
+        raise DraftError("model_call_failed") from e
     except Exception:
         # One immediate second attempt: the user is sitting on this request, and a transient
         # provider blip shouldn't cost them the draft.

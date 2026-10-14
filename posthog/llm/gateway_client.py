@@ -617,7 +617,7 @@ def build_gemini_client(
     Return None when the gateway pair is unset or malformed; the caller then keeps its direct Google client.
     The client skips the posthoganalytics wrapper because the gateway captures the generation itself.
     ``gateway`` overrides the shared config for a caller with its own credential. The gateway serves files and
-    caches only to a team bound to its own Google key; for every other team, media goes inline.
+    caches only to a team bound to its own Google key, and refuses a file or cache reference from any other team.
     """
     gateway = gateway or resolve_ai_gateway_config()
     if gateway is None:
