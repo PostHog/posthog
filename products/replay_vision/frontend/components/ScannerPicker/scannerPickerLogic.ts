@@ -46,7 +46,7 @@ export const scannerPickerLogic = kea<scannerPickerLogicType>([
         scanners: [
             [] as ReplayScannerApi[],
             {
-                loadScanners: async (_, breakpoint): Promise<ReplayScannerApi[]> => {
+                loadScanners: async (_: void, breakpoint): Promise<ReplayScannerApi[]> => {
                     if (!values.currentTeamId) {
                         return []
                     }
