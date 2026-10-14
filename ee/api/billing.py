@@ -1,8 +1,9 @@
 import re
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
-from typing import Any, NoReturn, Optional, Self, cast
+from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -125,15 +126,21 @@ class BillingManagedByProviderError(APIException):
     default_detail = "Billing for this organization is managed outside PostHog. Contact support to change your plan."
     default_type = "invalid_request"
 
-    @classmethod
-    def from_billing_refusal(cls, error: BillingServiceResponseError) -> Self | None:
+
+@contextmanager
+def translate_managed_by_provider_refusal() -> Iterator[None]:
+    try:
+        yield
+    except BillingServiceResponseError as error:
         body = error.body
-        if error.status_code != status.HTTP_400_BAD_REQUEST or not isinstance(body, dict):
-            return None
-        if body.get("code") != cls.default_code:
-            return None
+        if (
+            error.status_code != status.HTTP_400_BAD_REQUEST
+            or not isinstance(body, dict)
+            or body.get("code") != BillingManagedByProviderError.default_code
+        ):
+            raise
         message = body.get("error")
-        return cls(message if isinstance(message, str) and message else None)
+        raise BillingManagedByProviderError(message if isinstance(message, str) and message else None) from error
 
 
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -715,12 +722,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        try:
+        with translate_managed_by_provider_refusal():
             res = billing_manager.activate_subscription(organization, request.data)
-        except BillingServiceResponseError as error:
-            if managed_by_provider := BillingManagedByProviderError.from_billing_refusal(error):
-                raise managed_by_provider from error
-            raise
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
@@ -789,14 +792,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         billing_manager = self.get_billing_manager()
         try:
-            res = billing_manager._get_stripe_portal_url(organization)
-        except BillingServiceResponseError as error:
-            managed_by_provider = BillingManagedByProviderError.from_billing_refusal(error)
-            if managed_by_provider is None:
-                raise
+            with translate_managed_by_provider_refusal():
+                res = billing_manager._get_stripe_portal_url(organization)
+        except BillingManagedByProviderError:
             invoices_url = vercel_invoices_url(organization)
             if invoices_url is None:
-                raise managed_by_provider from error
+                raise
             return redirect(invoices_url)
         return redirect(res)
 
@@ -914,12 +915,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        try:
+        with translate_managed_by_provider_refusal():
             res = billing_manager.authorize(organization)
-        except BillingServiceResponseError as error:
-            if managed_by_provider := BillingManagedByProviderError.from_billing_refusal(error):
-                raise managed_by_provider from error
-            raise
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
