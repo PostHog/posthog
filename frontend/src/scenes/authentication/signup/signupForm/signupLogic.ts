@@ -425,6 +425,7 @@ export const signupLogic = kea<signupLogicType>([
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
                 actions.setPasskeyError(null)
+                actions.setSignupPanelAuthManualErrors({})
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -476,6 +477,11 @@ export const signupLogic = kea<signupLogicType>([
                             : values.validatedPassword.feedback || undefined
                         : undefined,
             }),
+            // Same reason as the email panel: a manual error left behind by the server would block
+            // every later submit of this form.
+            preSubmit: () => {
+                actions.setSignupPanelAuthManualErrors({})
+            },
             submit: async () => {
                 actions.setPanel(2)
             },
@@ -567,6 +573,17 @@ export const signupLogic = kea<signupLogicType>([
                         const message = Array.isArray(emailError) ? String(emailError[0]) : String(emailError)
                         actions.setSignupPanelEmailManualErrors({ email: message })
                         actions.setPanel(0)
+                        return
+                    }
+
+                    // The strength meter fails open while its zxcvbn chunk is loading, so a password it
+                    // never scored can reach the server and be refused there. Send the user back to the
+                    // password step.
+                    if (error.attr === 'password') {
+                        actions.setSignupPanelAuthManualErrors({
+                            password: String(error.detail || 'Please choose a stronger password'),
+                        })
+                        actions.setPanel(1)
                         return
                     }
 
