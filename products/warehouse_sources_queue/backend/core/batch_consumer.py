@@ -134,7 +134,7 @@ def _is_admin_shutdown_error(error: BaseException) -> bool:
 # worker can roll out ahead of the migration completing, so this is a self-healing race, not a
 # bug — the sweep already retries every interval, and the query succeeds once the migration
 # lands. Mirrors the schema-lag handling in posthog/tasks/alerts/utils.py and
-# products/tasks/backend/loop_retention.py.
+# products/tasks/backend/task_auto_archive.py.
 def _is_schema_lag_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable)
 

@@ -4509,10 +4509,10 @@ Today (6): `customers`, `estimates`, `invoices`, `jobs`, `payments`, `projects`
 
 Diffed against: <https://help.fieldpulse.com/openapi/fieldpulse-api.json>
 
-- [ ] `Company users (GET /users)` — resolve customer assignees and job member IDs for technician productivity and revenue attribution (high)
-- [ ] `Job status workflows and statuses (GET /jobs/status-workflows; GET /jobs/status-workflow-statuses)` — resolve status_workflow_id and status_id on jobs for completion and workload analysis (high)
-- [ ] `Pipeline statuses (GET /pipeline-status)` — resolve pipeline_status_id on customers for sales funnel and conversion analysis (high)
-- [ ] `Lead sources (GET /lead-source)` — resolve lead_source_id on customers to measure acquisition channels and resulting revenue (high)
+- [x] `Company users (GET /users)` — resolve customer assignees and job member IDs for technician productivity and revenue attribution (high)
+- [x] `Job status workflows and statuses (GET /jobs/status-workflows; GET /jobs/status-workflow-statuses)` — resolve status_workflow_id and status_id on jobs for completion and workload analysis (high)
+- [x] `Pipeline statuses (GET /pipeline-status)` — resolve pipeline_status_id on customers for sales funnel and conversion analysis (high)
+- [x] `Lead sources (GET /lead-source)` — resolve lead_source_id on customers to measure acquisition channels and resulting revenue (high)
 - [ ] `Company teams (GET /teams)` — resolve team assignments on jobs and customers to compare team performance (high)
 - [ ] `Invoice items (GET /items)` — resolve item references and compare products, costs, and billed quantities across invoices (high)
 - [ ] `Tags (GET /tags)` — resolve customer tag IDs into named segments for conversion and revenue analysis (high)
@@ -10253,10 +10253,10 @@ Today (12): `agent`, `agent_endpoint`, `call`, `chat`, `issue`, `knowledge_base`
 
 Diffed against: <https://docs.roark.ai/llms.txt>
 
-- [ ] `call/list-call-metrics (GET /calls/{id}/metrics)` — the scored per-call metric values - the product's headline output and the only numeric quality data (high)
-- [ ] `metric-collection-job/get-metric-values-produced-by-a-metric-collection-job` — metric values per collection job, giving metric history over time rather than only the latest run (high)
+- [x] `call/list-call-metrics (GET /calls/{id}/metrics)` — the scored per-call metric values - the product's headline output and the only numeric quality data (high)
+- [x] `metric-collection-job/get-metric-values-produced-by-a-metric-collection-job` — metric values per collection job, giving metric history over time rather than only the latest run (high)
 - [ ] `call/list-call-evaluation-runs` — pass/fail evaluation results per call, the row grain quality dashboards are built on (high)
-- [ ] `call/get-call-transcript` — turn-level transcript for the calls already synced; enables text and duration analysis (high)
+- [x] `call/get-call-transcript` — turn-level transcript for the calls already synced; enables text and duration analysis (high)
 - [ ] `call/list-call-sentiment-runs` — sentiment scores and key phrases per call, a standard breakdown dimension (high)
 - [ ] `chat/list-chat-metrics` — the chat-channel equivalent of call metrics; chats are synced but their scores are not (medium)
 - [ ] `chat/get-chat-transcript` — message-level content under the chats already synced (medium)
