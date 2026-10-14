@@ -34,7 +34,7 @@ from products.replay_vision.backend.gemini_client import (
     replay_gemini_client,
 )
 from products.replay_vision.backend.temporal import pii_check
-from products.replay_vision.backend.temporal.errors import FailureKind
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error
 
 _GATEWAY = {
@@ -332,22 +332,38 @@ def test_pii_rewrite_uses_the_gateway_when_configured_and_closes_it() -> None:
     sdk.aio.aclose.assert_awaited_once()
 
 
-def test_a_spend_limit_fails_the_pii_check_as_itself() -> None:
+@pytest.mark.parametrize(
+    "error,raised",
+    [
+        (GatewaySpendLimitError("AI gateway returned 402"), GatewaySpendLimitError),
+        (genai_errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE"}}), genai_errors.ServerError),
+        (
+            genai_errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}}),
+            genai_errors.ClientError,
+        ),
+        (httpx.ConnectError("reset"), httpx.ConnectError),
+        (genai_errors.ClientError(400, {"error": {"code": 400, "status": "INVALID_ARGUMENT"}}), ScannerFailureError),
+        (ValueError("bad output"), ScannerFailureError),
+    ],
+)
+def test_a_failed_pii_rewrite_keeps_a_transient_or_spend_limit_class(
+    error: BaseException, raised: type[BaseException]
+) -> None:
     output = MagicMock()
     with (
         patch.object(pii_check, "answer_text", return_value={"a": "my email is x@y.z"}),
         patch.object(pii_check, "asks_for_identity", return_value=False),
         patch.object(pii_check, "contains_pii", return_value=True),
-        patch.object(
-            pii_check, "rewrite_without_pii", AsyncMock(side_effect=GatewaySpendLimitError("AI gateway returned 402"))
-        ),
-        pytest.raises(GatewaySpendLimitError),
+        patch.object(pii_check, "rewrite_without_pii", AsyncMock(side_effect=error)),
+        pytest.raises(raised) as exc_info,
     ):
         asyncio.run(
             pii_check.keep_unrequested_pii_out(
                 output, team_id=1, question="q", identity_values=(), scanner_type="monitor", trace_id="t"
             )
         )
+    if isinstance(exc_info.value, ScannerFailureError):
+        assert exc_info.value.kind == FailureKind.PII_DETECTED
 
 
 def test_a_draft_does_not_retry_a_spend_limit() -> None:
@@ -619,6 +635,16 @@ class TestGatewayFilesAndCaches:
         assert client_kwargs["trust_env"] is False
         timeout = client_kwargs["timeout"]
         assert timeout.connect == 10.0 and timeout.read == 60.0 and timeout.write == 60.0
+
+    def test_upload_and_processing_wait_fit_the_activity_timeout(self) -> None:
+        from products.replay_vision.backend import gemini_client
+        from products.replay_vision.backend.temporal.activities import upload_video_to_gemini
+
+        t = gemini_client._UPLOAD_TIMEOUT
+        assert t.connect is not None and t.write is not None and t.read is not None
+        upload = t.connect + gemini_client._UPLOAD_SEND_DEADLINE_S + t.write + t.read
+        wait = upload_video_to_gemini._MAX_PROCESSING_WAIT_SECONDS + upload_video_to_gemini._POLL_MAX_SECONDS
+        assert upload + wait < 600
 
     def test_upload_stops_sending_at_its_deadline(self) -> None:
         clock = iter([0.0, 1.0, 1000.0])

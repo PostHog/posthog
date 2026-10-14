@@ -215,8 +215,8 @@ class _GatewayAio:
 
 
 # The upload activity has 10 minutes and keeps 300s for Google's processing wait. A thread can't be
-# cancelled, so the upload must end on its own first: send for at most 180s, then wait 60s for the reply.
-_UPLOAD_SEND_DEADLINE_S = 180.0
+# cancelled, so the upload ends on its own within 280s: 10s connect, 150s send plus one 60s chunk, 60s reply.
+_UPLOAD_SEND_DEADLINE_S = 150.0
 _UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 _UPLOAD_CHUNK_BYTES = 1 << 20
 

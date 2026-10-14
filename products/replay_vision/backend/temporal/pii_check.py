@@ -23,13 +23,9 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
-from products.replay_vision.backend.gemini_client import (
-    GatewayGeminiClient,
-    GatewaySpendLimitError,
-    replay_gemini_client,
-)
+from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gemini_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
 
 logger = structlog.get_logger(__name__)
 
@@ -209,11 +205,11 @@ async def keep_unrequested_pii_out(
         rewritten = output.model_copy(
             update=await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
         )
-    except GatewaySpendLimitError:
-        record_pii_check("failed", scanner_type)
-        raise
     except Exception as e:
         record_pii_check("failed", scanner_type)
+        # A spend limit or a transient provider failure keeps its own class, so Temporal stops or retries.
+        if classify_gemini_error(e) in (FailureKind.PROVIDER_TRANSIENT, FailureKind.INTERNAL_ERROR):
+            raise
         raise ScannerFailureError(
             "The answer included personal data the scanner didn't ask for, and it could not be removed.",
             kind=FailureKind.PII_DETECTED,

@@ -45,6 +45,9 @@ _MAX_PROCESSING_WAIT_SECONDS = 300
 _POLL_FIRST_SECONDS = 0.5
 _POLL_MAX_SECONDS = 5.0
 
+# Set once the direct key, which cleanup and the sweep use, has read a file the gateway stored.
+_cleanup_key_sees_gateway_files = False
+
 
 @activity.defn(name="replay_vision_upload_video_to_gemini_activity")
 @track_activity()
@@ -139,6 +142,8 @@ async def _store_video(
         except Exception:
             logger.exception("replay_vision.upload_video_to_gemini.rollback_delete_failed")
         raise
+    if gateway is not None:
+        await _check_cleanup_key_sees(gateway, gemini_file_name)
 
     wait_start = time.time()
     delay = _POLL_FIRST_SECONDS
@@ -183,6 +188,32 @@ async def _store_video(
         mime_type=uploaded_file.mime_type or mime_type,
         gemini_file_name=gemini_file_name,
     )
+
+
+async def _check_cleanup_key_sees(gateway: GatewayGeminiClient, name: str) -> None:
+    """Fail the scan when the direct key cannot read a file the gateway stored: cleanup could not delete it."""
+    global _cleanup_key_sees_gateway_files
+    if _cleanup_key_sees_gateway_files:
+        return
+    raw_client = RawGenAIClient(api_key=gemini_api_key())
+    try:
+        await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=name)
+    except errors.ClientError as e:
+        if e.code not in (403, 404):
+            raise
+        logger.exception(
+            "replay_vision.upload_video_to_gemini.cleanup_key_mismatch",
+            gemini_file_name=name,
+            detail="REPLAY_VISION_GEMINI_API_KEY must reach the Google project bound to REPLAY_VISION_AI_GATEWAY_API_KEY",
+        )
+        try:
+            await sync_to_async(gateway.files.delete, thread_sensitive=False)(name=name)
+        except Exception:
+            logger.exception("replay_vision.upload_video_to_gemini.mismatch_delete_failed", gemini_file_name=name)
+        raise ScannerFailureError(
+            "Replay Vision's Gemini keys reach different Google projects", kind=FailureKind.INTERNAL_ERROR
+        ) from e
+    _cleanup_key_sees_gateway_files = True
 
 
 def _write_and_upload(raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str) -> types.File:
