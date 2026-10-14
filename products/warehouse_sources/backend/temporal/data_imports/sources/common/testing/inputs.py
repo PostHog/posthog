@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import structlog
 from structlog.types import FilteringBoundLogger
 
@@ -20,6 +22,7 @@ def source_inputs(
     reset_pipeline: bool = False,
     api_version: str | None = None,
     logger: FilteringBoundLogger | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -43,4 +46,5 @@ def source_inputs(
         logger=logger if logger is not None else structlog.get_logger(_LOGGER_NAME),
         reset_pipeline=reset_pipeline,
         api_version=api_version,
+        shutdown_wait=shutdown_wait,
     )
