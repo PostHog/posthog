@@ -320,6 +320,7 @@ def complete_training_run(
     distillation: str = "",
     report_notebook_short_id: str = "",
     reader_summary: str | None = None,
+    headline: str | None = None,
     next_steps: list[str] | None = None,
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
@@ -341,6 +342,7 @@ def complete_training_run(
             distillation=distillation,
             report_notebook_short_id=_verified_report_notebook(current, report_notebook_short_id),
             reader_summary=reader_summary,
+            headline=headline,
             next_steps=next_steps,
         )
 
@@ -561,6 +563,7 @@ def _finalize_under_lock(
     distillation: str,
     report_notebook_short_id: str,
     reader_summary: str | None,
+    headline: str | None,
     next_steps: list[str] | None,
 ) -> dict[str, Any]:
     # Re-fetch under lock and re-check status inside the transaction. Both callers (the
@@ -684,6 +687,7 @@ def _finalize_under_lock(
         report_notebook_short_id=report_notebook_short_id,
     )
     training_run.reader_summary = reader_summary
+    training_run.headline = headline
     training_run.next_steps = next_steps
     training_run.save(
         update_fields=[
@@ -692,6 +696,7 @@ def _finalize_under_lock(
             "best_holdout_score",
             "summary",
             "reader_summary",
+            "headline",
             "next_steps",
             "completed_at",
         ]

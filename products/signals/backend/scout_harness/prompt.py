@@ -859,6 +859,7 @@ Your skill is a canonical PostHog-authored skill that runs on many projects, and
 # only the objects this scout's token can actually write, so it can never steer a run at a tool the
 # MCP server refuses it.
 _WRITE_ACCESS_OBJECTS: dict[str, str] = {
+    "notebook:write": "notebooks",
     "dashboard:write": "dashboards and their tiles",
     "insight:write": "saved insights",
     "annotation:write": "annotations",
@@ -877,8 +878,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     """Compose the write-access section, or empty for a scout holding no grant.
 
     A scout with no grant must not see this section at all: naming an object it cannot write
-    would earn it a refused tool call, and the fleet posture is already described where it
-    applies.
+    would earn it a refused tool call.
     """
     granted = [_WRITE_ACCESS_OBJECTS[scope] for scope in write_scopes if scope in _WRITE_ACCESS_OBJECTS]
     if not granted:
@@ -923,7 +923,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     )
     return f"""# Write access
 
-Someone granted this scout write access to {listing} in this project, on top of what every scout can write. So where your skill body asks you to fix something of that kind, fix it rather than only describing the fix.
+This scout has write access to {listing} in this project. So where your skill body asks you to fix something of that kind, fix it rather than only describing the fix.
 
 - **Only what your skill body asks for.** The grant is what you MAY change, not a list of chores. A run that changes nothing is the normal outcome when nothing your skill watches for is wrong.
 - **The access is project-wide.** It reaches every object of that kind here, including ones people made by hand and ones another scout maintains. Change what your skill body points you at, and leave the rest alone.{annotation_reach}{skill_reach}{scanner_reach}{task_reach}{canvas_reach}

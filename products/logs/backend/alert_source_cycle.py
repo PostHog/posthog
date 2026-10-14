@@ -185,12 +185,37 @@ def window_end_of(evaluation_key: str) -> datetime | None:
         return None
 
 
+@frozen
+class _QueryShape:
+    """The part of `_cohort_key` a configuration fixes. Checks that differ here never share a query."""
+
+    window_minutes: object
+    evaluation_periods: int
+    projection_eligible: bool
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "_QueryShape":
+        return cls(
+            window_minutes=check.condition.get("window_minutes"),
+            evaluation_periods=check.evaluation_periods,
+            projection_eligible=is_projection_eligible(check.source_config),
+        )
+
+
+def _schedule_group(check: PlatformAlertCheckInput) -> str:
+    # The platform puts a team's checks with one group in one slot and spreads different groups
+    # across slots, so one batch rarely holds more cohorts than `MAX_COHORTS_PER_CYCLE`.
+    shape = _QueryShape.of(check)
+    return f"{shape.window_minutes}:{shape.evaluation_periods}:{shape.projection_eligible}"
+
+
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
+    shape = _QueryShape.of(check)
     return (
-        LogsAlertCondition.of(check).window_minutes,
-        check.evaluation_periods,
+        shape.window_minutes,
+        shape.evaluation_periods,
         check.check_interval_minutes,
-        is_projection_eligible(check.source_config),
+        shape.projection_eligible,
         resolve_alert_date_to(check.next_check_at or now, checkpoint),
     )
 
@@ -325,6 +350,8 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
         disable=disable,
+        # A broken alert is never discovered again, so its slot does not matter.
+        schedule_group=None if outcome.new_state == AlertState.BROKEN else _schedule_group(check),
     )
 
 
