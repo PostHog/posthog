@@ -1732,8 +1732,11 @@ def _sandbox_bound_task_id(request) -> UUID | None:
 
 def _writer_has_open_network(request: Request, team_id: int) -> bool:
     if is_sandbox_oauth_request(request):
-        token_id = getattr(get_oauth_access_token(request), "id", None)
-        return token_id is not None and tasks_facade.sandbox_token_has_open_network(team_id, token_id)
+        token = get_oauth_access_token(request)
+        token_id = getattr(token, "id", None)
+        return token_id is not None and tasks_facade.sandbox_token_has_open_network(
+            team_id, token_id, task_id=getattr(token, "sandbox_task_id", None)
+        )
     return get_oauth_access_token(request) is None or is_interactive_desktop_grant(request)
 
 
@@ -3032,16 +3035,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             stored_sha256 = artifact.get(tasks_facade.ARTIFACT_SCRIPT_SHA256_KEY)
             script_digest = stored_sha256 if isinstance(stored_sha256, str) else None
         else:
-            content, error = tasks_facade.read_task_run_living_artifact_version(
+            preview, error = tasks_facade.describe_task_run_living_artifact_version(
                 pk, task_id, self.team_id, artifact_id=artifact_id, version=version
             )
             if (
                 error is not None
-                or content is None
-                or not tasks_facade.is_html_artifact(content.name, content.content_type)
+                or preview is None
+                or not tasks_facade.is_html_artifact(preview.name, preview.content_type)
             ):
                 raise NotFound()
-            script_digest = content.script_sha256
+            script_digest = preview.script_sha256
         scripts_available = script_digest is not None
         if run_scripts and not scripts_available:
             raise PermissionDenied(

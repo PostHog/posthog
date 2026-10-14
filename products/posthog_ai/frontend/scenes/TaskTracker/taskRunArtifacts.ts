@@ -77,10 +77,8 @@ export function artifactPreviewKind(
             return 'none'
         }
         const kind = fileKind(artifact)
-        if (kind === 'html') {
-            return kind
-        }
-        return (artifact.size ?? 0) <= LIVING_PREVIEW_MAX_BYTES && (kind === 'image' || kind === 'video')
+        return (artifact.size ?? 0) <= LIVING_PREVIEW_MAX_BYTES &&
+            (kind === 'image' || kind === 'video' || kind === 'html')
             ? kind
             : 'none'
     }

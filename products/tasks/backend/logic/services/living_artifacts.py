@@ -37,7 +37,7 @@ from posthog.utils import absolute_uri
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
 from products.tasks.backend.constants import ARTIFACT_OPEN_NETWORK_WRITER_KEY, ARTIFACT_SCRIPT_SHA256_KEY
-from products.tasks.backend.facade.contracts import LivingArtifactVersionContent
+from products.tasks.backend.facade.contracts import LivingArtifactVersionContent, LivingArtifactVersionPreview
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -178,7 +178,14 @@ def create_living_artifact(
 
 
 def _source_runs_scripts(content: ArtifactContent) -> bool:
-    return content.source_artifact is None or isinstance(content.source_artifact.get(ARTIFACT_SCRIPT_SHA256_KEY), str)
+    if content.source_artifact is None:
+        return True
+    digest = content.source_artifact.get(ARTIFACT_SCRIPT_SHA256_KEY)
+    return (
+        isinstance(digest, str)
+        and content.content_bytes is not None
+        and hashlib.sha256(content.content_bytes).hexdigest() == digest
+    )
 
 
 def edit_living_artifact(
@@ -453,6 +460,38 @@ def _stored_version_size(resolved: LivingVersionLocation) -> int | None:
     return length if isinstance(length, int) else None
 
 
+def _describe_resolved_version(
+    artifact: TaskArtifact, resolved: LivingVersionLocation, *, require_known_size: bool
+) -> LivingArtifactVersionPreview | None:
+    written_with_open_network = resolved.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
+    if resolved.storage_path:
+        size = _stored_version_size(resolved)
+        if size is None and require_known_size:
+            return None
+        if size is not None and size > LIVING_VERSION_PREVIEW_MAX_BYTES:
+            raise LivingArtifactVersionTooLarge()
+        stored_sha256 = resolved.record.get("content_sha256")
+        script_sha256 = stored_sha256 if written_with_open_network and isinstance(stored_sha256, str) else None
+    else:
+        text = resolved.record.get("content")
+        if not isinstance(text, str):
+            return None
+        script_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest() if written_with_open_network else None
+    return LivingArtifactVersionPreview(
+        name=artifact.name, content_type=resolved.content_type, script_sha256=script_sha256
+    )
+
+
+def describe_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionPreview | None:
+    """Return the name, type and script digest of one version without reading stored bytes.
+
+    Returns None when the version is unknown or keeps no content. A stored version above the preview
+    limit raises LivingArtifactVersionTooLarge.
+    """
+    resolved = resolve_living_artifact_version(artifact, version)
+    return None if resolved is None else _describe_resolved_version(artifact, resolved, require_known_size=True)
+
+
 def read_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionContent | None:
     """Return the content of one version, or None when the version is unknown or keeps no content.
 
@@ -463,33 +502,21 @@ def read_living_artifact_version(artifact: TaskArtifact, version: int) -> Living
     resolved = resolve_living_artifact_version(artifact, version)
     if resolved is None:
         return None
-    written_with_open_network = resolved.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
-
+    preview = _describe_resolved_version(artifact, resolved, require_known_size=False)
+    if preview is None:
+        return None
     if resolved.storage_path:
-        stored_sha256 = resolved.record.get("content_sha256")
-        size = _stored_version_size(resolved)
-        if size is not None and size > LIVING_VERSION_PREVIEW_MAX_BYTES:
-            raise LivingArtifactVersionTooLarge()
         payload = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
         if payload is None:
             return None
-        return LivingArtifactVersionContent(
-            name=artifact.name,
-            content_type=resolved.content_type,
-            content=payload,
-            script_sha256=stored_sha256 if written_with_open_network and isinstance(stored_sha256, str) else None,
-        )
-
-    text = resolved.record.get("content")
-    if isinstance(text, str):
-        content = text.encode("utf-8")
-        return LivingArtifactVersionContent(
-            name=artifact.name,
-            content_type=resolved.content_type,
-            content=content,
-            script_sha256=hashlib.sha256(content).hexdigest() if written_with_open_network else None,
-        )
-    return None
+    else:
+        payload = str(resolved.record.get("content")).encode("utf-8")
+    return LivingArtifactVersionContent(
+        name=preview.name,
+        content_type=preview.content_type,
+        content=payload,
+        script_sha256=preview.script_sha256,
+    )
 
 
 # The task part of TaskRun.get_artifact_s3_prefix. Keep the two formats the same.

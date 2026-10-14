@@ -10392,10 +10392,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("edit_of_an_open_file", "upload_edit", True),
-            ("edit_of_a_restricted_file", "upload_edit", False),
-            ("living_copy_of_an_open_file", "living_copy", True),
-            ("living_copy_of_a_restricted_file", "living_copy", False),
+            ("edit_of_an_open_file", "upload_edit", "match", True),
+            ("edit_of_a_restricted_file", "upload_edit", None, False),
+            ("desktop_edit_of_an_open_file", "upload_edit_without_base", "match", True),
+            ("desktop_edit_of_a_restricted_file", "upload_edit_without_base", None, False),
+            ("living_copy_of_an_open_file", "living_copy", "match", True),
+            ("living_copy_of_a_restricted_file", "living_copy", None, False),
+            ("living_copy_of_an_open_file_replaced_after_save", "living_copy", "stale", False),
         ]
     )
     @override_settings(
@@ -10410,7 +10413,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self,
         _name,
         writer,
-        base_runs_scripts,
+        base_record,
+        expected_scripts,
         mock_integration_for_mapping,
         _mock_tag,
         _mock_write,
@@ -10431,12 +10435,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "source": "agent_output",
                 "content_type": "text/html",
                 "storage_path": f"{run.get_artifact_s3_prefix()}/{base_id[:8]}_report.html",
-                **({"script_sha256": hashlib.sha256(html).hexdigest()} if base_runs_scripts else {}),
+                **(
+                    {"script_sha256": hashlib.sha256(html if base_record == "match" else b"<p>Saved</p>").hexdigest()}
+                    if base_record
+                    else {}
+                ),
             }
         ]
         run.save(update_fields=["artifacts"])
         runs_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}"
-        if writer == "upload_edit":
+        if writer in ("upload_edit", "upload_edit_without_base"):
             edit_id = uuid.uuid4().hex
             saved = self.client.post(
                 f"{runs_path}/artifacts/finalize_upload/",
@@ -10448,7 +10456,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                             "type": "output",
                             "storage_path": f"{run.get_artifact_s3_prefix()}/{edit_id[:8]}_report.html",
                             "content_type": "text/html",
-                            "base_artifact_id": base_id,
+                            **({"base_artifact_id": base_id} if writer == "upload_edit" else {}),
                         }
                     ]
                 },
@@ -10488,7 +10496,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview = self.client.get(api_path)
 
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        self.assertEqual(preview.json()["scripts_available"], base_runs_scripts)
+        self.assertEqual(preview.json()["scripts_available"], expected_scripts)
 
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]

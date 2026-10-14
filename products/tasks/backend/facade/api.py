@@ -4459,8 +4459,10 @@ def finalize_task_run_artifact_uploads(
         script_sha256 = None
         base_artifact_id = artifact.get("base_artifact_id")
         base_entry = next((e for e in manifest if e.get("id") == base_artifact_id), None) if base_artifact_id else None
-        base_runs_scripts = base_artifact_id is None or (
-            base_entry is not None and isinstance(base_entry.get(ARTIFACT_SCRIPT_SHA256_KEY), str)
+        earlier_versions = [e for e in manifest if e.get("name") == safe_name]
+        base_runs_scripts = (base_artifact_id is None or base_entry is not None) and all(
+            isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str)
+            for e in [*([base_entry] if base_entry else []), *earlier_versions]
         )
         if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
             uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
@@ -4587,6 +4589,40 @@ def read_task_run_living_artifact_version(
     if content is None:
         return None, "not_found"
     return content, None
+
+
+def describe_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionPreview | None, str | None]:
+    """Describe one living artifact version for a preview, without reading its stored bytes.
+
+    Returns ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the artifact or version
+    isn't found or keeps no content, ``(None, "too_large")`` if a stored version is over the preview limit,
+    else ``(preview, None)``.
+    """
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        LivingArtifactVersionTooLarge,
+        describe_living_artifact_version,
+        get_task_artifact_for_run,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return None, "not_found"
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        preview = describe_living_artifact_version(artifact, version)
+    except LivingArtifactVersionTooLarge:
+        return None, "too_large"
+    if preview is None:
+        return None, "not_found"
+    return preview, None
 
 
 def presign_task_run_living_artifact_version_download(
@@ -4817,8 +4853,12 @@ def _run_has_open_network(run: TaskRun) -> bool:
     )
 
 
-def sandbox_token_has_open_network(team_id: int, token_id: UUID | int | str) -> bool:
+def sandbox_token_has_open_network(
+    team_id: int, token_id: UUID | int | str, *, task_id: UUID | str | None = None
+) -> bool:
     runs = TaskRun.objects.filter(team_id=team_id, state__sandbox_oauth_token_ids__contains=[str(token_id)])
+    if task_id is not None:
+        runs = runs.filter(task_id=task_id)
     checked = False
     for run in runs.select_related("task"):
         if not _run_has_open_network(run):

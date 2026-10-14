@@ -1066,6 +1066,13 @@ class LivingArtifactVersionContent:
 
 
 @dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionPreview:
+    name: str
+    content_type: str
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
 class LivingArtifactVersionDownload:
     url: str | None
     error: Literal["not_found", "not_stored", "unavailable"] | None

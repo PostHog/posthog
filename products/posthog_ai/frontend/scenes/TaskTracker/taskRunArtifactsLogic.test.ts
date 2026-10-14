@@ -143,6 +143,32 @@ describe('taskRunArtifactsLogic', () => {
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 
+    it('downloads HTML source only when an edit starts from the preview', async () => {
+        runArtifacts = [
+            {
+                id: 'html-1',
+                name: 'interactive.html',
+                type: 'output',
+                source: 'agent_output',
+                content_type: 'text/html',
+                storage_path: 'tasks/artifacts/html-1',
+                uploaded_at: '2026-09-28T18:00:00Z',
+            },
+        ]
+        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toFinishAllListeners()
+        expect(global.fetch).not.toHaveBeenCalledWith(
+            expect.stringContaining('/artifacts/download/'),
+            expect.anything()
+        )
+
+        await expectLogic(logic, () => logic.actions.startEditing()).toFinishAllListeners()
+
+        expect(logic.values.editSession).toMatchObject({ baseArtifactId: 'html-1', original: '# Report' })
+    })
+
     it('loads the selected HTML preview once and retries failures only on request', async () => {
         runArtifacts = ['interactive.html', 'second.html'].map((name, index) => ({
             id: `html-${index + 1}`,
@@ -186,7 +212,7 @@ describe('taskRunArtifactsLogic', () => {
         logic.actions.ensureSelectedText()
         expect(pending).toHaveLength(2)
         await expectLogic(logic, () => respond(1, 'second'))
-            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toDispatchActions(['fetchHtmlPreviewSuccess'])
             .toMatchValues({
                 htmlPreviewLoading: false,
                 htmlPreview: expect.objectContaining({ artifactId: 'html-2' }),
@@ -199,7 +225,7 @@ describe('taskRunArtifactsLogic', () => {
         const secondArtifact = logic.values.selectedArtifact as RunArtifact
         logic.actions.loadHtmlPreview(secondArtifact)
         await expectLogic(logic, () => respond(2, 'failed', 503))
-            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toDispatchActions(['fetchHtmlPreviewSuccess'])
             .toMatchValues({
                 htmlPreviewLoading: false,
                 htmlPreview: expect.objectContaining({ url: null, error: expect.any(String) }),
@@ -226,6 +252,18 @@ describe('taskRunArtifactsLogic', () => {
             scriptsAvailable: true,
             scriptsError: null,
         })
+
+        logic.actions.runHtmlPreviewScripts(secondArtifact)
+        logic.actions.selectArtifact('interactive.html')
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(8)
+        respond(7, 'first-again')
+        await expectLogic(logic, () => respond(6, 'late-scripts')).toFinishAllListeners()
+        expect(logic.values.htmlPreview).toMatchObject({
+            artifactId: 'html-1',
+            url: expect.stringContaining('/task-preview/first-again/'),
+        })
+        expect(logic.values.htmlPreviewLoading).toBe(false)
     })
 
     it.each([

@@ -6,8 +6,9 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 from django.http import Http404, HttpRequest, HttpResponse
+from django.utils.connection import ConnectionProxy
 from django.utils.html import escape
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -18,6 +19,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import TASK_RUN_ARTIFACT_MAX_SIZE_BYTES
 
 PREVIEW_TOKEN_TTL_SECONDS = 300
+
+cache = ConnectionProxy(caches, "task_artifact_preview")
 
 
 def _cache_key(token: str) -> str:

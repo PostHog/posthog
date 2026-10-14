@@ -218,11 +218,13 @@ function HtmlScriptsBar({
     loading,
     onRunScripts,
     onStopScripts,
+    onReload,
 }: {
     preview: ArtifactHtmlPreview
     loading: boolean
     onRunScripts: () => void
     onStopScripts: () => void
+    onReload: () => void
 }): JSX.Element {
     const message = preview.scriptsError
         ? preview.scriptsError
@@ -241,11 +243,21 @@ function HtmlScriptsBar({
             <Text size="xs" render={<span />} className="min-w-0">
                 {message}
             </Text>
+            <Button
+                size="xs"
+                variant="outline"
+                className="ml-auto shrink-0"
+                disabled={loading}
+                onClick={onReload}
+                data-attr="task-artifact-reload-preview"
+            >
+                Reload
+            </Button>
             {(preview.scriptsEnabled || preview.scriptsAvailable) && (
                 <Button
                     size="xs"
                     variant="outline"
-                    className="ml-auto shrink-0"
+                    className="shrink-0"
                     loading={loading}
                     onClick={preview.scriptsEnabled ? onStopScripts : onRunScripts}
                     data-attr={preview.scriptsEnabled ? 'task-artifact-stop-scripts' : 'task-artifact-run-scripts'}
@@ -459,11 +471,10 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         htmlPreview,
         htmlPreviewLoading,
     } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { ensureSelectedText, loadArtifactText, loadHtmlPreview, runHtmlPreviewScripts } = useActions(
-        taskRunArtifactsLogic({ taskId })
-    )
+    const { ensureSelectedText, fetchHtmlPreview, loadArtifactText, loadHtmlPreview, runHtmlPreviewScripts } =
+        useActions(taskRunArtifactsLogic({ taskId }))
     useEffect(() => {
-        ensureSelectedText()
+        ensureSelectedText(mode === 'source')
     }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, mode, ensureSelectedText])
     if (!selectedArtifact || !selectedKind) {
         return null
@@ -549,6 +560,9 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
                     loading={htmlPreviewLoading}
                     onRunScripts={() => runHtmlPreviewScripts(selectedArtifact)}
                     onStopScripts={() => loadHtmlPreview(selectedArtifact)}
+                    onReload={() =>
+                        fetchHtmlPreview({ artifact: selectedArtifact, scripts: htmlPreview.scriptsEnabled })
+                    }
                 />
                 <div className="min-h-0 flex-1">
                     <SandboxedHtmlFrame

@@ -67,7 +67,10 @@ The server records this on the manifest entry or the living artifact version at 
 A sandbox agent gets the network access of the run that its token belongs to.
 A person, through a session, a personal API key, or a PostHog Desktop grant, gets full access.
 Any other OAuth application gets no access.
-An edit records full access only when its base version has it: a finalized upload names its base with `base_artifact_id`, a living artifact edit uses the current version, and a living artifact copied from a run file uses that file.
+An edit records full access only when its base version has it.
+A finalized upload checks the version it names in `base_artifact_id` and every earlier file with the same name in the run, so a client that does not send `base_artifact_id` still cannot unlock scripts.
+A living artifact edit checks the current version.
+A living artifact copied from a run file checks that file, and the copied bytes must still match its hash.
 A file from a Slack thread, a file written before this record existed, or a file from any other write path has no record and stays static.
 Because the record belongs to the artifact, it does not matter which run or task holds the file, so an agent cannot get scripts by writing into another run or task.
 A run with no sandbox environment counts as full access.
