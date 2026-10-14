@@ -10273,7 +10273,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertTrue(static.json()["scripts_available"])
         static_preview = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")
         static_csp = static_preview["Content-Security-Policy"]
-        self.assertIn('<iframe sandbox="" ', static_preview.content.decode())
+        self.assertIn('<iframe sandbox="" ', b"".join(static_preview.streaming_content).decode())
         self.assertIn("sandbox;", static_csp)
         self.assertIn("script-src 'none'", static_csp)
         self.assertNotIn("allow-scripts", static_csp)
@@ -10288,11 +10288,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
 
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        served_page = b"".join(preview.streaming_content).decode()
         self.assertIn(
             f'<iframe sandbox="allow-scripts" title="Artifact" srcdoc="{escape(mock_read_bytes.return_value.decode())}">',
-            preview.content.decode(),
+            served_page,
         )
-        self.assertNotIn(mock_read_bytes.return_value.decode(), preview.content.decode())
+        self.assertNotIn(mock_read_bytes.return_value.decode(), served_page)
         self.assertEqual(preview["Cache-Control"], "no-store")
         self.assertIn("sandbox allow-scripts", preview["Content-Security-Policy"])
         self.assertIn("script-src 'unsafe-inline'", preview["Content-Security-Policy"])
@@ -10383,7 +10384,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             minted = self.client.get(api_path)
             self.assertEqual(minted.status_code, status.HTTP_200_OK)
             served = self.client.get(urlsplit(minted.json()["url"]).path, HTTP_HOST="usercontent.example")
-            self.assertIn(escape(mock_read_bytes.return_value.decode()), served.content.decode())
+            self.assertIn(escape(mock_read_bytes.return_value.decode()), b"".join(served.streaming_content).decode())
             return served["Content-Security-Policy"]
 
         self.assertIn("sandbox allow-scripts", served_csp())
@@ -10396,6 +10397,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("edit_of_a_restricted_file", "upload_edit", None, False),
             ("desktop_edit_of_an_open_file", "upload_edit_without_base", "match", True),
             ("desktop_edit_of_a_restricted_file", "upload_edit_without_base", None, False),
+            ("inline_upload_over_an_open_file", "inline_upload", "match", True),
+            ("inline_upload_over_a_restricted_file", "inline_upload", None, False),
             ("living_copy_of_an_open_file", "living_copy", "match", True),
             ("living_copy_of_a_restricted_file", "living_copy", None, False),
             ("living_copy_of_an_open_file_replaced_after_save", "living_copy", "stale", False),
@@ -10435,6 +10438,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "source": "agent_output",
                 "content_type": "text/html",
                 "storage_path": f"{run.get_artifact_s3_prefix()}/{base_id[:8]}_report.html",
+                "uploaded_at": "2026-09-28T18:00:00Z",
                 **(
                     {"script_sha256": hashlib.sha256(html if base_record == "match" else b"<p>Saved</p>").hexdigest()}
                     if base_record
@@ -10444,7 +10448,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
         ]
         run.save(update_fields=["artifacts"])
         runs_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}"
-        if writer in ("upload_edit", "upload_edit_without_base"):
+        if writer == "inline_upload":
+            saved = self.client.post(
+                f"{runs_path}/artifacts/",
+                {
+                    "artifacts": [
+                        {"name": "report.html", "type": "output", "source": "agent_output", "content": html.decode()}
+                    ]
+                },
+                format="json",
+            )
+            api_path = f"{runs_path}/artifacts/{saved.json()['artifacts'][-1]['id']}/preview/"
+        elif writer in ("upload_edit", "upload_edit_without_base"):
             edit_id = uuid.uuid4().hex
             saved = self.client.post(
                 f"{runs_path}/artifacts/finalize_upload/",
@@ -10518,7 +10533,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview_path = urlsplit(minted.json()["url"]).path
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        self.assertIn(escape(versions[1]["content"]), preview.content.decode())
+        self.assertIn(escape(versions[1]["content"]), b"".join(preview.streaming_content).decode())
         self.assertEqual(self.client.get(f"{api_path}?version=1").status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(self.client.get(f"{api_path}?version={'9' * 21}").status_code, status.HTTP_400_BAD_REQUEST)
 

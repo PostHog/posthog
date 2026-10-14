@@ -2,14 +2,14 @@ import re
 import json
 import hashlib
 import secrets
+from collections.abc import Iterator
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import caches
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, StreamingHttpResponse
 from django.utils.connection import ConnectionProxy
-from django.utils.html import escape
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.csp_middleware import app_frame_ancestor_sources
@@ -110,17 +110,29 @@ def _task_html_artifact_preview_csp(*, scripts: bool) -> str:
     )
 
 
-def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> str:
-    return (
+SHIM_CHUNK_BYTES = 1024 * 1024
+_HTML_ATTRIBUTE_ESCAPES = ((b"&", b"&amp;"), (b"<", b"&lt;"), (b">", b"&gt;"), (b'"', b"&quot;"), (b"'", b"&#x27;"))
+
+
+def _escape_html_attribute(chunk: bytes) -> bytes:
+    for raw, entity in _HTML_ATTRIBUTE_ESCAPES:
+        chunk = chunk.replace(raw, entity)
+    return chunk
+
+
+def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> Iterator[bytes]:
+    yield (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}</style>"
-        f'</head><body><iframe sandbox="{"allow-scripts" if scripts else ""}" title="Artifact" '
-        f'srcdoc="{escape(content.decode("utf-8", errors="replace"))}"></iframe></body></html>'
-    )
+        f'</head><body><iframe sandbox="{"allow-scripts" if scripts else ""}" title="Artifact" srcdoc="'
+    ).encode()
+    for start in range(0, len(content), SHIM_CHUNK_BYTES):
+        yield _escape_html_attribute(content[start : start + SHIM_CHUNK_BYTES])
+    yield b'"></iframe></body></html>'
 
 
 @xframe_options_exempt
-def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
+def task_artifact_preview(request: HttpRequest, token: str) -> StreamingHttpResponse:
     from products.canvas.backend.facade.api import ARTIFACT_PERMISSIONS_POLICY, require_artifact_host
 
     require_artifact_host(request.get_host())
@@ -148,7 +160,9 @@ def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
     if error is not None or content is None or len(content) > TASK_RUN_ARTIFACT_MAX_SIZE_BYTES:
         raise Http404
     scripts = claims.script_digest is not None and hashlib.sha256(content).hexdigest() == claims.script_digest
-    response = HttpResponse(_task_html_artifact_shim(content, scripts=scripts), content_type="text/html; charset=utf-8")
+    response = StreamingHttpResponse(
+        _task_html_artifact_shim(content, scripts=scripts), content_type="text/html; charset=utf-8"
+    )
     response["Content-Disposition"] = "inline"
     response["Cache-Control"] = "no-store"
     response["Referrer-Policy"] = "no-referrer"

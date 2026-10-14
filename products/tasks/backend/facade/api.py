@@ -4149,6 +4149,10 @@ def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storag
     )
 
 
+def _earlier_versions_run_scripts(manifest: list[dict], name: str) -> bool:
+    return all(isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str) for e in manifest if e.get("name") == name)
+
+
 def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
     run.artifacts = manifest
     run.save(update_fields=["artifacts", "updated_at"])
@@ -4223,7 +4227,10 @@ def upload_task_run_artifacts(
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
         uploaded_ids = {entry["id"] for entry in uploaded}
         manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
-        manifest.extend(uploaded)
+        for entry in uploaded:
+            if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(manifest, entry["name"]):
+                del entry[ARTIFACT_SCRIPT_SHA256_KEY]
+            manifest.append(entry)
         _save_artifact_manifest(run, manifest)
 
     if uploaded_by == "agent":
@@ -4459,10 +4466,10 @@ def finalize_task_run_artifact_uploads(
         script_sha256 = None
         base_artifact_id = artifact.get("base_artifact_id")
         base_entry = next((e for e in manifest if e.get("id") == base_artifact_id), None) if base_artifact_id else None
-        earlier_versions = [e for e in manifest if e.get("name") == safe_name]
-        base_runs_scripts = (base_artifact_id is None or base_entry is not None) and all(
-            isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str)
-            for e in [*([base_entry] if base_entry else []), *earlier_versions]
+        base_runs_scripts = (
+            (base_artifact_id is None or base_entry is not None)
+            and (base_entry is None or isinstance(base_entry.get(ARTIFACT_SCRIPT_SHA256_KEY), str))
+            and _earlier_versions_run_scripts(manifest, safe_name)
         )
         if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
             uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
