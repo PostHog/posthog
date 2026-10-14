@@ -50,6 +50,8 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         return self.ENDPOINT.format(team_id=team_id or self.team.id)
 
     def test_returns_digest_shape(self):
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
         with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             _create_pageview(self.team, distinct_id="user_1", url="https://example.com/", timestamp="2025-01-25")
@@ -68,6 +70,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
             "top_pages",
             "top_sources",
             "goals",
+            "metadata",
             "dashboard_url",
         }
         assert set(data["visitors"].keys()) == {"current", "previous", "change"}
@@ -75,6 +78,9 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(data["top_sources"], list)
         assert isinstance(data["goals"], list)
         assert "/web" in data["dashboard_url"]
+        assert data["metadata"]["timezone"] == "Asia/Tokyo"
+        assert data["metadata"]["date_from"] == "2025-01-22T00:00:00+09:00"
+        assert data["metadata"]["date_to"].endswith("+09:00")
 
     def test_empty_team_returns_zero_metrics(self):
         with time_machine.travel(QUERY_TIMESTAMP, tick=False):

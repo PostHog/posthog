@@ -18,7 +18,13 @@ export { messageRatingsLogic } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
-export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
+export {
+    getThinkingMessageFromResponse,
+    getRandomThinkingMessage,
+    getWebSearchResultsByToolUseId,
+    THINKING_MESSAGES,
+} from '../utils/thinkingMessages'
+export type { WebSearchResultsByToolUseId } from '../utils/thinkingMessages'
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
@@ -88,4 +94,6 @@ export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPane
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
 export { composerSeedLogic } from '../logics/composerSeedLogic'
+export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
+export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'

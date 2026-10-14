@@ -2,12 +2,18 @@ import './SampleDataState.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { BarChart, LineChart, PieChart } from '@posthog/quill-charts'
-import type { BarChartConfig, LineChartConfig, PieChartConfig, Series } from '@posthog/quill-charts'
+import { BarChart, LineChart, PieChart, ProportionBar } from '@posthog/quill-charts'
+import type {
+    BarChartConfig,
+    LineChartConfig,
+    PieChartConfig,
+    ProportionBarConfig,
+    Series,
+} from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
@@ -17,7 +23,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
-export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'funnel' | 'number' | 'table'
+export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'proportionBar' | 'funnel' | 'number' | 'table'
 
 const WEEK_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const LINE_SERIES: Series[] = [
@@ -49,6 +55,7 @@ const NO_TOOLTIP = { enabled: false } as const
 const LINE_CONFIG: LineChartConfig = { showGrid: true, showCrosshair: true, tooltip: NO_TOOLTIP }
 const BAR_CONFIG: BarChartConfig = { barCornerRadius: 2, tooltip: NO_TOOLTIP }
 const PIE_CONFIG: PieChartConfig = { tooltip: NO_TOOLTIP }
+const PROPORTION_BAR_CONFIG: ProportionBarConfig = { tooltip: NO_TOOLTIP, legend: { show: false } }
 
 function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     const [valueIndex, setValueIndex] = useState(0)
@@ -123,6 +130,8 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
                 <BarChart series={BAR_SERIES} labels={WEEK_LABELS} theme={theme} config={BAR_CONFIG} />
             ) : variant === 'funnel' ? (
                 <BarChart series={FUNNEL_SERIES} labels={FUNNEL_LABELS} theme={theme} config={BAR_CONFIG} />
+            ) : variant === 'proportionBar' ? (
+                <ProportionBar series={PIE_SERIES} theme={theme} config={PROPORTION_BAR_CONFIG} />
             ) : (
                 <PieChart series={PIE_SERIES} theme={theme} config={PIE_CONFIG} />
             )}
@@ -172,7 +181,13 @@ function SampleDataTooltipContent(): JSX.Element {
 }
 
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
-export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVariant }): JSX.Element {
+export function SampleDataState({
+    variant = 'line',
+    children,
+}: {
+    variant?: SampleDataVariant
+    children?: ReactNode
+}): JSX.Element {
     const { setupStatus, setupStatusLoading } = useValues(setupWizardStatusLogic)
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const isStatic =
@@ -219,7 +234,7 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         </LemonTag>
                     </Tooltip>
                 )}
-                {variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
+                {!children && variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
                     <Tooltip
                         title={
                             <div className="max-w-72 space-y-1.5 p-0.5">
@@ -253,14 +268,15 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                     </LemonTag>
                 </Tooltip>
             </div>
-            <div className="SampleDataState__viz">
-                {variant === 'number' ? (
-                    <SampleNumber animate={!isStatic} />
-                ) : variant === 'table' ? (
-                    <SampleTable />
-                ) : (
-                    <SampleChart variant={variant} />
-                )}
+            <div className={clsx('SampleDataState__viz', children && 'SampleDataState__viz--custom')}>
+                {children ??
+                    (variant === 'number' ? (
+                        <SampleNumber animate={!isStatic} />
+                    ) : variant === 'table' ? (
+                        <SampleTable />
+                    ) : (
+                        <SampleChart variant={variant} />
+                    ))}
             </div>
         </div>
     )

@@ -312,6 +312,12 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 )
             ]
 
+    def test_empty_scopes_omit_posthog_mcp(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = "https://mcp.example.com/mcp"
+            mock_settings.MCP_SERVER_URL = "https://fallback.example.com/mcp"
+            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=[]) == []
+
     def test_returns_empty_list_when_no_mcp_server_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
@@ -436,7 +442,7 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state(None) == []
 
 
-class TestMcpServerConfigToDict(TestCase):
+class TestMcpServerConfigToDict(SimpleTestCase):
     def test_description_is_serialized_for_the_sandbox(self) -> None:
         # The agent server drops keys the schema doesn't declare, so an unserialized
         # description never reaches the agent's tool search.
@@ -743,9 +749,10 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_EMAIL": "jane@example.com",
         }
 
-    def test_user_created_with_explicit_bot_mode_returns_empty(self) -> None:
+    @parameterized.expand([(Task.OriginProduct.USER_CREATED,), (Task.OriginProduct.POSTHOG_AI,)])
+    def test_user_authorable_origin_with_explicit_bot_mode_returns_empty(self, origin_product: str) -> None:
         user = self._make_user()
-        task = self._make_task(Task.OriginProduct.USER_CREATED, user=user)
+        task = self._make_task(origin_product, user=user)
         assert get_git_identity_env_vars(task, {"pr_authorship_mode": "bot"}) == {}
 
     def test_non_user_created_with_explicit_user_mode_returns_user_identity(self) -> None:
@@ -783,6 +790,11 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_NAME": "Slack User",
             "GIT_COMMITTER_EMAIL": "slack@example.com",
         }
+
+    def test_posthog_ai_without_marker_returns_empty(self) -> None:
+        user = self._make_user()
+        task = self._make_task(Task.OriginProduct.POSTHOG_AI, user=user)
+        assert get_git_identity_env_vars(task) == {}
 
     def test_user_created_without_user_returns_empty(self) -> None:
         task = self._make_task(Task.OriginProduct.USER_CREATED, user=None)
@@ -879,7 +891,7 @@ class TestSlackTaskRunActorUser(TestCase):
         assert get_task_run_credential_user(task, state) == creator
 
 
-class TestGetSandboxGitHubToken(TestCase):
+class TestGetSandboxGitHubToken(SimpleTestCase):
     @parameterized.expand(
         [
             ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
@@ -1173,7 +1185,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         assert result == "ghs_team"
 
 
-class TestBuildImportedMcpServerConfigs(TestCase):
+class TestBuildImportedMcpServerConfigs(SimpleTestCase):
     def test_returns_empty_for_none_empty_or_non_list(self):
         assert build_imported_mcp_server_configs(None, set()) == []
         assert build_imported_mcp_server_configs([], {"posthog"}) == []
@@ -1231,7 +1243,7 @@ class TestBuildImportedMcpServerConfigs(TestCase):
         assert [c.name for c in configs] == ["Grafana"]
 
 
-class TestGetImportedMcpServerConfigs(TestCase):
+class TestGetImportedMcpServerConfigs(SimpleTestCase):
     """The claude-only adapter gate — codex-acp hard-fails a session on any unreachable MCP server
     and the sandbox does no reachability pruning, so imported servers must not enter a codex run."""
 
@@ -1251,7 +1263,7 @@ class TestGetImportedMcpServerConfigs(TestCase):
         assert get_imported_mcp_server_configs(self._task_run("codex"), set()) == []
 
 
-class TestGetRelayedMcpServerNames(TestCase):
+class TestGetRelayedMcpServerNames(SimpleTestCase):
     @staticmethod
     def _task_run(relayed_mcp_servers):
         return MagicMock(relayed_mcp_servers=relayed_mcp_servers)
@@ -1334,7 +1346,7 @@ _CTX, _TASK = _gateway_ctx_task()
     "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
     return_value="https://us.posthog.com",
 )
-class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+class TestBuildSandboxEnvironmentVariablesGateway(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
@@ -1372,6 +1384,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
         super().setUp()
         self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
 
+    @parameterized.expand([False, True])
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
         return_value="pub",
@@ -1380,17 +1393,30 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
         "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
         return_value="https://api.example",
     )
-    def test_snapshot_resume_env_includes_otel_config_when_configured(self, _api, _jwt) -> None:
-        with override_settings(
-            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
-            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
-            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+    def test_snapshot_resume_env_includes_otel_config_when_configured(self, is_trial: bool, _api, _jwt) -> None:
+        ctx, task = _gateway_ctx_task()
+        task.is_scout_experiment = is_trial
+        with (
+            override_settings(
+                SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+                AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+                SANDBOX_AI_GATEWAY_URL="https://ai-gateway.example.com",
+                SANDBOX_AI_GATEWAY_MINT_KEY="phs_test_mint",
+                SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+                SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+                SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+            ),
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
         ):
-            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
+            post.return_value.status_code = 201
+            post.return_value.json.return_value = {"token": "phe_private", "capture_mode": "none"}
+            env = build_sandbox_environment_variables(None, "access-token", ctx, task, otel_telemetry_enabled=True)
 
-        assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
-        assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
-        assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
+        assert env.get("POSTHOG_AGENT_OTEL_LOGS_URL") == (None if is_trial else "https://us.i.posthog.com/i/v1/logs")
+        assert env.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "phc_telemetry")
+        assert env.get("POSTHOG_AGENT_OTEL_TRACES_URL") == (
+            None if is_trial else "https://us.i.posthog.com/i/v1/traces"
+        )
 
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",

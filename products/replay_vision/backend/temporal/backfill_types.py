@@ -49,12 +49,14 @@ class FindBackfillCandidatesOutput(BaseModel, frozen=True):
     # Cursor the walk started from, threaded into the advance so it can match on it.
     started_from_cursor_end_time: dt.datetime | None = None
     started_from_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)
-    # Candidates the walk stepped over as already tried. Defaults to 0 so replays of pre-change
-    # histories decode, and they simply do not credit the skips.
+    # Candidates the walk stepped over as already tried.
     skipped_delta: int = 0
     # False only when the walk genuinely reached the window start: a batch the caps truncated still
     # has work below the cursor. The tick completes the backfill exactly when this is False.
     more_work_below_cursor: bool
+    # The balanced per-variant rates this tick's candidates were sampled at (experiment scanners
+    # with balancing on; None otherwise).
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class AdvanceBackfillCursorInputs(BaseModel, frozen=True):

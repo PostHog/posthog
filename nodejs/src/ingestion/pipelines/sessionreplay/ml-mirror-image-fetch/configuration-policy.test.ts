@@ -559,7 +559,7 @@ describe('HttpConfigurationFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
-    it('follows and signs each configuration redirect target', async () => {
+    it('follows, signs and identifies each configuration redirect target', async () => {
         fetchStreamedMock
             .mockResolvedValueOnce(response(302, [{ name: 'location', value: 'https://cdn.example.com/robots' }]))
             .mockResolvedValueOnce(
@@ -578,6 +578,10 @@ describe('HttpConfigurationFetcher', () => {
             ['https://cdn.example.com/robots'],
         ])
         expect(fetchStreamedMock.mock.calls.map(([, options]) => options.allowH2)).toEqual([true, true])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.headers)).toEqual([
+            expect.objectContaining({ referer: 'https://us.posthog.com/' }),
+            expect.objectContaining({ referer: 'https://us.posthog.com/' }),
+        ])
     })
 
     it('does not follow a configuration redirect to another registrable domain', async () => {

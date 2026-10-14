@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import (
@@ -47,11 +48,13 @@ from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.clickhouse.materialized_columns.analyze import materialize
@@ -77,6 +80,17 @@ def _cohort_member_distinct_ids(team_id: int, cohort: Cohort) -> set[str]:
         if person is not None:
             distinct_ids.update(person.distinct_ids)
     return distinct_ids
+
+
+_FLAG_CALLED_CRITERION = {
+    "key": "$feature_flag_called",
+    "type": "behavioral",
+    "value": "performed_event",
+    "event_type": "events",
+    "time_value": 30,
+    "time_interval": "day",
+}
+_PAGEVIEW_CRITERION = {**_FLAG_CALLED_CRITERION, "key": "$pageview"}
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -1288,6 +1302,20 @@ Jane Smith,user456,jane@example.com
         person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    def test_static_cohort_with_too_many_manually_added_person_ids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "test_too_many_person_ids",
+                "_create_static_person_ids": [str(uuid4()) for _ in range(DEFAULT_COHORT_INSERT_BATCH_SIZE + 1)],
+                "is_static": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "_create_static_person_ids")
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="test_too_many_person_ids").exists())
 
     def test_static_cohort_csv_and_manually_added(self):
         """Test CSV upload with person_id column using async task"""
@@ -4414,6 +4442,123 @@ email@example.org,
             response.json()["detail"],
             "Missing required keys for behavioral filter: event_type",
         )
+
+    @parameterized.expand(
+        [
+            ("non_list_values", {"properties": {"type": "OR", "values": 5}}),
+            ("non_object_filters", [1]),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_static_cohort_with_malformed_filters_is_a_validation_error(self, _name, filters, patch_capture):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "static", "is_static": True, "filters": filters}
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "event",
+                {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}},
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                400,
+            ),
+            (
+                "sequence_event",
+                {
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event_sequence",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "seq_event": "$feature_flag_called",
+                                    "seq_event_type": "events",
+                                    "seq_time_value": 1,
+                                    "seq_time_interval": "day",
+                                }
+                            ],
+                        }
+                    }
+                },
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                400,
+            ),
+            (
+                "legacy_groups",
+                {"groups": [{"event_id": "$feature_flag_called", "days": 30}]},
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                400,
+            ),
+            (
+                "events_mode",
+                {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}},
+                FlagEvaluationsMode.EVENTS,
+                201,
+            ),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_cohort_with_criterion_on_hidden_event(
+        self, _name, definition, mode, expected_status, patch_capture
+    ):
+        self._set_flag_evaluations_mode(mode)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", **definition}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        created = Cohort.objects.filter(team=self.team, name="flag callers").exists()
+        self.assertEqual(created, expected_status == 201)
+        if not created:
+            self.assertEqual(response.json()["code"], "hidden_event")
+
+    @parameterized.expand(
+        [
+            ("adds_first", [_PAGEVIEW_CRITERION], [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION], 400),
+            ("adds_second", [_FLAG_CALLED_CRITERION], [_FLAG_CALLED_CRITERION, _FLAG_CALLED_CRITERION], 400),
+            ("edits_existing", [_FLAG_CALLED_CRITERION], [{**_FLAG_CALLED_CRITERION, "time_value": 7}], 200),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_update_cohort_criteria_on_hidden_event(
+        self, _name, stored_criteria, criteria, expected_status, patch_capture
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="flag callers",
+            filters={"properties": {"type": "OR", "values": stored_criteria}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "flag callers renamed", "filters": {"properties": {"type": "OR", "values": criteria}}},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        cohort.refresh_from_db()
+        if expected_status == 200:
+            self.assertEqual(cohort.name, "flag callers renamed")
+            self.assertEqual(cohort.filters["properties"]["values"][0]["time_value"], 7)
+        else:
+            self.assertEqual(response.json()["code"], "hidden_event")
+            self.assertEqual(cohort.filters["properties"]["values"], stored_criteria)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_nested_groups(self, patch_capture):

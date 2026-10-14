@@ -1351,6 +1351,19 @@ describe('cohortEditLogic', () => {
             expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(expectedSelect)
         })
 
+        it('pins the cohort filter to the saved cohort after a draft is saved', async () => {
+            await initCohortLogic({ id: 'new' })
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, id: 42 })
+            }).toDispatchActions(['setCohort'])
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
+        })
+
         it('does not carry columns from one unsaved draft cohort over to the next', async () => {
             await initCohortLogic({ id: 'new' })
 

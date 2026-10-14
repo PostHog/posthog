@@ -7,17 +7,21 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PaginationStyle = Literal["paging", "skip"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailgunEndpointConfig:
     name: str
     # Path relative to the regional API host. Contains a `{domain}` placeholder for
     # domain-scoped endpoints, which fan out over every sending domain on the account.
     path: str
     domain_scoped: bool = False
+    # Fans out over every mailing list on the account, with a `{list_address}` placeholder in the path.
+    list_scoped: bool = False
     # "paging" endpoints return opaque next/previous URLs in a `paging` object and
     # terminate with an empty `items` page; "skip" endpoints use limit/skip offsets.
     pagination: PaginationStyle = "paging"
     page_size: int = 100
+    # Response key that holds the page's rows.
+    data_key: str = "items"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
@@ -26,11 +30,11 @@ class MailgunEndpointConfig:
     partition_format: Optional[PartitionFormat] = None
 
 
-# Only the Events API exposes a server-side timestamp filter (`begin`/`end` epoch seconds
-# with `ascending=yes`), so it's the only endpoint advertised as incremental. Domains,
-# suppressions, mailing lists, tags, and templates have no updated-at filter — full
-# refresh only. Domain-scoped rows get a `domain` column injected so primary keys stay
-# unique across domains.
+# Of these list endpoints, only the Events API exposes a server-side timestamp filter (`begin`/`end`
+# epoch seconds with `ascending=yes`), so it's the only one advertised as incremental. Domains,
+# suppressions, the allowlist, mailing lists and their members, tags, templates, and subaccounts
+# have no updated-at filter — full refresh only. Domain-scoped rows get a `domain` column injected
+# so primary keys stay unique across domains, and list-scoped rows a `list_address` column.
 MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
     "domains": MailgunEndpointConfig(
         name="domains",
@@ -84,11 +88,26 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         partition_key="created_at",
         partition_format="month",
     ),
+    "allowlist": MailgunEndpointConfig(
+        name="allowlist",
+        path="/v3/{domain}/whitelists",
+        domain_scoped=True,
+        page_size=1000,
+        # `value` is the allowlisted address or domain, unique within a sending domain.
+        primary_keys=["domain", "value"],
+    ),
     "mailing_lists": MailgunEndpointConfig(
         name="mailing_lists",
         path="/v3/lists/pages",
         page_size=100,
         primary_keys=["address"],
+    ),
+    "mailing_list_members": MailgunEndpointConfig(
+        name="mailing_list_members",
+        path="/v3/lists/{list_address}/members/pages",
+        list_scoped=True,
+        page_size=100,
+        primary_keys=["list_address", "address"],
     ),
     "tags": MailgunEndpointConfig(
         name="tags",
@@ -108,12 +127,102 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         # Template names are unique per domain; list items aren't guaranteed an `id`.
         primary_keys=["domain", "name"],
     ),
+    "subaccounts": MailgunEndpointConfig(
+        name="subaccounts",
+        path="/v5/accounts/subaccounts",
+        pagination="skip",
+        page_size=1000,
+        data_key="subaccounts",
+        primary_keys=["id"],
+    ),
 }
 
-ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys())
+LOGS_ENDPOINT = "logs"
+LOGS_PATH = "/v1/analytics/logs"
+
+LOGS_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "timestamp",
+        "type": IncrementalFieldType.DateTime,
+        "field": "timestamp",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+METRICS_PATH = "/v1/analytics/metrics"
+
+# Sending metrics requested from the Metrics API, as named in Mailgun's metric and rate
+# definitions. Rates come back as strings.
+METRICS: tuple[str, ...] = (
+    "accepted_count",
+    "processed_count",
+    "sent_count",
+    "delivered_count",
+    "failed_count",
+    "temporary_failed_count",
+    "permanent_failed_count",
+    "bounced_count",
+    "hard_bounces_count",
+    "soft_bounces_count",
+    "opened_count",
+    "unique_opened_count",
+    "clicked_count",
+    "unique_clicked_count",
+    "unsubscribed_count",
+    "complained_count",
+    "delivered_rate",
+    "opened_rate",
+    "unique_opened_rate",
+    "clicked_rate",
+    "unique_clicked_rate",
+    "unsubscribed_rate",
+    "complained_rate",
+    "bounce_rate",
+    "permanent_fail_rate",
+    "delayed_rate",
+)
+
+
+@dataclass(frozen=True)
+class MailgunMetricsEndpointConfig:
+    name: str
+    # Metrics API dimension each daily row breaks down by. None gives account-wide totals.
+    dimension: Optional[str] = None
+
+    @property
+    def primary_keys(self) -> list[str]:
+        return ["time", self.dimension] if self.dimension else ["time"]
+
+
+# Daily rollups from the Metrics API, which replaces the deprecated /v3 stats, tag stats and
+# aggregates endpoints. The request takes a start/end window, so every table can sync
+# incrementally on its daily `time` bucket.
+MAILGUN_METRICS_ENDPOINTS: dict[str, MailgunMetricsEndpointConfig] = {
+    config.name: config
+    for config in (
+        MailgunMetricsEndpointConfig(name="metrics"),
+        MailgunMetricsEndpointConfig(name="domain_metrics", dimension="domain"),
+        MailgunMetricsEndpointConfig(name="tag_metrics", dimension="tag"),
+        MailgunMetricsEndpointConfig(name="country_metrics", dimension="country"),
+        MailgunMetricsEndpointConfig(name="recipient_provider_metrics", dimension="recipient_provider"),
+    )
+}
+
+METRICS_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "time",
+        "type": IncrementalFieldType.DateTime,
+        "field": "time",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys()) + tuple(MAILGUN_METRICS_ENDPOINTS.keys()) + (LOGS_ENDPOINT,)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in MAILGUN_ENDPOINTS.items() if config.incremental_fields
+    **{name: config.incremental_fields for name, config in MAILGUN_ENDPOINTS.items() if config.incremental_fields},
+    LOGS_ENDPOINT: LOGS_INCREMENTAL_FIELDS,
+    **dict.fromkeys(MAILGUN_METRICS_ENDPOINTS, METRICS_INCREMENTAL_FIELDS),
 }
 
 # Webhook-only table fed by Mailgun's pushed event stream. It deliberately does not feed the

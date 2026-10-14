@@ -5,10 +5,12 @@ import logging
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
+from functools import cached_property
 from typing import Literal, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.db.models import BooleanField, Case, Value, When
 from django.utils import timezone
 
@@ -19,11 +21,14 @@ from redis.exceptions import LockNotOwnedError
 from temporalio.api.enums.v1 import PendingActivityState
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.dev_stack_image_models import DevStackImageAttempt
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
 
@@ -38,6 +43,7 @@ class SourceSnapshot(BaseModel):
     status: Literal["ok", "error", "refreshing"]
     observed_at: datetime | None = None
     data: JsonValue = None
+    error: str | None = None
 
 
 class CustomImageStatus(BaseModel):
@@ -62,19 +68,54 @@ def workflow_url(workflow_id: str) -> str:
 
 
 class InfrastructureStatus:
+    def error_message(self, error: Exception) -> str:
+        if isinstance(error, GitHubEgressBudgetExhausted):
+            return "GitHub reads reached the shared request budget. Retry after the budget resets."
+        if isinstance(error, requests.HTTPError) and error.response is not None:
+            if error.response.status_code == 401:
+                return "The source rejected the server credential (HTTP 401). Check the configured credential."
+            if error.response.status_code == 403:
+                return "The source denied access (HTTP 403). Check permissions and rate limits."
+            if error.response.status_code == 429:
+                return "The source rate limit was reached (HTTP 429). Retry after the limit resets."
+        if isinstance(error, requests.Timeout):
+            return "The source request timed out. Refresh to retry."
+        return "The source read failed. Check the server logs and refresh to retry."
+
     def _json(self, url: str, *, headers: dict[str, str] | None = None) -> requests.Response:
         response = requests.get(url, headers=headers, timeout=5)
         response.raise_for_status()
         return response
 
+    @cached_property
+    def _github_installation_id(self) -> str | None:
+        if not (settings.GITHUB_APP_CLIENT_ID and settings.GITHUB_APP_PRIVATE_KEY):
+            return None
+        response = GitHubIntegrationBase.app_request("repos/PostHog/posthog/installation", timeout=5)
+        response.raise_for_status()
+        return str(response.json()["id"])
+
+    @cached_property
+    def _github_headers(self) -> dict[str, str]:
+        if self._github_installation_id is None:
+            return {"Authorization": f"Bearer {settings.GITHUB_TOKEN}"} if settings.GITHUB_TOKEN else {}
+        response = GitHubIntegrationBase.client_request(
+            f"installations/{self._github_installation_id}/access_tokens",
+            method="POST",
+            timeout=5,
+            json_body={"repositories": ["posthog"], "permissions": {"contents": "read", "actions": "read"}},
+        )
+        response.raise_for_status()
+        return {"Authorization": f"Bearer {response.json()['token']}"}
+
     def _github(self, path: str) -> dict[str, JsonValue]:
-        headers = {"Authorization": f"Bearer {settings.GITHUB_TOKEN}"} if settings.GITHUB_TOKEN else {}
         response = github_request(
             "GET",
             f"https://api.github.com/repos/PostHog/posthog/{path}",
             source="tasks_infrastructure_admin",
             priority=Priority.NORMAL,
-            headers=headers,
+            headers=self._github_headers,
+            installation_id=self._github_installation_id,
             timeout=5,
         )
         response.raise_for_status()
@@ -108,26 +149,60 @@ class InfrastructureStatus:
             if job.get("name") in names
         ]
 
+    def release_runs(self) -> dict[str, JsonValue]:
+        try:
+            response = self._github(
+                "actions/workflows/cd-sandbox-base-image.yml/runs?branch=master&event=push&per_page=5"
+            )
+        except Exception as error:
+            logger.exception("tasks_infrastructure_release_runs_failed")
+            cached = get_tasks_cache().get("tasks:infrastructure-admin:v1:release")
+            previous = SourceSnapshot.model_validate_json(cached) if isinstance(cached, str) else None
+            data = previous.data if previous and isinstance(previous.data, dict) else {}
+            return {
+                "runs": data.get("runs", []),
+                "runs_error": self.error_message(error),
+                "runs_stale": True,
+                "runs_observed_at": data.get(
+                    "runs_observed_at",
+                    previous.observed_at.isoformat() if previous and previous.observed_at else None,
+                ),
+            }
+        runs: list[JsonValue] = []
+        runs_error = None
+        for run in cast(list[dict[str, JsonValue]], response["workflow_runs"]):
+            jobs: list[JsonValue] = []
+            jobs_error = None
+            try:
+                jobs = self.build_jobs(run["id"])
+            except Exception as error:
+                logger.exception("tasks_infrastructure_release_jobs_failed", extra={"run_id": run["id"]})
+                jobs_error = self.error_message(error)
+                runs_error = jobs_error
+            runs.append(
+                {
+                    **{
+                        key: run.get(key)
+                        for key in ("id", "head_sha", "status", "conclusion", "html_url", "created_at")
+                    },
+                    "build_jobs": jobs,
+                    "build_jobs_error": jobs_error,
+                }
+            )
+        return {
+            "runs": runs,
+            "runs_error": runs_error,
+            "runs_stale": False,
+            "runs_observed_at": timezone.now().isoformat(),
+        }
+
     def release(self) -> JsonValue:
         content = self._github("contents/products/tasks/backend/sandbox/images/Dockerfile.sandbox-base?ref=master")
         dockerfile = base64.b64decode(str(content["content"])).decode()
         pin = re.search(r"^ARG AGENT_VERSION=(\S+)", dockerfile, re.MULTILINE)
         if pin is None:
             raise ValueError("Missing agent version")
-        runs = self._github("actions/workflows/cd-sandbox-base-image.yml/runs?branch=master&event=push&per_page=5")
-        return {
-            "pin": pin.group(1),
-            "runs": [
-                {
-                    **{
-                        key: run.get(key)
-                        for key in ("id", "head_sha", "status", "conclusion", "html_url", "created_at")
-                    },
-                    "build_jobs": self.build_jobs(run["id"]),
-                }
-                for run in cast(list[dict[str, JsonValue]], runs["workflow_runs"])
-            ],
-        }
+        return {"pin": pin.group(1), **self.release_runs()}
 
     def registry(self, name: str) -> JsonValue:
         repo = f"posthog/posthog-sandbox-{name}"
@@ -196,6 +271,56 @@ class InfrastructureStatus:
         return {"images": images, "truncated": len(rows) > MAX_IMAGES, "limit": MAX_IMAGES}
 
     def dev_stack(self) -> JsonValue:
+        target = DevStackImageState.target()
+        if target is not None:
+            attempt = (
+                DevStackImageAttempt.objects.using("default").filter(pk=target.attempt_id).first()
+                if target.attempt_id
+                else None
+            )
+            status = (
+                "disabled"
+                if not target.enabled
+                else "retry_scheduled"
+                if target.next_retry_at
+                else "blocked"
+                if target.blocked_reason
+                else "current"
+                if target.active_generation == target.generation and target.active_image_id
+                else attempt.status
+                if attempt
+                else "queued"
+            )
+            url = workflow_url(f"activate-dev-stack-image-{attempt.id}") if attempt else ""
+            if attempt and attempt.workflow_run_id:
+                url += f"/{quote(attempt.workflow_run_id, safe='')}/history"
+            return {
+                "name": target.name,
+                "protected": True,
+                "base_image_reference": target.active_base_reference or None,
+                "auto_refresh": target.auto_refresh,
+                "observation_error": target.observation_error,
+                "workflow_url": url,
+                "attempt_id": str(attempt.id) if attempt else None,
+                "workflow_run_id": attempt.workflow_run_id if attempt else None,
+                "status": status,
+                "generation": target.generation,
+                "active_generation": target.active_generation,
+                "active_image_id": target.active_image_id or None,
+                "active_agent_version": target.active_agent_version or None,
+                "desired_base_reference": target.base_reference or None,
+                "repository_sha": target.repository_sha or None,
+                "activated_at": target.activated_at.isoformat() if target.activated_at else None,
+                "requested_at": target.requested_at.isoformat() if target.requested_at else None,
+                "target_observed_at": target.observed_at.isoformat() if target.observed_at else None,
+                "next_retry_at": target.next_retry_at.isoformat() if target.next_retry_at else None,
+                "reason": target.blocked_reason or (attempt.error if attempt else ""),
+                "attempt_started_at": attempt.started_at.isoformat() if attempt and attempt.started_at else None,
+                "lease_expires_at": attempt.lease_expires_at.isoformat()
+                if attempt and attempt.lease_expires_at
+                else None,
+                "deadline_at": attempt.deadline_at.isoformat() if attempt and attempt.deadline_at else None,
+            }
         reference = get_tasks_cache().get(f"tasks:dev-stack-image:baked-base-reference:{DEV_STACK_IMAGE_NAME}")
         return {
             "name": DEV_STACK_IMAGE_NAME,
@@ -203,16 +328,47 @@ class InfrastructureStatus:
             "workflow_url": workflow_url(f"bake-dev-stack-image-{DEV_STACK_IMAGE_NAME}"),
         }
 
+    def read_dev_stack_workflow(self) -> SourceSnapshot:
+        try:
+            target = DevStackImageState.target()
+            attempt = (
+                DevStackImageAttempt.objects.using("default").filter(pk=target.attempt_id).first()
+                if target and target.attempt_id
+                else None
+            )
+        except DatabaseError as error:
+            logger.exception("tasks_infrastructure_workflow_selection_failed")
+            return SourceSnapshot(status="error", error=self.error_message(error))
+        if target is None:
+            workflow_id = f"bake-dev-stack-image-{DEV_STACK_IMAGE_NAME}"
+            return self.read(f"workflow:{workflow_id}", lambda: self.workflow(workflow_id))
+        if attempt is None:
+            return SourceSnapshot(
+                status="ok", observed_at=timezone.now(), data={"status": "not_found", "activities": [], "url": ""}
+            )
+        workflow_id = f"activate-dev-stack-image-{attempt.id}"
+        run_id = attempt.workflow_run_id or None
+        return self.read(f"workflow:{workflow_id}:{run_id or ''}", lambda: self.workflow(workflow_id, run_id=run_id))
+
     @async_to_sync
-    async def workflow(self, workflow_id: str) -> JsonValue:
+    async def workflow(self, workflow_id: str, *, run_id: str | None = None) -> JsonValue:
         client = await asyncio.wait_for(async_connect(), timeout=5)
         try:
-            description = await client.get_workflow_handle(workflow_id).describe(rpc_timeout=timedelta(seconds=5))
+            description = await client.get_workflow_handle(workflow_id, run_id=run_id).describe(
+                rpc_timeout=timedelta(seconds=5)
+            )
         except RPCError as error:
             if error.status == RPCStatusCode.NOT_FOUND:
-                return {"status": "not_found", "activities": [], "url": workflow_url(workflow_id)}
+                return {
+                    "status": "not_found",
+                    "workflow_id": workflow_id,
+                    "run_id": run_id,
+                    "activities": [],
+                    "url": workflow_url(workflow_id),
+                }
             raise
         return {
+            "workflow_id": workflow_id,
             "status": description.status.name.lower() if description.status else "unknown",
             "run_id": description.run_id,
             "started_at": description.start_time.isoformat() if description.start_time else None,
@@ -259,9 +415,14 @@ class InfrastructureStatus:
             snapshot = SourceSnapshot(status="ok", observed_at=timezone.now(), data=data)
             cache.set(key, snapshot.model_dump_json(), timeout=3600)
             return snapshot
-        except Exception:
+        except Exception as error:
             logger.exception("tasks_infrastructure_source_failed", extra={"source": name})
-            return previous.model_copy(update={"status": "error"}) if previous else SourceSnapshot(status="error")
+            message = self.error_message(error)
+            return (
+                previous.model_copy(update={"status": "error", "error": message})
+                if previous
+                else SourceSnapshot(status="error", error=message)
+            )
         finally:
             with suppress(LockNotOwnedError):
                 lock.release()

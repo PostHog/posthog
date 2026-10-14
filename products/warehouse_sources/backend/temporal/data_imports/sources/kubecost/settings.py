@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -19,12 +21,15 @@ _WINDOW_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@frozen
 class KubecostEndpointConfig:
     name: str
     path: str
     # Extra query params sent on every request (e.g. the Allocation API's `aggregate`).
     params: dict[str, str] = field(default_factory=dict)
+    # Set when `data` is an object of `sets`, each holding its result set under this key
+    # (Cloud Cost API), rather than a bare list of result sets (Allocation/Assets APIs).
+    result_set_key: str | None = None
 
 
 KUBECOST_ENDPOINTS: dict[str, KubecostEndpointConfig] = {
@@ -43,9 +48,30 @@ KUBECOST_ENDPOINTS: dict[str, KubecostEndpointConfig] = {
         path="/model/allocation",
         params={"aggregate": "pod"},
     ),
+    "allocation_by_cluster": KubecostEndpointConfig(
+        name="allocation_by_cluster",
+        path="/model/allocation",
+        params={"aggregate": "cluster"},
+    ),
+    "allocation_by_node": KubecostEndpointConfig(
+        name="allocation_by_node",
+        path="/model/allocation",
+        params={"aggregate": "node"},
+    ),
+    "allocation_by_service": KubecostEndpointConfig(
+        name="allocation_by_service",
+        path="/model/allocation",
+        params={"aggregate": "service"},
+    ),
     "assets": KubecostEndpointConfig(
         name="assets",
         path="/model/assets",
+    ),
+    # Unaggregated, so each row is a single billing line item at full granularity.
+    "cloud_costs": KubecostEndpointConfig(
+        name="cloud_costs",
+        path="/model/cloudCost",
+        result_set_key="cloudCosts",
     ),
 }
 

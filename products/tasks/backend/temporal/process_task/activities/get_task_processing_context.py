@@ -32,6 +32,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PI_ACP_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -168,6 +169,7 @@ class TaskProcessingContext:
     # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
     # Exposure only: the peers endpoints re-check authorization server-side on every call.
     peer_messaging_enabled: bool = False
+    pi_acp_conversation_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -237,18 +239,6 @@ class TaskProcessingContext:
         state = self.state or {}
         has_resume_source = isinstance(state.get("resume_from_run_id"), str) or is_same_run_resume_state(state)
         return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
-
-    @property
-    def loop_id(self) -> str | None:
-        """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
-        value = (self.state or {}).get("loop_id")
-        return value if isinstance(value, str) else None
-
-    @property
-    def loop_trigger_id(self) -> str | None:
-        """Set alongside loop_id when a loop trigger fired this run."""
-        value = (self.state or {}).get("loop_trigger_id")
-        return value if isinstance(value, str) else None
 
     @property
     def runtime_adapter(self) -> str | None:
@@ -457,6 +447,28 @@ def _is_peer_messaging_enabled(
     if enabled:
         log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
     return enabled
+
+
+def _is_pi_acp_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_ACP_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pi_acp_flag_check_failed", run_id=run_id, error=str(e))
+        return False
 
 
 def _is_rtk_enabled(
@@ -1107,19 +1119,6 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
-def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
-    """Loop runs opt into the CI/review-comment follow-up loop when the loop's
-    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
-    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
-    the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
-    already-queued run.
-    """
-    if task.origin_product != Task.OriginProduct.LOOP:
-        return False
-    behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
-    return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
-
-
 def _is_pr_babysit_snapshot_enabled(
     *,
     distinct_id: str,
@@ -1244,6 +1243,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     state = task_run.state or {}
+    trial_origin = task.is_scout_experiment
     actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
@@ -1343,7 +1343,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-        or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
@@ -1354,11 +1353,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    include_live_context = state.get("include_live_context") is not False
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+        if not include_live_context:
+            store_skills: list[dict[str, Any]] | None = []
+            state[STORE_SKILLS_STATE_KEY] = []
+        else:
+            store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
         store_skills = None
@@ -1411,14 +1415,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
-    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+    agent_otel_telemetry_enabled = not trial_origin and _is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
         state=state,
     )
-    context_layer_enabled = context_layer_facade.is_context_layer_enabled(
-        organization_id=organization_id, distinct_id=distinct_id
+    context_layer_enabled = (
+        include_live_context
+        and not trial_origin
+        and context_layer_facade.is_context_layer_enabled(organization_id=organization_id, distinct_id=distinct_id)
     )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
@@ -1732,6 +1738,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI
         and _is_peer_messaging_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI
+        and _is_pi_acp_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,
             run_id=run_id,

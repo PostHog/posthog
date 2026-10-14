@@ -14,7 +14,7 @@ import uuid
 import datetime
 import resource
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, cast
 
 from django.conf import settings
@@ -37,7 +37,8 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import scorer
 from products.signals.backend.ranking.inventory import SCORABLE_STATUSES, spine_report_filter
-from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
+from products.signals.backend.ranking.model_store import ModelLoadError, ServingSet, load_serving_set
+from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
 
@@ -119,6 +120,7 @@ class _ScoreStamp(pydantic.BaseModel):
     scored_at: datetime.datetime
     embedding_inserted_at: datetime.datetime | None = None
     manifest_version: str
+    served_key: str
 
 
 def _batches(items: Sequence[str], size: int = _POSTGRES_BATCH_SIZE) -> Iterator[Sequence[str]]:
@@ -181,39 +183,49 @@ def _scorable_report_teams(
     return teams
 
 
-def _latest_scores(report_ids: Sequence[str]) -> dict[str, _ScoreStamp | None]:
+def _latest_scores(report_ids_by_team: Mapping[int, Sequence[str]]) -> dict[str, _ScoreStamp | None]:
     """The latest `ranking_score` stamp of each report that has one. A row that no longer parses is None."""
     scores: dict[str, _ScoreStamp | None] = {}
-    for batch in _batches(report_ids):
-        rows = (
-            SignalReportArtefact.objects.filter(
-                report_id__in=batch, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+    for team_id, report_ids in report_ids_by_team.items():
+        for batch in _batches(report_ids):
+            # Pick the newest id per report first, so Postgres reads `content` once per report, not once per score.
+            latest_ids = (
+                SignalReportArtefact.objects.filter(
+                    team_id=team_id, report_id__in=batch, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+                )
+                .order_by("report_id", "-created_at")
+                .distinct("report_id")
+                .values("id")
             )
-            .order_by("report_id", "-created_at")
-            .distinct("report_id")
-            .values_list("report_id", "content")
-        )
-        for report_id, content in rows:
-            try:
-                scores[str(report_id)] = _ScoreStamp.model_validate_json(content)
-            except pydantic.ValidationError:
-                scores[str(report_id)] = None
+            rows = SignalReportArtefact.objects.filter(team_id=team_id, id__in=latest_ids).values_list(
+                "report_id", "content"
+            )
+            for report_id, content in rows:
+                try:
+                    scores[str(report_id)] = _ScoreStamp.model_validate_json(content)
+                except pydantic.ValidationError:
+                    scores[str(report_id)] = None
     return scores
 
 
-def _is_due(score: _ScoreStamp | None, vector_inserted_at: datetime.datetime, manifest_version: str) -> bool:
+def _is_due(
+    score: _ScoreStamp | None, vector_inserted_at: datetime.datetime, manifest_version: str, served_key: str
+) -> bool:
+    # A `served` override changes the served model and leaves `manifest_version` as it is, so the
+    # served key is compared too. Setting or removing an override then rescores every report.
     return (
         score is None
         or score.embedding_inserted_at is None
         or vector_inserted_at > score.embedding_inserted_at
         or score.manifest_version != manifest_version
+        or score.served_key != served_key
     )
 
 
 def reports_due_for_scoring(
-    now: datetime.datetime, *, manifest_version: str, rendering: str, limit: int
+    now: datetime.datetime, *, manifest_version: str, served_key: str, rendering: str, limit: int
 ) -> list[ScoringCandidate]:
-    """In-window scorable reports whose score is missing, older than their vector, or from another manifest.
+    """In-window scorable reports whose score is missing, older than their vector, or from another manifest or served model.
 
     Unscored reports come first, then the oldest scores, so no report starves under the cap. A
     report with no live vector is never a candidate, so a safety-suppressed or retracted report is
@@ -223,13 +235,16 @@ def reports_due_for_scoring(
     vectors = _live_vectors(since, rendering)
     report_teams = _scorable_report_teams(list(vectors), now, since)
     kept = [report_id for report_id, team_id in report_teams.items() if vectors[report_id][0] == team_id]
-    latest = _latest_scores(kept)
+    kept_by_team: dict[int, list[str]] = defaultdict(list)
+    for report_id in kept:
+        kept_by_team[report_teams[report_id]].append(report_id)
+    latest = _latest_scores(kept_by_team)
 
     due: list[tuple[datetime.datetime | None, ScoringCandidate]] = []
     for report_id in kept:
         team_id, vector_inserted_at = vectors[report_id]
         score = latest.get(report_id)
-        if not _is_due(score, vector_inserted_at, manifest_version):
+        if not _is_due(score, vector_inserted_at, manifest_version, served_key):
             continue
         candidate = ScoringCandidate(team_id=team_id, report_id=report_id, vector_inserted_at=vector_inserted_at)
         due.append((score.scored_at if score else None, candidate))
@@ -237,21 +252,41 @@ def reports_due_for_scoring(
     return [candidate for _, candidate in due[:limit]]
 
 
+def _load_serving(overrides: RankingOverrides) -> ServingSet | None:
+    """The serving set with the `served` override applied when it can be served, else without it."""
+    serving = load_serving_set(overrides)
+    if serving is None or serving.served_override is None:
+        return serving
+    try:
+        scorer.served_rendering(serving)
+    except scorer.ScoringError as error:
+        logger.warning(
+            "inbox_ranking_override_rejected",
+            override_served=serving.served_override.served,
+            reason=str(error),
+        )
+        return load_serving_set()
+    return serving
+
+
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.INBOX_RANKING_SCORING_ENABLED:
         logger.info("inbox_ranking_sweep_skipped", skipped_reason="disabled")
         return ScoreInboxReportsResult(skipped_reason="disabled")
     deadline = time.monotonic() + _TIME_BUDGET.total_seconds()
-    # A served model that does not load raises here and aborts the run.
-    serving = load_serving_set()
+    now = timezone.now()
+    # A served model that does not load raises here and aborts the run. A served override that
+    # does not load only logs.
+    serving = _load_serving(read_ranking_overrides(now))
     if serving is None:
         logger.info("inbox_ranking_sweep_skipped", skipped_reason="no manifest")
         return ScoreInboxReportsResult(skipped_reason="no manifest")
     manifest_version = serving.manifest.manifest_version
-    now = timezone.now()
+    override = serving.served_override
     candidates = reports_due_for_scoring(
         now,
         manifest_version=manifest_version,
+        served_key=serving.manifest.served.key,
         rendering=scorer.served_rendering(serving),
         limit=limit or settings.INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK,
     )
@@ -267,6 +302,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         peak_rss_mb=_peak_rss_mb(),
     )
 
+    project_vectors = scorer.pass_project_vectors(serving, list(ids_by_team))
     # A scorer call holds the vectors and matrices of all its reports, so one call scores at most one
     # vector read of one team. Each call persists its scores, so a pass that stops keeps its progress.
     chunks = [
@@ -285,7 +321,13 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
                 continue
             try:
                 outcomes = scorer.score_reports(
-                    team_id, list(report_ids), persist=True, now=now, serving=serving, capture=capture
+                    team_id,
+                    list(report_ids),
+                    persist=True,
+                    now=now,
+                    serving=serving,
+                    capture=capture,
+                    project_vectors=project_vectors,
                 )
             except (scorer.ScoringError, ModelLoadError):
                 # A pass without a served score is worse than no pass.
@@ -320,6 +362,8 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         deferred_teams=result.deferred_teams,
         deferred_reports=result.deferred_reports,
         manifest_version=result.manifest_version,
+        override_served=override.served if override else None,
+        override_expires_at=override.expires_at.isoformat() if override and override.expires_at else None,
         peak_rss_mb=_peak_rss_mb(),
     )
     return result

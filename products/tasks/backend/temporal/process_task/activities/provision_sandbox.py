@@ -467,9 +467,9 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        task = Task.objects.select_related(
-            "created_by", "github_integration", "github_user_integration", "team", "loop"
-        ).get(id=ctx.task_id)
+        task = Task.objects.select_related("created_by", "github_integration", "github_user_integration", "team").get(
+            id=ctx.task_id
+        )
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
     context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
@@ -581,13 +581,11 @@ def _build_environment_variables(
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
-    if settings.DEBUG:
-        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
-        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
-        # the cache key) and cost attribution. Rely on Temporal retries instead.
+    if settings.DEBUG or task.is_scout_experiment is True:
+        # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
-    if ctx.agent_otel_telemetry_enabled:
+    if ctx.agent_otel_telemetry_enabled and task.is_scout_experiment is not True:
         environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
@@ -738,7 +736,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -1390,7 +1388,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

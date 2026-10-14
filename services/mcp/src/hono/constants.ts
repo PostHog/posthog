@@ -40,6 +40,7 @@ export function getEnv(): Env {
         POSTHOG_ANALYTICS_API_KEY: process.env.POSTHOG_ANALYTICS_API_KEY || undefined,
         POSTHOG_ANALYTICS_HOST: process.env.POSTHOG_ANALYTICS_HOST || undefined,
         POSTHOG_MCP_SKILLS_URL: process.env.POSTHOG_MCP_SKILLS_URL || undefined,
+        POSTHOG_MCP_LOCAL_SKILLS_URL: process.env.POSTHOG_MCP_LOCAL_SKILLS_URL || undefined,
         ...extras,
     }
 }

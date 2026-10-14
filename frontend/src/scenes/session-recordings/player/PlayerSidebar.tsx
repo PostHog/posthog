@@ -108,9 +108,9 @@ export function PlayerSidebar(): JSX.Element {
                             // The root scrolls, not the bar, so the scrollbar cannot collide with the bar's bottom-anchored underline
                             barClassName="!mb-0 w-max min-w-full !overflow-x-visible"
                             size="small"
-                            className="overflow-x-auto overflow-y-clip !self-start"
+                            // Fills the row rather than hugging the tabs, so subpixel tab widths cannot leave a scrollbar with nothing to scroll
+                            className="flex-1 min-w-0 overflow-x-auto overflow-y-clip !self-start"
                         />
-                        <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">
                             <LemonButton
                                 data-attr="player-sidebar-dock-toggle"

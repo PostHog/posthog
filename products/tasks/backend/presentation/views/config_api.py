@@ -12,18 +12,24 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
-from products.tasks.backend.facade import ai_run_defaults
+from products.tasks.backend.facade import (
+    ai_run_defaults,
+    task_defaults as task_defaults_store,
+)
 from products.tasks.backend.facade.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.run_config import get_model_access_error
 from products.tasks.backend.presentation.serializers import (
     TasksAgentInstructionsSerializer,
     TasksAIRunPreferencesSerializer,
+    TasksTaskDefaultsSerializer,
+    TasksTaskDefaultsUpdateSerializer,
     TasksTeamConfigResponseSerializer,
     TasksUserConfigResponseSerializer,
 )
@@ -44,6 +50,27 @@ class DenySandboxAgentInstructionWrites(BasePermission):
         if request.method in SAFE_METHODS or getattr(view, "action", None) != "agent_instructions":
             return True
         return not is_sandbox_oauth_request(request)
+
+
+class DenySandboxTaskDefaultsWrites(BasePermission):
+    """A run must not change how later tasks start, for example to open pull requests on its own."""
+
+    message = "Task agents cannot modify task defaults."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if request.method in SAFE_METHODS or getattr(view, "action", None) != "task_defaults":
+            return True
+        return not is_sandbox_oauth_request(request)
+
+
+class _SingletonSchema(PostHogAutoSchema):
+    """Prevents drf-spectacular from wrapping the ``list`` response in an array.
+
+    The config is one object per person and project, not a collection.
+    """
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
 
 
 def _user_id(request: Request) -> int:
@@ -145,9 +172,15 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     POST /tasks/my_config/  → update
     """
 
+    schema = _SingletonSchema()
     scope_object = "task"
     authentication_classes = _AUTH_CLASSES
-    permission_classes = [IsAuthenticated, APIScopePermission, DenySandboxAgentInstructionWrites]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        DenySandboxAgentInstructionWrites,
+        DenySandboxTaskDefaultsWrites,
+    ]
     serializer_class = TasksUserConfigResponseSerializer
 
     def _response(self, request: Request, preferences: dict) -> Response:
@@ -160,6 +193,7 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "ai_run_preferences": preferences,
                     "resolved_ai_run_defaults": asdict(resolved),
                     "agent_instructions": AgentInstructionsStore().get_personal(self.team_id, _user_id(request)),
+                    "task_defaults": task_defaults_store.get_user_task_defaults(self.team_id, _user_id(request)),
                 }
             ).data
         )
@@ -210,3 +244,18 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id, _user_id(request), _validated_agent_instructions(request)
         )
         return Response(TasksAgentInstructionsSerializer({"agent_instructions": instructions}).data)
+
+    @extend_schema(
+        operation_id="tasks_me_config_task_defaults_create",
+        request=TasksTaskDefaultsUpdateSerializer,
+        responses={200: TasksTaskDefaultsSerializer},
+        description="Update your per-project defaults for new tasks. Fields you leave out keep their stored value.",
+    )
+    @action(methods=["POST"], detail=False, url_path="task_defaults", required_scopes=["task:write"])
+    def task_defaults(self, request: Request, *args, **kwargs) -> Response:
+        serializer = TasksTaskDefaultsUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        defaults = task_defaults_store.update_user_task_defaults(
+            self.team_id, _user_id(request), dict(serializer.validated_data)
+        )
+        return Response(TasksTaskDefaultsSerializer(defaults).data)

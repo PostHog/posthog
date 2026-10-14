@@ -29,7 +29,7 @@ export function NumericEvaluationConfig({
                         htmlFor={`${id}-${field}`}
                         info={
                             field === 'step'
-                                ? 'Suggests a score increment to LLM judges, including System One. Scores are not rounded or restricted to this increment. Hog evaluations use the score returned by your code.'
+                                ? 'Suggests a score increment to LLM judges, including decision models. Scores are not rounded or restricted to this increment. Hog evaluations use the score returned by your code.'
                                 : undefined
                         }
                         label={

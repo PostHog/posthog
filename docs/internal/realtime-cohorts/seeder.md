@@ -127,6 +127,8 @@ WHERE team_id = <team>
   If none remain, the chunk is done without a query.
 - **Row filter.** When every active condition on an event name compares event properties to string values, only rows that can match one of them leave ClickHouse.
   See [Row filter](#row-filter).
+- **Column-backed keys.** When every active condition reads its event properties only through exact string equalities, the scan reads them from materialized columns instead of the `properties` blob.
+  See [Column-backed keys](#column-backed-keys).
 
 ### Evaluating and producing
 
@@ -288,7 +290,8 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   A property blob comes back rebuilt with only the keys the conditions read.
   Without projection, most of the seeder's CPU goes to parsing JSON and assembling globals.
   In local measurements, a chunk ran about 3 times faster with keys rebuilt and about 60 times faster when no blob was needed.
-  Rebuilding keys costs ClickHouse more, so the gain is on the seeder's side.
+  Rebuilding keys does not reduce what ClickHouse reads: the rebuild decompresses and parses the whole blob of every selected row, so the gain is on the seeder's side.
+  Only [column-backed keys](#column-backed-keys) or an unread blob keep ClickHouse off the blob.
   On real data, projection raised client throughput per core by more than an order of magnitude.
   One side effect: a row whose skipped blob is malformed, which the live path would drop, is still evaluated here on its other fields.
 - **Shadow compare.**
@@ -298,6 +301,8 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   A chunk whose day has slid out of every active window issues no query.
 - **Row filter.**
   See [Row filter](#row-filter).
+- **Column-backed keys.**
+  See [Column-backed keys](#column-backed-keys).
 - **Bands.**
   Splitting a day by person hash bounds one chunk's memory, at the cost of reading the day once per band.
 - **Pacing.**
@@ -368,12 +373,64 @@ Ingestion writes event properties with `JSON.stringify` of a parsed object, so a
 `tests/ch_event_row_filter.rs` checks all of this against a live ClickHouse, with the VM as the oracle.
 
 Where possible, the test reads a materialized column instead of the blob.
-Before each filtered chunk, the seeder looks in `system.columns` for a `String` column of `sharded_events` whose default expression is exactly that extraction for the key, and that also exists on `events`.
+Before each chunk with a row filter or [column-backed keys](#column-backed-keys), the seeder looks in `system.columns` for a `String` column of `sharded_events` whose default expression is exactly that extraction for the key, and that also exists on `events`.
+The lookup serves both together, split into queries that each fit a GET.
 Only such a column is used, because a column with another expression, such as a typed `JSONExtract`, reads different values for the same row.
 The column holds '' for a blob ClickHouse cannot parse, so the test admits '' there instead of reading the blob.
 Without one, the test extracts from the blob: ClickHouse still decompresses the blob for the event's rows, but only the matching rows are transferred and evaluated.
 The filter is dropped when the query would grow past the 8192 bytes the client sends by GET, since the `cohort_seeder` profile refuses the POST form.
 `seeder_scan_row_filter_total{outcome}` reports per chunk whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
+
+### Column-backed keys
+
+A projected chunk rebuilds `properties` from the blob, so ClickHouse reads the whole blob of every selected row even when the conditions need one key.
+When a materialized column can stand in for every projected key, the scan builds the object from the columns and never references the blob.
+On local data with blobs of about 10 KB, the same scan read about 100 times fewer bytes this way.
+
+A trim-quotes column holds the value's raw JSON text with a string's quotes removed, so it loses the JSON type.
+The scan takes valid JSON text as it is and puts quotes back around anything else:
+
+```sql
+concat('{', '"$current_url":', if(isValidJSON(e.`mat_$current_url`), e.`mat_$current_url`, concat('"', e.`mat_$current_url`, '"')), '}')
+```
+
+That gives back every value except two kinds.
+A string whose text is JSON comes back typed (`"5"` becomes `5`), and an absent key comes back as `""`.
+HogVM equality gives the same answer for both only when the condition compares the key with a literal that is not empty, does not parse as a number, is not JSON text, and is not `true` or `false` in any case.
+
+1. **Deciding per key.**
+   The static pass that recognizes row filters also lists the keys each condition reads only through `properties.<key> == <literal>` with such a literal.
+   A key qualifies on a chunk when every active condition that reads it is on that list for it.
+2. **Deciding per chunk.**
+   The scan uses columns only when every projected key qualifies and has a column.
+   One key left on the blob would read the whole blob again.
+   A column value that reads as `false` can be the boolean or the string `"false"`, and the VM equates the boolean with every literal that is not `true`.
+   An over-counted tile stays, because the processor applies the larger of the live and seeded counts.
+   So before it uses columns, the scan asks ClickHouse for one row of the chunk where such a column trims to `false`, which reads only the columns.
+   If one exists, the chunk keeps the rebuild.
+   The scan also keeps the rebuild when the column form makes the query too long to send by GET.
+   When the column form and the row filter do not both fit, the row filter is dropped, because the columns keep ClickHouse off the blob for every row.
+   The shadow compare's wide arm still reads the blob, so the compare checks the columns against it.
+
+Some rows still differ, because the column has no type:
+
+- **A blob ClickHouse cannot parse**, such as one holding an integer past 64 bits, stores `''` in every column, while `serde_json` reads the blob (under-count).
+- **A string whose text is JSON nested deeper than 128 levels** comes back typed, so the rebuilt object fails to parse and the row is skipped (under-count).
+- **A blob that does not parse at all, or whose root is an array**, still becomes an object, so the row is evaluated on its other globals where the live path drops it (over-count).
+  This is the same over-count an unread blob takes, described under column projection.
+
+`tests/ch_materialized_properties.rs` checks against a live ClickHouse that only these rows differ, with the VM as the oracle.
+A column holds the first value of a repeated key where `serde_json` reads the last, which the row filter already assumes never happens.
+
+A column must also be stored in the parts the scan reads.
+ClickHouse computes a column added after the data was written from `properties` at read time, until a merge or `ALTER TABLE ... MATERIALIZE COLUMN` stores it.
+The materializer backfills only `MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS`, which defaults to 0.
+So check `system.parts_columns` for the lookback before a long run: an old partition without the column reads the blob as before.
+
+`seeder_scan_properties_source_total{source}` reports per chunk where `properties` came from.
+`columns` and `empty` keep ClickHouse off the blob.
+`rebuilt_inexact_key`, `rebuilt_no_column`, `rebuilt_ambiguous_value` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
+A chunk that reads a key holding the boolean `false`, such as a flag response, counts under `rebuilt_ambiguous_value`.
 
 ### ClickHouse settings
 

@@ -5,13 +5,14 @@ from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from products.visual_review.backend.facade import api
@@ -28,7 +29,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, quarantine, runs
+from products.visual_review.backend.logic import artifact_store, errors, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -89,25 +90,60 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_expire_quarantine_takes_only_an_identifier(self):
+    @parameterized.expand(
+        [
+            ("head_known", True, "head_known", status.HTTP_204_NO_CONTENT, None, []),
+            (
+                "head_unknown",
+                True,
+                "head_unknown",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "lift_commit_unknown",
+                ["Button"],
+            ),
+            ("no_integration", True, "no_integration", status.HTTP_400_BAD_REQUEST, None, ["Button"]),
+            ("rate_limited", True, "rate_limited", status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", ["Button"]),
+            ("repeat_lift_while_head_unknown", False, "head_unknown", status.HTTP_204_NO_CONTENT, None, []),
+        ]
+    )
+    def test_expire_quarantine_takes_only_an_identifier(
+        self, _name, quarantined, github_state, expected_status, expected_code, expected_active
+    ):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
-        quarantine.quarantine_identifier(
-            repo_id=repo.id,
-            identifier="Button",
-            run_type=RunType.STORYBOOK,
-            reason="flaky",
-            user_id=self.user.id,
-            team_id=self.team.id,
-        )
+        if quarantined:
+            quarantine.quarantine_identifier(
+                repo_id=repo.id,
+                identifier="Button",
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+                user_id=self.user.id,
+                team_id=self.team.id,
+            )
+        github = MagicMock()
+        github.get_default_branch.return_value = "master"
+        github.api_request.return_value = MagicMock(status_code=200, json=lambda: {"sha": "abc123"})
+        integration_error = None
+        if github_state == "head_unknown":
+            github.api_request.return_value = MagicMock(status_code=502)
+        elif github_state == "no_integration":
+            integration_error = errors.GitHubIntegrationNotFoundError("none")
+        elif github_state == "rate_limited":
+            github.get_default_branch.side_effect = GitHubRateLimitError("limited", retry_after=30)
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
-            {"identifier": "Button"},
-            format="json",
-        )
+        with patch.object(
+            github_api, "get_github_integration_for_repo", return_value=github, side_effect=integration_error
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+                {"identifier": "Button"},
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+        assert response.status_code == expected_status
+        if expected_code:
+            assert response.json()["code"] == expected_code
+        active = quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        assert [entry.identifier for entry in active] == expected_active
 
     @parameterized.expand(
         [
@@ -141,16 +177,33 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             assert entry.expires_at is not None
             assert before + window <= entry.expires_at <= timezone.now() + window
 
-    def test_opening_a_quarantine_still_needs_a_reason(self):
+    @parameterized.expand(
+        [
+            ("without_a_reason", {}),
+            ("with_a_past_expiry", {"reason": "flaky", "expires_at": "2020-01-01T00:00:00Z"}),
+        ]
+    )
+    def test_opening_a_quarantine_rejects_bad_input(self, _name, body):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
-            {"identifier": "Button"},
+            {"identifier": "Button", **body},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert [
+            entry.identifier for entry in quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        ] == ["Button"]
 
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
@@ -966,6 +1019,19 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # A run that exists but is not in the requested state is excluded even on a match.
         other_state = self.client.get(self._runs_url(review_state="processing", search="feature"))
         self.assertEqual(self._branches(other_state.json()), set())
+
+    @parameterized.expand(
+        [
+            ("repo_runs_unknown", "_runs_url", "approved"),
+            ("repo_runs_empty", "_runs_url", ""),
+            ("team_runs_unknown", "_team_runs_url", "approved"),
+        ]
+    )
+    def test_unknown_review_state_is_rejected(self, _name: str, url_builder: str, review_state: str):
+        response = self.client.get(getattr(self, url_builder)(review_state=review_state))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("needs_review", str(response.json()))
 
     def test_team_wide_endpoint_supports_search(self):
         # The project-wide endpoint (exposed as the MCP tool) shares the same search path.

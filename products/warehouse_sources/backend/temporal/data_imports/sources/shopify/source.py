@@ -21,17 +21,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    CREATED_AT,
     SHOPIFY_API_VERSION_2025_10,
     SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_GRAPHQL_OBJECTS,
+    resolve_schema_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+    CREATED_AT_FILTER_OPERATORS,
     SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
@@ -68,6 +72,14 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     deprecated_versions = (VersionDeprecation(version=SHOPIFY_API_VERSION_2025_10, sunset_at=date(2026, 10, 16)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supports_row_filters = True
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple[RowFilterColumn, ...]:
+        endpoint_config = ENDPOINT_CONFIGS.get(resolve_schema_name(schema_name))
+        if endpoint_config is None or endpoint_config.created_at_search_field is None:
+            return ()
+        return (RowFilterColumn(name=CREATED_AT, data_type="timestamp", operators=CREATED_AT_FILTER_OPERATORS),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -327,4 +339,5 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            row_filters=inputs.row_filters,
         )

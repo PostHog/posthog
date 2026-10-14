@@ -1,12 +1,7 @@
 import { parseTeamsList } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { buildTeamGate } from '~/ingestion/common/team-gate'
-import {
-    IngestionConsumerConfig,
-    IngestionLane,
-    IngestionOutputsConfig,
-    REALTIME_INGESTION_LANES,
-} from '~/ingestion/config'
+import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { FlagEvaluationsMode, Team, ValueMatcher } from '~/types'
 
 export interface FlagEvaluationsConfig {
@@ -16,6 +11,7 @@ export interface FlagEvaluationsConfig {
     excludedTeams: number[]
     /** Keeps the events writes for teams on FLAG_EVALUATIONS_ONLY. */
     flagEvaluationsOnlyDisabled: boolean
+    routesToRealtimeOnlyEvents: boolean
 }
 
 /**
@@ -36,12 +32,14 @@ export interface FlagEvaluationsConfig {
  * set fails to start at all while the topic is unreachable. Clear the topic too.
  */
 export class FlagEvaluationsService {
+    readonly routesToRealtimeOnlyEvents: boolean
     private isEnabled: ValueMatcher<number>
     private flagEvaluationsOnlyDisabled: boolean
 
     constructor(config: FlagEvaluationsConfig) {
         this.isEnabled = buildTeamGate(config.teams, config.excludedTeams)
         this.flagEvaluationsOnlyDisabled = config.flagEvaluationsOnlyDisabled
+        this.routesToRealtimeOnlyEvents = config.routesToRealtimeOnlyEvents
     }
 
     isEnabledForTeam(teamId: number): boolean {
@@ -57,25 +55,15 @@ export class FlagEvaluationsService {
 
 export type FlagEvaluationsEnvConfig = Pick<
     IngestionConsumerConfig,
-    | 'INGESTION_LANE'
     | 'INGESTION_FLAG_EVALUATIONS_MODE'
     | 'INGESTION_FLAG_EVALUATIONS_TEAMS'
     | 'INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS'
     | 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED'
 > &
-    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'>
-
-/**
- * Lanes that may fork: the real-time lanes plus `null` for local dev, where no
- * lane is set. Derived from REALTIME_INGESTION_LANES so a new real-time lane is
- * covered automatically; delayed lanes are excluded by construction.
- *
- * The backfill owns history for this table, so a delayed lane that also forked
- * would write rows the backfill already covers, double-counting the per-flag
- * usage the table exists to answer. The gate holds even if the env vars leak
- * into a config shared across lanes.
- */
-const FLAG_EVALUATIONS_ALLOWED_LANES: readonly (IngestionLane | null)[] = [...REALTIME_INGESTION_LANES, null]
+    Pick<
+        IngestionOutputsConfig,
+        'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC' | 'INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC'
+    >
 
 /**
  * Builds the flag evaluations service, or undefined when the fork is off. The
@@ -97,12 +85,6 @@ export function createFlagEvaluationsService(envConfig: FlagEvaluationsEnvConfig
         )
         return undefined
     }
-    if (!FLAG_EVALUATIONS_ALLOWED_LANES.includes(envConfig.INGESTION_LANE)) {
-        logger.warn('Flag evaluations fork is not supported on this ingestion lane, disabling', {
-            lane: envConfig.INGESTION_LANE,
-        })
-        return undefined
-    }
     const excludedTeams = parseTeamsList(envConfig.INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS)
     if (excludedTeams === '*') {
         // An operator's '*' exclusion means "off": the escape hatch fails toward not forking.
@@ -120,5 +102,6 @@ export function createFlagEvaluationsService(envConfig: FlagEvaluationsEnvConfig
         teams,
         excludedTeams,
         flagEvaluationsOnlyDisabled: envConfig.INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED,
+        routesToRealtimeOnlyEvents: envConfig.INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC !== '',
     })
 }

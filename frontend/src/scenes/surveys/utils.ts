@@ -13,6 +13,7 @@ import {
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
 } from 'scenes/surveys/constants'
+import { getIntroScreenDescriptionContentType } from 'scenes/surveys/surveyIntroScreen'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +46,8 @@ import {
     SurveyStats,
     SurveyType,
 } from '~/types'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -296,6 +299,11 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        introScreenHeader: sanitizeHTML(appearance.introScreenHeader ?? ''),
+        introScreenDescription:
+            getIntroScreenDescriptionContentType(appearance) === 'text'
+                ? (appearance.introScreenDescription ?? '')
+                : sanitizeHTML(appearance.introScreenDescription ?? ''),
         surveyPopupDelaySeconds:
             surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
@@ -1431,7 +1439,7 @@ export function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Sur
         archived: false,
         start_date: null,
         end_date: null,
-        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        targeting_flag_filters: v1TargetingFlagFilters(survey) ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
 }
@@ -1511,7 +1519,13 @@ export function getSurveyTargetingFilters(survey: Survey | NewSurvey): FeatureFl
         return survey.targeting_flag_filters
     }
 
-    return survey.targeting_flag?.filters || undefined
+    return v1TargetingFlagFilters(survey)
+}
+
+/** A survey's targeting flag is v1 by construction; any other config version has no release conditions to show. */
+export function v1TargetingFlagFilters(survey: Survey | NewSurvey): FeatureFlagFilters | undefined {
+    const filters = survey.targeting_flag?.filters
+    return filters && isV1FeatureFlagConfig(filters) ? filters : undefined
 }
 
 export function getSurveyAudienceRuleCount(filters?: FeatureFlagFilters | null): number {

@@ -53,7 +53,7 @@ def test_handler_commits_only_a_cursor_whose_rows_are_written(
     assert manager.commit.called is expect_commit
 
 
-def test_handler_raises_the_shutdown_before_it_commits() -> None:
+def test_handler_confirms_the_cursor_and_raises_the_shutdown_before_it_commits() -> None:
     monitor = MagicMock()
     monitor.raise_if_is_worker_shutdown.side_effect = RuntimeError("worker shutting down")
     manager = MagicMock()
@@ -67,6 +67,7 @@ def test_handler_raises_the_shutdown_before_it_commits() -> None:
     with pytest.raises(RuntimeError, match="worker shutting down"):
         handler()
 
+    manager.confirm.assert_called_once()
     manager.commit.assert_not_called()
 
 

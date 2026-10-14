@@ -1,15 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonModal,
-    LemonSkeleton,
-    LemonTable,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -18,7 +9,8 @@ import { urls } from 'scenes/urls'
 import type { OfflineResultReadApi } from '../generated/api.schemas'
 import { OfflineItemInspectorLogicProps, offlineItemInspectorLogic } from './offlineItemInspectorLogic'
 import { OfflinePayload } from './OfflinePayload'
-import { offlineResultLabel } from './offlineResultPresentation'
+import { OfflineResultTag } from './OfflineResultTag'
+import { offlineScorePassingRuleLabel } from './offlineScoreTrends'
 
 export function OfflineItemInspector({
     onClose,
@@ -109,16 +101,16 @@ export function OfflineItemInspector({
                                                     </div>
                                                     <span className="text-xs text-muted">{`Version ${selectedResult.scorer.version}`}</span>
                                                 </div>
-                                                <LemonTag
-                                                    type={selectedResult.status === 'error' ? 'danger' : 'default'}
-                                                    size="medium"
-                                                    wrap
-                                                >
-                                                    <span className="text-lg font-semibold break-words" translate="no">
-                                                        {offlineResultLabel(selectedResult, selectedResult.scorer)}
-                                                    </span>
-                                                </LemonTag>
+                                                <OfflineResultTag
+                                                    result={selectedResult}
+                                                    scorer={selectedResult.scorer}
+                                                />
                                             </div>
+                                            {offlineScorePassingRuleLabel(selectedResult.scorer) && (
+                                                <p className="text-xs text-muted mb-0">
+                                                    {offlineScorePassingRuleLabel(selectedResult.scorer)}
+                                                </p>
+                                            )}
                                             {selectedResult.error_code && (
                                                 <LemonBanner type="warning">{`Evaluator error: ${selectedResult.error_code}`}</LemonBanner>
                                             )}
@@ -231,18 +223,7 @@ export function OfflineItemInspector({
                                 {
                                     title: 'Score',
                                     render: (_, result: OfflineResultReadApi) => (
-                                        <span
-                                            className={
-                                                result.status === 'error'
-                                                    ? 'text-danger'
-                                                    : result.status === 'ok'
-                                                      ? undefined
-                                                      : 'text-muted'
-                                            }
-                                            translate="no"
-                                        >
-                                            {offlineResultLabel(result, result.scorer)}
-                                        </span>
+                                        <OfflineResultTag result={result} scorer={result.scorer} />
                                     ),
                                 },
                             ]}

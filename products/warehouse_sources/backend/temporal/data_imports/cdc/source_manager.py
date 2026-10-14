@@ -177,8 +177,6 @@ _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
 BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
 # File name to ETag of the files at the highest position that listing saw, kept beside it.
 BUFFER_LISTED_TAIL_KEY = "cdc_buffer_listed_tail"
-# When capture moved the table's legacy source onto the buffer, kept in the table's sync_type_config.
-LEGACY_CONVERTED_AT_KEY = "cdc_legacy_converted_at"
 
 
 @frozen
@@ -259,11 +257,6 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
     if schema.last_synced_at is None:
         return False
     cutoff = now - BUFFER_FILE_RETENTION
-    # The conversion empties the buffer at a position the legacy lane had already delivered, so the
-    # table is current from then on, though no run has listed the buffer yet.
-    converted_at = (schema.sync_type_config or {}).get(LEGACY_CONVERTED_AT_KEY)
-    if converted_at is not None and dt.datetime.fromisoformat(converted_at) >= cutoff:
-        return False
     # Every completion moves it, so nothing has drained since the cutoff either.
     if schema.last_synced_at < cutoff:
         return True
@@ -382,7 +375,9 @@ async def build_output_lanes(
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
     for index, lane in enumerate(served_lanes(schema)):
-        delta_table = await DeltaTableRef(lane.resource_name, job, logger).get_delta_table()
+        delta_table = await DeltaTableRef(
+            lane.resource_name, job, logger, expect_missing=schema.table_id is None
+        ).get_delta_table()
         is_append = lane.write_mode == COMPANION_WRITE_MODE
         keys = [normalize_column_name(name) for name in schema.primary_key_columns or []]
         if delta_table is not None:
@@ -394,7 +389,7 @@ async def build_output_lanes(
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
         positions.append(position.position)
-        replay = ReplayFilter(position, team_id=job.team_id)
+        replay = ReplayFilter(position)
         lanes.append(
             OutputLane(
                 name=lane.resource_name,
@@ -520,7 +515,7 @@ class ReplayFilter:
     capture would close it, and is the follow-up.
     """
 
-    def __init__(self, position: LanePosition, *, team_id: int | None = None) -> None:
+    def __init__(self, position: LanePosition) -> None:
         self._position = position.position
         self._applied = {key: list(rows) for key, rows in position.applied.items()}
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
@@ -528,7 +523,6 @@ class ReplayFilter:
         self._content_schema = position.content_schema
         self._content_matched = position.content_matched
         self._load_applied = position.load_applied
-        self._team_id = team_id
         self.rows_skipped = 0
 
     def apply(self, table: pa.Table) -> pa.Table:
@@ -553,8 +547,8 @@ class ReplayFilter:
         # `superseded` is the series the loader raised while the position lived there. It now
         # comes from the extraction workers, so a dashboard filtered to the load fleet loses it.
         self.rows_skipped += dropped
-        if dropped and self._team_id is not None:
-            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=str(self._team_id), reason=reason).inc(dropped)
+        if dropped:
+            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(reason=reason).inc(dropped)
 
     def _drop_already_written(self, table: pa.Table) -> pa.Table:
         # A source column of the same name is customer data, so comparing it against this lane's

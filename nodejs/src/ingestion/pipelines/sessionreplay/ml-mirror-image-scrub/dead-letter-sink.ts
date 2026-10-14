@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 
 import { DeadLetterSink } from './image-batcher'
 
@@ -15,7 +15,7 @@ import { DeadLetterSink } from './image-batcher'
  */
 export class KafkaDeadLetterSink implements DeadLetterSink {
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly topic: string
     ) {}
 

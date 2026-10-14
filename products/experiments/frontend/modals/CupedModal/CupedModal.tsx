@@ -1,4 +1,4 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
@@ -11,11 +11,11 @@ import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'pro
 
 export function CupedModal(): JSX.Element {
     const { experiment, experimentUpdateLoading } = useValues(experimentLogic)
-    const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { updateExperimentSettings } = useAsyncActions(experimentLogic)
+    const { setExperiment, restoreUnmodifiedExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const { closeCupedModal } = useActions(modalsLogic)
     const { isCupedModalOpen } = useValues(modalsLogic)
+    const savingReason = experimentUpdateLoading ? 'Saving in progress' : undefined
 
     const selection = getCupedSelection(experiment.stats_config?.cuped)
     const teamDefaultEnabled = experimentsConfig?.default_cuped_enabled ?? false
@@ -61,28 +61,24 @@ export function CupedModal(): JSX.Element {
         })
     }
 
-    const onSave = async (): Promise<void> => {
-        try {
-            await updateExperimentSettings({ stats_config: experiment.stats_config })
-        } catch {
-            // Keep the modal open so the user can retry
-            return
-        }
-        closeCupedModal()
-    }
-
     return (
         <LemonModal
             maxWidth={600}
             isOpen={isCupedModalOpen}
             onClose={onClose}
+            // Cancel does not stop a running save. The save still applies, and its response replaces any new edit.
+            closable={!experimentUpdateLoading}
             title="CUPED variance reduction"
             footer={
                 <div className="flex items-center gap-2 justify-end">
-                    <LemonButton type="secondary" onClick={onClose}>
+                    <LemonButton type="secondary" onClick={onClose} disabledReason={savingReason}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" loading={experimentUpdateLoading} onClick={() => void onSave()}>
+                    <LemonButton
+                        type="primary"
+                        loading={experimentUpdateLoading}
+                        onClick={() => updateExperimentSettings({ stats_config: experiment.stats_config }, 'cuped')}
+                    >
                         Save
                     </LemonButton>
                 </div>
@@ -98,6 +94,7 @@ export function CupedModal(): JSX.Element {
                     <LemonSelect<CupedSelection>
                         value={selection}
                         onChange={updateSelection}
+                        disabledReason={savingReason}
                         options={[
                             {
                                 value: 'default',
@@ -116,6 +113,7 @@ export function CupedModal(): JSX.Element {
                             min={MIN_LOOKBACK_DAYS}
                             max={MAX_LOOKBACK_DAYS}
                             value={lookbackDays}
+                            disabledReason={savingReason}
                             onChange={(value) => {
                                 if (typeof value !== 'number' || !Number.isFinite(value)) {
                                     return

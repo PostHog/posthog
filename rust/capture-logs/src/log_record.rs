@@ -84,6 +84,15 @@ pub fn sum_kafka_log_row_bytes(rows: &[KafkaLogRow]) -> u64 {
     rows.iter().map(KafkaLogRow::byte_count).sum()
 }
 
+/// Earliest row `timestamp` in a batch, as epoch microseconds. Feeds the `min_timestamp` Kafka
+/// header. The Node consumer compares it with the team's shortest retention to decide, without
+/// decoding the batch, whether any row can already be past retention.
+pub fn min_kafka_log_row_timestamp_micros(rows: &[KafkaLogRow]) -> Option<i64> {
+    rows.iter()
+        .map(|row| row.timestamp.timestamp_micros())
+        .min()
+}
+
 impl KafkaLogRow {
     /// Set `bytes_uncompressed` from the row's variable-length content. Consuming
     /// builder; the `mut self` is encapsulated and never escapes.
@@ -501,6 +510,25 @@ mod tests {
             sample_row().with_computed_bytes(),
         ];
         assert_eq!(sum_kafka_log_row_bytes(&rows), sample_row_bytes() * 2);
+    }
+
+    #[test]
+    fn test_min_kafka_log_row_timestamp_is_the_oldest_row_wherever_it_sits() {
+        let now = Utc::now();
+        let oldest = now - TimeDelta::days(400);
+        let rows: Vec<KafkaLogRow> = [now, oldest, now - TimeDelta::hours(1)]
+            .into_iter()
+            .map(|timestamp| KafkaLogRow {
+                timestamp,
+                ..sample_row()
+            })
+            .collect();
+
+        assert_eq!(
+            min_kafka_log_row_timestamp_micros(&rows),
+            Some(oldest.timestamp_micros())
+        );
+        assert_eq!(min_kafka_log_row_timestamp_micros(&[]), None);
     }
 
     #[test]

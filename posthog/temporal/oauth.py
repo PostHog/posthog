@@ -4,14 +4,13 @@ from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.utils import timezone
 
 import structlog
 
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
-from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models import OAuthApplication
+from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
@@ -22,7 +21,7 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -116,6 +115,7 @@ McpScopePreset = Literal[
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
 ]
@@ -166,7 +166,6 @@ SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
 
-LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
@@ -237,12 +236,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
-#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
-#                          suggestion loop and the shared rating on observations. Scanning spends
-#                          the organization's credits, and delete is PERMANENT (it takes the
-#                          scanner's observations with it), so this scope alone misses the bar the
-#                          others meet. One scope object covers the whole surface, so the two
-#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the shared
+#                          rating on observations. Scanning spends the organization's credits,
+#                          and delete is PERMANENT (it takes the scanner's observations with it),
+#                          so this scope alone misses the bar the others meet. One scope object
+#                          covers the whole surface, so the two exclusions live in
+#                          `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
 #   customer_task:write    Every Customer analytics task in the scout's project: create, update
 #                          (status, due date, assignee, linked account) and archive. There is no
@@ -255,8 +254,17 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
 #                          also publishes, updates and test-sends a workflow: this scope can put
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
-#                          a person. The workflows scout declares it in its SKILL.md
-#                          (`scout-write-scopes`), so no other scout holds it unless granted.
+#                          a person. A person grants it in the scout's write access settings, the
+#                          same way as every other scope here, so no scout holds it by default.
+#   canvas:write           Every canvas in a public space of the scout's project, and every canvas
+#                          the acting user created in a space they can see (see
+#                          `authorized_canvases`): publish a new version, patch a grid layout, write
+#                          runtime state, and run the canvas's declared actions where the token also
+#                          holds the action's own scope. Every publish is a new version that records
+#                          the run's task, so a bad one is reverted from version history. Delete is a
+#                          recoverable soft-delete and only reaches canvases the acting user created.
+#                          A scout cannot create a canvas: a sandbox may only file one in its task's
+#                          space, and a scout task has none. It maintains one a person created.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -283,6 +291,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "canvas:write",
     }
 )
 
@@ -339,6 +348,7 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
 )
@@ -442,7 +452,22 @@ def resolve_scopes(
             # The report research run: reads, plus durable memory, and nothing else. See
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            if include_internal_scopes:
+                reads.append("signal_scout_internal:read")
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_scout_experiment":
+            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
+            reads = [
+                scope
+                for scope in (*MCP_READ_SCOPES, *internal)
+                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
+            ]
+            private_writes = (
+                [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
+                if include_internal_scopes
+                else []
+            )
+            resolved = [*reads, *private_writes]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -490,6 +515,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "full",
             "signals_scout",
             "signals_scout_reports",
+            "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
         )
@@ -582,22 +608,18 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
-def _mint_oauth_access_token(
+def _mint_run_access_token(
     user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
 ) -> str:
-    token_value = generate_random_oauth_access_token(None)
-
-    OAuthAccessToken.objects.create(
-        user=user,
+    access_token = mint_oauth_access_token(
         application=app,
-        token=token_value,
-        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        user=user,
         scope=" ".join(dict.fromkeys(scopes)),
+        lifetime=timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scoped_teams=[team_id],
         sandbox_task_id=sandbox_task_id,
     )
-
-    return token_value
+    return access_token.token
 
 
 def create_oauth_access_token_for_user(
@@ -630,7 +652,7 @@ def create_oauth_access_token_for_user(
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
+    return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:
@@ -673,7 +695,7 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=user.email,
                 user_uuid=str(user.uuid),
@@ -683,7 +705,10 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
             call_site="wizard_mint",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
+        logger.exception("security_access_check_site_failed", call_site="wizard_mint")
+        refused = False
+    if refused:
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     app = get_wizard_app()
 
@@ -691,4 +716,4 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    return _mint_run_access_token(user, team_id, app=app, scopes=sorted(ceiling))

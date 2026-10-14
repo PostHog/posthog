@@ -1,17 +1,32 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { CSSProperties, useEffect, useRef } from 'react'
 
 import { cn } from '@posthog/quill-primitives'
 
 import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { RegionCommentAnchor } from '../artifactComments'
+import { COMMENT_MARK_ATTR } from '../artifactCommentScreenshot'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
+import { ArtifactInlineThread } from './ArtifactInlineThread'
 import { ArtifactPendingComment } from './ArtifactPendingComment'
 
 /** The point of a pin sits on its region's bottom left corner, the same spot Desktop draws it on. */
 function pinStyle(anchor: RegionCommentAnchor): { left: string; top: string } {
     return { left: `${anchor.x * 100}%`, top: `${(anchor.y + anchor.height) * 100}%` }
+}
+
+function besidePinStyle(region: RegionCommentAnchor): CSSProperties {
+    return {
+        ...(region.y < 0.5
+            ? { top: `${(region.y + region.height) * 100}%` }
+            : { bottom: `${(1 - region.y - region.height) * 100}%` }),
+        ...(region.x < 0.5 ? { left: `${region.x * 100}%` } : { right: `${(1 - region.x - region.width) * 100}%` }),
+    }
+}
+
+function besidePinClassName(region: RegionCommentAnchor): string {
+    return cn('pointer-events-auto', region.y < 0.5 ? 'mt-1' : 'mb-8')
 }
 
 function PinMarker({
@@ -21,6 +36,7 @@ function PinMarker({
     onClick,
     anchor,
     threadId,
+    marked = false,
 }: {
     threadId?: string
     label: string
@@ -28,6 +44,7 @@ function PinMarker({
     active: boolean
     onClick?: () => void
     anchor: RegionCommentAnchor
+    marked?: boolean
 }): JSX.Element {
     return (
         <button
@@ -45,6 +62,7 @@ function PinMarker({
             onClick={onClick}
             data-thread-id={threadId}
             data-attr="task-artifact-comment-pin-marker"
+            {...(marked ? { [COMMENT_MARK_ATTR]: '' } : {})}
         >
             {number ?? '+'}
         </button>
@@ -57,7 +75,7 @@ export function ArtifactImagePins({ logicProps }: { logicProps: TaskArtifactComm
     const { activateThread } = useActions(taskArtifactCommentsLogic(logicProps))
     const rootRef = useRef<HTMLDivElement>(null)
 
-    // A pick in the comments panel scrolls its pin into view when the image is zoomed in.
+    // A pick in the comments menu scrolls its pin into view when the image is zoomed in.
     useEffect(() => {
         if (activeThreadId) {
             rootRef.current
@@ -67,6 +85,8 @@ export function ArtifactImagePins({ logicProps }: { logicProps: TaskArtifactComm
     }, [activeThreadId])
 
     const pendingRegion = pendingAnchor?.kind === 'region' ? pendingAnchor : null
+    const activeAnchor = anchoredThreads.find((thread) => thread.root.id === activeThreadId)?.anchor
+    const activeRegion = activeAnchor?.kind === 'region' ? activeAnchor : null
     return (
         <div ref={rootRef} className="pointer-events-none absolute inset-0">
             {anchoredThreads.map((thread) => {
@@ -88,21 +108,21 @@ export function ArtifactImagePins({ logicProps }: { logicProps: TaskArtifactComm
             })}
             {pendingRegion && (
                 <>
-                    <PinMarker label="New pin" number={null} active anchor={pendingRegion} />
+                    <PinMarker label="New pin" number={null} active anchor={pendingRegion} marked />
                     <ArtifactPendingComment
                         logicProps={logicProps}
-                        className={cn('pointer-events-auto', pendingRegion.y < 0.5 ? 'mt-1' : 'mb-8')}
+                        className={besidePinClassName(pendingRegion)}
                         // The box opens toward the middle of the image, so it stays on the image as far as it can.
-                        style={{
-                            ...(pendingRegion.y < 0.5
-                                ? { top: `${(pendingRegion.y + pendingRegion.height) * 100}%` }
-                                : { bottom: `${(1 - pendingRegion.y - pendingRegion.height) * 100}%` }),
-                            ...(pendingRegion.x < 0.5
-                                ? { left: `${pendingRegion.x * 100}%` }
-                                : { right: `${(1 - pendingRegion.x - pendingRegion.width) * 100}%` }),
-                        }}
+                        style={besidePinStyle(pendingRegion)}
                     />
                 </>
+            )}
+            {activeRegion && !pendingRegion && (
+                <ArtifactInlineThread
+                    logicProps={logicProps}
+                    className={besidePinClassName(activeRegion)}
+                    style={besidePinStyle(activeRegion)}
+                />
             )}
         </div>
     )

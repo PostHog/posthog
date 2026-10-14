@@ -3,16 +3,14 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import CharField, Count, Q, QuerySet
-from django.db.models.functions import Cast
+from django.db.models import Count, Q, QuerySet
 
 from posthog.models import Comment
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES
 
-from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import contracts
-from products.tasks.backend.models import Channel, TaskArtifact, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
 
 COMMENT_STATES = frozenset({"open", "resolved"})
 LEGACY_TASK_RUN_LIMIT = 100
@@ -127,14 +125,22 @@ def _without_emoji(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
-def visible_canvas_comment_item_ids(team_id: int, user_id: int | None) -> QuerySet[Canvas, dict[str, str]]:
-    return (
-        Canvas.objects.for_team(team_id)
-        .filter(deleted=False)
-        .filter(Channel.visible_to_q(user_id, relation="channel"))
-        .annotate(comment_item_id=Cast("id", output_field=CharField()))
-        .values("comment_item_id")
+def _visible_task_canvas_ids(team_id: int, task_id_string: str, user_id: int | None) -> set[str]:
+    """Ids of the visible canvases among those this task's canvas comments name."""
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
     )
+
+    # Only the canvases this task's comments name are candidates, so the lookup stays bounded by the
+    # task and not by every canvas in the team.
+    item_ids = (
+        Comment.objects.filter(
+            team_id=team_id, deleted=False, scope__in=CANVAS_COMMENT_SCOPES, item_context__taskId=task_id_string
+        )
+        .values_list("item_id", flat=True)
+        .distinct()
+    )
+    return canvas_access.live_visible_canvas_ids(team_id, user_id, [item_id for item_id in item_ids if item_id])
 
 
 def _comments(team_id: int, task_id: UUID, user_id: int | None) -> QuerySet[Comment]:
@@ -146,7 +152,7 @@ def _comments(team_id: int, task_id: UUID, user_id: int | None) -> QuerySet[Comm
             | Q(
                 scope__in=CANVAS_COMMENT_SCOPES,
                 item_context__taskId=task_id_string,
-                item_id__in=visible_canvas_comment_item_ids(team_id, user_id),
+                item_id__in=_visible_task_canvas_ids(team_id, task_id_string, user_id),
             )
         )
     )

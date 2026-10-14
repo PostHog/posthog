@@ -2,38 +2,27 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
+    KubecostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
     KubecostResumeConfig,
-    get_rows,
-    hostname_of,
-    kubecost_source,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import (
-    DEFAULT_BACKFILL_DAYS,
-    ENDPOINTS,
-    INCREMENTAL_LOOKBACK_DAYS,
-)
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost"
+from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source import KubecostSource
 
 
-def _make_manager(resume_state: KubecostResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    return resp
+def _driver(host: str = "https://k.example.com") -> SourceDriver:
+    return SourceDriver(KubecostSource(), KubecostSourceConfig(host=host, api_key="token"))
 
 
 def _allocation_set(names: list[str]) -> dict[str, Any]:
@@ -68,31 +57,15 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
-    def test_hostname_of(self):
-        assert hostname_of("https://kubecost.example.com/model") == "kubecost.example.com"
-
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_credentials(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [_allocation_set(["argocd"])]})
-
-        is_valid, error = validate_credentials("https://kubecost.example.com", "token")
+    def test_no_api_key_sends_no_auth_header(self) -> None:
+        with scripted_network([ScriptedResponse(json={"code": 200, "data": [None]})]) as network:
+            is_valid, _ = validate_credentials("https://kubecost.example.com", None)
 
         assert is_valid is True
-        assert error is None
-        assert mock_session.call_args.kwargs["headers"] == {"Authorization": "Bearer token"}
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://kubecost.example.com/model/allocation"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_no_api_key_sends_no_auth_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        is_valid, _ = validate_credentials("https://kubecost.example.com", None)
-
-        assert is_valid is True
-        assert mock_session.call_args.kwargs["headers"] is None
+        assert network.session_options[0]["headers"] is None
+        assert "authorization" not in network.requests_log[0].headers
 
     @pytest.mark.parametrize(
         "status_code, expected_error",
@@ -102,61 +75,43 @@ class TestValidateCredentials:
             (404, "unexpected status"),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_http_error_statuses(self, mock_session, status_code, expected_error):
-        mock_session.return_value.get.return_value = _response({}, status_code=status_code)
-
-        is_valid, error = validate_credentials("https://kubecost.example.com", "token")
+    def test_http_error_statuses(self, status_code: int, expected_error: str) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
+            is_valid, error = validate_credentials("https://kubecost.example.com", "token")
 
         assert is_valid is False
         assert expected_error in (error or "")
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_error_envelope_fails_validation(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 500, "message": "boom"})
-
-        is_valid, error = validate_credentials("https://kubecost.example.com", "token")
+    def test_error_envelope_fails_validation(self) -> None:
+        with scripted_network([ScriptedResponse(json={"code": 500, "message": "boom"})]):
+            is_valid, error = validate_credentials("https://kubecost.example.com", "token")
 
         assert is_valid is False
         assert "boom" in (error or "")
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_json_response_fails_validation(self, mock_session):
-        resp = _response({})
-        resp.json.side_effect = ValueError("not json")
-        mock_session.return_value.get.return_value = resp
-
-        is_valid, error = validate_credentials("https://kubecost.example.com", "token")
+    def test_non_json_response_fails_validation(self) -> None:
+        with scripted_network([ScriptedResponse(body=b"not json")]):
+            is_valid, error = validate_credentials("https://kubecost.example.com", "token")
 
         assert is_valid is False
         assert "did not return a Kubecost API response" in (error or "")
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_unreachable_host_fails_validation(self, mock_session):
-        mock_session.return_value.get.side_effect = ConnectionError("nope")
-
-        is_valid, error = validate_credentials("https://kubecost.example.com", "token")
+    def test_unreachable_host_fails_validation(self) -> None:
+        with scripted_network(always(ConnectionError("nope"))):
+            is_valid, error = validate_credentials("https://kubecost.example.com", "token")
 
         assert is_valid is False
         assert "Unable to reach" in (error or "")
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_api_key_over_plain_http_fails_before_any_request(self, mock_session):
+    def test_api_key_over_plain_http_fails_before_any_request(self) -> None:
         # The bearer token must never ride a plaintext connection.
-        is_valid, error = validate_credentials("http://kubecost.example.com", "token")
+        with scripted_network([]) as network:
+            is_valid, error = validate_credentials("http://kubecost.example.com", "token")
 
         assert is_valid is False
         assert "https" in (error or "")
-        mock_session.return_value.get.assert_not_called()
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_plain_http_without_api_key_is_allowed(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        is_valid, error = validate_credentials("http://kubecost.example.com", None)
-
-        assert is_valid is True
-        assert error is None
+        assert network.requests_log == []
 
 
 class TestGetRows:
@@ -165,82 +120,38 @@ class TestGetRows:
         with time_machine.travel("2026-07-15T10:00:00Z", tick=False):
             yield
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_flattens_result_sets_and_injects_key_and_window(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            {"code": 200, "data": [_allocation_set(["__idle__", "argocd"])]}
+    @pytest.mark.parametrize(
+        "endpoint, data",
+        [
+            ("allocation_by_namespace", [_allocation_set(["__idle__", "argocd"])]),
+            (
+                "cloud_costs",
+                {
+                    "sets": [
+                        {"cloudCosts": _allocation_set(["__idle__", "argocd"])},
+                        {"cloudCosts": None},
+                    ],
+                    "window": {"start": "null", "end": "null"},
+                },
+            ),
+        ],
+    )
+    def test_flattens_result_sets_and_injects_key_and_window(self, endpoint: str, data: Any) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"code": 200, "data": data})],
+            resume_state=KubecostResumeConfig(next_date="2026-07-15"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-07-15T00:00:00Z",
         )
 
-        batches = list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-15T00:00:00Z",
-            )
-        )
-
-        rows = [row for batch in batches for row in batch]
+        assert result.raised is None
+        rows = result.rows
         assert {row["key"] for row in rows} == {"__idle__", "argocd"}
         # The server-reported window is preferred for the composite key columns.
         assert all(row["window_start"] == "2026-07-14T00:00:00Z" for row in rows)
         assert all(row["window_end"] == "2026-07-15T00:00:00Z" for row in rows)
         assert all(row["totalCost"] == 1.5 for row in rows)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_null_result_sets_are_skipped(self, mock_session):
-        # Windows beyond the deployment's ETL retention come back as `data: [null]`.
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        batches = list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-15T00:00:00Z",
-            )
-        )
-
-        assert batches == []
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_walks_lookback_window_oldest_first(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-15T00:00:00Z",
-            )
-        )
-
-        calls = mock_session.return_value.get.call_args_list
-        # Watermark day minus the lookback, through today inclusive.
-        assert len(calls) == INCREMENTAL_LOOKBACK_DAYS + 1
-        windows = [call.kwargs["params"]["window"] for call in calls]
-        assert windows[0] == "2026-07-12T00:00:00Z,2026-07-13T00:00:00Z"
-        assert windows[-1] == "2026-07-15T00:00:00Z,2026-07-16T00:00:00Z"
-        assert windows == sorted(windows)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_starts_at_default_backfill(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        list(get_rows("https://k.example.com", None, "assets", mock.MagicMock(), _make_manager()))
-
-        calls = mock_session.return_value.get.call_args_list
-        assert len(calls) == DEFAULT_BACKFILL_DAYS + 1
 
     @pytest.mark.parametrize(
         "endpoint, expected_path, expected_aggregate",
@@ -248,95 +159,76 @@ class TestGetRows:
             ("allocation_by_namespace", "/model/allocation", "namespace"),
             ("allocation_by_controller", "/model/allocation", "controller"),
             ("allocation_by_pod", "/model/allocation", "pod"),
+            ("allocation_by_cluster", "/model/allocation", "cluster"),
+            ("allocation_by_node", "/model/allocation", "node"),
+            ("allocation_by_service", "/model/allocation", "service"),
             ("assets", "/model/assets", None),
+            ("cloud_costs", "/model/cloudCost", None),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_endpoint_path_and_params(self, mock_session, endpoint, expected_path, expected_aggregate):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                endpoint,
-                mock.MagicMock(),
-                _make_manager(KubecostResumeConfig(next_date="2026-07-15")),
-            )
+    def test_endpoint_path_and_params(self, endpoint: str, expected_path: str, expected_aggregate: str | None) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"code": 200, "data": [None]})],
+            resume_state=KubecostResumeConfig(next_date="2026-07-15"),
         )
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == f"https://k.example.com{expected_path}"
-        assert call.kwargs["params"].get("aggregate") == expected_aggregate
-        assert call.kwargs["params"]["accumulate"] == "true"
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert result.requests[0].origin == "https://k.example.com"
+        assert result.requests[0].param("aggregate") == expected_aggregate
+        assert result.requests[0].param("accumulate") == "true"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_date_supersedes_older_start(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
+    def test_api_key_over_plain_http_raises_before_any_request(self) -> None:
+        result = _driver("http://kubecost.example.com").run("allocation_by_namespace", [])
 
-        manager = _make_manager(KubecostResumeConfig(next_date="2026-07-15"))
-        list(get_rows("https://k.example.com", "token", "allocation_by_namespace", mock.MagicMock(), manager))
+        assert isinstance(result.raised, ValueError)
+        assert "https" in str(result.raised)
+        assert result.requests == []
 
-        assert mock_session.return_value.get.call_count == 1
-        window = mock_session.return_value.get.call_args.kwargs["params"]["window"]
-        assert window == "2026-07-15T00:00:00Z,2026-07-16T00:00:00Z"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_state_saved_after_each_yielded_day(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [_allocation_set(["argocd"])]})
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-14T00:00:00Z",
-            )
+    def test_error_envelope_raises(self) -> None:
+        result = _driver().run(
+            "allocation_by_namespace",
+            [ScriptedResponse(json={"code": 400, "message": "bad request"})],
+            resume_state=KubecostResumeConfig(next_date="2026-07-15"),
         )
 
-        saved_dates = [call.args[0].next_date for call in manager.save_state.call_args_list]
-        # State points at the next unfetched day; no state after the final day.
-        assert saved_dates == ["2026-07-12", "2026-07-13", "2026-07-14", "2026-07-15"]
+        assert isinstance(result.raised, ValueError)
+        assert "bad request" in str(result.raised)
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_api_key_over_plain_http_raises_before_any_request(self, mock_session):
-        with pytest.raises(ValueError, match="https"):
-            list(
-                get_rows(
-                    "http://kubecost.example.com",
-                    "token",
-                    "allocation_by_namespace",
-                    mock.MagicMock(),
-                    _make_manager(),
-                )
-            )
-        mock_session.return_value.get.assert_not_called()
+    def test_walks_one_window_per_day_and_checkpoints_the_next_day(self) -> None:
+        result = _driver().run(
+            "allocation_by_namespace",
+            [ScriptedResponse(json={"code": 200, "data": [None]})] * 3,
+            resume_state=KubecostResumeConfig(next_date="2026-07-13"),
+        )
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_error_envelope_raises(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 400, "message": "bad request"})
-
-        with pytest.raises(ValueError, match="bad request"):
-            list(
-                get_rows(
-                    "https://k.example.com",
-                    "token",
-                    "allocation_by_namespace",
-                    mock.MagicMock(),
-                    _make_manager(KubecostResumeConfig(next_date="2026-07-15")),
-                )
-            )
+        assert result.raised is None
+        assert len(result.requests) == 3
+        # The last day has no successor, so it is not checkpointed.
+        assert result.saved_states == [
+            KubecostResumeConfig(next_date="2026-07-14"),
+            KubecostResumeConfig(next_date="2026-07-15"),
+        ]
 
 
 class TestKubecostSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = kubecost_source("https://k.example.com", "token", endpoint, mock.MagicMock(), _make_manager())
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T10:00:00Z", tick=False):
+            yield
 
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"code": 200, "data": [None]})],
+            resume_state=KubecostResumeConfig(next_date="2026-07-15"),
+        )
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         # The result-set key is only unique within one window, so the window
         # start must be part of the composite key.

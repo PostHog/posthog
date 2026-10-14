@@ -50,7 +50,13 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_turn_complete, pi_turn_error
+from ee.hogai.sandbox import (
+    BACKGROUND_TURN_COMPLETE_METHOD,
+    PI_RUNTIME_ERROR_MESSAGE,
+    TURN_COMPLETE_METHOD,
+    is_turn_complete,
+    pi_turn_error,
+)
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
@@ -1076,6 +1082,8 @@ class TestRelaySandboxEventsErrorHandling:
         notify = MagicMock()
         monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        record_cause = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "record_run_failure_cause", record_cause)
         metric = "posthog_tasks_turn_completed_suppressed_total"
         labels = {"reason": "idle_resume"}
         suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
@@ -1092,8 +1100,10 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         if turn_failed:
+            record_cause.assert_called_once_with("run-id", "pi_runtime_error")
             handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
         else:
+            record_cause.assert_not_called()
             await asyncio.wait_for(dispatch_done.wait(), timeout=5)
             assert handle.signal.await_args_list == [
                 call("agent_state_changed", arg=False),
@@ -1723,6 +1733,72 @@ class TestPersistFinalMessage:
         _persist_final_message("00000000-0000-0000-0000-000000000000", "The report.")
 
 
+class TestRelaySlackAgentDesignFanOut:
+    async def test_background_turn_end_closes_the_slack_turn_with_the_whole_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+        )
+        events = [
+            _acp("agent_message_chunk", {"content": {"type": "text", "text": "No, it is not safe to"}}),
+            _acp("agent_message_chunk", {"content": {"type": "text", "text": " merge yet."}}),
+            {
+                "type": "notification",
+                "notification": {"method": BACKGROUND_TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+            },
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class EventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "EventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_a, **_kw: EventSource())
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            slack_thread_context={"channel": "C1"},
+            is_agent_design_enabled=True,
+        )
+
+        slack_signals = [
+            (c.args[0], c.kwargs.get("arg"))
+            for c in handle.signal.await_args_list
+            if c.args[0] in ("turn_started", "agent_text_delta", "turn_completed")
+        ]
+        assert slack_signals[0][0] == "turn_started"
+        assert slack_signals[-1] == ("turn_completed", None)
+        assert "".join(arg for name, arg in slack_signals if name == "agent_text_delta") == (
+            "No, it is not safe to merge yet."
+        )
+
+
 class TestFlushPendingText:
     """Coalescing many chunks into one agent_text_delta signal keeps the parent workflow's
     history small enough to replay under the 2s deadlock budget."""
@@ -1758,7 +1834,7 @@ class TestFlushPendingText:
 class TestShouldSignalWorkflowHeartbeat:
     @parameterized.expand(
         [
-            # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
+            # Workflow runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
@@ -1771,7 +1847,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 set(),
                 False,
             ),
-            # Idle after end_of_turn: the short loop window applies and the run winds down.
+            # Idle after end_of_turn: the short window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
             # With no tool call in flight, the default and longer windows rely on the

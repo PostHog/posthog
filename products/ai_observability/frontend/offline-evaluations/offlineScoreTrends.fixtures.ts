@@ -75,6 +75,9 @@ export function makeOfflineHistoryPoint(index: number, mean: number | null = 4.2
             true_count: null,
             false_count: null,
             true_rate: null,
+            pass_count: null,
+            fail_count: null,
+            pass_rate: null,
             categories: [],
         },
     }

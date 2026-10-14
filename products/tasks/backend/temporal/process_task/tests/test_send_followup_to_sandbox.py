@@ -120,7 +120,7 @@ class TestRefreshSandboxMcp:
         task_run.task.mcp_gateway_server_allowlist = ["srv-9"]
         _refresh(task_run, auth_token="jwt")
 
-        mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
+        mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only", run_id="run-1")
         mock_ph_configs.assert_called_once_with(
             token="fresh-token",
             project_id=7,
@@ -252,7 +252,7 @@ class TestRefreshSandboxMcp:
 
         _refresh(_make_task_run_mock(), scopes="full")
 
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
+        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full", run_id="run-1")
         mock_ph_configs.assert_called_once_with(
             token="fresh-token",
             project_id=7,
@@ -794,7 +794,7 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["user_msg"].assert_not_called()
 
     def test_a_cancelled_status_run_rejects_before_rebinding_credentials(self, _patches):
-        # Loop overlap and lifecycle cancellation set CANCELLED without the cancel marker,
+        # Out-of-band cancellation sets CANCELLED without the cancel marker,
         # so the status alone must reject the follow-up.
         _patches["task_run"].state = {}
         _patches["task_run"].status = _patches["task_run_cls"].Status.CANCELLED

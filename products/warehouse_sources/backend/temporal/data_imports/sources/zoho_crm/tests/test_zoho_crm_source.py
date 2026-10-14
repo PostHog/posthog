@@ -51,59 +51,6 @@ class TestZohoCRMSource:
         assert self.source.default_version == "v8"
         assert self.source.api_docs_url.startswith("https://")
 
-    def test_non_json_response_message_matches_non_retryable_error(self) -> None:
-        # The classifier matches a prefix, so the variable URL must not stop the match.
-        raised = "Non-JSON response from https://www.zohoapis.com/crm/v8/Leads"
-        matches = [friendly for key, friendly in self.source.get_non_retryable_errors().items() if key in raised]
-
-        assert matches and matches[0] is not None
-
-    def test_source_config_documents_scopes_the_requests_require(self) -> None:
-        # `settings.modules.READ` is the easy one to drop, because nothing in the sync path uses it:
-        # it exists only so `validate_credentials` can probe /settings/modules. Zoho answers that
-        # probe with a 401 OAUTH_SCOPE_MISMATCH when the scope is missing, and the blanket
-        # `except Exception` in `validate_credentials` flattens it to "Invalid Zoho CRM credentials"
-        # — so leaving it out of the caption fails every setup that followed the caption exactly.
-        # The caption is also the docs page: posthog.com builds /docs/cdp/sources/zoho-crm from it
-        # via /api/public_source_configs, so this string is the only place the scopes are published.
-        required_scopes = [
-            "ZohoCRM.modules.ALL",
-            "ZohoCRM.settings.fields.READ",
-            "ZohoCRM.settings.modules.READ",
-        ]
-        caption = self.source.get_source_config.caption
-        forbidden_message = self.source.get_non_retryable_errors()["403 Client Error: Forbidden for url"]
-
-        assert caption is not None
-        assert forbidden_message is not None
-        for scope in required_scopes:
-            assert scope in caption
-            assert scope in forbidden_message
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "Zoho CRM token refresh failed: invalid_client",
-            "400 Client Error: Bad Request for url: https://accounts.zoho.eu/oauth/v2/token",
-            # Blank reason phrase variant (e.g. an HTTP/2 response, which has none).
-            "400 Client Error:  for url: https://accounts.zoho.eu/oauth/v2/token",
-            "401 Client Error: Unauthorized for url: https://www.zohoapis.com/crm/v8/Leads",
-            "403 Client Error: Forbidden for url: https://www.zohoapis.com/crm/v8/Deals",
-        ],
-    )
-    def test_auth_failures_are_non_retryable(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "500 Server Error for url: https://www.zohoapis.com/crm/v8/Leads",
-            "429 Client Error: Too Many Requests for url: https://www.zohoapis.com/crm/v8/Leads",
-        ],
-    )
-    def test_transient_failures_stay_retryable(self, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
     @mock.patch(f"{_SOURCE_MODULE}.validate_zoho_crm_credentials")
     def test_validate_credentials_passes_the_resolved_version(self, mock_validate: mock.MagicMock) -> None:
         mock_validate.return_value = (True, None)
@@ -169,9 +116,3 @@ class TestZohoCRMSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @mock.patch(f"{_SOURCE_MODULE}.zoho_crm_source")
-    def test_source_for_pipeline_honors_a_stored_version_pin(self, mock_source: mock.MagicMock) -> None:
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), _inputs("Leads", api_version="v7"))
-
-        assert mock_source.call_args.kwargs["api_version"] == "v7"

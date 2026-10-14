@@ -2878,6 +2878,21 @@ export const llmPromptsNameLabelsDestroy = async (
     })
 }
 
+export const getLlmPromptsNameUnarchiveCreateUrl = (projectId: string, promptName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/unarchive/`
+}
+
+export const llmPromptsNameUnarchiveCreate = async (
+    projectId: string,
+    promptName: string,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNameUnarchiveCreateUrl(projectId, promptName), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getLlmPromptsResolveNameRetrieveUrl = (
     projectId: string,
     promptName: string,

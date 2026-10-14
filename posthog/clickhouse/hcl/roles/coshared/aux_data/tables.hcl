@@ -383,6 +383,9 @@ database "posthog" {
     column "occurred_at" {
       type = "DateTime64(6, 'UTC')"
     }
+    column "source_kind" {
+      type = "LowCardinality(String)"
+    }
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(90)"
@@ -1012,6 +1015,75 @@ database "posthog" {
       default = "now() + toIntervalDay(7)"
     }
   }
+  table "_warehouse_object_reads_daily_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "read_kind" {
+      type = "Enum8('read'=1, 'refresh'=2)"
+    }
+    column "subject_kind" {
+      type = "Enum8('saved_query'=1, 'table'=2)"
+    }
+    column "subject_id" {
+      type = "String"
+    }
+    column "workflow_id" {
+      type = "String"
+    }
+    column "lc_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_product" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_feature" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_access_method" {
+      type = "LowCardinality(String)"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "scene" {
+      type = "LowCardinality(String)"
+    }
+    column "has_user_id" {
+      type = "Bool"
+    }
+    column "read_alone" {
+      type = "Bool"
+    }
+    column "requests" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "users" {
+      type = "AggregateFunction(uniq, Int64)"
+    }
+    column "read_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "max_event_time" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+  }
   table "conversion_goal_attributed_preaggregated" {
     extend = "_conversion_goal_attributed_preaggregated_columns"
     engine "distributed" {
@@ -1404,6 +1476,14 @@ database "posthog" {
       table = "web_bot_definition"
     }
     layout "regexp_tree" {
+    }
+  }
+  table "warehouse_object_reads_daily" {
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_warehouse_object_reads_daily"
     }
   }
 }

@@ -1,3 +1,4 @@
+import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
@@ -16,6 +17,9 @@ import {
 export const LINEAGE_FILTER_TYPES: DataModelingNodeType[] = Object.values(NodeTypeEnumApi)
 
 type SearchResultFocusTrigger = 'keyboard' | 'click' | 'previous' | 'next'
+
+// Product analytics can depend on this event name, so keep it stable.
+const MODELS_LINEAGE_NODE_MOVED_EVENT = 'models lineage node moved'
 
 export interface SearchFocusRequest {
     nodeId: string
@@ -46,6 +50,7 @@ export interface modelsLineageLogicValues {
     visibleNodes: DataModelingNode[]
     visibleEdges: DataModelingEdge[]
     isFiltered: boolean
+    nodePositions: Record<string, XYPosition>
 }
 
 export interface modelsLineageLogicActions {
@@ -69,6 +74,8 @@ export interface modelsLineageLogicActions {
     }
     toggleLegendCollapsed: () => Record<string, never>
     resetFilters: () => Record<string, never>
+    nodeDragStopped: (nodeId: string, position: XYPosition) => { nodeId: string; position: XYPosition }
+    resetNodePositions: () => Record<string, never>
 }
 
 export type modelsLineageLogicType = MakeLogicType<modelsLineageLogicValues, modelsLineageLogicActions>
@@ -87,6 +94,8 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         focusSearchResult: (nodeId: string, trigger: SearchResultFocusTrigger) => ({ nodeId, trigger }),
         toggleLegendCollapsed: true,
         resetFilters: true,
+        nodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
+        resetNodePositions: true,
     }),
     reducers({
         searchTerm: [
@@ -111,7 +120,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             },
         ],
         legendCollapsed: [
-            false,
+            true,
             {
                 toggleLegendCollapsed: (collapsed) => !collapsed,
             },
@@ -134,6 +143,13 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 setSearchTerm: () => null,
                 setTypeFilter: () => null,
                 resetFilters: () => null,
+            },
+        ],
+        nodePositions: [
+            {} as Record<string, XYPosition>,
+            {
+                nodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                resetNodePositions: () => ({}),
             },
         ],
     }),
@@ -171,6 +187,15 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                     result_position: resultPosition + 1,
                     search_mode: values.parsedSearchTerm.mode,
                     trigger,
+                })
+            }
+        },
+        nodeDragStopped: ({ nodeId }) => {
+            const node = values.nodes.find((candidate) => candidate.id === nodeId)
+            if (node) {
+                posthog.capture(MODELS_LINEAGE_NODE_MOVED_EVENT, {
+                    node_type: node.type,
+                    is_filtered: values.isFiltered,
                 })
             }
         },

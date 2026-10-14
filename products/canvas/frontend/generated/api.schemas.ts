@@ -1606,10 +1606,15 @@ export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
     /**
-     * Next entry offset, or null when complete.
+     * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
      */
     next_offset: number | null
+    /**
+     * Cursor for the next page, or null when complete. Pass it as cursor.
+     * @nullable
+     */
+    next_cursor: string | null
     /** True when no further entries remain for this selection. */
     complete: boolean
 }
@@ -1838,6 +1843,10 @@ export type CanvasesListParams = {
      */
     channel?: string
     /**
+     * Only return canvases created by the user with this UUID.
+     */
+    created_by?: string
+    /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
     kind?: CanvasesListKind
@@ -1850,6 +1859,10 @@ export type CanvasesListParams = {
      */
     offset?: number
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string
@@ -1861,6 +1874,13 @@ export const CanvasesListKind = {
     Component: 'component',
     Freeform: 'freeform',
     Grid: 'grid',
+} as const
+
+export type CanvasesListOrdering = (typeof CanvasesListOrdering)[keyof typeof CanvasesListOrdering]
+
+export const CanvasesListOrdering = {
+    CreatedAt: '-created_at',
+    UpdatedAt: '-updated_at',
 } as const
 
 export type CanvasesBuildsRetrieveParams = {
@@ -1937,6 +1957,12 @@ export type CanvasesSourceRetrieveParams = {
 
 export type CanvasesStateRetrieveParams = {
     /**
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
      * Only read this exact key.
      * @minLength 1
      * @maxLength 200
@@ -1958,7 +1984,7 @@ export type CanvasesStateRetrieveParams = {
      */
     limit?: number
     /**
-     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.
      * @minimum 0
      */
     offset?: number

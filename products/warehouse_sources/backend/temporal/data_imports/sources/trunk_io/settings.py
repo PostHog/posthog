@@ -1,7 +1,12 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+TRUNK_IO_API_VERSION_V1 = "v1"
+TRUNK_IO_API_VERSION_V2 = "v2"
+
 BASE_URL = "https://api.trunk.io/v1"
+# The v2 spec lists full `/v2/...` paths against the bare origin.
+V2_BASE_URL = "https://api.trunk.io"
 
 # Trunk's list endpoints all paginate the same way: a `page_query: {page_size, page_token}`
 # object nested in the POST body (not a top-level query/json param), capped at 100 rows/page.
@@ -25,18 +30,45 @@ MERGE_QUEUE_PAGE_SIZE = 100
 
 MERGE_QUEUE_PULL_REQUESTS = "MergeQueuePullRequests"
 
-ENDPOINTS = (
+# v2 is a separate, test-collection-scoped API rather than a successor to the repository-scoped
+# v1 endpoints: test ids differ between the two, and v1 is still served for orgs that have not
+# moved to collections. So a v2 pin keeps every v1 table on its v1 wire and adds the collection
+# tables on top.
+TEST_COLLECTIONS = "TestCollections"
+TESTS = "Tests"
+
+# `GET /v2/test-collections` and `GET /v2/tests` both take `limit` (max 100) and `cursor` query
+# params and return `{data, nextCursor, hasMore}`.
+V2_PAGE_SIZE = 100
+
+V1_ENDPOINTS = (
     "UnhealthyTests",
     "QuarantinedTests",
     "FailingTests",
     MERGE_QUEUE_PULL_REQUESTS,
 )
+V2_ENDPOINTS = (*V1_ENDPOINTS, TEST_COLLECTIONS, TESTS)
+
+ENDPOINTS_BY_VERSION: dict[str, tuple[str, ...]] = {
+    TRUNK_IO_API_VERSION_V1: V1_ENDPOINTS,
+    TRUNK_IO_API_VERSION_V2: V2_ENDPOINTS,
+}
+
+
+def endpoints_for_version(api_version: str) -> tuple[str, ...]:
+    try:
+        return ENDPOINTS_BY_VERSION[api_version]
+    except KeyError as e:
+        raise ValueError(f"Unsupported Trunk.io API version: {api_version!r}") from e
+
 
 DESCRIPTIONS: dict[str, str] = {
     "UnhealthyTests": "Tests Trunk currently considers flaky or broken, combining both status filters.",
     "QuarantinedTests": "Tests currently quarantined (failures suppressed) in this repository.",
     "FailingTests": "Distinct tests that failed at least once within a given time window.",
     MERGE_QUEUE_PULL_REQUESTS: "Pull requests submitted to the merge queue for one target branch, with queue state and priority.",
+    TEST_COLLECTIONS: "Test collections in the organization, with test counts and quarantine settings.",
+    TESTS: "Tests across every test collection in the organization, with current status and quarantine state.",
 }
 
 PRIMARY_KEYS: dict[str, list[str]] = {
@@ -46,6 +78,8 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "QuarantinedTests": ["name", "parent", "file", "classname", "variant"],
     "FailingTests": ["id"],
     MERGE_QUEUE_PULL_REQUESTS: ["id"],
+    TEST_COLLECTIONS: ["id"],
+    TESTS: ["id"],
 }
 
 # `synced_through` is a synthetic per-row field (not part of any API response) carrying the point

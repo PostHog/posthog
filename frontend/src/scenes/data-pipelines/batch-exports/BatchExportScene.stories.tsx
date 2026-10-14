@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,40 @@ const EXISTING_LEGACY_S3_PARQUET_EXPORT = {
             file_format: 'Parquet',
         },
     },
+}
+
+const EXISTING_HOGQL_EXPORT = {
+    ...batchExports.results[0],
+    id: '018a6fab-2c21-0002-d451-724c2995e2c1',
+    name: 'Signups to BigQuery',
+    interval: 'hour',
+    model: 'hogql',
+    hogql_query: `SELECT
+    distinct_id,
+    timestamp,
+    properties.$current_url AS url,
+    properties.plan AS plan
+FROM events
+WHERE event = 'signed_up'
+    AND timestamp >= {data_interval_start}
+    AND timestamp < {data_interval_end}`,
+    filters: [],
+}
+
+const HOGQL_EXPORT_PREVIEW_RESULTS = {
+    columns: ['distinct_id', 'timestamp', 'url', 'plan'],
+    types: [
+        ['distinct_id', 'String'],
+        ['timestamp', 'DateTime64(6, UTC)'],
+        ['url', 'Nullable(String)'],
+        ['plan', 'Nullable(String)'],
+    ],
+    results: [
+        ['user-1', '2024-01-14T23:12:03Z', 'https://example.com/signup', 'free'],
+        ['user-2', '2024-01-14T23:31:47Z', 'https://example.com/pricing', 'teams'],
+        ['user-3', '2024-01-14T23:58:10Z', 'https://example.com/signup', 'free'],
+    ],
+    hasMore: false,
 }
 
 const meta: Meta = {
@@ -125,6 +160,39 @@ export const ExistingBigQueryExport: Story = {
     parameters: {
         pageUrl: urls.batchExport(EXISTING_EXPORT.id),
     },
+}
+
+export const ExistingHogQLExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExport(EXISTING_HOGQL_EXPORT.id),
+        featureFlags: [FEATURE_FLAGS.HOGQL_BATCH_EXPORTS],
+        testOptions: { waitForSelector: '.monaco-editor' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/environments/:team_id/batch_exports/${EXISTING_HOGQL_EXPORT.id}/`]: EXISTING_HOGQL_EXPORT,
+                [`/api/environments/:team_id/batch_exports/${EXISTING_HOGQL_EXPORT.id}/runs/`]: { results: [] },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_HOGQL_EXPORT.id}/backfills/`]: { results: [] },
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    const kind = body?.query?.kind
+                    if (kind === 'DatabaseSchemaQuery') {
+                        return [200, { tables: {} }]
+                    }
+                    if (kind === 'HogQLMetadata') {
+                        return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                    }
+                    if (kind === 'HogQLAutocomplete') {
+                        return [200, { suggestions: [], incomplete_list: false }]
+                    }
+                    return [200, HOGQL_EXPORT_PREVIEW_RESULTS]
+                },
+            },
+        }),
+    ],
 }
 
 export const ExistingAwsS3ExportWithLegacyParquetExtension: Story = {
