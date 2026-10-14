@@ -62,6 +62,8 @@ SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
 SKIP_DRAFT = True
+# Before this goes on, `next_push_likely` must defer only once per reviewed head. A skip does not
+# advance run_index, so the same chance would match every later push and no review would run.
 SKIP_NEXT_PUSH = False
 SKIP_THROTTLED = True
 
