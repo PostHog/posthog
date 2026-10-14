@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
@@ -40,6 +41,7 @@ from posthog.exceptions import (
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.business_knowledge.backend.logic import KnowledgeSearchResult
 
 from ee.hogai.mcp_tool import MCPToolResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -552,19 +554,38 @@ class TestDocsSearchAction(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("inkeep_on", False, "Feature Flags", 1),
-            ("inkeep_disabled", True, "Do not call it again", 0),
+            ("inkeep_on", False, None, "Feature Flags", 1),
+            ("inkeep_off_reads_business_knowledge", True, "bk", "Flags gate features.", 0),
+            ("inkeep_off_without_docs_team", True, None, "Feature Flags", 1),
         ]
     )
     @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
-    def test_docs_search_returns_formatted_content(self, _name, disabled, expected, inkeep_calls, mock_run):
+    def test_docs_search_returns_formatted_content(self, _name, disabled, bk, expected, inkeep_calls, mock_run):
         from django.test import override_settings
 
         mock_run.return_value = "Found 1 relevant documentation page(s):\n\n# Feature Flags\nURL: …\n\nDocs."
+        bk_results = [
+            KnowledgeSearchResult(
+                chunk_id=uuid.uuid4(),
+                source_id=uuid.uuid4(),
+                source_name="Docs",
+                source_type="url",
+                document_id=uuid.uuid4(),
+                document_title="Flags",
+                heading_path="",
+                ordinal=0,
+                content="Flags gate features.",
+                url="https://posthog.com/docs/feature-flags",
+            )
+        ]
 
         with (
             override_settings(INKEEP_API_KEY="test-key"),
             patch("products.posthog_ai.backend.api.mcp_tools.is_inkeep_docs_search_disabled", return_value=disabled),
+            patch(
+                "products.posthog_ai.backend.api.mcp_tools.search_posthog_docs",
+                return_value=bk_results if bk else None,
+            ),
         ):
             response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
 

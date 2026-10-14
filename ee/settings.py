@@ -102,6 +102,8 @@ OPENAI_MODEL = get_from_env("OPENAI_MODEL", "gpt-4.1-mini")
 LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
 LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY if DEBUG else "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
+# Project whose business knowledge holds the crawled PostHog docs. docs-search reads it when Inkeep is off.
+BUSINESS_KNOWLEDGE_DOCS_TEAM_ID = get_from_env("BUSINESS_KNOWLEDGE_DOCS_TEAM_ID", optional=True, type_cast=int)
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
 # Dedicated key for Replay Vision (own GCP project for cost/quota isolation); falls back to GEMINI_API_KEY

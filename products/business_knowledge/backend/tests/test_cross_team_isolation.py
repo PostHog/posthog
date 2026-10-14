@@ -1,4 +1,7 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -7,7 +10,13 @@ from posthog.models.team import Team
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.logic import create_text_source
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeSource,
+    SafetyVerdict,
+    SourceType,
+)
 
 
 class TestCrossTeamIsolation(BaseTest):
@@ -57,6 +66,29 @@ class TestCrossTeamIsolation(BaseTest):
 
         assert logic.has_ready_sources(self.team.id) is True
         assert logic.has_ready_sources(self.other_team.id) is False
+
+    def _docs_team_source(self, name: str, text: str, url: str | None) -> None:
+        source = create_text_source(team_id=self.other_team.id, created_by_id=None, name=name, text=text)
+        with team_scope(self.other_team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(
+                safety_verdict=SafetyVerdict.SAFE, url=url or ""
+            )
+            if url:
+                KnowledgeSource.objects.filter(id=source.id).update(source_type=SourceType.URL)
+
+    @patch("products.business_knowledge.backend.logic.generate_embedding", side_effect=Exception("no embeddings"))
+    def test_posthog_docs_search_reads_only_crawled_posthog_pages_of_the_docs_team(self, _embedding) -> None:
+        self._docs_team_source("Crawled docs", "Pricing is usage based.", "https://posthog.com/docs/pricing")
+        self._docs_team_source("Internal policy", "Internal pricing exceptions for enterprise.", None)
+        self._docs_team_source("Other site", "Another vendor pricing page.", "https://example.com/pricing")
+
+        with override_settings(BUSINESS_KNOWLEDGE_DOCS_TEAM_ID=self.other_team.id), team_scope(self.team.id):
+            results = logic.search_posthog_docs("pricing")
+
+        assert results is not None
+        assert {r.source_name for r in results} == {"Crawled docs"}
+        with override_settings(BUSINESS_KNOWLEDGE_DOCS_TEAM_ID=None):
+            assert logic.search_posthog_docs("pricing") is None
 
     def test_ready_source_without_safety_cleared_content_is_not_searchable(self) -> None:
         KnowledgeDocument.objects.unscoped().filter(team=self.team).update(safety_verdict=SafetyVerdict.UNKNOWN)

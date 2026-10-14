@@ -152,7 +152,8 @@ def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
 
 
 def is_inkeep_docs_search_disabled(team: Team, distinct_id: str) -> bool:
-    # Only turns Inkeep off. Business knowledge stays on its own flag.
+    # docs-search then reads the PostHog docs business knowledge instead of Inkeep.
+    # A team's own business knowledge stays on product-business-knowledge.
     return feature_enabled_or_false(
         "disable-inkeep-docs-search",
         distinct_id,

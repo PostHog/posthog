@@ -37,7 +37,7 @@ EMBEDDING_COST_PROVIDER = "openai"
 # The Kafka embedding path returns no token usage, so ingestion estimates it.
 CHARS_PER_TOKEN_ESTIMATE = 4
 
-RetrievalSurface = Literal["api", "support", "posthog_ai", "docs_shadow"]
+RetrievalSurface = Literal["api", "support", "posthog_ai", "docs_shadow", "posthog_docs"]
 EventProperties = dict[str, str | int]
 
 
