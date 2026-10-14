@@ -31,10 +31,12 @@ class _TranscriptSink:
                 return len(text)
             self.file.write(text)
             self.file.flush()
-            terminal.write(text if terminal_text is None else terminal_text)
-            terminal.flush()
             if text:
                 self.ends_with_newline = text.endswith("\n")
+        console_text = text if terminal_text is None else terminal_text
+        if console_text:
+            terminal.write(console_text)
+            terminal.flush()
         return len(text)
 
     def flush(self, terminal: TextIO) -> None:
@@ -42,7 +44,7 @@ class _TranscriptSink:
             if self.finished:
                 return
             self.file.flush()
-            terminal.flush()
+        terminal.flush()
 
     def finish(self) -> None:
         with self.lock:
@@ -57,10 +59,10 @@ class _TranscriptSink:
             line = f"{prefix}Full run transcript (stdout and stderr):\n{self.path}\n"
             self.file.write(line)
             self.file.flush()
-            self.stdout.write(line)
-            self.stdout.flush()
             self.finished = True
             self.file.close()
+        self.stdout.write(line)
+        self.stdout.flush()
 
 
 class _TranscriptLogHandler(logging.Handler):

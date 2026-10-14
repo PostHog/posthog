@@ -75,8 +75,10 @@ The `scoring` duration includes waiting for the experiment results. It does not 
 Public runs update Braintrust trial metadata after scoring so it contains the final phase durations.
 Scorer exceptions produce case errors in the console and final summary.
 The reporter writes output in worker threads so slow output does not stop the event loop.
+Terminal writes do not hold the transcript file lock, so progress output cannot block logging through that lock.
 The runner starts workflow cleanup before progress reporting.
 Cancellation during progress reporting does not stop workflow cleanup.
+The sandbox window always reclaims notebook kernels after the agent run, without another progress report.
 The console defaults to concise output. `--verbose` shows detailed logging and tracebacks.
 Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
 

@@ -6,6 +6,7 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -658,10 +659,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
         ctx = self.ctx
         async with self._sandbox_slots:
             prepared = await self._prepare_case(eval_case, original_case, hooks)
-            await self._set_case_phase(hooks, "agent")
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
+                with suppress(Exception):
+                    await self._set_case_phase(hooks, "agent")
                 result = await asyncio.wait_for(
                     run_eval_case(
                         eval_case,
@@ -680,7 +682,6 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     timeout=ctx.per_case_timeout_seconds,
                 )
             finally:
-                await self._set_case_phase(hooks, "cleanup")
                 # Still inside the slot: a notebook python or duckdb cell provisions a
                 # kernel sandbox of its own, and nothing else reclaims it. A timed-out
                 # case is exactly the one most likely to have left one running. One

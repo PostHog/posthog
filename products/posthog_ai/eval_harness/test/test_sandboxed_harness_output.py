@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import sys
 import json
@@ -11,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from threading import get_ident
+from threading import Event, Thread, get_ident
 from typing import Any, Literal
 
 import pytest
@@ -71,6 +72,45 @@ def test_run_transcript_captures_both_streams_and_prints_its_path_last(
         str(transcript.path),
     ]
     assert (tmp_path / "latest.log").resolve() == transcript.path
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("blocked_operation", ["write", "flush"])
+def test_logging_continues_while_progress_output_is_blocked(
+    tmp_path: Path, verbose: bool, blocked_operation: str
+) -> None:
+    blocked = Event()
+    release = Event()
+    logged = Event()
+    stdout = MagicMock(wraps=io.StringIO())
+
+    def wait_for_release(*_args: object) -> None:
+        blocked.set()
+        release.wait()
+
+    getattr(stdout, blocked_operation).side_effect = wait_for_release
+    transcript = RunTranscript(tmp_path / "run.log", stdout, io.StringIO())
+    handler = transcript.logging_handler(verbose=verbose)
+
+    def log() -> None:
+        handler.handle(logging.LogRecord("eval", logging.INFO, "", 0, "poll continues", (), None))
+        logged.set()
+
+    progress = Thread(target=transcript._stdout.write_console, args=("CASE PHASE agent\n",))
+    logging_worker = Thread(target=log)
+    progress.start()
+    try:
+        assert blocked.wait(timeout=5)
+        logging_worker.start()
+        assert logged.wait(timeout=5)
+        assert "poll continues" in transcript.path.read_text()
+    finally:
+        release.set()
+        progress.join(timeout=5)
+        if logging_worker.ident is not None:
+            logging_worker.join(timeout=5)
+        handler.close()
+        transcript.finish()
 
 
 @pytest.mark.asyncio
@@ -589,6 +629,47 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
     assert reporter.has_case_errors() is (not recovers)
     assert ctx.sandbox_slots._value == ctx.team_setup_slots._value == 1
     assert not broken_workers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
+@pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
+async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent_error: BaseException | None, reporting_phase: str
+) -> None:
+    monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
+    ctx = MagicMock(posthog_client=None, case_filter=None, sandbox_slots=asyncio.Semaphore(1))
+    ctx.per_case_timeout_seconds = 30
+    ctx.provider_strategy.keeps_sandboxes.return_value = False
+    case = SandboxedEvalCase(name="case", prompt="Run the task")
+    run = base._SandboxedEvalRun("cleanup", [case], [], ctx, is_public=False, no_send_logs=True)
+    context = CustomPromptSandboxContext(team_id=1, user_id=2)
+    monkeypatch.setattr(
+        run, "_prepare_case", AsyncMock(return_value=base._SandboxedCaseSetup(context=context, seed={}))
+    )
+
+    async def report_phase(_trial_id: str, phase: str) -> None:
+        if phase == reporting_phase:
+            raise BrokenPipeError("closed output")
+
+    ctx.reporter.case_phase = AsyncMock(side_effect=report_phase)
+    hooks = NullCaseHooks()
+    hooks.metadata["trial_id"] = "trial"
+    result = base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0))
+    monkeypatch.setattr(base, "run_eval_case", AsyncMock(return_value=result, side_effect=agent_error))
+    cleanup = AsyncMock()
+    monkeypatch.setattr(base, "reclaim_kernels", cleanup)
+
+    if agent_error is None:
+        actual, _ = await run._run_sandbox_window(case, case, hooks)
+        assert actual is result
+    else:
+        with pytest.raises(type(agent_error)) as raised:
+            await run._run_sandbox_window(case, case, hooks)
+        assert raised.value is agent_error
+
+    cleanup.assert_awaited_once_with(1, keep=False)
+    assert ctx.sandbox_slots._value == 1
 
 
 @pytest.mark.asyncio
