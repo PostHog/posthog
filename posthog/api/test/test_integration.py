@@ -1723,7 +1723,7 @@ class TestSlackChannelJoin:
         self.slack_client.conversations_members.return_value = {"members": ["U0123ABC456"]}
         query = {"force_refresh": "true"}
         if lookup != "list":
-            query["channel_id"] = self.channel["id"]
+            query["channel_id"] = cast(str, self.channel["id"])
 
         response = client.get(channels_url, query)
 
