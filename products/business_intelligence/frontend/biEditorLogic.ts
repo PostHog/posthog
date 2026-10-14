@@ -672,10 +672,10 @@ export interface biEditorLogicActions {
     }
     updateFilter: (
         index: number,
-        update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+        update: Partial<Pick<BIFilter, 'enabled' | 'value' | 'values' | 'valueTo'>>
     ) => {
         index: number
-        update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+        update: Partial<Pick<BIFilter, 'enabled' | 'value' | 'values' | 'valueTo'>>
     }
     updateMeasureSettings: (
         index: number,
@@ -842,7 +842,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         combineMeasures: true,
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
-        updateFilter: (index: number, update: Partial<Pick<BIFilter, 'values' | 'valueTo' | 'enabled'>>) => ({
+        updateFilter: (index: number, update: Partial<Pick<BIFilter, 'value' | 'values' | 'valueTo' | 'enabled'>>) => ({
             index,
             update,
         }),
@@ -949,7 +949,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         : {
                               ...config,
                               [shelf]: config[shelf].map((field, i) =>
-                                  i === index ? { ...field, name: name.trim() } : field
+                                  i === index ? { ...field, label: name.trim() } : field
                               ),
                           }
                 },
@@ -1177,7 +1177,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 setFilterValue: (config, { index, value }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
-                        filterIndex === index ? { ...filter, value } : filter
+                        filterIndex === index ? { ...filter, value, values: undefined } : filter
                     ),
                 }),
                 updateFilter: (config, { index, update }) => ({

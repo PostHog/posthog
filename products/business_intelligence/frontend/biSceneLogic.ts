@@ -28,7 +28,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
+import { ChartSettings, HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -214,6 +214,9 @@ export interface biSceneLogicActions {
     selectConnection: (connectionId: string | null) => {
         connectionId: string | null
     }
+    setChartSettings: (chartSettings: ChartSettings) => {
+        chartSettings: ChartSettings
+    }
     setExportViewName: (name: string) => {
         name: string
     }
@@ -294,6 +297,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         restoreHistory: true,
         restoreWorksheet: (worksheet: BIVisualizationNode) => ({ worksheet }),
         setVisualization: (visualization: VisualizationNode) => ({ visualization }),
+        setChartSettings: (chartSettings: ChartSettings) => ({ chartSettings }),
         setName: (name: string) => ({ name }),
         runQuery: true,
         cancelQuery: true,
@@ -410,6 +414,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             emptyWorksheet(),
             {
                 restoreWorksheet: (_, { worksheet }) => worksheet,
+                setChartSettings: (state, { chartSettings }) => ({ ...state, chartSettings }),
                 setVisualization: (state, { visualization }) => ({
                     ...state,
                     ...visualization,
@@ -687,6 +692,13 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             }
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
+        setChartSettings: ({ chartSettings }) => {
+            if (values.lastRunQuery) {
+                actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
+            }
+            actions.syncWorksheetUrl()
+            actions.recordWorksheet()
+        },
         setVisualization: ({ visualization }) => {
             const config = applyBIDateRange(values.config, visualization.source.filters?.dateRange)
             if (config !== values.config) {

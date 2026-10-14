@@ -122,7 +122,7 @@ export function BIFieldPill({
             : null,
         {
             items: [
-                { label: 'Rename', onClick: () => setNameDraft(value ? label : field.name) },
+                { label: 'Rename', onClick: () => setNameDraft(label) },
                 { label: 'Duplicate', onClick: () => duplicateField(shelf, index) },
                 isMeasure
                     ? {

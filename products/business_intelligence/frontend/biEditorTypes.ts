@@ -85,7 +85,9 @@ export function changeBIFilterOperator(filter: BIFilter, operator: BIFilterOpera
     return {
         ...filter,
         operator,
-        ...(isMultiple ? { values: filter.value ? [filter.value] : [] } : { value: filter.values?.[0] ?? '' }),
+        ...(isMultiple
+            ? { values: filter.values ?? (filter.value ? [filter.value] : []) }
+            : { value: filter.values?.[0] ?? '', values: filter.values?.slice(0, 1) }),
     }
 }
 
@@ -494,6 +496,7 @@ function parseBIFieldValue(value: unknown): BIField | null {
         (candidate.localDefinition !== undefined && !!localFieldError(candidate.localDefinition)) ||
         typeof candidate.id !== 'string' ||
         typeof candidate.name !== 'string' ||
+        (candidate.label !== undefined && typeof candidate.label !== 'string') ||
         typeof candidate.expression !== 'string' ||
         typeof candidate.type !== 'string' ||
         (candidate.localFieldId !== undefined && typeof candidate.localFieldId !== 'string') ||
@@ -843,9 +846,11 @@ export function getBIFilterValidationError(filter: BIFilter): string | null {
     const values =
         filter.operator === 'in' || filter.operator === 'not_in'
             ? (filter.values ?? [])
-            : [filter.value, ...(filter.operator === 'between' ? [filter.valueTo ?? ''] : [])].filter(
-                  (value) => value.trim() !== ''
-              )
+            : filter.operator !== 'between' && filter.values
+              ? filter.values.slice(0, 1)
+              : [filter.value, ...(filter.operator === 'between' ? [filter.valueTo ?? ''] : [])].filter(
+                    (value) => value.trim() !== ''
+                )
     return values.some(
         (value) =>
             !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()) || !Number.isFinite(Number(value))
@@ -894,7 +899,11 @@ export function getBIFilterSummary(filter: BIFilter): string {
                 greater_than: '> ',
                 less_than: '< ',
             }[filter.operator]
-            return filter.value ? `${prefix}${filter.value}` : 'All values'
+            return filter.value
+                ? `${prefix}${filter.value}`
+                : ['equals', 'not_equals'].includes(filter.operator) && filter.values?.includes('')
+                  ? `${prefix}(empty string)`
+                  : 'All values'
         }
     }
 }
@@ -934,7 +943,10 @@ function filterExpression(filter: BIFilter): string | null {
         ].filter(Boolean)
         return bounds.length ? `(${bounds.join(' AND ')})` : null
     }
-    if (!filter.value.trim()) {
+    if (
+        !filter.value.trim() &&
+        !(['equals', 'not_equals'].includes(filter.operator) && filter.values?.includes(filter.value))
+    ) {
         return null
     }
 
@@ -1278,6 +1290,9 @@ const PILL_AGGREGATION_PREFIXES: Record<Exclude<BIAggregation, 'custom'>, string
 }
 
 export function getBIFieldPillLabel(field: BIField): string {
+    if (field.label?.trim()) {
+        return field.label.trim()
+    }
     const name = field.name || field.expression.trim()
     if (!name) {
         return 'New calculation'
@@ -1562,6 +1577,29 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 ...axis,
                 ...calculatedFormats.find((format) => format.column === axis.column),
             })),
+        }
+    }
+
+    if (config.chartType === ChartDisplayType.ScatterPlot) {
+        const numericColumns = [
+            ...getBIResultDimensions(config)
+                .filter(({ field }) => isNumericBIField(field))
+                .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) })),
+            ...(configuredValues.length
+                ? configuredValues.map(({ alias, value }) => ({ column: alias, label: getBIValuePillLabel(value) }))
+                : [{ column: 'count', label: 'Count of rows' }]),
+        ]
+        const [x, ...ys] = numericColumns
+        seriesSettings = {
+            ...seriesSettings,
+            xAxis: x ? { column: x.column } : undefined,
+            xAxisLabel: x?.label,
+            yAxis: ys.map(({ column }) => ({
+                column,
+                ...calculatedFormats.find((format) => format.column === column),
+            })),
+            leftYAxisSettings: { label: ys.length === 1 ? ys[0].label : undefined },
+            seriesBreakdownColumn: undefined,
         }
     }
 

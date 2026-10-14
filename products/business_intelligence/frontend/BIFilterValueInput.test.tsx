@@ -6,7 +6,7 @@ import * as queryRunner from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { biEditorLogic } from './biEditorLogic'
-import { BIEditorView, DEFAULT_BI_CONFIG } from './biEditorTypes'
+import { BIEditorView, DEFAULT_BI_CONFIG, buildBIQuery, getBIFilterSummary } from './biEditorTypes'
 import { BIFilterValueInput } from './BIFilterValueInput'
 
 describe('BI filter value input', () => {
@@ -17,7 +17,7 @@ describe('BI filter value input', () => {
     })
 
     it.each(['equals', 'not_equals', 'in'] as const)('offers searchable suggestions for %s', async (operator) => {
-        jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({ results: [['pending'], ['paid']] } as never)
+        jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({ results: [['pending'], ['paid'], ['']] } as never)
         const props = { tabId: 'filter-input-test' }
         const logic = biEditorLogic(props)
         logic.mount()
@@ -54,6 +54,24 @@ describe('BI filter value input', () => {
                 operator === 'in' ? logic.values.config.filters[0].values : logic.values.config.filters[0].value
             ).toEqual(operator === 'in' ? ['pending'] : 'pending')
         )
+        if (operator !== 'in') {
+            const input = screen.getByRole('textbox')
+            await userEvent.click(input)
+            await userEvent.clear(input)
+            await userEvent.tab()
+            expect(logic.values.config.filters[0].value).toBe('')
+            expect(buildBIQuery(logic.values.config)!.query).not.toContain('AND (status')
+            await userEvent.click(input)
+            await userEvent.click(await screen.findByText('(empty string)'))
+            expect(logic.values.config.filters[0].values).toEqual([''])
+            expect(getBIFilterSummary(logic.values.config.filters[0])).toContain('(empty string)')
+            expect(buildBIQuery(logic.values.config)!.query).toContain(
+                `AND (status ${operator === 'equals' ? '=' : '!='} '')`
+            )
+            await userEvent.click(input)
+            await userEvent.tab()
+            expect(logic.values.config.filters[0].values).toEqual([''])
+        }
         cleanup()
         logic.unmount()
     })

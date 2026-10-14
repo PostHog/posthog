@@ -79,10 +79,13 @@ describe('biEditorLogic', () => {
         logic.actions.restoreState({ editorView: BIEditorView.BI, config })
         logic.actions.renameField('rows', 0, 'Activity')
         const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!.config
-        expect(restored.rows[0]).toMatchObject({ name: 'Activity', expression: 'event' })
+        expect(restored.rows[0]).toMatchObject({ name: 'event', label: 'Activity', expression: 'event' })
         const node = buildBIQuery(restored)!.node
         expect(node.chartSettings?.xAxisLabel).toBe('Activity')
         expect(node.tableSettings?.columns?.[0].settings?.display?.label).toBe('Activity')
+        const warehouse = { ...restored, source: { table: 'orders' }, filters: [] }
+        expect(buildBIQuery(warehouse)!.query).toContain("(event) AS 'event'")
+        expect(buildBIQuery(warehouse)!.query).not.toContain("AS 'Activity'")
         logic.actions.startSuggestedChart()
         expect(logic.values.config.rows).toEqual(restored.rows)
         logic.actions.resetConfig()

@@ -58,6 +58,7 @@ export interface BIDataSource {
 export interface BIField {
     id: string
     name: string
+    label?: string
     expression: string
     type: DatabaseSerializedFieldType
     source: BIDataSource

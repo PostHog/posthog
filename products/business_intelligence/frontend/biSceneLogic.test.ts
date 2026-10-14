@@ -174,6 +174,85 @@ describe('biSceneLogic', () => {
         expect(logic.values.lastRunQuery?.config.limit).toBe(100)
     })
 
+    it.each([false, true])(
+        'preserves a custom axis label when renaming an aliased dimension (Top N: %s)',
+        async (topN) => {
+            logic.actions.restoreWorksheet(
+                worksheet({
+                    ...config,
+                    ...(topN
+                        ? { topN: { fieldId: eventField.id, count: 10, measureIndex: 0, includeOther: true } }
+                        : {}),
+                })
+            )
+            editor.actions.setAutoUpdate(false)
+            logic.actions.runQuery()
+            const source = logic.values.worksheet.source
+            logic.actions.setChartSettings({ ...logic.values.worksheet.chartSettings, xAxisLabel: 'Custom date label' })
+            await expectLogic(editor, () =>
+                editor.actions.renameField('columns', 0, 'Activity date')
+            ).toFinishAllListeners()
+            expect(logic.values.worksheet.source).toEqual(source)
+            expect(logic.values.worksheet.chartSettings?.xAxisLabel).toBe('Custom date label')
+        }
+    )
+
+    it('saves axis settings without running pending filter or shelf edits', async () => {
+        logic.actions.restoreWorksheet(worksheet())
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        const displayed = logic.values.lastRunQuery!
+        editor.actions.addFieldToShelf(eventField, 'filters')
+        editor.actions.setFilterValue(0, 'purchase')
+        editor.actions.setLimit(100)
+        await expectLogic(logic).toFinishAllListeners()
+        const draft = logic.values.worksheet.source
+        logic.actions.setChartSettings({ ...displayed.chartSettings, xAxisLabel: 'Custom date label' })
+        expect(logic.values.lastRunQuery?.source).toEqual(displayed.source)
+        expect(logic.values.lastRunQuery?.config).toEqual(displayed.config)
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe('Custom date label')
+        expect(logic.values.worksheet.source).toEqual(draft)
+        expect(logic.values.worksheet.config.filters[0].value).toBe('purchase')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.source).toEqual(draft)
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe('Custom date label')
+    })
+
+    it('initializes numeric scatter axes when switching a rendered categorical chart', async () => {
+        const measure = {
+            ...eventField,
+            id: 'revenue',
+            name: 'revenue',
+            expression: 'properties.revenue',
+            type: 'float' as const,
+        }
+        logic.actions.restoreWorksheet(
+            worksheet({
+                ...config,
+                columns: [],
+                values: [
+                    { field: measure, aggregation: 'sum' },
+                    { field: measure, aggregation: 'average' },
+                ],
+            })
+        )
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxis?.column).toBe('event')
+        const measures = logic.values.lastRunQuery!.chartSettings!.yAxis!
+        editor.actions.setChartType(ChartDisplayType.ScatterPlot)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings).toMatchObject({
+            xAxis: { column: measures[0].column },
+            yAxis: [{ column: measures[1].column }],
+        })
+        editor.actions.setChartType(ChartDisplayType.ActionsBar)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxis?.column).toBe('event')
+        expect(logic.values.lastRunQuery?.chartSettings?.yAxis).toHaveLength(2)
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         logic.actions.restoreWorksheet(worksheet())

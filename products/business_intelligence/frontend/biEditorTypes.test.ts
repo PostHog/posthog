@@ -150,6 +150,10 @@ describe('BI editor query generation', () => {
         expect(result.node.source.filters?.dateRange?.date_from).toBe('-30d')
     })
     test.each<{ filter: BIFilter; expected: string | null }>([
+        { filter: { field: eventField, operator: 'equals', value: '', values: [''] }, expected: "event = ''" },
+        { filter: { field: eventField, operator: 'not_equals', value: '', values: [''] }, expected: "event != ''" },
+        { filter: { field: eventField, operator: 'equals', value: '', values: [] }, expected: null },
+        { filter: { field: eventField, operator: 'equals', value: '' }, expected: null },
         {
             filter: { field: eventField, operator: 'in', value: '', values: ["sign'up", 'a,b', ''] },
             expected: "event IN ('sign\\'up', 'a,b', '')",

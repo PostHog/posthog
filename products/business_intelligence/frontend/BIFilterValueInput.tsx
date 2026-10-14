@@ -33,17 +33,24 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
     const multiple = filter.operator === 'in' || filter.operator === 'not_in'
     if (multiple || (!isDateTimeBIField(filter.field) && filter.operator !== 'between')) {
         return (
-            <div className="flex min-w-0 flex-col gap-1">
+            <div
+                className="flex min-w-0 flex-col gap-1"
+                onInput={(event) => {
+                    if (!multiple && event.target instanceof HTMLInputElement && event.target.value === '') {
+                        setFilterValue(index, '')
+                    }
+                }}
+            >
                 <LemonInputSelect
                     mode={multiple ? 'multiple' : 'single'}
-                    value={multiple ? (filter.values ?? []) : filter.value ? [filter.value] : []}
+                    value={filter.values ?? (multiple || !filter.value ? [] : [filter.value])}
                     options={(options ?? []).map((value) => ({ key: value, label: value || '(empty string)' }))}
                     loading={optionsLoading}
                     status={validationError ? 'danger' : 'default'}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
                     onChange={(values) =>
-                        multiple ? updateFilter(index, { values }) : setFilterValue(index, values[0] ?? '')
+                        updateFilter(index, multiple ? { values } : { values, value: values[0] ?? '' })
                     }
                     onInputChange={setSearch}
                     disableFiltering

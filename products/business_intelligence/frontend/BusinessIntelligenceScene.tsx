@@ -60,6 +60,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         discardChanges,
         shareWorksheet,
         setVisualization,
+        setChartSettings,
         setExportViewOpen,
         setExportViewName,
         exportView,
@@ -235,8 +236,8 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     <BIChartAxisModal
                         key={editingAxis}
                         axis={editingAxis}
-                        settings={worksheet.chartSettings ?? {}}
-                        onSave={(chartSettings) => setVisualization({ ...worksheet, chartSettings })}
+                        settings={lastRunQuery?.chartSettings ?? {}}
+                        onSave={setChartSettings}
                         onClose={() => setEditingAxis(null)}
                     />
                 )}

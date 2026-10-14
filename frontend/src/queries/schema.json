@@ -6295,6 +6295,9 @@
                 "id": {
                     "type": "string"
                 },
+                "label": {
+                    "type": "string"
+                },
                 "localDefinition": {
                     "$ref": "#/definitions/BILocalFieldDefinition"
                 },
