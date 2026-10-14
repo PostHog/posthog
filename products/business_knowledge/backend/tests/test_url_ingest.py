@@ -14,6 +14,8 @@ Design notes:
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -61,7 +63,7 @@ def _mock_response(
     return response
 
 
-class TestNormalizeUrl(BaseTest):
+class TestNormalizeUrl(SimpleTestCase):
     def test_strips_userinfo(self) -> None:
         assert url_fetch.strip_userinfo("https://user:pass@example.com/x") == "https://example.com/x"
 
@@ -84,7 +86,7 @@ class TestNormalizeUrl(BaseTest):
             url_fetch.normalize_url(raw)
 
 
-class TestFetchUrl(BaseTest):
+class TestFetchUrl(SimpleTestCase):
     @patch(
         "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
         return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
@@ -161,7 +163,7 @@ _BASIC_HTML = b"""<!doctype html>
 </body></html>"""
 
 
-class TestParseHtml(BaseTest):
+class TestParseHtml(SimpleTestCase):
     def test_blocks_are_blank_line_separated_and_chunk_on_paragraphs(self) -> None:
         # Regression: txt extraction separated blocks with single newlines, so
         # the chunker (which splits on blank lines) saw one mega-paragraph and

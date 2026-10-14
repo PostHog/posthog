@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -53,6 +53,56 @@ export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParam
     window: zod
         .enum(['1h', '6h', '24h', '7d', '30d'])
         .default(dataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryWindowDefault)
+        .describe(
+            'Trailing time window to retrieve. Defaults to 24h.\n\n\* `1h` - 1h\n\* `6h` - 6h\n\* `24h` - 24h\n\* `7d` - 7d\n\* `30d` - 30d'
+        ),
+})
+
+/**
+ * Get tenant-safe live Trino query totals, limits, and in-flight queries for the current organization.
+ * @summary Get managed warehouse Trino monitoring snapshot
+ */
+export const DataWarehouseManagedWarehouseTrinoMonitoringRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Get one allow-listed Trino monitoring metric for the current organization and trailing time window.
+ * @summary Get managed warehouse Trino monitoring time series
+ */
+export const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const dataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryWindowDefault = `24h`
+
+export const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryParams = () => zod.object({
+    metric: zod
+        .enum([
+            'queries_in_flight',
+            'query_rate',
+            'error_ratio',
+            'duration_p50',
+            'duration_p95',
+            'queue_time_p95',
+            'scanned_bytes_rate',
+            'cpu_seconds_rate',
+            'storage_bytes',
+        ])
+        .describe(
+            'Allow-listed Trino metric to retrieve.\n\n\* `queries_in_flight` - queries_in_flight\n\* `query_rate` - query_rate\n\* `error_ratio` - error_ratio\n\* `duration_p50` - duration_p50\n\* `duration_p95` - duration_p95\n\* `queue_time_p95` - queue_time_p95\n\* `scanned_bytes_rate` - scanned_bytes_rate\n\* `cpu_seconds_rate` - cpu_seconds_rate\n\* `storage_bytes` - storage_bytes'
+        ),
+    window: zod
+        .enum(['1h', '6h', '24h', '7d', '30d'])
+        .default(dataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveQueryWindowDefault)
         .describe(
             'Trailing time window to retrieve. Defaults to 24h.\n\n\* `1h` - 1h\n\* `6h` - 6h\n\* `24h` - 24h\n\* `7d` - 7d\n\* `30d` - 30d'
         ),
@@ -400,12 +450,6 @@ export const WarehouseSavedQueriesCreateBody = () => zod
             .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
-        dag_id: zod
-            .string()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
-            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -524,12 +568,6 @@ export const WarehouseSavedQueriesPartialUpdateBody = () => zod
             .nullish()
             .describe(
                 'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
-            ),
-        dag_id: zod
-            .string()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -686,12 +724,6 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
-            ),
-        dag_id: zod
-            .string()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })

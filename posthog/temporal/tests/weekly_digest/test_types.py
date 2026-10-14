@@ -189,9 +189,38 @@ def test_team_digest_render_payload():
         filters=FilterList(root=[filter]),
         expiring_recordings=RecordingCount(recording_count=7),
         surveys_launched=SurveyList(root=[]),
+        usage_trends=UsageTrends(
+            metrics=[UsageTrendMetric(label="Events", current=1_525_962, daily=[0, 1, 400_000, 0, 0, 0, 0])]
+        ),
+        error_issues=ErrorIssueList(
+            root=[
+                DigestErrorIssue(
+                    name="Error",
+                    id=uuid4(),
+                    description="Request failed\n    at fetch " + "x" * 200,
+                    occurrence_count=1_525,
+                    sparkline=[{"height_percent": 100}],
+                ),
+                DigestErrorIssue(name="TypeError", id=uuid4()),
+            ]
+        ),
     )
 
     payload = digest.render_payload()
+
+    report = payload["report"]
+    assert isinstance(report, dict)
+    counted, uncounted = report["new_error_issues"]
+    assert counted["description"].startswith("Request failed at fetch xxx")
+    assert len(counted["description"]) == 140
+    assert (counted["occurrence_count"], counted["occurrence_count_display"]) == (1_525, "1.52K")
+    assert counted["sparkline"] == [{"height_percent": 100}]
+    assert (uncounted["occurrence_count"], uncounted["sparkline"]) == (None, [])
+    usage_trends = report["usage_trends"]
+    assert isinstance(usage_trends, dict)
+    (events,) = usage_trends["metrics"]
+    assert events["current_display"] == "1.53M"
+    assert [bar["height_percent"] for bar in events["sparkline"]] == [0, 5, 100, 0, 0, 0, 0]
 
     assert payload["team_name"] == "Test Team"
     assert payload["team_id"] == 1

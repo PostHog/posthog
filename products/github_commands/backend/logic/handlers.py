@@ -8,7 +8,6 @@ identifiers, and the downstream product reads the content itself as untrusted da
 
 import structlog
 
-from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -25,7 +24,6 @@ from products.stamphog.backend.facade import (
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
-    loops as loops_facade,
     usage as tasks_usage,
 )
 
@@ -161,69 +159,4 @@ def build_qa_instructions(context: CommandContext, focus: str) -> str:
 
 
 def handle_loop(context: CommandContext, args: LoopArgs) -> CommandOutcome:
-    """Fire one of the commenter's own Loops with the pull request as its trigger payload.
-
-    Only the loop's owner may fire it this way. A loop runs with its owner's credentials, and the
-    payload becomes part of its prompt, so letting a teammate fire someone else's loop with
-    comment text would run their words with the owner's access.
-    """
-    name = args.name
-    user = User.objects.get(id=context.user_id)
-    unowned_match = False
-    loops_enabled = False
-    checked_team_ids: set[int] = set()
-    for team_id in context.team_ids:
-        team = Team.objects.select_related("organization").get(id=team_id)
-        # Loops live on the parent project, so environments of one project share them.
-        canonical_team_id = team.parent_team_id or team.id
-        if canonical_team_id in checked_team_ids:
-            continue
-        checked_team_ids.add(canonical_team_id)
-        # The Loops API applies this flag through its permission class; the facade does not.
-        if not tasks_access.has_loops_access(user, team):
-            continue
-        loops_enabled = True
-        # The Loop manager fails closed without a team scope, and a Celery task has none.
-        with team_scope(canonical_team_id, canonical=True):
-            for loop in loops_facade.list_loops(canonical_team_id, user):
-                if loop.name.casefold() != name.casefold():
-                    continue
-                if loop.created_by_id != context.user_id:
-                    unowned_match = True
-                    continue
-                result = loops_facade.fire_loop_api_for_user(
-                    loop.id,
-                    canonical_team_id,
-                    user,
-                    payload=_loop_payload(context),
-                    idempotency_key=f"github-comment-{context.request.comment_id}",
-                )
-                if result is None or not result.created:
-                    reason = result.reason if result is not None else "not_found"
-                    logger.info("github_command_loop_not_fired", loop_id=str(loop.id), reason=reason)
-                    return CommandOutcome(
-                        accepted=False,
-                        message="The loop did not start. Check that it is enabled and has an API trigger.",
-                    )
-                return CommandOutcome(accepted=True, message="Started the loop.")
-    if not loops_enabled:
-        return CommandOutcome(accepted=False, message="Loops aren't enabled for your account.")
-    if unowned_match:
-        return CommandOutcome(accepted=False, message="Only the loop's owner can run it from a comment.")
-    return CommandOutcome(accepted=False, message="No loop with that name belongs to you.")
-
-
-def _loop_payload(context: CommandContext) -> dict[str, object]:
-    """Identifiers only. The loop reads the pull request itself if it needs its content."""
-    pull_request = context.pull_request
-    return {
-        "source": "github_comment",
-        "repository": pull_request.repository,
-        "pull_request": {
-            "number": pull_request.number,
-            "url": pull_request.url,
-            "head_sha": pull_request.head_sha,
-        },
-        "requested_by": context.request.commenter_login,
-        "comment_url": context.request.comment_url,
-    }
+    return CommandOutcome(accepted=False, message="Legacy loops have been retired. Use workflows instead.")

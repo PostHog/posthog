@@ -7,12 +7,8 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
     IconAsterisk,
     IconCheck,
-    IconClock,
-    IconEye,
     IconFilter,
-    IconHide,
     IconPencil,
-    IconPlus,
     IconRefresh,
     IconRevert,
     IconSearch,
@@ -35,7 +31,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { CategoryDropdown } from 'lib/components/TaxonomicFilter/CategoryDropdown'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -51,7 +46,7 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
-import { TimestampFormatToLabel, hasPageFilter } from 'scenes/session-recordings/utils'
+import { hasPageFilter } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -72,8 +67,6 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { useHideRecordingsMenuItems, useTimestampFormatMenuItems } from '../playlist/listViewMenuItems'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
@@ -117,22 +110,6 @@ const RECORDING_METRIC_KEYS = new Set([
     'snapshot_source',
 ])
 
-function HideRecordingsMenu(): JSX.Element {
-    const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
-    const items = useHideRecordingsMenuItems()
-
-    return (
-        <SettingsMenu
-            data-attr="filters-hide-viewed-menu"
-            highlightWhenActive={false}
-            items={items}
-            icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
-            rounded={true}
-            label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
-        />
-    )
-}
-
 export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
     setFilters,
@@ -149,9 +126,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
-    const { playlistTimestampFormat } = useValues(playerSettingsLogic)
-    const timestampFormatItems = useTimestampFormatMenuItems()
-    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
 
     useAttachedContext([
         { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
@@ -254,19 +228,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     data-attr="refresh-recordings-list"
                 />
             </div>
-            {!consolidatedControls && (
-                <div className="flex gap-2 mt-2 justify-between">
-                    <HideRecordingsMenu />
-                    <SettingsMenu
-                        data-attr="filters-timestamp-format-menu"
-                        highlightWhenActive={false}
-                        items={timestampFormatItems}
-                        icon={<IconClock />}
-                        label={TimestampFormatToLabel[playlistTimestampFormat]}
-                        rounded={true}
-                    />
-                </div>
-            )}
         </>
     )
 }
@@ -357,17 +318,10 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     )
 }
 
-const RecordingsUniversalFilterGroup = ({
-    hideAddFilterButton = false,
-    pinnedFilters,
-}: {
-    hideAddFilterButton?: boolean
-    pinnedFilters?: UniversalFiltersGroup
-}): JSX.Element => {
+const RecordingsUniversalFilterGroup = ({ pinnedFilters }: { pinnedFilters?: UniversalFiltersGroup }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
-    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
     const allowEntityNegation = useFeatureFlag('REPLAY_NEGATIVE_EVENT_FILTERS')
     useOnMountEffect(() => setAllowInitiallyOpen(true))
 
@@ -376,34 +330,7 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup
-                            hideAddFilterButton={hideAddFilterButton}
-                            pinnedFilters={pinnedFilters}
-                        />
-
-                        {!hideAddFilterButton && (
-                            <Popover
-                                overlay={
-                                    <UniversalFilters.PureTaxonomicFilter
-                                        fullWidth={false}
-                                        onChange={() => setIsPopoverVisible(false)}
-                                    />
-                                }
-                                placement="bottom"
-                                visible={isPopoverVisible}
-                                onClickOutside={() => setIsPopoverVisible(false)}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    data-attr="replay-filters-add-filter-button"
-                                    icon={<IconPlus />}
-                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                >
-                                    Add filter
-                                </LemonButton>
-                            </Popover>
-                        )}
+                        <RecordingsUniversalFilterGroup pinnedFilters={pinnedFilters} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -999,7 +926,7 @@ export const ReplayFiltersTab = ({
                             pageKey="session-recordings"
                             size="small"
                         />
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} pinnedFilters={pinnedFilters} />
+                        <RecordingsUniversalFilterGroup pinnedFilters={pinnedFilters} />
                         {!!filters.session_ids?.length && (
                             <SessionIdsFilterChip sessionIds={filters.session_ids} setFilters={setFilters} />
                         )}
