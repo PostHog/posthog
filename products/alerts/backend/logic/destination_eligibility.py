@@ -36,6 +36,10 @@ _WEBHOOK_INPUT_HOLD_BACKS: Final = {
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
 
 
+# Only these receive alert events. Any other function on the same event id reads captured events.
+_RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
+
+
 def classify_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> tuple[DestinationEligibility, ...]:
@@ -43,7 +47,9 @@ def classify_alert_destinations(
     functions = list(
         owned_alert_destinations_qs(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
-        ).order_by("created_at", "id")
+        )
+        .filter(**_RECEIVES_ALERT_EVENTS)
+        .order_by("created_at", "id")
     )
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
@@ -76,9 +82,7 @@ def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[st
             team_id=team_id,
             deleted=False,
             enabled=True,
-            # Only these receive alert events. Any other function on the same event id reads captured events.
-            type="internal_destination",
-            filters__source="internal-events",
+            **_RECEIVES_ALERT_EVENTS,
         )
         .order_by("created_at", "id")
         .values_list("id", "filters")
@@ -151,9 +155,12 @@ def _input_hold_backs(
             continue
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
         if is_webhook and key == "headers":
-            # Native delivery sends plain added headers. Only a templated value is lost.
-            if value != first_value and _has_template(value):
-                found.append(DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER)
+            if value != first_value:
+                found.append(
+                    DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER
+                    if _has_template(value)
+                    else DestinationHoldBack.WEBHOOK_HEADERS
+                )
             continue
         if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
             continue
@@ -167,7 +174,9 @@ def _input_hold_backs(
 def _templating(inputs: dict[str, Any], key: str) -> Any:
     # The renderer follows this mode, so the same value renders differently under another one.
     entry = inputs.get(key)
-    return entry.get("templating") if isinstance(entry, dict) else None
+    # The renderer reads an omitted mode as Hog, and the editor writes `hog` explicitly on save.
+    templating = entry.get("templating") if isinstance(entry, dict) else None
+    return templating or "hog"
 
 
 def _has_template(value: Any) -> bool:

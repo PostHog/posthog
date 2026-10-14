@@ -103,13 +103,14 @@ class TestDestinationEligibility(APIBaseTest):
                 (DestinationHoldBack.WEBHOOK_BODY,),
             ),
             (
-                "an_added_plain_auth_header_is_still_native",
+                "an_added_plain_auth_header",
                 "template-webhook",
                 WEBHOOK_INPUTS,
                 "headers",
                 {"Content-Type": "application/json", "Authorization": "Bearer not-a-real-token"},
-                (),
+                (DestinationHoldBack.WEBHOOK_HEADERS,),
             ),
+            ("slack_text_saved_with_the_default_mode", "template-slack", SLACK_INPUTS, "text", "hog", ()),
             (
                 "slack_text_moved_to_liquid",
                 "template-slack",
@@ -138,9 +139,12 @@ class TestDestinationEligibility(APIBaseTest):
         expected: tuple[DestinationHoldBack, ...],
     ) -> None:
         function = self._function(template_id, inputs)
-        edited = (
-            {**inputs, key: {**inputs[key], "templating": "liquid"}} if value is None else _with(inputs, key, value)
-        )
+        if value is None:
+            edited = {**inputs, key: {**inputs[key], "templating": "liquid"}}
+        elif value == "hog":
+            edited = {**inputs, key: {**inputs[key], "templating": "hog"}}
+        else:
+            edited = _with(inputs, key, value)
         self._edited(function, inputs=edited)
 
         assert self._classify() == expected
@@ -235,6 +239,8 @@ class TestDestinationEligibility(APIBaseTest):
 
     def test_a_template_native_delivery_does_not_know_is_held_back(self) -> None:
         self._function("template-some-custom-sink", {"url": {"value": "https://hooks.example.com/hook"}})
+        reads_captured_events = self._function("template-some-custom-sink", {})
+        HogFunction.objects.filter(pk=reads_captured_events.pk).update(type="destination")
 
         assert self._classify() == (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
 
