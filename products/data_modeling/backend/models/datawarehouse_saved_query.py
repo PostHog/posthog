@@ -481,8 +481,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
 
         with transaction.atomic():
-            self.save()
+            DataWarehouseSavedQuery.objects.select_for_update().get(team_id=self.team_id, pk=self.pk)
             delete_nodes_and_reconcile(self.team_id, Node.objects.filter(team_id=self.team_id, saved_query=self))
+            self.save()
 
     def set_columns(self, columns: dict[str, Any]) -> None:
         """Assign ``columns`` and record its SELECT order together.
