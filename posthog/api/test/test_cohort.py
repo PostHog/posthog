@@ -3168,6 +3168,13 @@ email@example.org,
                 "Cohort 'Retired cohort' (ID {id}) has been deleted. Choose another cohort or remove this criterion.",
             ),
             (
+                "deleted_cohort_on_create_of_deleted_cohort",
+                "create_deleted",
+                "filters",
+                "deleted",
+                "Cohort 'Retired cohort' (ID {id}) has been deleted. Choose another cohort or remove this criterion.",
+            ),
+            (
                 "static_cohort_turned_dynamic",
                 "reactivate_static",
                 "filters",
@@ -3208,7 +3215,7 @@ email@example.org,
             team=self.team,
             name="Retired cohort",
             deleted=True,
-            # The nested flag check rejects a behavioral cohort. The update rows fail if its lookup stops skipping deleted cohorts.
+            # _validate_nested_cohort_behavioral_filters rejects a behavioral cohort. The deleted_cohort_on_update row fails if its lookup stops excluding deleted cohorts.
             filters={
                 "properties": {
                     "type": "AND",
@@ -3247,9 +3254,11 @@ email@example.org,
 
         if save == "create":
             response = self.client.post(cohorts_url, data={"name": "cohort A", **criteria})
+        elif save == "create_deleted":
+            response = self.client.post(cohorts_url, data={"name": "cohort A", "deleted": True, **criteria})
         elif save == "update":
             cohort_a = Cohort.objects.create(team=self.team, name="cohort A")
-            # The nested flag check runs only on a PATCH to a cohort that an active flag uses.
+            # _validate_nested_cohort_behavioral_filters runs only on a PATCH to a cohort that an active flag uses.
             FeatureFlag.objects.create(
                 team=self.team,
                 key="cohort-flag",

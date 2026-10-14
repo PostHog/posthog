@@ -1400,7 +1400,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         instance = cast(Optional[Cohort], self.instance)
         # The delete call sends the whole cohort, criteria included. Checking it would block
         # deleting a cohort that includes a deleted cohort.
-        if attrs.get("deleted"):
+        if instance is not None and attrs.get("deleted"):
             return
         restoring = instance is not None and instance.deleted and attrs.get("deleted") is False
         if not (restoring or self._reactivates_static_cohort(attrs) or "filters" in attrs or "groups" in attrs):
@@ -1425,7 +1425,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohorts_by_id = Cohort.objects.filter(team__project_id=team.project_id).in_bulk(
             {cohort_id for cohort_id in map(safe_int, referenced_ids) if cohort_id is not None}
         )
-        # The editor cannot edit a deleted cohort. The user cannot remove the criterion before the restore.
+        # A deleted cohort's page has no criteria editor. The restore messages therefore do not ask the user to remove the criterion.
         for value in referenced_ids:
             cohort = cohorts_by_id.get(safe_int(value))
             if cohort is None:
