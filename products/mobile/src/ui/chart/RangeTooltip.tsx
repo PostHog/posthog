@@ -5,6 +5,8 @@ import { colors, lineHeight, shadows, space } from '@/ui/tokens'
 
 import type { RangeContent } from './chartSeries'
 
+export const CHART_RANGE_TOOLTIP_TEST_ID = 'chart-range-tooltip'
+
 interface RangeTooltipProps {
     content: RangeContent
     left: number

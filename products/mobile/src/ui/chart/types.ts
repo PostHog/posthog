@@ -103,6 +103,7 @@ interface MetricChartBaseProps {
     accessibilitySummary?: string
     /** Extra VoiceOver and TalkBack actions, such as "About this chart". */
     accessibilityActions?: readonly ChartAccessibilityAction[]
+    /** The budget placeholder gets `${testID}-placeholder`. The tooltip is always `chart-tooltip`. */
     testID?: string
 }
 

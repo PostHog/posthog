@@ -217,7 +217,6 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                         formatValue={formatValue}
                         dataUntil={dataUntil}
                         onPressTooltip={onPressTooltip}
-                        testID={testID}
                     />
                 </>
             ) : null}

@@ -3,11 +3,11 @@ import type { LayoutChangeEvent } from 'react-native'
 import { useAnimatedReaction } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { ChartTooltip, TOOLTIP_MAX_WIDTH } from './ChartTooltip'
+import { CHART_TOOLTIP_TEST_ID, ChartTooltip, TOOLTIP_MAX_WIDTH } from './ChartTooltip'
 import type { ChartGeometry } from './chartGeometry'
 import { tooltipLeft } from './chartMath'
 import { rangeContent, TOOLTIP_MAX_ROWS, tooltipContent, tooltipPoint } from './chartSeries'
-import { RangeTooltip } from './RangeTooltip'
+import { CHART_RANGE_TOOLTIP_TEST_ID, RangeTooltip } from './RangeTooltip'
 import type { ChartSelectionValues } from './selection/useChartSelection'
 import type { ChartInterval, ChartSeries, ChartTooltipPoint, ChartVariant } from './types'
 
@@ -29,7 +29,6 @@ interface ChartOverlayProps {
     formatValue: (value: number) => string
     dataUntil?: number
     onPressTooltip?: (point: ChartTooltipPoint) => void
-    testID?: string
 }
 
 /**
@@ -46,7 +45,6 @@ export function ChartOverlay({
     formatValue,
     dataUntil,
     onPressTooltip,
-    testID,
 }: ChartOverlayProps): ReactElement | null {
     const [shown, setShown] = useState<Shown>({ a: -1, b: -1, scrubbing: false })
     const [tooltipWidth, setTooltipWidth] = useState(0)
@@ -73,7 +71,6 @@ export function ChartOverlay({
 
     const { width, plot, xs } = geometry
     const maxWidth = Math.min(TOOLTIP_MAX_WIDTH, width)
-    const tooltipTestID = testID ? `${testID}-tooltip` : undefined
 
     if (shown.a >= 0 && shown.b >= 0) {
         const content = rangeContent(series, hiddenKeys, shown.a, shown.b, interval, formatValue)
@@ -89,7 +86,7 @@ export function ChartOverlay({
                 top={plot.top + 2}
                 maxWidth={maxWidth}
                 onLayout={onLayout}
-                testID={tooltipTestID}
+                testID={CHART_RANGE_TOOLTIP_TEST_ID}
             />
         )
     }
@@ -118,7 +115,7 @@ export function ChartOverlay({
             maxWidth={maxWidth}
             onPress={onPress}
             onLayout={onLayout}
-            testID={tooltipTestID}
+            testID={CHART_TOOLTIP_TEST_ID}
         />
     )
 }

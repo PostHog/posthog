@@ -26,6 +26,8 @@ export const DEMO_DASHBOARD_GROWTH = 'demo-dash-growth'
 export const DEMO_INSIGHT_SIGNUPS = 'demo-ins-signups'
 export const DEMO_INSIGHT_DAU = 'demo-ins-dau'
 export const DEMO_INSIGHT_CHECKOUT = 'demo-ins-checkout'
+export const DEMO_INSIGHT_RETENTION = 'demo-ins-retention'
+export const DEMO_INSIGHT_BROWSERS = 'demo-ins-browsers'
 
 type JsonRecord = Record<string, unknown>
 
@@ -41,7 +43,12 @@ interface DemoInsightDef {
     aggregate?: (windowDays: number) => number
     /** A SQL big number, the same for every range. */
     sqlValue?: number
-    funnel?: { name: string; count: number }[]
+    /** Funnel steps over 30 days, scaled to the window. `medianSeconds` is the time from the step before. */
+    funnel?: { name: string; count: number; medianSeconds: number | null }[]
+    /** Weekly cohorts: the size of an average cohort and the percent that comes back in each week after. */
+    retention?: { cohortSize: number; curve: number[] }
+    /** Totals per breakdown value: the value's share of `perDay` summed over the window. */
+    breakdown?: { value: string; share: number }[]
 }
 
 function noise(day: number, salt: number): number {
@@ -142,9 +149,56 @@ const DEMO_INSIGHTS: DemoInsightDef[] = [
             },
         },
         funnel: [
-            { name: 'Viewed pricing', count: 4210 },
-            { name: 'Started checkout', count: 1247 },
-            { name: 'Paid', count: 793 },
+            { name: 'Viewed pricing', count: 4210, medianSeconds: null },
+            { name: 'Started checkout', count: 1600, medianSeconds: 380 },
+            { name: 'Entered payment', count: 928, medianSeconds: 145 },
+            { name: 'Paid', count: 590, medianSeconds: 52 },
+        ],
+    },
+    {
+        id: 9109,
+        shortId: DEMO_INSIGHT_RETENTION,
+        name: 'Weekly retention',
+        description: 'People who signed up, then viewed a page in the weeks after.',
+        query: {
+            kind: 'InsightVizNode',
+            source: {
+                kind: 'RetentionQuery',
+                retentionFilter: {
+                    period: 'Week',
+                    totalIntervals: 8,
+                    targetEntity: { id: 'user signed up', name: 'user signed up', type: 'events' },
+                    returningEntity: { id: '$pageview', name: '$pageview', type: 'events' },
+                },
+                dateRange: { date_from: '-56d', date_to: null },
+            },
+        },
+        retention: { cohortSize: 430, curve: [100, 46, 34, 29, 26, 24, 23, 22] },
+    },
+    {
+        id: 9110,
+        shortId: DEMO_INSIGHT_BROWSERS,
+        name: 'Pageviews by browser',
+        description: 'Page views in the window, per browser.',
+        query: {
+            kind: 'InsightVizNode',
+            source: {
+                kind: 'TrendsQuery',
+                interval: 'day',
+                series: [{ kind: 'EventsNode', event: '$pageview', name: '$pageview' }],
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                trendsFilter: { display: 'ActionsBarValue' },
+                dateRange: { date_from: '-14d', date_to: null },
+            },
+        },
+        perDay: daily(9600, 4),
+        breakdown: [
+            { value: 'Chrome', share: 0.47 },
+            { value: 'Safari', share: 0.26 },
+            { value: 'Firefox', share: 0.1 },
+            { value: 'Edge', share: 0.07 },
+            { value: 'Samsung Internet', share: 0.04 },
+            { value: '$$_posthog_breakdown_other_$$', share: 0.06 },
         ],
     },
     {
@@ -199,6 +253,9 @@ const DEMO_DASHBOARDS: DemoDashboardDef[] = [
             { id: 3, insight: 'demo-ins-wau' },
             { id: 4, insight: DEMO_INSIGHT_SIGNUPS },
             { id: 5, insight: 'demo-ins-paying' },
+            { id: 7, insight: DEMO_INSIGHT_BROWSERS },
+            { id: 8, insight: DEMO_INSIGHT_CHECKOUT },
+            { id: 9, insight: DEMO_INSIGHT_RETENTION },
             { id: 6, text: 'Review these on Monday. Revenue numbers live on the Growth dashboard.' },
         ],
     },
@@ -366,12 +423,78 @@ function previousWindow(window: DemoWindow): DemoWindow {
     return { start: addDays(window.start, -length), end: addDays(window.end, -length) }
 }
 
+function funnelResult(def: DemoInsightDef, window: DemoWindow): JsonRecord[] {
+    const scale = windowDays(window).length / 31
+    return (def.funnel ?? []).map((step, order) => ({
+        action_id: step.name,
+        name: step.name,
+        custom_name: null,
+        order,
+        type: 'events',
+        people: [],
+        count: Math.max(1, Math.round(step.count * scale)),
+        average_conversion_time: step.medianSeconds === null ? null : Math.round(step.medianSeconds * 1.6),
+        median_conversion_time: step.medianSeconds,
+    }))
+}
+
+/** Like the server: every cohort answers all eight weeks, and weeks that have not started yet count 0. */
+function retentionResult(def: DemoInsightDef, window: DemoWindow, anchor: Date): JsonRecord[] {
+    const retention = def.retention
+    if (!retention) {
+        return []
+    }
+    const weeks = retention.curve.length
+    const today = startOfDay(anchor)
+    const lastStart = addDays(window.end, -window.end.getDay())
+    return Array.from({ length: weeks }, (_, cohort) => {
+        const start = addDays(lastStart, (cohort - weeks + 1) * 7)
+        const size = Math.round(retention.cohortSize * (0.9 + noise(cohort, 11) * 0.2))
+        const values = retention.curve.map((percent, week) => {
+            const started = addDays(start, week * 7) <= today
+            const jitter = week === 0 ? 1 : 0.92 + noise(cohort * 8 + week, 12) * 0.16
+            return { count: started ? Math.round(size * (percent / 100) * jitter) : 0, label: `Week ${week}` }
+        })
+        return {
+            date: `${isoDay(start)}T00:00:00${offsetSuffix(start)}`,
+            label: `Week ${cohort}`,
+            values,
+            breakdown_value: null,
+        }
+    })
+}
+
+function retentionWindow(def: DemoInsightDef, window: DemoWindow): DemoWindow {
+    const weeks = def.retention?.curve.length ?? 1
+    const lastStart = addDays(window.end, -window.end.getDay())
+    return { start: addDays(lastStart, -(weeks - 1) * 7), end: window.end }
+}
+
+function breakdownResult(def: DemoInsightDef, window: DemoWindow, anchor: Date): JsonRecord[] {
+    const total = (trendsEntry(def, window, anchor, null).count as number | undefined) ?? 0
+    return (def.breakdown ?? []).map((item) => ({
+        action: { order: 0, math: 'total' },
+        label: item.value,
+        breakdown_value: item.value,
+        aggregated_value: Math.round(total * item.share),
+        count: 0,
+        data: [],
+        days: [],
+    }))
+}
+
 function demoResult(def: DemoInsightDef, window: DemoWindow, anchor: Date, compare: boolean): unknown {
     if (def.sqlValue !== undefined) {
         return [[def.sqlValue]]
     }
     if (def.funnel) {
-        return def.funnel.map((step, order) => ({ ...step, order }))
+        return funnelResult(def, window)
+    }
+    if (def.retention) {
+        return retentionResult(def, window, anchor)
+    }
+    if (def.breakdown) {
+        return breakdownResult(def, window, anchor)
     }
     if (!compare) {
         return [trendsEntry(def, window, anchor, null)]
@@ -446,7 +569,9 @@ export function demoInsightResponse(request: DemoInsightRequest, anchor: number)
             : ((sourceOf(def.query).dateRange as JsonRecord | undefined) ?? {})
     const dateFrom = typeof layer.date_from === 'string' ? layer.date_from : null
     const dateTo = typeof layer.date_to === 'string' ? layer.date_to : null
-    const window = demoWindow(dateFrom, dateTo, new Date(anchor))
+    const requested = demoWindow(dateFrom, dateTo, new Date(anchor))
+    // Retention shows a fixed number of cohorts that end in the requested window, so its range starts earlier.
+    const window = def.retention ? retentionWindow(def, requested) : requested
     return {
         id: def.id,
         short_id: def.shortId,

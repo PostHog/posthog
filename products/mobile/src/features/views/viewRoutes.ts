@@ -1,3 +1,4 @@
+import type { QueryKey } from '@tanstack/react-query'
 import type { Href } from 'expo-router'
 
 import type { PinDisplayMode, ViewEntry, ViewRef } from '@/model/views'
@@ -55,6 +56,31 @@ export function viewHref(view: Pick<ViewRef, 'kind' | 'ref'>, open: ViewOpenPara
             return webAnalyticsHref(open)
         default:
             return null
+    }
+}
+
+/**
+ * The full-screen chart of an insight the phone already shows. `queryKey` names the snapshot's cache entry, so the
+ * screen shows the same range, compare and tile layers. Without it the screen reads the insight's own entry.
+ */
+export function chartHref(shortId: string, queryKey: QueryKey | null): Href {
+    return {
+        pathname: '/views/chart/[shortId]',
+        params: { shortId, ...(queryKey ? { key: JSON.stringify(queryKey) } : {}) },
+    }
+}
+
+/** The cache key from `chartHref`, or null when the param is missing or is not a Views key. */
+export function queryKeyParam(value: string | string[] | undefined): QueryKey | null {
+    const first = Array.isArray(value) ? value[0] : value
+    if (!first) {
+        return null
+    }
+    try {
+        const parsed: unknown = JSON.parse(first)
+        return Array.isArray(parsed) && parsed[0] === 'views' ? parsed : null
+    } catch {
+        return null
     }
 }
 

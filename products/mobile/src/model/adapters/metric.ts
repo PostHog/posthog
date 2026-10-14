@@ -319,9 +319,9 @@ const LINE_DISPLAYS: ReadonlySet<string> = new Set([
 ])
 const BAR_DISPLAYS: ReadonlySet<string> = new Set(['ActionsBar', 'ActionsStackedBar', 'ActionsUnstackedBar'])
 
-/** The chart kind when the app can draw the chart, else undefined. The app draws one series without a breakdown. */
-export function drawableChartKind(insight: TrendsInsight | undefined): MetricChartKind | undefined {
-    if (!insight || seriesNodes(insight).length !== 1 || asRecord(insight.source.breakdownFilter)?.breakdown) {
+/** The chart kind of a trends display that draws buckets over time, whatever its series and breakdowns. */
+export function timeSeriesChartKind(insight: TrendsInsight | undefined): MetricChartKind | undefined {
+    if (!insight) {
         return undefined
     }
     const display = asRecord(insight.source.trendsFilter)?.display
@@ -329,6 +329,35 @@ export function drawableChartKind(insight: TrendsInsight | undefined): MetricCha
         return 'line'
     }
     return typeof display === 'string' && BAR_DISPLAYS.has(display) ? 'bar' : undefined
+}
+
+// Distinct-user math counts a person once per bucket or breakdown value, so a sum counts the same people again. Only
+// these maths add up.
+const SUMMABLE_MATH: ReadonlySet<unknown> = new Set([
+    undefined,
+    null,
+    'total',
+    'sum',
+    'first_time_for_user',
+    'first_matching_event_for_user',
+])
+
+export function isSummableMath(math: unknown): boolean {
+    return SUMMABLE_MATH.has(math)
+}
+
+/** A breakdown by one property (`breakdown`) or by several (`breakdowns`). */
+export function hasBreakdown(source: unknown): boolean {
+    const filter = asRecord(asRecord(source)?.breakdownFilter)
+    return Boolean(filter?.breakdown) || (Array.isArray(filter?.breakdowns) && filter.breakdowns.length > 0)
+}
+
+/** The chart kind when the app can draw the chart, else undefined. The app draws one series without a breakdown. */
+export function drawableChartKind(insight: TrendsInsight | undefined): MetricChartKind | undefined {
+    if (!insight || seriesNodes(insight).length !== 1 || hasBreakdown(insight.source)) {
+        return undefined
+    }
+    return timeSeriesChartKind(insight)
 }
 
 /** Keeps the authored display, such as a cumulative line, which the server computes. */

@@ -9,9 +9,8 @@ import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { DeltaPill } from '../DeltaPill'
-import { InsightChart } from '../InsightChart'
+import { InsightVisual } from '../InsightVisual'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
-import { OpensOnWeb } from '../OpensOnWeb'
 import { PinButton } from '../PinButton'
 import { useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
@@ -27,7 +26,6 @@ import { ViewTitle } from '../screen/ViewTitle'
 import {
     deltaBasisText,
     deltaComparedText,
-    insightDisplay,
     previousRangeText,
     resolvedRangeText,
     snapshotFormatter,
@@ -133,7 +131,6 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
     const resolved = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
     const previous = screen.comparing ? previousRangeText(snapshot) : null
     const rangeDetail = resolved ? `${resolved}${previous ? ` · compared with ${previous}` : ''}` : null
-    const display = insightDisplay(snapshot)
     return (
         <ScrollView
             contentContainerStyle={contentStyle}
@@ -189,20 +186,15 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
             <RefreshFailedBanner status={refresh.status} />
             <View style={snapshot.refreshFailed ? styles.dimmed : undefined}>
                 <Hero snapshot={snapshot} rangeLabel={screen.range.label} />
-                {display === 'chart' ? (
-                    <InsightChart
-                        snapshot={snapshot}
-                        source={source}
-                        selectionId="insight"
-                        rangeText={screen.range.label ?? resolved}
-                        height={CHART_HEIGHT}
-                        testID={`chart-${shortId}`}
-                    />
-                ) : display === 'web' ? (
-                    <View style={styles.webCard}>
-                        <OpensOnWeb shortId={shortId} />
-                    </View>
-                ) : null}
+                <InsightVisual
+                    snapshot={snapshot}
+                    source={source}
+                    place="screen"
+                    selectionId="insight"
+                    rangeText={screen.range.label ?? resolved}
+                    chartHeight={CHART_HEIGHT}
+                    testID={`chart-${shortId}`}
+                />
             </View>
         </ScrollView>
     )
@@ -282,12 +274,5 @@ const styles = StyleSheet.create({
         ...type.metaSmall,
         color: colors.secondary,
         marginTop: 2,
-    },
-    webCard: {
-        padding: 14,
-        borderRadius: radii.card,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        backgroundColor: colors.white,
     },
 })

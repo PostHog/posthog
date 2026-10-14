@@ -1,17 +1,19 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useMemo } from 'react'
+import { type ReactElement, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useNow } from '@/lib/useNow'
 import type { DashboardTileView, InsightSnapshot } from '@/model/views'
+import { funnelPercent } from '@/ui/chart/FunnelSteps'
+import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { RefreshIcon } from '@/ui/icons/RefreshIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
 
 import { DeltaPill } from '../DeltaPill'
 import { isEligible } from '../freshness'
-import { InsightChart } from '../InsightChart'
-import { OpensOnWeb } from '../OpensOnWeb'
+import { useOpenFullScreen } from '../fullScreen/useOpenFullScreen'
+import { hasFullScreen, InsightVisual, retentionCaption } from '../InsightVisual'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { TileSkeleton } from '../screen/ViewSkeleton'
 import {
@@ -71,6 +73,12 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
         }
     }
     const display = snapshot ? insightDisplay(snapshot) : null
+    const openFullScreen = useOpenFullScreen()
+    const expand = useCallback(() => {
+        if (source) {
+            openFullScreen(source, 'button')
+        }
+    }, [openFullScreen, source])
     const canRefresh = Boolean(itemKey && snapshot && isEligible(snapshot) && !data.updating)
     const name = snapshot?.name ?? view.name
 
@@ -105,6 +113,17 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
                         <RefreshIcon size={18} color={colors.secondary} />
                     </Pressable44>
                 ) : null}
+                {display && hasFullScreen(display) ? (
+                    <Pressable44
+                        onPress={expand}
+                        accessibilityLabel={`Open ${name} full screen`}
+                        style={styles.refresh}
+                        pressedBackground={colors.sunken}
+                        testID={`view-tile-fullscreen-${view.tileId}`}
+                    >
+                        <ExpandIcon size={17} color={colors.secondary} />
+                    </Pressable44>
+                ) : null}
             </View>
             <View style={snapshot?.refreshFailed ? styles.dimmed : undefined}>
                 {!snapshot || !source ? (
@@ -115,18 +134,17 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
                     )
                 ) : display === 'number' ? (
                     <NumberBody snapshot={snapshot} onOpen={open} />
-                ) : display === 'chart' ? (
-                    <InsightChart
+                ) : (
+                    <InsightVisual
                         snapshot={snapshot}
                         source={source}
+                        place="tile"
                         selectionId={`tile-${view.tileId}`}
                         rangeText={resolvedRangeText(snapshot.resolvedRange, snapshot.interval)}
-                        height={TILE_CHART_HEIGHT}
+                        chartHeight={TILE_CHART_HEIGHT}
                         canvasSlot={{ key: String(view.tileId), index }}
                         testID={tileChartTestID(mode === 'demo', view.tileId)}
                     />
-                ) : (
-                    <OpensOnWeb shortId={view.shortId} />
                 )}
             </View>
             {data.updating ? <View style={styles.progress} accessibilityElementsHidden /> : null}
@@ -140,10 +158,21 @@ function tileMeta(snapshot: InsightSnapshot | undefined, view: DashboardTileView
         return snapshot?.kindLabel ?? view.kindLabel
     }
     const range = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
-    if (insightDisplay(snapshot) === 'chart') {
-        return [intervalLabel(snapshot.interval), range].filter(Boolean).join(' · ')
+    switch (insightDisplay(snapshot)) {
+        case 'chart':
+            return [intervalLabel(snapshot.interval), range].filter(Boolean).join(' · ')
+        case 'funnel': {
+            const conversion = snapshot.funnel?.conversion ?? null
+            const lead = conversion === null ? snapshot.kindLabel : `${funnelPercent(conversion)} conversion`
+            return [lead, range].filter(Boolean).join(' · ')
+        }
+        case 'retention':
+            return retentionCaption(snapshot) ?? snapshot.kindLabel
+        case 'bars':
+            return ['Total', range].filter(Boolean).join(' · ')
+        default:
+            return [snapshot.kindLabel, range].filter(Boolean).join(' · ')
     }
-    return [snapshot.kindLabel, range].filter(Boolean).join(' · ')
 }
 
 function NumberBody({ snapshot, onOpen }: { snapshot: InsightSnapshot; onOpen: () => void }): ReactElement {

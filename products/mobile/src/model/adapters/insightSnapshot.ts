@@ -11,7 +11,18 @@ import type {
     ResolvedRange,
     SavedRange,
 } from '../views'
-import { asTrendsInsight, chartFormat, drawableChartKind, trendsInterval } from './metric'
+import { displaySeriesLabel, rankingView } from './breakdown'
+import { funnelView } from './funnel'
+import {
+    asTrendsInsight,
+    chartFormat,
+    drawableChartKind,
+    hasBreakdown,
+    isSummableMath,
+    timeSeriesChartKind,
+    trendsInterval,
+} from './metric'
+import { retentionView } from './retention'
 
 type JsonRecord = Record<string, unknown>
 
@@ -161,16 +172,20 @@ function trendsEntries(result: unknown): JsonRecord[] {
     return Array.isArray(result) ? result.filter(isRecord) : []
 }
 
-/** Number: a trends result with an aggregate or one series, or a SQL big number. Chart: a drawable trends series. */
+/**
+ * Number: a big number, or a trends insight with one series or one result (a formula), and no breakdown. With several
+ * series or breakdown values the first one would stand for the whole insight. Chart: a drawable trends series.
+ */
 export function capabilitiesOf(query: unknown, result?: unknown): InsightCapabilities {
     const kind = queryKindOf(query)
     const display = displayOf(query)
     const chart = kind === 'TrendsQuery' && drawableChartKind(asTrendsInsight(query)) !== undefined
     let number = false
     if (kind === 'TrendsQuery') {
-        const first = trendsEntries(result)[0]
+        const current = trendsEntries(result).filter((entry) => compareOf(entry) !== 'previous')
         number =
-            display === 'BoldNumber' || seriesNodes(query).length === 1 || finite(first?.aggregated_value) !== undefined
+            display === 'BoldNumber' ||
+            (!hasBreakdown(sourceOf(query)) && (seriesNodes(query).length === 1 || current.length === 1))
     } else if (kind === 'HogQLQuery') {
         number = display === 'BoldNumber'
     }
@@ -207,7 +222,7 @@ function seriesViews(entries: JsonRecord[]): InsightSeriesView[] {
         const compare = compareOf(entry)
         return {
             key: `${seriesIndex}:${breakdownValue ?? ''}:${compare ?? ''}`,
-            label: typeof entry.label === 'string' ? entry.label : `Series ${seriesIndex + 1}`,
+            label: typeof entry.label === 'string' ? displaySeriesLabel(entry.label) : `Series ${seriesIndex + 1}`,
             points: pointsOf(entry),
             compare,
             seriesIndex,
@@ -240,20 +255,8 @@ function inProgressFrom(
     return parseBucketStart(last.at) + INTERVAL_MS[interval] > serverNow ? last.at : null
 }
 
-// Distinct-user math counts a person once per bucket, so a sum over buckets counts returning people again. Only these
-// maths add up across buckets.
-const SUMMABLE_MATH: ReadonlySet<unknown> = new Set([
-    undefined,
-    null,
-    'total',
-    'sum',
-    'first_time_for_user',
-    'first_matching_event_for_user',
-])
-
 function isSummable(query: unknown): boolean {
-    const first = seriesNodes(query)[0]
-    return SUMMABLE_MATH.has(first?.math)
+    return isSummableMath(seriesNodes(query)[0]?.math)
 }
 
 function makeDelta(
@@ -423,7 +426,10 @@ export function insightSnapshot(
             delta: null,
             series: null,
             allSeries: [],
-            chartKind: drawableChartKind(asTrendsInsight(query)) ?? null,
+            chartKind: timeSeriesChartKind(asTrendsInsight(query)) ?? null,
+            funnel: null,
+            retention: null,
+            ranking: null,
             inProgressFrom: null,
             capabilities: capabilitiesOf(query),
             computed: false,
@@ -439,9 +445,12 @@ export function insightSnapshot(
     const inProgress = firstCurrent
         ? inProgressFrom(firstCurrent.points, resolvedRange, interval, context.serverNow)
         : null
-    const number = isTrends
-        ? numberParts(query, entries, format, inProgress)
-        : { value: sqlNumber(response.result), valueAt: null, delta: null }
+    const capabilities = capabilitiesOf(query, response.result)
+    const number = !isTrends
+        ? { value: sqlNumber(response.result), valueAt: null, delta: null }
+        : capabilities.number
+          ? numberParts(query, entries, format, inProgress)
+          : NO_NUMBER
     const series: MetricSeries | null =
         firstCurrent && firstCurrent.points.length > 0 ? { interval, points: firstCurrent.points } : null
     return {
@@ -461,9 +470,12 @@ export function insightSnapshot(
         delta: number.delta,
         series,
         allSeries,
-        chartKind: drawableChartKind(asTrendsInsight(query)) ?? null,
+        chartKind: timeSeriesChartKind(asTrendsInsight(query)) ?? null,
+        funnel: funnelView(query, response.result),
+        retention: retentionView(query, response.result, context.serverNow),
+        ranking: rankingView(query, response.result),
         inProgressFrom: inProgress,
-        capabilities: capabilitiesOf(query, response.result),
+        capabilities,
         computed: response.is_cached === false,
     }
 }

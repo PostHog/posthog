@@ -173,6 +173,12 @@ export function trackChartPeopleOpened(props: { resultCount: number }): void {
     track('mobile_chart_people_opened', { result_count: props.resultCount })
 }
 
+export type FullScreenEntry = 'button' | 'legend_more' | 'rows_more' | 'accessibility'
+
+export function trackChartFullScreenOpened(props: { entry: FullScreenEntry; display: string }): void {
+    track('mobile_chart_fullscreen_opened', { entry: props.entry, display: props.display })
+}
+
 export function trackChartLegendToggled(props: { action: 'toggle' | 'solo' | 'restore' }): void {
     track('mobile_chart_legend_toggled', { action: props.action })
 }

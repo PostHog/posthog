@@ -1,4 +1,5 @@
 import { parseBucketStart } from '@/lib/dates'
+import { breakdownLabel } from '@/model/adapters/breakdown'
 import { formatMetricValue } from '@/model/adapters/metric'
 import type { MetricInterval } from '@/model/types'
 import type { InsightSeriesView, InsightSnapshot, NumberDelta, ResolvedRange } from '@/model/views'
@@ -8,14 +9,26 @@ import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
 
 import { formatRangeSpan } from './rangePresets'
 
-/** How a tile or a screen shows an insight: a big number, a chart, or a card that opens it on the web. */
-export type InsightDisplay = 'number' | 'chart' | 'web'
+/**
+ * How a tile or a screen shows an insight: a big number, a line or bar chart, funnel steps, a retention grid, ranked
+ * bars, or a card that opens it on the web.
+ */
+export type InsightDisplay = 'number' | 'chart' | 'funnel' | 'retention' | 'bars' | 'web'
 
 export function insightDisplay(snapshot: InsightSnapshot): InsightDisplay {
     if (snapshot.kindLabel === 'Big number' && snapshot.capabilities.number) {
         return 'number'
     }
-    if (snapshot.capabilities.chart && snapshot.chartKind && snapshot.allSeries.some((s) => s.points.length > 0)) {
+    if (snapshot.funnel) {
+        return 'funnel'
+    }
+    if (snapshot.retention) {
+        return 'retention'
+    }
+    if (snapshot.ranking) {
+        return 'bars'
+    }
+    if (snapshot.chartKind && snapshot.allSeries.some((s) => s.points.length > 0)) {
         return 'chart'
     }
     return 'web'
@@ -27,8 +40,8 @@ export function snapshotFormatter(snapshot: Pick<InsightSnapshot, 'format'>): (v
 }
 
 function seriesLabel(series: InsightSeriesView): string {
-    const breakdown = series.breakdownValue
-    if (breakdown === null || breakdown === '' || series.label.includes(String(breakdown))) {
+    const breakdown = breakdownLabel(series.breakdownValue)
+    if (breakdown === null || breakdown === '' || series.label.includes(breakdown)) {
         return series.label
     }
     return `${series.label} · ${breakdown}`
