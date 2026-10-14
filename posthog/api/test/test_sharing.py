@@ -2220,6 +2220,29 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
 
+    @parameterized.expand([("dashboard_filters",), ("tile_overrides",)])
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_denied_dashboard_filters_saved_before_sharing_block_enabling(self, target: str, _flag):
+        # Saved while unshared, so the save-time check did not run. Enabling the share must catch them.
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        filters = {"properties": [denied_filter]}
+        dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.user, filters=filters if target == "dashboard_filters" else {}
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=Insight.objects.create(team=self.team, created_by=self.user),
+            filters_overrides=filters if target == "tile_overrides" else {},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "denied_warehouse_table" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
@@ -2620,6 +2643,8 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("grouped_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
             ("grouped_tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
             ("null_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("untyped_dashboard_filters", "shared", status.HTTP_200_OK),
             ("dashboard_filters", "none", status.HTTP_200_OK),
         ]
     )
@@ -2648,6 +2673,12 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             sent_filters = {"properties": [{"type": "AND", "values": [denied_filter]}]}
         elif target.startswith("null"):
             sent_filters = {"properties": None}
+        elif target.startswith("breakdown"):
+            sent_filters = {
+                "breakdown_filter": {"breakdown_type": "data_warehouse_person_property", "breakdown": "denied_join.id"}
+            }
+        elif target.startswith("untyped"):
+            sent_filters = {"properties": [{"type": [], "key": "x", "value": "y"}]}
         payload = (
             {"filters": sent_filters}
             if target.endswith("dashboard_filters")

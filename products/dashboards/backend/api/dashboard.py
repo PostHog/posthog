@@ -55,7 +55,11 @@ from posthog.api.openapi_parameters import make_filters_override_param, make_var
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard, is_publicly_shared
+from posthog.api.sharing_publish_gate import (
+    check_can_add_insight_to_shared_dashboard,
+    dashboard_filter_leaves,
+    is_publicly_shared,
+)
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -2227,10 +2231,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Normalized as the save normalizes them, so a filter nested in a property group is checked
         # as the leaf that gets stored.
         properties = [
-            property_filter
+            leaf
             for filters in filter_sets
             if isinstance(filters, dict)
-            for property_filter in DashboardSerializer._validated_filters(filters).get("properties") or []
+            for leaf in dashboard_filter_leaves(DashboardSerializer._validated_filters(filters))
         ]
         if not properties:
             return

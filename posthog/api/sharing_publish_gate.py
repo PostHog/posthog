@@ -18,6 +18,7 @@ from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_ast_for_printing
 
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
@@ -64,7 +65,49 @@ def blocked_access_for_publisher(user: User, team: Team, config: SharingConfigur
     the same resolution the read path uses. Non-access compile errors don't gate.
     Empty list = safe to publish.
     """
-    return blocked_access_for_user(user, team, _queries_exposed_by(config))
+    blocked = blocked_access_for_user(user, team, _queries_exposed_by(config))
+    # A dashboard's own filters and tile overrides run inside every tile, and they could have
+    # been saved before the dashboard was shared, when the save-time check did not apply.
+    if config.dashboard is not None:
+        leaves = dashboard_filter_leaves(config.dashboard.filters)
+        for overrides in config.dashboard.tiles.values_list("filters_overrides", flat=True):
+            leaves += dashboard_filter_leaves(overrides)
+        if (table := table_blocking_property_filters(user, team, leaves)) and table not in blocked:
+            blocked = sorted([*blocked, table])
+    return blocked
+
+
+# The breakdown types that read a property the way a property filter does, so the same
+# table access check applies to them.
+_BREAKDOWN_TYPES_AS_FILTERS = frozenset({"data_warehouse", "data_warehouse_person_property", "hogql"})
+
+
+def dashboard_filter_leaves(filters: Any) -> list[dict[str, Any]]:
+    """The property filters of a dashboard filter set, plus its breakdowns expressed as property
+    filters, in the shape `table_blocking_property_filters` checks. A leaf without a string type
+    is skipped, since the check cannot classify it."""
+    if not isinstance(filters, dict):
+        return []
+    properties = filters.get("properties")
+    leaves = [
+        leaf
+        for leaf in (properties if isinstance(properties, list) else [])
+        if isinstance(leaf, dict) and isinstance(leaf.get("type"), str)
+    ]
+    breakdown_filter = filters.get("breakdown_filter")
+    if not isinstance(breakdown_filter, dict):
+        return leaves
+    breakdowns = breakdown_filter.get("breakdowns")
+    pairs = [
+        (breakdown.get("type"), breakdown.get("property"))
+        for breakdown in (breakdowns if isinstance(breakdowns, list) else [])
+        if isinstance(breakdown, dict)
+    ]
+    pairs.append((breakdown_filter.get("breakdown_type"), breakdown_filter.get("breakdown")))
+    for breakdown_type, key in pairs:
+        if breakdown_type in _BREAKDOWN_TYPES_AS_FILTERS and isinstance(key, str):
+            leaves.append({"type": breakdown_type, "key": key, "operator": "is_set"})
+    return leaves
 
 
 def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
