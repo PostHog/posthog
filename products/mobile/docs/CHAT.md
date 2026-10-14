@@ -27,6 +27,38 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 The transport is `src/api/tasks.ts`, shared with the hand-off (see [HANDOFF.md](HANDOFF.md)).
 Every request carries `X-PostHog-Client-Platform: mobile`, so `run/` never reuses a warm run a web composer booted.
 
+## Composer drafts
+
+Text and attached report IDs are saved separately for each task, each report discussion, and
+the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
+host and project, with at most 50 drafts per project. Changes save after 400 ms of idle time
+and flush when the composer closes or the app backgrounds. Opening a saved chat restores its
+draft after storage loads.
+
+A successful send clears the submitted text. A failed send keeps it, and a delayed completion
+does not replace text typed for a later message. Sign-out or session expiry clears the account's
+drafts. Demo drafts stay in the current composer; the web preview stores drafts in memory only. Photo
+attachments are still unavailable; this does not enable the dimmed Attach control.
+
+## Rich replies
+
+PostHog object tags render as inline links to the selected host and project. Standalone
+`display="block"` insight tags show the saved name and description; SQL tags show a three-line
+preview with Show all. Insight summaries use `refresh=force_cache`, so opening a reply does not
+run its insight queries. A reply renders at most ten cards, then uses inline links. Unknown
+object kinds keep their labels, tags inside code stay literal, and unfinished tags stay hidden
+while the reply streams. The object registry is generated from `posthog/object_tags/kinds.py`
+into this app so standalone builds do not depend on the desktop app.
+
+Closed Mermaid fences render offline in a native WebView. The bundled renderer uses strict
+mode and a policy that blocks network requests; navigation is disabled. Wide diagrams scroll
+horizontally. Incomplete, invalid, or remote-image diagrams stay as code. The web preview also
+uses the code fallback. Adding this renderer requires a new native build with
+`react-native-webview` before distributing an update that uses it.
+
+Insight summaries need the `insight:read` OAuth scope. Existing sessions need a new sign-in,
+and the server's mobile OAuth application must allow the scope; see [AUTH.md](AUTH.md).
+
 ## Starting a chat
 
 The first send creates a task, then starts an interactive run on it.

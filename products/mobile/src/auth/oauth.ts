@@ -19,6 +19,7 @@ export const OAUTH_SCOPES = [
     'conversation:write',
     'today:read',
     'query:read',
+    'insight:read',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000

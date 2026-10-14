@@ -11,6 +11,25 @@ pnpm test
 
 CI runs the same three checks, see [CI.md](CI.md).
 
+## Chat drafts and rich replies
+
+Use a native development build that includes `react-native-webview`.
+
+1. Type a draft in an existing chat, a new chat and a report discussion. Close and reopen each,
+   then restart the app. Each composer should restore its own text and report attachments.
+2. Send a draft successfully, then reopen the chat. The sent text should be gone. Fail a send
+   and verify the draft returns; switching chats before that request ends must not copy it
+   into another chat. Sign out and verify drafts are gone after signing back in.
+3. Render an inline insight tag, a block insight tag and a block SQL tag. Verify links open the
+   current host and project, and Show all expands SQL without opening the browser. Test a
+   missing insight and an account without `insight:read` too.
+4. Render a complete Mermaid flowchart and a wide diagram. Verify the diagram height and
+   horizontal scrolling. Incomplete fences, invalid diagrams and remote-image nodes should
+   stay as code. The web preview intentionally shows Mermaid source.
+5. Delay or fail read-state lookups. Rows must not show unread dots from missing or stale
+   responses. Read a report elsewhere and wait for the foreground inbox refresh. Opening a
+   report that fails to load must not mark it read.
+
 ## Report refresh checks
 
 Open a report, scroll down, background the app, then return. The report and scroll position must stay

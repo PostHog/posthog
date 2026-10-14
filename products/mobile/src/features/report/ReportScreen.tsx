@@ -89,7 +89,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const notice = useHandoffNotice(reportId)
     const githubOnlyReviewers = useGithubOnlyReviewerCount(reportId)
     const [overlay, setOverlay] = useState<Overlay>('none')
-    useMarkReadOnOpen(reportId)
+    useMarkReadOnOpen(query.data?.id)
     const queryClient = useQueryClient()
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'

@@ -21,4 +21,4 @@ serializer name.
 | Push | `src/api/pushTokens.ts` | `/api/users/@me/push_tokens/`, `.../unregister/` | [PUSH.md](PUSH.md) |
 
 OAuth scopes the app requests: `openid profile email user:read user:write organization:read
-project:read task:read task:write today:read conversation:write`.
+project:read task:read task:write today:read conversation:write query:read insight:read`.

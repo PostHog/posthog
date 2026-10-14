@@ -19,3 +19,11 @@ jest.mock('@/ui/chart/MetricChartCanvas', () => {
             }),
     }
 })
+
+// The native browser module is unavailable in Jest; retain its callbacks so screen tests can exercise rendering.
+jest.mock('react-native-webview', () => {
+    const { createElement } = jest.requireActual<typeof import('react')>('react')
+    const { View } = jest.requireActual<typeof import('react-native')>('react-native')
+    const WebView = (props: Record<string, unknown>): ReturnType<typeof createElement> => createElement(View, props)
+    return { __esModule: true, default: WebView, WebView }
+})

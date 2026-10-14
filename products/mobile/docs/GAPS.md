@@ -16,7 +16,6 @@ Known gaps and behavior that stays on the device.
   web product library, and is dimmed in demo mode because there is no project to open.
 - **Agent progress UI.** The prototype's "Step N of M" segments are not shown; the run API has a
   free-text stage only.
-- **Read state** is recorded but not styled.
 - **Impact avatars.** The prototype data has avatar stacks on Impact facts that its template never
   draws; the app does not draw them either.
 - **Chat** has no attachments or expanded composer; Attach and Expand are dimmed.
@@ -80,7 +79,7 @@ Known gaps and behavior that stays on the device.
 - **Evidence** maps error, feedback and recording signals only. Scout findings, GitHub and analytics signals add no evidence block.
 - **Work log** shows one page of 100 artefacts. Older entries of a very long log are not shown.
 - **PR details.** The PR view has the URL, number, state and review decision. Title, diff size, checks and the agent's note need `pr_checks/` or the run output, which the hand-off feature may add.
-- **Read state** of the list is refetched with the list. A report read on another device shows as unread until then.
+- **Read-state counts cover loaded reports only.** The menu does not fetch every page to compute a global unread total. Read state refreshes every 30 seconds while the inbox is active.
 
 ## Auth and push
 

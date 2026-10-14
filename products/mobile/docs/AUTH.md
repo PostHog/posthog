@@ -45,7 +45,7 @@ Self-hosted hosts must be https. Plain http is accepted only for loopback (`loca
 
 The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 
-`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read`
+`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read insight:read`
 
 | Scope | Used by |
 | --- | --- |
@@ -57,6 +57,7 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 | `conversation:write` | chat |
 | `today:read` | `GET today/briefing/` and `GET today/reports/{id}/page/`. Without it both return 403 and the inbox always falls back to the signals report list. |
 | `query:read` | `POST query/` for the live report metrics and charts. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
+| `insight:read` | Cached insight names and descriptions in chat cards. Without it the card keeps its browser link and shows that the summary could not load. |
 
 ### Server-side ceiling
 
@@ -125,7 +126,7 @@ The link is also hidden while "Use a self-hosted instance" is selected.
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
   - Android emulator: run `adb reverse tcp:8010 tcp:8010` first, so `localhost` on the emulator reaches the Mac.
-- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`).
+- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`, `insight:read`).
   The key never refreshes; a 401 ends the session.
 - **Demo.** "Try the demo" needs no account.
 

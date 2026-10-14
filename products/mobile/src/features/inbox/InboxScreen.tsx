@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
 
@@ -32,7 +32,14 @@ export function InboxScreen(): ReactElement {
     const insets = useScreenInsets()
     const now = useNow()
     const viewer = useViewer()
-    const query = useInboxItems()
+    const [focused, setFocused] = useState(false)
+    useFocusEffect(
+        useCallback(() => {
+            setFocused(true)
+            return () => setFocused(false)
+        }, [])
+    )
+    const query = useInboxItems({ refreshWhileVisible: focused })
     const prefetch = usePrefetchReports(query.data)
     const signedIn = useAuthStore((state) => state.signedIn)
     const exitDemo = useExitDemo()
@@ -146,6 +153,7 @@ export function InboxScreen(): ReactElement {
             />
             <NavMenu
                 visible={menuOpen}
+                unreadCount={(query.data ?? []).filter((item) => !item.read).length}
                 projectName={viewer.projectName}
                 onClose={closeMenu}
                 onSettings={() => {

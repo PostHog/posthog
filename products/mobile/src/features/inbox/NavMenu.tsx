@@ -18,6 +18,7 @@ import { SignOutConfirm } from '../settings/SignOutConfirm'
 
 interface NavMenuProps {
     visible: boolean
+    unreadCount?: number
     projectName: string
     onClose: () => void
     onSettings: () => void
@@ -31,29 +32,37 @@ interface NavMenuProps {
 
 interface MenuRowProps {
     label: string
+    count?: number
     Icon: ComponentType<IconProps>
     selected?: boolean
     onPress: () => void
     testID: string
 }
 
-function MenuRow({ label, Icon, selected = false, onPress, testID }: MenuRowProps): ReactElement {
+function MenuRow({ label, count = 0, Icon, selected = false, onPress, testID }: MenuRowProps): ReactElement {
     return (
         <Pressable44
             onPress={onPress}
             accessibilityState={{ selected }}
+            accessibilityLabel={count > 0 ? `${label}, ${count} unread` : label}
             pressedBackground={colors.sunken}
             style={[styles.row, selected && styles.selected]}
             testID={testID}
         >
             <Icon size={22} />
             <Text style={styles.rowLabel}>{label}</Text>
+            {count > 0 ? (
+                <Text style={styles.unreadCount} testID="nav-inbox-unread">
+                    {count}
+                </Text>
+            ) : null}
         </Pressable44>
     )
 }
 
 export function NavMenu({
     visible,
+    unreadCount = 0,
     projectName,
     onClose,
     onSettings,
@@ -119,7 +128,14 @@ export function NavMenu({
                     />
                 ) : (
                     <>
-                        <MenuRow label="Inbox" Icon={InboxIcon} selected onPress={onClose} testID="nav-inbox" />
+                        <MenuRow
+                            count={unreadCount}
+                            label="Inbox"
+                            Icon={InboxIcon}
+                            selected
+                            onPress={onClose}
+                            testID="nav-inbox"
+                        />
                         <MenuRow label="Settings" Icon={SettingsIcon} onPress={onSettings} testID="nav-settings" />
                         <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
                     </>
@@ -172,6 +188,7 @@ const styles = StyleSheet.create({
     selected: {
         backgroundColor: colors.sunken,
     },
+    unreadCount: { ...type.meta, color: colors.secondary },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,
