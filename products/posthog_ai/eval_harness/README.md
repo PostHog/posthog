@@ -309,7 +309,7 @@ Other suites are unchanged, and `no_send_logs=True` suppresses the new upload to
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write`, `POSTHOG_OFFLINE_EVAL_PROJECT_ID` to the destination project/environment, and `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` to a JSON object mapping all seven SQL metric names to their immutable scorer version UUIDs.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
 The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metric names, scorer kinds, and a placeholder mapping.
-Delivery runs in a bounded background queue after local results are saved. Shared infrastructure is torn down before the final bounded upload wait; failed or interrupted uploads remain available for replay.
+Delivery runs in a bounded background queue after local results are saved. Unfinished uploads pause before infrastructure teardown and resume from their saved files with fresh deadlines afterward; failed or interrupted uploads remain available for replay.
 Both sandboxed and one-shot suites can opt in through `offline_suite`. The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, dataset references, version fields, and shared scorer mappings.
 
 ```bash

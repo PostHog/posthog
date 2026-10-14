@@ -206,14 +206,14 @@ def test_prepare_bounds_payload_details_without_losing_scores(
     assert case.output == original_output
 
 
-@parameterized.expand([("linked", True), ("unlinked", False)])
-def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_traces: bool) -> None:
+@parameterized.expand([("hosted_linked", True, True), ("hosted_unlinked", False, True), ("external", True, False)])
+def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_traces: bool, hosted: bool) -> None:
     publisher = _publisher(link_traces=link_traces)
     publisher.suite = OfflineEvalSuite(
         key="sql/rich",
         scorer_kinds={"boolean_metric": "categorical", "numeric_metric": "numeric"},
         experiment_options={
-            "dataset_revision_id": EXPERIMENT_ID,
+            "dataset_revision_id": EXPERIMENT_ID if hosted else None,
             "prompt_version": "prompt-2",
             "run_source": "scheduled",
         },
@@ -222,6 +222,7 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
     case.metadata.update(
         trace_id="application-trace", dataset_item_identifier="case-1", dataset_item_version_identifier="v2"
     )
+    case.metadata["dataset_item_version_id"] = str(UUID(int=10))
     case.scorer_results = {
         "boolean_metric": ScorerResult(
             status="ok",
@@ -237,23 +238,56 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
     item = upload.items[0].to_dict()
     outcome = upload.results[0].to_dict()
     assert item.get("application_trace_id") == ("application-trace" if link_traces else None)
-    assert item["dataset_item_identifier"] == "case-1"
-    assert item["dataset_item_version_identifier"] == "v2"
+    if hosted:
+        assert item["dataset_item_version_id"] == str(UUID(int=10))
+        assert "dataset_item_identifier" not in item
+        assert "dataset_item_version_identifier" not in item
+    else:
+        assert item["dataset_item_identifier"] == "case-1"
+        assert item["dataset_item_version_identifier"] == "v2"
+        assert "dataset_item_version_id" not in item
     assert outcome["value"] == ["correct"]
     assert outcome["payload"]["reasoning"] == "Matches expected answer"
     assert outcome["payload"]["metadata"] == {"confidence": 0.9}
     assert outcome.get("evaluator_trace_id") == ("judge-trace" if link_traces else None)
     assert outcome["evaluated_at"] == STARTED_AT.isoformat()
     assert upload.results[1].to_dict()["value"] == 35.0
-    assert upload.experiment["dataset_revision_id"] == EXPERIMENT_ID
-    assert "dataset_source" not in upload.experiment
-    assert "dataset_identifier" not in upload.experiment
-    assert "dataset_revision_identifier" not in upload.experiment
+    if hosted:
+        assert upload.experiment["dataset_revision_id"] == EXPERIMENT_ID
+        assert "dataset_source" not in upload.experiment
+        assert "dataset_identifier" not in upload.experiment
+        assert "dataset_revision_identifier" not in upload.experiment
+    else:
+        assert upload.experiment["dataset_source"] == "repository"
+        assert upload.experiment["dataset_identifier"] == "sql/rich"
+        assert upload.experiment["dataset_revision_identifier"] == "captured-revision"
     assert upload.experiment["prompt_version"] == "prompt-2"
     assert upload.experiment["run_source"] == "scheduled"
 
     case.scorer_results["numeric_metric"] = ScorerResult(status="not_applicable", reasoning="No applicable operation")
     assert _prepare(publisher, [case]).results[1].to_dict()["status"] == "not_applicable"
+
+
+@parameterized.expand([("missing", None), ("malformed", "not-a-uuid"), ("wrong_type", 42)])
+def test_prepare_rejects_missing_or_invalid_required_hosted_references(_name: str, version_id: object) -> None:
+    publisher = _publisher()
+    publisher.suite = replace(SUITE, experiment_options={"dataset_revision_id": EXPERIMENT_ID})
+    healthy, malformed = _case("healthy"), _case("malformed")
+    healthy.metadata["dataset_item_version_id"] = str(UUID(int=10))
+    malformed.metadata["dataset_item_version_id"] = version_id
+
+    with pytest.raises(
+        OfflineUploadError, match="Hosted dataset case 'malformed' requires a valid dataset_item_version_id"
+    ):
+        _prepare(publisher, [healthy, malformed])
+
+
+def test_prepare_rejects_empty_scorer_enrollment() -> None:
+    publisher = _publisher()
+    publisher.suite = replace(SUITE, scorer_kinds={})
+
+    with pytest.raises(OfflineUploadError, match="must enroll at least one scorer"):
+        _prepare(publisher, [_case()])
 
 
 @parameterized.expand(
@@ -329,27 +363,70 @@ def test_publish_retries_identical_batches_and_completes_after_all_acknowledgmen
     assert url.endswith(f"/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}")
 
 
-@parameterized.expand([("bad_request", 400), ("forbidden", 403), ("retry_exhausted", 503), ("invalid_ack", 200)])
-def test_publish_does_not_complete_without_confirmed_persistence(_name: str, failure_status: int) -> None:
+@parameterized.expand(
+    [
+        ("bad_request", 400),
+        ("forbidden", 403),
+        ("retry_exhausted", 503),
+        ("invalid_ack", 200),
+        ("long_retry_after", 429),
+        ("unsafe_diagnostics", 400, False),
+    ]
+)
+def test_publish_does_not_complete_without_confirmed_persistence(
+    _name: str, failure_status: int, safe_diagnostics: bool = True
+) -> None:
     publisher = _publisher()
     upload = _prepare(publisher, [_case()])
     server = OfflineServer()
     attempts: list[httpx.Request] = []
+    code = {
+        400: "invalid_input",
+        403: "permission_denied",
+        503: "unavailable",
+        429: "throttled",
+        200: "invalid_response",
+    }[failure_status]
+    private_detail = "do-not-log-example-evaluation-payload"
+    retry_after = 45 if failure_status == 429 else 0
 
     def respond(request: httpx.Request) -> httpx.Response:
         attempts.append(request)
         if len(attempts) == 1:
             return server.respond(request)
-        return httpx.Response(failure_status, json={}, headers={"Retry-After": "0"})
+        return httpx.Response(
+            failure_status,
+            json={
+                "code": code if safe_diagnostics else "invalid\n" + private_detail,
+                "attr": "results.0.value" if safe_diagnostics else "results.0.value\n" + private_detail,
+                "detail": private_detail,
+                "errors": [{"code": "invalid_input", "attr": "results.0.value", "detail": private_detail}],
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
 
     with (
         patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))),
         patch("posthoganalytics.ai.evaluations._transport.asyncio.sleep", new_callable=AsyncMock),
-        pytest.raises(OfflineUploadError),
+        pytest.raises(OfflineUploadError) as raised,
     ):
         asyncio.run(publisher.publish(upload))
     assert len(attempts) == (5 if failure_status == 503 else 2)
     assert all(request.url.path.endswith("/upload/") for request in attempts[1:])
+    error = raised.value
+    assert error.status == (None if failure_status == 200 else failure_status)
+    assert error.code == (code if safe_diagnostics else None)
+    assert error.attr == ("results.0.value" if safe_diagnostics and failure_status != 200 else None)
+    assert error.persistence == ("unknown" if failure_status in (200, 503) else "rejected")
+    assert error.retry_after == (None if failure_status == 200 else retry_after)
+    assert error.acknowledged_item_count == error.acknowledged_result_count == error.completed_chunk_count == 0
+    assert error.pending_result_count == 2
+    assert error.failed_index == 0
+    assert private_detail not in str(error)
+    if failure_status == 403:
+        assert "offline_evaluation_ingestion:write" in str(error)
+    if failure_status == 429:
+        assert "retry after 45s" in str(error)
 
 
 def test_saved_upload_replays_partial_success_without_duplicate_results_or_integer_loss(tmp_path: Path) -> None:
@@ -371,9 +448,17 @@ def test_saved_upload_replays_partial_success_without_duplicate_results_or_integ
         return server.respond(request)
 
     with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))):
-        with pytest.raises(OfflineUploadError):
+        with pytest.raises(OfflineUploadError) as raised:
             asyncio.run(publisher.publish(upload))
         assert len(server.results) == 1000
+        error = raised.value
+        assert error.acknowledged_item_count == 500
+        assert error.acknowledged_result_count == 1000
+        assert error.completed_chunk_count == 1
+        assert error.pending_result_count == 2
+        assert error.failed_index == 1000
+        assert "acknowledged 500 items and 1000 results" in str(error)
+        assert "2 results await acknowledgment" in str(error)
         reject = False
         replay = OfflineEvalUpload.load(path)
         asyncio.run(publisher.publish(replay))

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from uuid import UUID
 
 import pytest
+from unittest.mock import AsyncMock
 
 from autoevals.score import Score as AutoevalsScore
 from braintrust import Score
 from braintrust_core.score import Scorer
+from pydantic import SecretStr
 
 from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine
 from products.posthog_ai.eval_harness.engines.types import (
@@ -17,11 +20,13 @@ from products.posthog_ai.eval_harness.engines.types import (
     ExperimentSpec,
     ScorerResult,
 )
+from products.posthog_ai.eval_harness.offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite
 from products.posthog_ai.eval_harness.scorers.contract import (
     AsyncOnlyScorerMixin,
     Score as HarnessScore,
     Scorer as HarnessScorer,
 )
+from products.posthog_ai.eval_harness.scorers.judged import JudgedScorer
 from products.posthog_ai.eval_harness.scorers.tracing import TracedClients, TracedScorer, _build_posthog_kwargs
 
 # Every ``EvalEngine`` must satisfy these obligations; a future ``PostHogEvalsEngine``
@@ -197,6 +202,57 @@ def test_scorer_details_and_errors_stay_with_concurrent_trials(engine: Braintrus
             assert outcome.reasoning == f"Reason {case.output['execution']}"
             assert outcome.metadata["observed_trace"] == outcome.evaluator_trace_id
             assert outcome.value == case.scores["judge"]
+
+
+def test_judge_failure_preserves_zero_aggregate_and_error_upload(
+    engine: BraintrustEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Judge(JudgedScorer):
+        def _prepare(self, output: Any, expected: Any) -> dict[str, Any]:
+            return {"output": output}
+
+    async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
+        return {"answer": "Synthetic answer"}
+
+    monkeypatch.setattr(
+        "autoevals.llm.arun_cached_request", AsyncMock(side_effect=ConnectionError("Judge unavailable"))
+    )
+    scorer = _Judge(
+        name="judge", prompt_template="{{output}}", choice_scores={"yes": 1.0, "no": 0.0}, model="test-model"
+    )
+    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer]))
+
+    case = result.results[0]
+    assert case.error is None
+    assert case.scores == {"judge": 0.0}
+    assert result.summary.scores["judge"].score == 0.0
+    outcome = case.scorer_results["judge"]
+    assert outcome.status == "error"
+    assert outcome.value is None
+    assert outcome.error_code == "judge_error"
+    assert outcome.error_message == "Judge unavailable"
+    assert outcome.evaluated_at is not None
+
+    publisher = OfflineEvalPublisher(
+        OfflineEvalSettings(
+            project_id=123,
+            api_key=SecretStr("test-only-token"),
+            scorer_versions={"judge": UUID("00000000-0000-4000-8000-000000000002")},
+        ),
+        OfflineEvalSuite(key="test/judge", scorer_kinds={"judge": "numeric"}),
+    )
+    upload = publisher.prepare(
+        experiment_id="00000000-0000-4000-8000-000000000001",
+        experiment_name="judge-error",
+        started_at=outcome.evaluated_at,
+        result=result,
+        metadata={},
+    )
+    uploaded = upload.results[0].to_dict()
+    assert uploaded["status"] == "error"
+    assert "value" not in uploaded
+    assert uploaded["error_code"] == "judge_error"
+    assert uploaded["payload"]["error_message"] == "Judge unavailable"
 
 
 @pytest.mark.parametrize(

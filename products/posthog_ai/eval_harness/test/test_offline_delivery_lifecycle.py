@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from contextlib import AsyncExitStack
 from functools import partial
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 import pytest
@@ -25,14 +28,22 @@ from products.posthog_ai.eval_harness.offline_results import (
 from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
 
 
+@pytest.mark.parametrize("interrupted", [False, True])
+@pytest.mark.parametrize("teardown_phase", ["async", "sync"])
 def test_harness_tears_down_infrastructure_before_draining_uploads(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    interrupted: bool,
+    teardown_phase: Literal["async", "sync"],
 ) -> None:
     monkeypatch.setenv("BRAINTRUST_API_KEY", "test-only-key")
     monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "test-only-key")
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     started = asyncio.Event()
     torn_down = asyncio.Event()
+    clock_offset = 0.0
+    cleanup_thread_id = threading.get_ident()
     server = OfflineServer()
     path = tmp_path / "upload.json"
     OfflineEvalUpload(
@@ -58,6 +69,9 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
     monkeypatch.setattr(httpx, "AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
 
     async def suite(ctx: EvalContext) -> None:
+        loop = asyncio.get_running_loop()
+        original_time = loop.time
+        monkeypatch.setattr(loop, "time", lambda: original_time() + clock_offset)
         assert ctx.offline_delivery is not None
         assert ctx.offline_delivery.submit(publisher, path, "test-experiment")
         await asyncio.wait_for(started.wait(), 5)
@@ -73,14 +87,36 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
     monkeypatch.setattr(lifecycle, "ensure_personhog_binaries", lambda: None)
     harness = lifecycle.SandboxedEvalHarness(parse_args([]))
 
+    def teardown() -> None:
+        nonlocal clock_offset
+        assert threading.get_ident() == cleanup_thread_id
+        clock_offset += 120
+        torn_down.set()
+        if interrupted:
+            raise KeyboardInterrupt
+
     def bootstrap(required: frozenset[Infra]) -> None:
         harness._demo_data = MagicMock()
-        harness._stack.callback(torn_down.set)
+        if teardown_phase == "sync":
+            harness._stack.callback(teardown)
+
+    def async_stack() -> AsyncExitStack:
+        stack = AsyncExitStack()
+        if teardown_phase == "async":
+            stack.callback(teardown)
+        return stack
 
     monkeypatch.setattr(harness, "_bootstrap", bootstrap)
+    monkeypatch.setattr(lifecycle, "AsyncExitStack", async_stack)
 
-    assert harness.run() == 0
+    assert harness.run() == (130 if interrupted else 0)
     assert torn_down.is_set()
-    assert server.requests[-1].url.path.endswith("/complete/")
-    assert "POSTHOG OFFLINE  test-experiment  https://posthog.example.com/project/123/" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    if interrupted:
+        assert server.requests == []
+        assert output.count("upload pending: upload interrupted") == 1
+    else:
+        assert server.requests[-1].url.path.endswith("/complete/")
+        assert "POSTHOG OFFLINE  test-experiment  https://posthog.example.com/project/123/" in output
+        assert "upload pending:" not in output
     assert OfflineEvalUpload.load(path).experiment["id"] == str(UUID(int=1))

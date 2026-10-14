@@ -205,7 +205,10 @@ class SandboxedEvalHarness:
                 interrupted = True
             finally:
                 try:
-                    self._stack.close()
+                    try:
+                        runner.run(self._offline_delivery.pause())
+                    finally:
+                        self._stack.close()
                 except KeyboardInterrupt:
                     interrupted = True
                 finally:
@@ -409,6 +412,8 @@ class SandboxedEvalHarness:
                 )
             else:
                 logger.info("Running %d suite(s) without sandbox infrastructure", len(suites))
+            if self._offline_delivery is not None:
+                stack.push_async_callback(self._offline_delivery.pause)
             results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
         return results
 

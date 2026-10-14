@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import json
 import asyncio
 import argparse
@@ -16,6 +17,7 @@ from uuid import UUID, uuid5
 
 from posthoganalytics.ai.evaluations import (
     AsyncOfflineEvaluations,
+    BulkUploadError,
     EvaluationAPIError,
     EvaluationItem,
     EvaluationResult,
@@ -39,7 +41,49 @@ class OfflineEvalSuite:
 
 
 class OfflineUploadError(Exception):
-    pass
+    @staticmethod
+    def _safe_token(value: object, *, path: bool) -> str | None:
+        pattern = (
+            r"[a-z][a-z0-9_]{0,63}(?:\.(?:[a-z][a-z0-9_]{0,63}|[0-9]{1,6})){0,5}" if path else r"[a-z][a-z0-9_]{0,63}"
+        )
+        return value if isinstance(value, str) and len(value) <= 128 and re.fullmatch(pattern, value) else None
+
+    def __init__(self, message: str, *, api_error: EvaluationAPIError | None = None) -> None:
+        self.status = api_error.status if api_error is not None else None
+        self.code = self._safe_token(api_error.code, path=False) if api_error is not None else None
+        self.attr = self._safe_token(api_error.attr, path=True) if api_error is not None else None
+        self.persistence = api_error.persistence if api_error is not None else None
+        self.retry_after = api_error.retry_after if api_error is not None else None
+        self.completed_chunk_count: int | None = None
+        self.acknowledged_item_count: int | None = None
+        self.acknowledged_result_count: int | None = None
+        self.pending_result_count: int | None = None
+        self.failed_index: int | None = None
+        details: list[str] = []
+        if self.code is not None:
+            details.append(f"code={self.code}")
+        if self.attr is not None:
+            details.append(f"field={self.attr}")
+        if self.persistence is not None:
+            details.append(f"persistence={self.persistence}")
+        if self.retry_after is not None:
+            details.append(f"retry after {self.retry_after:g}s")
+        if isinstance(api_error, BulkUploadError):
+            chunks = api_error.completed.chunks
+            self.completed_chunk_count = len(chunks)
+            self.acknowledged_item_count = len({item.id for chunk in chunks for item in chunk.items})
+            self.acknowledged_result_count = len({result.id for chunk in chunks for result in chunk.results})
+            self.pending_result_count = len(api_error.pending_results)
+            self.failed_index = api_error.failed_index
+            details.append(
+                f"acknowledged {self.acknowledged_item_count} items and {self.acknowledged_result_count} results "
+                f"in {self.completed_chunk_count} batches; {self.pending_result_count} results await acknowledgment"
+            )
+        if details:
+            message += " " + "; ".join(details) + "."
+        if self.status in (401, 403):
+            message += " Check the key's offline_evaluation_ingestion:write scope and project access."
+        super().__init__(message)
 
 
 class OfflineEvalSettings(BaseModel):
@@ -293,12 +337,31 @@ class OfflineEvalPublisher:
     ) -> EvaluationItem:
         declaration: dict[str, object] = {"id": str(item_id), "trial": str(trial)}
         omitted: dict[str, JSONValue] = {}
+        dataset_references = {
+            "dataset_item_identifier": case.metadata.get("dataset_item_identifier"),
+            "dataset_item_version_identifier": case.metadata.get("dataset_item_version_identifier"),
+        }
+        version_id = case.metadata.get("dataset_item_version_id")
+        if self.suite.experiment_options.get("dataset_revision_id") is not None:
+            try:
+                if version_id is None:
+                    raise ValueError
+                declaration = EvaluationItem.from_dict({**declaration, "dataset_item_version_id": version_id}).to_dict()
+            except (ValueError, TypeError, UnicodeError, RecursionError):
+                raise OfflineUploadError(
+                    f"Hosted dataset case {name[:128]!r} requires a valid dataset_item_version_id UUID "
+                    "from the experiment's dataset revision"
+                ) from None
+            for key, value in dataset_references.items():
+                if value is not None:
+                    omitted[key] = "derived by PostHog from the hosted item version"
+            dataset_references = {}
+        elif version_id is not None:
+            omitted["dataset_item_version_id"] = "requires an experiment linked to a hosted dataset revision"
         for key, value in {
             "case_key": name,
             "application_trace_id": case.metadata.get("trace_id") if self.application_trace_ids_enabled else None,
-            "dataset_item_identifier": case.metadata.get("dataset_item_identifier"),
-            "dataset_item_version_identifier": case.metadata.get("dataset_item_version_identifier"),
-            "dataset_item_version_id": case.metadata.get("dataset_item_version_id"),
+            **dataset_references,
         }.items():
             if value is None:
                 continue
@@ -413,6 +476,8 @@ class OfflineEvalPublisher:
         result: ExperimentResult,
         metadata: Mapping[str, object],
     ) -> OfflineEvalUpload:
+        if not self.suite.scorer_kinds:
+            raise OfflineUploadError("An offline evaluation suite must enroll at least one scorer")
         revision = metadata.get("git_sha")
         dataset: ExperimentOptions = {}
         if self.suite.experiment_options.get("dataset_revision_id") is None:
@@ -477,10 +542,7 @@ class OfflineEvalPublisher:
                 await experiment.upload_results(upload.results)
                 await experiment.complete()
         except EvaluationAPIError as error:
-            message = str(error)
-            if error.status in (401, 403):
-                message += " Check the key's offline_evaluation_ingestion:write scope and project access."
-            raise OfflineUploadError(message) from None
+            raise OfflineUploadError(str(error), api_error=error) from None
         return (
             f"{upload.host}/project/{upload.project_id}"
             f"/ai-evals/evaluations/offline/experiments/{upload.experiment['id']}"

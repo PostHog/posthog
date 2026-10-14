@@ -92,8 +92,10 @@ Metadata and omission diagnostics have aggregate size limits as well, so many sm
 The publisher atomically saves a versioned, credential-free `posthog-offline-upload.json` in the experiment's agent-log directory before sending anything.
 The file retains the original experiment declaration, item identities, scorer versions, and result payloads. Saving and replay use the same JSON representation, including large integer payload values.
 The SDK owns request validation, batching, acknowledgements, and retries. Transient failures receive up to three retries with the same experiment and item identities.
+Failure reports retain sanitized error codes and field paths, persistence state, retry guidance, and acknowledged batch/item/result counts without including raw responses or result payloads.
 Local case exports finish before delivery is queued. Up to two uploads run concurrently, with at most 32 queued or active uploads and a 60-second deadline per active upload.
-After suites finish, the harness tears down shared infrastructure and waits up to 30 seconds for remaining uploads. Timeout, cancellation, a full queue, or a rejected request leaves the saved upload available for replay and does not change the score gate.
+After suites finish, the harness pauses unfinished uploads before synchronous infrastructure teardown, then replays them with fresh request and upload deadlines.
+It waits up to 30 seconds for remaining uploads after teardown. Timeout, cancellation, a full queue, or a rejected request leaves the saved upload available for replay and does not change the score gate.
 After correcting a configuration or connectivity problem, replay the saved requests without rerunning the eval:
 
 ```bash
@@ -107,12 +109,15 @@ Replay also accepts files produced by the earlier HTTP publisher. Exact retries 
 ### Enrolling other suites and richer results
 
 Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
-Each suite selects its scorer kinds and uses the corresponding entries from `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS`; the shared mapping may include metrics used by other suites.
+Each suite selects at least one scorer kind and uses the corresponding entries from `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS`; the shared mapping may include metrics used by other suites.
 Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions`, including hosted dataset revisions, external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
 The harness owns the experiment ID, start time, suite key, and expected counts.
-Case metadata can supply `dataset_item_identifier`, `dataset_item_version_identifier`, or `dataset_item_version_id` for the SDK's item references.
+For external datasets, case metadata can supply `dataset_item_identifier` and `dataset_item_version_identifier`.
+For a hosted `dataset_revision_id`, every case must supply a valid `dataset_item_version_id` UUID in its metadata; missing or malformed UUIDs stop preparation with a local error.
+That version must belong to the selected revision; the API checks membership during upload.
+PostHog derives the hosted item identifiers from that version, so the harness omits external identifiers for hosted items and omits hosted version links for external datasets.
 
 Ordinary scorers continue returning numeric `Score` values. A scorer can additionally return a typed `ScorerResult` through `Score.result` to publish categorical values or `not_applicable`, explicit errors, reasoning, metadata, timestamps, and evaluator trace references:
 
@@ -128,6 +133,7 @@ result = Score(
 ```
 
 The numeric `score` still controls existing Braintrust and local aggregates; `result` describes the offline outcome. Configure this example's scorer kind as `categorical`.
+LLM judge exceptions keep the existing zero aggregate score but publish an explicit `error` outcome with code `judge_error`, distinguishing provider failures from completed assessments.
 Scorer provisioning stays separate from uploading results, so publishing requires only the ingestion scope and does not create or modify scorer definitions.
 
 ## Postgres experiment ingestion

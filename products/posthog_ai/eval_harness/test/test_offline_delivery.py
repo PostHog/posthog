@@ -67,11 +67,14 @@ def _publisher(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pause", [False, True])
 async def test_delivery_limits_queued_work_without_waiting_for_uploads(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], pause: bool
 ) -> None:
     started = asyncio.Event()
     release = asyncio.Event()
+    second_started = asyncio.Event()
+    release_second = asyncio.Event()
     requests: list[httpx.Request] = []
     servers: dict[str, OfflineServer] = {}
 
@@ -80,6 +83,9 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
         if len(requests) == 1:
             started.set()
             await release.wait()
+        elif pause and len(requests) == 3:
+            second_started.set()
+            await release_second.wait()
         return _receipt(request, servers)
 
     publisher = _publisher(monkeypatch, respond)
@@ -93,9 +99,18 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
     await asyncio.wait_for(started.wait(), timeout=5)
     assert len(requests) == 1
     release.set()
+    if pause:
+        await asyncio.wait_for(second_started.wait(), timeout=5)
+        await delivery.pause()
+        assert not delivery.submit(publisher, paths[2], "experiment-3")
+        release_second.set()
     await delivery.drain()
 
-    assert [request.url.path.endswith("/complete/") for request in requests] == [False, True, False, True]
+    assert [request.url.path.endswith("/complete/") for request in requests] == (
+        [False, True, False, False, True] if pause else [False, True, False, True]
+    )
+    if pause:
+        assert requests[2].content == requests[3].content
     assert [path.read_bytes() for path in paths] == saved
     assert not delivery.submit(publisher, paths[2], "experiment-3")
     output = capsys.readouterr().out
@@ -105,12 +120,12 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("shutdown", ["deadline", "interrupt", "before_start"])
+@pytest.mark.parametrize("shutdown", ["deadline", "interrupt", "before_start", "paused"])
 async def test_shutdown_cancels_active_and_waiting_uploads_and_preserves_replay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    shutdown: Literal["deadline", "interrupt", "before_start"],
+    shutdown: Literal["deadline", "interrupt", "before_start", "paused"],
 ) -> None:
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -137,6 +152,9 @@ async def test_shutdown_cancels_active_and_waiting_uploads_and_preserves_replay(
 
     if shutdown != "before_start":
         await asyncio.wait_for(started.wait(), timeout=5)
+    if shutdown == "paused":
+        await delivery.pause()
+        assert capsys.readouterr().out == ""
     if shutdown == "deadline":
         await delivery.drain(timeout=0)
     else:

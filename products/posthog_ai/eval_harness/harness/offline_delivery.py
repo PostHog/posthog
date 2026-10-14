@@ -40,6 +40,8 @@ class OfflineEvalDelivery:
         self._max_pending = max_pending
         self._upload_timeout = upload_timeout
         self._tasks: dict[asyncio.Task[None], _PendingUpload] = {}
+        self._paused_jobs: dict[asyncio.Task[None], _PendingUpload] = {}
+        self._paused = False
         self._closed = False
 
     async def _report_pending(self, job: _PendingUpload, reason: str) -> None:
@@ -66,30 +68,47 @@ class OfflineEvalDelivery:
         if not task.cancelled() and (error := task.exception()) is not None:
             logger.error("Failed to report offline evaluation upload", exc_info=error)
 
-    def submit(self, publisher: OfflineEvalPublisher, upload_path: Path, experiment_name: str) -> bool:
-        if self._closed or sum(not task.done() for task in self._tasks) >= self._max_pending:
-            return False
-        job = _PendingUpload(publisher=publisher, upload_path=upload_path, experiment_name=experiment_name)
+    def _start(self, job: _PendingUpload) -> None:
         task = asyncio.create_task(self._deliver(job))
         self._tasks[task] = job
         task.add_done_callback(self._finished)
+
+    def submit(self, publisher: OfflineEvalPublisher, upload_path: Path, experiment_name: str) -> bool:
+        if self._closed or self._paused or sum(not task.done() for task in self._tasks) >= self._max_pending:
+            return False
+        self._start(_PendingUpload(publisher=publisher, upload_path=upload_path, experiment_name=experiment_name))
         return True
 
-    async def _cancel(self, tasks: Iterable[asyncio.Task[None]], reason: str) -> None:
+    async def _cancel(self, tasks: Iterable[asyncio.Task[None]], reason: str | None) -> None:
         pending = {task: self._tasks[task] for task in tasks if not task.done()}
         for task in pending:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        for job in pending.values():
-            await self._report_pending(job, reason)
+        if reason is not None:
+            for job in pending.values():
+                await self._report_pending(job, reason)
+
+    async def pause(self) -> None:
+        if self._closed:
+            return
+        self._paused = True
+        self._paused_jobs.update({task: job for task, job in self._tasks.items() if not task.done()})
+        await self._cancel(tuple(self._paused_jobs), None)
 
     async def cancel(self) -> None:
         self._closed = True
-        await self._cancel(tuple(self._tasks), "upload interrupted")
+        pending = {**self._paused_jobs, **{task: job for task, job in self._tasks.items() if not task.done()}}
+        await self._cancel(tuple(self._tasks), None)
+        self._paused_jobs.clear()
+        for job in pending.values():
+            await self._report_pending(job, "upload interrupted")
 
     async def drain(self, timeout: float = 30.0) -> None:
         self._closed = True
+        for job in self._paused_jobs.values():
+            self._start(job)
+        self._paused_jobs.clear()
         tasks = tuple(self._tasks)
         if not tasks:
             return
