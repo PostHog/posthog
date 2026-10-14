@@ -2017,7 +2017,12 @@ export interface AssistantDataVisualizationNode {
     /** HogQL query object that produces the rows to visualize. */
     source: Record<string, any>
     /**
-     * SQL chart type. Defaults to `ActionsTable`. See insight-create for chart selection guidance.
+     * Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI;
+     * `ActionsLineGraph` / `ActionsAreaGraph` = time series;
+     * `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares;
+     * `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings;
+     * `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures;
+     * `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.
      */
     display?: AssistantDataVisualizationDisplayType
     /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */

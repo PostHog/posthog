@@ -10200,7 +10200,15 @@ class AssistantDataVisualizationNode(BaseModel):
     )
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,
-        description=("SQL chart type. Defaults to `ActionsTable`. See insight-create for chart selection guidance."),
+        description=(
+            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
+            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
+            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
+            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
+            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
+            " measures; `BoxPlot` = distribution summaries with"
+            " `chartSettings.boxPlot`."
+        ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")

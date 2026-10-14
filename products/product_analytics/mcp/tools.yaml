@@ -84,13 +84,6 @@ tools:
             In a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked
             in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per
             X-axis value, and `ActionsBarValue` draws the same bars horizontally.
-
-            Choose SQL displays from the returned columns: `BoldNumber` for one numeric value, `Metric` for a headline
-            number with change over time, `ActionsLineGraph` / `ActionsAreaGraph` for time series, `ActionsPie` /
-            `ActionsDonut` / `ActionsProportionBar` for parts of a whole, `ActionsBar` / `ActionsStackedBar` for
-            category comparisons, `ActionsBarValue` for horizontal rankings, `TwoDimensionalHeatmap` for a
-            two-dimensional aggregation, `ScatterPlot` for two numeric measures, and `BoxPlot` with
-            `chartSettings.boxPlot` for pre-aggregated distribution summaries. Otherwise use `ActionsTable`.
         agent_note: >
             When you tell the user about this insight, name the display you chose and one or two other displays that
             also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
