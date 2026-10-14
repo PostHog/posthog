@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { DatabaseSchemaQuery, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -18,7 +19,9 @@ import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biMemberAliasesLogic } from './biMemberAliasesLogic'
+import { getBIScatterAxisOptions } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
+import { biSourcePreviewLogic } from './biSourcePreviewLogic'
 
 const eventField: BIField = {
     id: 'event',
@@ -375,6 +378,72 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
+    it('swaps scatter axis labels and formatting with their columns, including numeric detail', async () => {
+        const state = {
+            ...config,
+            chartType: ChartDisplayType.ScatterPlot,
+            rows: [{ ...eventField, type: 'integer' as const }],
+            columns: [],
+            values: [{ field: eventField, aggregation: 'count' as const }],
+        }
+        logic.actions.restoreWorksheet(worksheet(state))
+        editor.actions.setAutoUpdate(false)
+        const options = getBIScatterAxisOptions(state)
+        expect(options.map(({ value }) => value)).toEqual(['event', 'count_event'])
+        logic.actions.setChartSettings({
+            ...logic.values.worksheet.chartSettings,
+            xAxisLabel: 'Detail label',
+            leftYAxisSettings: { label: 'Measure label' },
+            xAxis: { column: 'event', settings: { formatting: { prefix: 'ID ' } } },
+        })
+        logic.actions.setScatterAxis('x', 'count_event')
+        expect(logic.values.worksheet.chartSettings).toMatchObject({
+            xAxis: { column: 'count_event' },
+            xAxisLabel: 'Measure label',
+            leftYAxisSettings: { label: 'Detail label' },
+            yAxis: [{ column: 'event', settings: { formatting: { prefix: 'ID ' } } }],
+        })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('requires running pending config-only edits before drilling', async () => {
+        logic.actions.restoreWorksheet(worksheet(config))
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        expect(logic.values.displayedQueryIsCurrent).toBe(true)
+        const previousSource = logic.values.worksheet.source
+        editor.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                memberAliases: [{ field: eventField, aliases: [{ value: 'x', label: 'New label' }] }],
+            },
+        })
+        expect(logic.values.worksheet.source).toEqual(previousSource)
+        expect(logic.values.displayedQueryIsCurrent).toBe(false)
+        logic.actions.runQuery()
+        expect(logic.values.displayedQueryIsCurrent).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('cancels only the source preview query when its modal closes', () => {
+        const preview = biSourcePreviewLogic({ tabId: 'preview-cancel' })
+        preview.mount()
+        const data = dataNodeLogic({
+            key: insightVizDataNodeKey({ dashboardItemId: 'new-SQL-bi-source-preview-preview-cancel' }),
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            autoLoad: false,
+        })
+        data.mount()
+        const cancel = jest.spyOn(data.actions, 'cancelQuery')
+        preview.actions.open(worksheet(config))
+        preview.actions.close()
+        expect(cancel).toHaveBeenCalledTimes(1)
+        expect(preview.values.worksheet).toBeNull()
+        data.unmount()
+        preview.unmount()
+    })
+
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         logic.actions.restoreWorksheet(worksheet())
@@ -562,6 +631,7 @@ describe('biSceneLogic', () => {
     it('keeps hierarchy navigation pending with auto update off and records it for undo', async () => {
         await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
         editor.actions.setAutoUpdate(false)
+        logic.actions.setChartSettings({ ...logic.values.worksheet.chartSettings, xAxisLabel: 'Custom label' })
         const original = logic.values.worksheet
         const displayed = logic.values.lastRunQuery
         const next = worksheet({
@@ -569,6 +639,7 @@ describe('biSceneLogic', () => {
             filters: [{ field: eventField, operator: 'equals', value: 'example' }],
         })
         logic.actions.navigateHierarchy(next)
+        expect(logic.values.chartSettingsDefaults).toBeNull()
         expect(logic.values.worksheet.config.filters).toEqual(next.config.filters)
         expect(logic.values.lastRunQuery).toEqual(displayed)
         logic.actions.undo()

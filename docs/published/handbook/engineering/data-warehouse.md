@@ -322,6 +322,8 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 symbol not found in flat namespace '_bcp_batch'
 ```
 
+Scatter area selection follows legend visibility. Changing axes resets zoom, and numeric detail dimensions are available in the axis pickers. Charts with more than 100 color series, or more than one million point/series combinations, show a message asking you to reduce color cardinality or narrow filters. Pending worksheet edits must be run before drilling, and closing source preview cancels its query.
+
 When groups preserve ungrouped values, named groups and original members retain distinct identities. An ungrouped member whose label matches a group is shown with “(ungrouped)”. Null member aliases also survive saves through MCP. Optional worksheet definitions restore as unset when omitted or null. Saved numeric scatter dimensions remain available as axes even when measure defaults are preferred. Scatter selections require every detail dimension to be representable as a filter; unsupported values cannot broaden a “Keep only” selection.
 
 Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.

@@ -98,6 +98,7 @@ export interface biSceneLogicValues {
     chartSettingsDefaults: ChartSettings | null
     copyDisabledReason: string | undefined
     dataNodeKey: string
+    displayedQueryIsCurrent: boolean
     exportViewName: string
     exportViewOpen: boolean
     exportedView: Awaited<ReturnType<typeof warehouseSavedQueriesCreate>> | null
@@ -237,6 +238,13 @@ export interface biSceneLogicActions {
     setName: (name: string) => {
         name: string
     }
+    setScatterAxis: (
+        axis: 'x' | 'y',
+        column: string
+    ) => {
+        axis: 'x' | 'y'
+        column: string
+    }
     setVisualization: (visualization: VisualizationNode) => {
         visualization: VisualizationNode
     }
@@ -255,6 +263,7 @@ export interface biSceneLogicActions {
 export interface biSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        displayedQueryIsCurrent: (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode) => boolean
         canUndo: (history: BIWorksheetHistory) => boolean
         canRedo: (history: BIWorksheetHistory) => boolean
         copyDisabledReason: (generatedQuery: BIQueryBuildResult | null, name: string) => string | undefined
@@ -309,6 +318,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         setVisualization: (visualization: VisualizationNode) => ({ visualization }),
         setChartSettings: (chartSettings: ChartSettings) => ({ chartSettings }),
         setChartSettingsDefaults: (defaults: ChartSettings | undefined) => ({ defaults }),
+        setScatterAxis: (axis: 'x' | 'y', column: string) => ({ axis, column }),
         setName: (name: string) => ({ name }),
         runQuery: true,
         cancelQuery: true,
@@ -425,6 +435,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             null as ChartSettings | null,
             {
                 setChartSettingsDefaults: (_, { defaults }) => defaults ?? null,
+                navigateHierarchy: () => null,
                 restoreWorksheet: () => null,
                 setVisualization: () => null,
             },
@@ -453,6 +464,13 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         exportViewOpen: [false, { setExportViewOpen: (_, { open }) => open }],
     }),
     selectors({
+        displayedQueryIsCurrent: [
+            (s) => [s.lastRunQuery, s.worksheet],
+            (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode): boolean =>
+                !!lastRunQuery &&
+                equal(lastRunQuery.source, worksheet.source) &&
+                equal(lastRunQuery.config, worksheet.config),
+        ],
         canUndo: [(s) => [s.history], (history: BIWorksheetHistory): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: BIWorksheetHistory): boolean => history.future.length > 0],
         copyDisabledReason: [
@@ -721,6 +739,42 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             }
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
+        setScatterAxis: ({ axis, column }) => {
+            const options = getBIScatterAxisOptions(values.config)
+            const option = options.find((option) => option.value === column)
+            if (!option) {
+                return
+            }
+            const settings = values.worksheet.chartSettings ?? {}
+            const previousY = settings.yAxis?.find((item) => item.column === column)
+            if (axis === 'x') {
+                const swap = previousY && settings.xAxis
+                actions.setChartSettings({
+                    ...settings,
+                    xAxis: previousY ?? { column },
+                    xAxisLabel:
+                        previousY && settings.yAxis?.length === 1
+                            ? (settings.leftYAxisSettings?.label ?? option.label)
+                            : option.label,
+                    yAxis: swap
+                        ? settings.yAxis?.map((item) => (item.column === column ? settings.xAxis! : item))
+                        : settings.yAxis,
+                    leftYAxisSettings: {
+                        ...settings.leftYAxisSettings,
+                        label:
+                            swap && settings.yAxis?.length === 1
+                                ? settings.xAxisLabel
+                                : settings.leftYAxisSettings?.label,
+                    },
+                })
+            } else if (column !== settings.xAxis?.column) {
+                actions.setChartSettings({
+                    ...settings,
+                    yAxis: [previousY ?? { column }],
+                    leftYAxisSettings: { ...settings.leftYAxisSettings, label: option.label },
+                })
+            }
+        },
         setChartSettings: ({ chartSettings }) => {
             actions.setChartSettingsDefaults(
                 buildBIQuery(values.lastRunQuery?.config ?? values.config)?.node.chartSettings

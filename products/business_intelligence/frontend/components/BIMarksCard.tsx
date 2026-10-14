@@ -5,78 +5,41 @@ import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { ChartDisplayType } from '~/types'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
-import {
-    getBIFieldPillLabel,
-    getBIResultMeasureColumns,
-    getBIValuePillLabel,
-    isDateTimeBIField,
-} from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIFieldPillLabel, isDateTimeBIField } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIShelfCard } from 'products/business_intelligence/frontend/components/BIShelfCard'
 
 import { BIMeasureAnalysis } from '../BIMeasureAnalysis'
+import { getBIScatterAxisOptions } from '../biScatter'
 import { biSceneLogic } from '../biSceneLogic'
 
 export function BIMarksCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
     const { combineMeasures, setColorBy } = useActions(biEditorLogic)
     const { worksheet } = useValues(biSceneLogic)
-    const { setChartSettings } = useActions(biSceneLogic)
+    const { setScatterAxis } = useActions(biSceneLogic)
     const scatter = config.chartType === ChartDisplayType.ScatterPlot
-    const measures = getBIResultMeasureColumns(config).map(({ column, value }) => ({
-        value: column,
-        label: value ? getBIValuePillLabel(value) : 'Count of rows',
-    }))
+    const measures = getBIScatterAxisOptions(config)
 
     return (
         <BIShelfCard title="Series">
             {scatter && (
                 <>
-                    <LemonLabel className="text-xs">X measure</LemonLabel>
+                    <LemonLabel className="text-xs">X axis</LemonLabel>
                     <LemonSelect
                         fullWidth
                         size="xsmall"
                         value={worksheet.chartSettings?.xAxis?.column ?? ''}
                         options={measures}
-                        onChange={(column) =>
-                            setChartSettings({
-                                ...worksheet.chartSettings,
-                                xAxis: { column },
-                                xAxisLabel: measures.find((measure) => measure.value === column)?.label,
-                                yAxis: worksheet.chartSettings?.yAxis?.some((axis) => axis.column === column)
-                                    ? [
-                                          {
-                                              column:
-                                                  worksheet.chartSettings?.xAxis?.column ??
-                                                  measures.find((measure) => measure.value !== column)?.value ??
-                                                  '',
-                                          },
-                                      ]
-                                    : worksheet.chartSettings?.yAxis,
-                            })
-                        }
+                        onChange={(column) => setScatterAxis('x', column)}
                         data-attr="bi-scatter-x-measure"
                     />
-                    <LemonLabel className="mt-2 text-xs">Y measure</LemonLabel>
+                    <LemonLabel className="mt-2 text-xs">Y axis</LemonLabel>
                     <LemonSelect
                         fullWidth
                         size="xsmall"
                         value={worksheet.chartSettings?.yAxis?.[0]?.column ?? ''}
                         options={measures.filter((measure) => measure.value !== worksheet.chartSettings?.xAxis?.column)}
-                        onChange={(column) =>
-                            setChartSettings({
-                                ...worksheet.chartSettings,
-                                yAxis: [
-                                    {
-                                        ...worksheet.chartSettings?.yAxis?.find((axis) => axis.column === column),
-                                        column,
-                                    },
-                                ],
-                                leftYAxisSettings: {
-                                    ...worksheet.chartSettings?.leftYAxisSettings,
-                                    label: measures.find((measure) => measure.value === column)?.label,
-                                },
-                            })
-                        }
+                        onChange={(column) => setScatterAxis('y', column)}
                         data-attr="bi-scatter-y-measure"
                     />
                     <p className="my-2 text-xs text-secondary">

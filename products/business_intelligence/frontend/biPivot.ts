@@ -1,7 +1,7 @@
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 
 import { getBIResultDimensions } from './biEditorTypes'
-import { getBIMemberLabel } from './biMemberAliases'
+import { createBIMemberLabelLookup } from './biMemberAliases'
 
 export interface BIPivotMember {
     key: string
@@ -25,6 +25,7 @@ export function biPivotCellKey(row: unknown[], column: unknown[]): string {
 }
 
 export function buildBIPivotModel(config: BIConfig, columns: string[], results: unknown[][]): BIPivotModel {
+    const memberLabel = createBIMemberLabelLookup(config)
     const dimensions = getBIResultDimensions(config)
     const rowCount = config.rows.filter((field) => field.expression.trim() || field.name.trim()).length
     const columnCount = config.columns.filter((field) => field.expression.trim() || field.name.trim()).length
@@ -65,7 +66,7 @@ export function buildBIPivotModel(config: BIConfig, columns: string[], results: 
                 const member: BIPivotMember = {
                     key,
                     path: prefix,
-                    label: getBIMemberLabel(config, config[side][depth - 1], prefix[depth - 1]),
+                    label: memberLabel(config[side][depth - 1], prefix[depth - 1]),
                     children: [],
                 }
                 members[side].set(key, member)

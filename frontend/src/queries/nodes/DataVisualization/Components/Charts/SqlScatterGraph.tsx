@@ -1,7 +1,13 @@
 import clsx from 'clsx'
 import { useMemo } from 'react'
 
-import { ScatterChart, ScatterChartConfig, ScatterAreaSelection, ScatterPointDatum } from '@posthog/quill-charts'
+import {
+    ScatterChart,
+    ScatterChartConfig,
+    ScatterAreaSelection,
+    ScatterPointDatum,
+    ChartLegendConfig,
+} from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
@@ -22,6 +28,7 @@ export interface SqlScatterGraphProps {
     presetChartHeight?: boolean
     className?: string
     series?: SqlScatterSeries[]
+    legendVisibility?: Pick<ChartLegendConfig, 'hiddenKeys' | 'onToggleSeries' | 'onSetHiddenSeries'>
     viewport?: ScatterAreaSelection | null
     onPointClick?: (point: ScatterPointDatum<SqlScatterPointMeta>) => void
     onAreaSelect?: (selection: ScatterAreaSelection) => void
@@ -37,6 +44,7 @@ export const SqlScatterGraph = ({
     className,
     series: suppliedSeries,
     viewport,
+    legendVisibility,
     onPointClick,
     onAreaSelect,
 }: SqlScatterGraphProps): JSX.Element => {
@@ -48,10 +56,11 @@ export const SqlScatterGraph = ({
             return undefined
         }
         const base = buildScatterConfig({ xData, yData, chartSettings })
+        base.legend = { ...base.legend, ...legendVisibility }
         return viewport
             ? { ...base, xAxis: { ...base.xAxis, domain: viewport.x }, yAxis: { ...base.yAxis, domain: viewport.y } }
             : base
-    }, [xData, yData, chartSettings, viewport])
+    }, [xData, yData, chartSettings, viewport, legendVisibility])
 
     const hasPoints = series.some((s) => s.points.length > 0)
 

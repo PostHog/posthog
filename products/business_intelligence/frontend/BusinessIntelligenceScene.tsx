@@ -56,6 +56,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canRedo,
         copyDisabledReason,
         worksheet,
+        displayedQueryIsCurrent,
     } = useValues(logic)
     const {
         setName,
@@ -73,7 +74,6 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
-    const displayedQueryIsCurrent = JSON.stringify(lastRunQuery?.source) === JSON.stringify(worksheet.source)
 
     useKeyboardHotkeys({
         z: {

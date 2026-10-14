@@ -1,5 +1,7 @@
-import { LogicWrapper, MakeLogicType, actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
@@ -66,6 +68,14 @@ export const biSourcePreviewLogic: LogicWrapper<biSourcePreviewLogicType> = kea<
             { open: () => 1000, setFiltered: () => 1000, loadMore: (limit) => Math.min(limit + 1000, 10000) },
         ],
     }),
+    listeners(({ props }) => ({
+        close: () =>
+            dataNodeLogic
+                .findMounted({
+                    key: insightVizDataNodeKey({ dashboardItemId: `new-SQL-bi-source-preview-${props.tabId}` }),
+                })
+                ?.actions.cancelQuery(),
+    })),
     selectors({
         query: [
             (s) => [s.worksheet, s.filtered, s.limit],

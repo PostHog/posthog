@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import {
     SqlScatterGraph,
@@ -9,7 +9,7 @@ import {
 } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 
-import { buildBIScatterSeries, getBIScatterRowKey, keepBIScatterRows } from './biScatter'
+import { buildBIScatterSeries, createBIScatterRowKey, keepBIScatterRows } from './biScatter'
 import { biScatterLogic } from './biScatterLogic'
 
 export interface BIScatterGraphProps extends SqlScatterGraphProps {
@@ -28,16 +28,43 @@ export function BIScatterGraph({
     onKeepOnly,
     ...chartProps
 }: BIScatterGraphProps): JSX.Element {
-    const logic = biScatterLogic({ chartKey: `${chartKey}:${JSON.stringify(query.source)}` })
-    const { selected, mode, viewport } = useValues(logic)
-    const { toggle, select, clear, setMode, setViewport } = useActions(logic)
+    const logic = biScatterLogic({
+        chartKey: JSON.stringify([
+            chartKey,
+            query.source,
+            chartProps.xData?.column.name,
+            chartProps.yData.map(({ column }) => column.name),
+            query.chartSettings?.scatter?.xScale,
+            query.chartSettings?.leftYAxisSettings?.scale,
+        ]),
+    })
+    const { selected, mode, viewport, hiddenSeries } = useValues(logic)
+    const { toggle, select, clear, setMode, setViewport, setHiddenSeries, toggleSeries } = useActions(logic)
     const series = useMemo(
         () => buildBIScatterSeries(query, columns, rows, chartProps.xData, chartProps.yData),
         [query, columns, rows, chartProps.xData, chartProps.yData]
     )
-    const selectedRecords = rows
-        .filter((row) => selected.includes(getBIScatterRowKey(query.config, columns, row)))
-        .map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index]])))
+    const selectedKeys = useMemo(() => new Set(selected), [selected])
+    const hiddenKeys = useMemo(() => new Set(hiddenSeries), [hiddenSeries])
+    const visibleSeries = useMemo(() => series.filter(({ key }) => !hiddenKeys.has(key)), [series, hiddenKeys])
+    const visibleKeys = useMemo(
+        () =>
+            new Set(
+                visibleSeries.flatMap(({ points }) =>
+                    points.flatMap(({ meta }) => (meta?.rowKey === undefined ? [] : [meta.rowKey]))
+                )
+            ),
+        [visibleSeries]
+    )
+    const selectedRecords = useMemo(() => {
+        const rowKey = createBIScatterRowKey(query.config, columns)
+        return rows
+            .filter((row) => {
+                const key = rowKey(row)
+                return selectedKeys.has(key) && visibleKeys.has(key)
+            })
+            .map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index]])))
+    }, [query.config, columns, rows, selectedKeys, visibleKeys])
     const selectionConfig = keepBIScatterRows(query.config, selectedRecords)
     const highlighted = useMemo(
         () =>
@@ -46,12 +73,23 @@ export function BIScatterGraph({
                       ...series,
                       points: series.points.map((point) => ({
                           ...point,
-                          radius: point.meta?.rowKey !== undefined && selected.includes(point.meta.rowKey) ? 7 : 3,
+                          radius: point.meta?.rowKey !== undefined && selectedKeys.has(point.meta.rowKey) ? 7 : 3,
                       })),
                   }))
                 : series,
-        [series, selected]
+        [series, selectedKeys, selected.length]
     )
+    if (
+        series.length > 100 ||
+        series.length * series.reduce((sum, series) => sum + series.points.length, 0) > 1_000_000
+    ) {
+        return (
+            <LemonBanner type="warning">
+                Too many color groups to plot safely. Choose Single color, use a field with fewer distinct values, or
+                narrow the worksheet filters.
+            </LemonBanner>
+        )
+    }
     return (
         <div className="flex h-full w-full flex-1 min-h-0 min-w-0 flex-col">
             {onKeepOnly && (
@@ -80,7 +118,7 @@ export function BIScatterGraph({
                                   : !query.config.rows.length && !query.config.columns.length
                                     ? 'Add a detail dimension first'
                                     : !selectionConfig
-                                      ? 'Simplify the existing filter groups before keeping this selection'
+                                      ? 'This selection contains unsupported detail values or too many filter groups'
                                       : undefined
                         }
                         data-attr="bi-scatter-keep-only"
@@ -111,6 +149,11 @@ export function BIScatterGraph({
                 {...chartProps}
                 series={highlighted}
                 viewport={viewport}
+                legendVisibility={{
+                    hiddenKeys: hiddenSeries,
+                    onToggleSeries: toggleSeries,
+                    onSetHiddenSeries: setHiddenSeries,
+                }}
                 chartSettings={{
                     ...chartProps.chartSettings,
                     showLegend: chartProps.chartSettings.showLegend ?? !!query.config.colorBy,
@@ -131,7 +174,7 @@ export function BIScatterGraph({
                                   setViewport(area)
                               } else {
                                   select(
-                                      series.flatMap((series) =>
+                                      visibleSeries.flatMap((series) =>
                                           series.points
                                               .filter(
                                                   (point) =>

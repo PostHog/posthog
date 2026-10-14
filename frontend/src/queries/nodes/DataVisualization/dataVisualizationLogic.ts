@@ -50,7 +50,7 @@ import { ChartDisplayType, DashboardType } from '~/types'
 
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { getBIAutoChartType } from 'products/business_intelligence/frontend/biEditorTypes'
-import { getBIMemberAlias } from 'products/business_intelligence/frontend/biMemberAliases'
+import { createBIMemberDisplayLookup } from 'products/business_intelligence/frontend/biMemberAliases'
 import {
     getBISeriesSettings,
     getBIVisualizationResponse,
@@ -1716,6 +1716,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
+                const dimensions = new Map(
+                    query.kind === NodeKind.BIVisualizationNode
+                        ? getBIResultDimensions(query.config).map(({ column, field }) => [column, field])
+                        : []
+                )
+                const memberDisplay =
+                    query.kind === NodeKind.BIVisualizationNode ? createBIMemberDisplayLookup(query.config) : undefined
+
                 return data.map((row): TableDataCell<any>[] => {
                     return sourceTabularColumns.map((column): TableDataCell<any> => {
                         if (!column) {
@@ -1727,16 +1735,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         }
 
                         const value = row[column.column.dataIndex]
-                        const dimension =
-                            query.kind === NodeKind.BIVisualizationNode
-                                ? getBIResultDimensions(query.config).find(
-                                      (dimension) => dimension.column === column.column.name
-                                  )
-                                : undefined
-                        const alias =
-                            query.kind === NodeKind.BIVisualizationNode && dimension
-                                ? getBIMemberAlias(query.config, dimension.field, value)
-                                : undefined
+                        const dimension = dimensions.get(column.column.name)
+                        const alias = dimension ? memberDisplay?.(dimension, value) : undefined
                         if (alias !== undefined) {
                             return { value, formattedValue: alias, type: column.column.type.name }
                         }
