@@ -50,7 +50,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import (
+    ExternalDataSchemaSyncType,
+    ExternalDataSourceType,
+    IncrementalFieldType,
+)
 
 
 class TestQuoteIdentifier:
@@ -706,8 +710,9 @@ class TestHasDuplicatePrimaryKeys:
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
+    _INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
 
-    def _run(self, *, stored_primary_keys, sorting_key, probe_outcome):
+    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome):
         probe_queries: list[str] = []
 
         def fake_query(query, **_kwargs):
@@ -756,33 +761,42 @@ class TestDuplicateProbeTargetsMergeKey:
                 logger=MagicMock(),
                 db_incremental_field_last_value=None,
                 stored_primary_keys=stored_primary_keys,
+                sync_type=sync_type,
             )
         return response, probe_queries
 
     @pytest.mark.parametrize(
-        "stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
+        "sync_type,stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
         [
-            (["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
-            (None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
-            (["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
-            (["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+            (_INCREMENTAL, ["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
+            (_INCREMENTAL, None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
+            (_INCREMENTAL, ["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
+            (_INCREMENTAL, ["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+            (ExternalDataSchemaSyncType.APPEND, ["id"], ["region", "id"], [(1,)], None, False),
         ],
         ids=[
             "stored_key_wins",
             "sorting_key_when_nothing_stored",
             "duplicates_block",
             "exhausted_budget_does_not_block",
+            "append_does_not_probe",
         ],
     )
     def test_probe_checks_the_merge_key(
-        self, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
+        self, sync_type, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
     ):
         response, probe_queries = self._run(
-            stored_primary_keys=stored_primary_keys, sorting_key=sorting_key, probe_outcome=probe_outcome
+            sync_type=sync_type,
+            stored_primary_keys=stored_primary_keys,
+            sorting_key=sorting_key,
+            probe_outcome=probe_outcome,
         )
 
-        assert len(probe_queries) == 1
-        assert expected_group_by in probe_queries[0]
+        if expected_group_by is None:
+            assert probe_queries == []
+        else:
+            assert len(probe_queries) == 1
+            assert expected_group_by in probe_queries[0]
         assert response.has_duplicate_primary_keys is expected_blocked
 
     def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
@@ -801,6 +815,7 @@ class TestDuplicateProbeTargetsMergeKey:
             source.source_for_pipeline(MagicMock(), inputs)
 
         assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
+        assert mock_clickhouse_source.call_args.kwargs["sync_type"] is inputs.sync_type
 
 
 def _failing_server(*_args: object, **_kwargs: object) -> MagicMock:

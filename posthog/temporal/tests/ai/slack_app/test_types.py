@@ -4,7 +4,11 @@ import pytest
 
 from temporalio.converter import DataConverter
 
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, coerce_mention_workflow_inputs
+from posthog.temporal.ai.slack_app.types import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackUnfurlChartAsset,
+    coerce_mention_workflow_inputs,
+)
 
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, encode_slack_file_refs
 
@@ -113,3 +117,8 @@ def test_thread_snapshot_recorded_before_a_field_existed_still_decodes():
     assert _round_trip(recorded, list[SlackThreadMessage]) == [
         SlackThreadMessage(user="mira", user_id="U_MIRA", text="hi", ts="1.0")
     ]
+
+
+def test_unfurl_chart_asset_recorded_before_render_key_existed_still_decodes():
+    recorded = {"insight_id": 5, "asset_id": 9}
+    assert _round_trip(recorded, SlackUnfurlChartAsset).render_key == "insight:5"

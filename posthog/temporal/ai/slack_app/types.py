@@ -5,6 +5,8 @@ package can take the inputs dataclass as their typed signature without
 creating an import cycle with the workflow modules.
 """
 
+import json
+import hashlib
 from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
@@ -18,11 +20,26 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
+def insight_render_key(insight_id: int) -> str:
+    return f"insight:{insight_id}"
+
+
 @frozen
 class SlackUnfurlChartRequest:
     url: str
-    insight_id: int
     title: str
+    insight_id: int | None = None
+    query: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if (self.insight_id is None) == (self.query is None):
+            raise ValueError("Set exactly one of insight_id or query")
+
+    @property
+    def render_key(self) -> str:
+        if self.insight_id is not None:
+            return insight_render_key(self.insight_id)
+        return "query:" + hashlib.sha256(json.dumps(self.query, sort_keys=True).encode()).hexdigest()
 
 
 @frozen
@@ -45,8 +62,16 @@ class SlackAppUnfurlChartsWorkflowInputs:
 
 @frozen
 class SlackUnfurlChartAsset:
-    insight_id: int
     asset_id: int
+    # Set for a saved insight so that a worker on the previous version, which reads only insight_id,
+    # still decodes the asset during a rolling deploy.
+    insight_id: int | None = None
+    render_key: str = ""
+
+    def __post_init__(self) -> None:
+        # An asset recorded by the previous version has an insight_id and no render_key.
+        if not self.render_key and self.insight_id is not None:
+            object.__setattr__(self, "render_key", insight_render_key(self.insight_id))
 
 
 @frozen

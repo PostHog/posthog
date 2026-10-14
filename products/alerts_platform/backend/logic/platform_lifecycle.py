@@ -23,6 +23,7 @@ from products.alerts_platform.backend.facade.platform_metrics import increment_h
 from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
+    compute_team_shard_offset_seconds,
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
@@ -208,6 +209,14 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
         safe_record(increment_history_rows_dropped, len(rows) - recorded)
 
 
+def _shard_offset_seconds(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> int:
+    if outcome.schedule_group is None:
+        return compute_shard_offset_seconds(configuration.id, configuration.check_interval_minutes)
+    return compute_team_shard_offset_seconds(
+        configuration.team_id, configuration.check_interval_minutes, group=outcome.schedule_group
+    )
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -267,9 +276,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 tz_name=team_timezone,
                 now=now,
                 configuration_id=configuration.id,
-                shard_offset_seconds=compute_shard_offset_seconds(
-                    configuration.id, configuration.check_interval_minutes
-                ),
+                shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
             )
 
         PlatformAlert.objects.for_team(team_id).bulk_update(

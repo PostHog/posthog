@@ -3879,10 +3879,10 @@ Today (18): `addons`, `balance_ledger_entries`, `brands`, `credit_entitlements`,
 
 Diffed against: <https://raw.githubusercontent.com/dodopayments/dodopayments-python/main/api.md>
 
-- [ ] `Payment line items (GET /payments/{payment_id}/line-items)` — attribute payment revenue to products and metered charges absent from payment listings (high)
-- [ ] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
-- [ ] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
-- [ ] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
+- [x] `Payment line items (GET /payments/{payment_id}/line-items)` — attribute payment revenue to products and metered charges absent from payment listings (high)
+- [x] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
+- [x] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
+- [x] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
 - [ ] `Credit entitlement ledger (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/ledger)` — track credit consumption and balance changes by customer and entitlement (high)
 - [ ] `Credit entitlement grants (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/grants)` — analyze granted credits, expiry, and remaining quantities by customer (medium)
 - [ ] `Customer wallets (GET /customers/{customer_id}/wallets)` — measure customer wallet balances and prepaid funds by currency (medium)
@@ -4206,9 +4206,9 @@ Diffed against: <https://api.elevenlabs.io/openapi.json>
 - [x] `/v1/models` — lookup table resolving the model_id carried on history items and conversations (high)
 - [x] `/v1/workspace/members (and /v1/workspace/groups)` — lookup resolving the workspace user ids attached to history, conversations and usage rows (high)
 - [x] `/v1/convai/tools and /v1/convai/tools/{tool_id}/executions` — agent tool catalog plus per-execution records — the analytical detail behind agent conversations (medium)
-- [ ] `/v1/convai/phone-numbers` — lookup resolving the phone number a Conversational AI call came in on (medium)
-- [ ] `/v1/convai/batch-calling/workspace` — batch calling jobs, the campaign-level grouping over outbound conversations (medium)
-- [ ] `/v1/user/subscription` — plan quota and current-period usage, needed to turn character stats into utilization (medium)
+- [x] `/v1/convai/phone-numbers` — lookup resolving the phone number a Conversational AI call came in on (medium)
+- [x] `/v1/convai/batch-calling/workspace` — batch calling jobs, the campaign-level grouping over outbound conversations (medium)
+- [x] `/v1/user/subscription` — plan quota and current-period usage, needed to turn character stats into utilization (medium)
 - [ ] `/v1/convai/knowledge-base (+ /summaries)` — knowledge base documents referenced by agents, resolves document ids seen in agent configs (medium)
 - [ ] `/v1/convai/tags` — tag lookup for grouping agents and conversations in reporting (medium)
 - [ ] `/v1/workspace/audit-logs` — state/transition history across workspace resources (medium)
@@ -4743,10 +4743,10 @@ Diffed against: <https://developer.fleetio.com/sitemap.xml>
 - [x] `service_tasks` — lookup resolving the task IDs referenced by service entries, work orders and service reminders (high)
 - [x] `vendors` — lookup resolving vendor IDs on service entries, fuel entries and purchase orders (high)
 - [x] `purchase_orders (and purchase_order_line_items)` — parts procurement transactions and their line items; parts are synced but never their purchases (medium)
-- [ ] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
-- [ ] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
-- [ ] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
-- [ ] `inventory_journal_entries` — parts inventory movements; parts are synced only as current stock levels (medium)
+- [x] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
+- [x] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
+- [x] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
+- [x] `inventory_journal_entries` — parts inventory movements; parts are synced only as current stock levels (medium)
 
 Note: No OpenAPI file is published; the resource list came from the Docusaurus sitemap, which enumerates every documented endpoint page (index/show/create/update per resource) under /docs/api/2023-03-01/. Also unsynced but lower value: equipment and equipment_assignments, submitted_inspection_forms, issue_priorities, fuel_types, groups, labels, places, tires, vehicle/contact renewal reminders and types, part_locations, comments, vmrs_reason_for_repairs.
 
@@ -6866,14 +6866,14 @@ Diffed against: <https://docs.knock.app/llms.txt>
 - [x] `messages/{id}/delivery_logs` — provider-level request/response per delivery attempt; the only way to diagnose bounces and provider failures (high)
 - [x] `objects (list objects in a collection)` — non-user recipients (accounts, projects, devices) — the lookup that resolves object recipient IDs appearing on messages and subscriptions (high)
 - [x] `schedules (list schedules)` — scheduled and recurring workflow runs, the forward-looking counterpart to workflow_recipient_runs (high)
-- [ ] `messages/{id}/activities` — the trigger activities (actor, recipient, data) that produced a message — links notifications back to the originating event (medium)
-- [ ] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
-- [ ] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
-- [ ] `users/{id}/preferences and objects preferences` — per-recipient notification preference sets — needed to explain why recipients were skipped (medium)
+- [x] `messages/{id}/activities` — the trigger activities (actor, recipient, data) that produced a message — links notifications back to the originating event (medium)
+- [x] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
+- [x] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
+- [x] `users/{id}/preferences and objects preferences` — per-recipient notification preference sets — needed to explain why recipients were skipped (medium)
 - [ ] `users/{id}/feeds (list feed items)` — in-app feed items per user, for in-app channel engagement analysis (medium)
 - [ ] `bulk_operations (get bulk operation)` — status of bulk identify/subscribe jobs, useful for sync auditing (low)
 
-Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.json returns the docs SPA), but llms.txt enumerates every api-reference page and is authoritative. Caveat for whoever implements `objects`: there is no global list-all-objects endpoint — listing requires a collection key per request, so the table would need collection names as config or dynamic discovery. The message sub-resources (events, delivery_logs, activities) likewise require iterating message IDs, which is expensive but is where the deliverability data lives.
+Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.json returns the docs SPA), but llms.txt enumerates every api-reference page and is authoritative. Caveat for whoever implements `objects`: there is no global list-all-objects endpoint — listing requires a collection key per request, so the table would need collection names as config or dynamic discovery. The message sub-resources (events, delivery_logs, activities) likewise require iterating message IDs, which is expensive but is where the deliverability data lives. The subscriptions and preferences tables (`user_subscriptions`, `user_preferences`) fan out over users only; the object-side endpoints would need a two-level walk over configured collections and their objects. Audiences cannot be listed either, so `audience_members` reads the audience keys configured on the source.
 
 ## Knowbe4 — gaps
 
@@ -7035,10 +7035,10 @@ Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/ope
 - [x] `GET /payments` — actual cash collection against the invoices already synced (high)
 - [x] `GET /plans/{code}/charges (and /charges/{charge_code}/filters)` — lookup joining plans to billable metrics; without it, fees cannot be traced to pricing rules (high)
 - [x] `GET /events` — the raw usage events that every fee is derived from (high)
-- [ ] `GET /taxes` — lookup resolving tax codes applied on invoices, fees and customers (medium)
-- [ ] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
-- [ ] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
-- [ ] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
+- [x] `GET /taxes` — lookup resolving tax codes applied on invoices, fees and customers (medium)
+- [x] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
+- [x] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
+- [x] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
 - [ ] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
 - [ ] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
 - [ ] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
