@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isExternalLink } from 'lib/utils/url'
 
@@ -106,7 +107,7 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
             (
                 productInfo: FileSystemImport | undefined,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
-            ): boolean => !!productInfo?.flag && !(featureFlags as Record<string, boolean>)[productInfo.flag],
+            ): boolean => !!productInfo && !isFileSystemImportFlagEnabled(productInfo, featureFlags),
         ],
         // A surface links to its own href/label; a catalog product resolves them from its catalog entry.
         destination: [

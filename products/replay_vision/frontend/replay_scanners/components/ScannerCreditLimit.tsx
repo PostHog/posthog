@@ -19,7 +19,7 @@ interface ScannerCreditLimitProps {
 }
 
 export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.Element {
-    const { creditLimitState } = useValues(replayScannerLogic({ id: scannerId }))
+    const { creditLimitState, scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerValues, setCreditLimitUnit } = useActions(replayScannerLogic({ id: scannerId }))
     const {
         limit,
@@ -57,9 +57,26 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                 <LemonCard hoverEffect={false} className="p-3 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                         <div className="space-y-1">
-                            <LemonLabel>Scanner limit</LemonLabel>
+                            <LemonLabel htmlFor="vision-scanner-free-only">Free credits only</LemonLabel>
                             <div className="text-xs text-muted">
-                                Cap what this scanner spends in a billing period, on top of your organization's limit.
+                                Scan only while your organization has free monthly credits left, so this scanner never
+                                adds to your bill. It pauses when they run out and starts again when the billing period
+                                resets.
+                            </div>
+                        </div>
+                        <LemonSwitch
+                            checked={!!scanner?.free_only}
+                            onChange={(checked) => setScannerValues({ free_only: checked })}
+                            id="vision-scanner-free-only"
+                            data-attr="vision-scanner-free-only-toggle"
+                        />
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1">
+                            <LemonLabel htmlFor="vision-scanner-credit-limit">Scanner limit</LemonLabel>
+                            <div className="text-xs text-muted">
+                                Cap what this scanner spends in a billing period. Your organization's limit still
+                                applies.
                             </div>
                         </div>
                         <LemonSwitch
@@ -70,6 +87,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                     credit_limit: checked ? seedValue : null,
                                 })
                             }
+                            id="vision-scanner-credit-limit"
                             data-attr="vision-scanner-credit-limit-toggle"
                         />
                     </div>

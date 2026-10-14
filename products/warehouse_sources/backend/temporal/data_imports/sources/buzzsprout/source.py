@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BuzzsproutSource(SimpleSource[BuzzsproutSourceConfig]):
+    codebase_detection = detect(env=("^BUZZSPROUT_",))
+
     api_docs_url = "https://github.com/Buzzsprout/buzzsprout-api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -289,6 +289,7 @@ def list_user_installations(user_access_token: str) -> list[dict[str, str]]:
             endpoint="/user/installations",
             params={"per_page": _PER_PAGE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         raise_if_github_rate_limited(response)
         if response.status_code != 200:
@@ -347,6 +348,7 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": _PER_PAGE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         raise_if_github_rate_limited(response)
         if response.status_code != 200:
@@ -415,6 +417,7 @@ class StamphogGitHubClient:
             headers={"Authorization": f"Bearer {_build_app_jwt()}"},
             endpoint="/app/installations/{installation_id}/access_tokens",
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code != 201:
             raise StamphogGitHubError(

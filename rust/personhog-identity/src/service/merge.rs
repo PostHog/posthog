@@ -20,7 +20,7 @@ use personhog_proto::personhog::identity::v1::{
 };
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
-use crate::leader::PropertyWriter;
+use crate::leader::{PersonStateReader, PropertyWriter};
 use crate::lifecycle::engine::OpRow;
 use crate::lifecycle::merge::{
     record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest,
@@ -39,6 +39,8 @@ const OUTCOME_ATTACHED: &str = "attached";
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
 const MERGE_PHASE_DURATION: &str = "personhog_identity_merge_phase_duration_ms";
+const ESTABLISH_IDENTIFIED_READS_TOTAL: &str =
+    "personhog_identity_merge_establish_identified_reads_total";
 
 fn record_phase(phase: &'static str, start: Instant) {
     common_metrics::histogram(
@@ -54,6 +56,7 @@ const PAYLOAD_NUMBERS_CLAMPED_TOTAL: &str =
 pub struct MergeEntrance {
     storage: Arc<dyn IdentityStorage>,
     property_writer: Arc<dyn PropertyWriter>,
+    person_state: Arc<dyn PersonStateReader>,
     ops: MergeOpExecutor,
 }
 
@@ -61,11 +64,13 @@ impl MergeEntrance {
     pub fn new(
         storage: Arc<dyn IdentityStorage>,
         property_writer: Arc<dyn PropertyWriter>,
+        person_state: Arc<dyn PersonStateReader>,
         ops: MergeOpExecutor,
     ) -> Self {
         Self {
             storage,
             property_writer,
+            person_state,
             ops,
         }
     }
@@ -191,6 +196,14 @@ impl MergeEntrance {
                 Some(person) if person.id == target_person.id => {
                     inline_results.insert(did.clone(), OUTCOME_NOOP_SAME_PERSON.to_string());
                 }
+                // The same Postgres pre-filter the claim step applies. Postgres
+                // lags the leader and is_identified only ever flips to true, so
+                // this can under-drop but never over-drop; a source it lets
+                // through meets the authoritative check on the sealed state.
+                Some(person) if person.is_identified && !request.allow_identified_sources => {
+                    inline_results
+                        .insert(did.clone(), OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string());
+                }
                 Some(_) => saga_sources.push(MergeSourceEntry {
                     distinct_id: did.clone(),
                     event_uuid: source.event_uuid.clone(),
@@ -250,12 +263,14 @@ impl MergeEntrance {
             // is not a dedupe of idempotent work (an attached source
             // re-answers noop_same_person). The event's properties still
             // reach the survivor.
-            // An identify that actually joined identities makes the
-            // survivor identified; a call whose every pair was skipped
-            // proves nothing.
-            let flip_identified = inline_results
-                .values()
-                .any(|o| o == OUTCOME_ATTACHED || o == OUTCOME_NOOP_SAME_PERSON);
+            // Ingestion marks the target identified for every legal pair
+            // before it looks at the source, so an identified-source skip
+            // flips the target too; only illegal pairs prove nothing.
+            let flip_identified = inline_results.values().any(|o| {
+                o == OUTCOME_ATTACHED
+                    || o == OUTCOME_NOOP_SAME_PERSON
+                    || o == OUTCOME_SKIPPED_ALREADY_IDENTIFIED
+            });
             let start = Instant::now();
             let pushed = self
                 .push_event_properties(&request, &target_person, flip_identified, target_was_born)
@@ -433,18 +448,29 @@ impl MergeEntrance {
         // personless one births the target. An identified source is skipped
         // unless allowed, so the saga still refuses it rather than aliasing
         // the target onto it.
-        let first_eligible = request
-            .sources
-            .iter()
-            .filter(|s| {
-                !is_distinct_id_illegal(&s.source_distinct_id)
-                    && !is_distinct_id_oversized(&s.source_distinct_id)
-            })
-            .map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())))
-            .find(|person| {
-                person.is_none_or(|p| request.allow_identified_sources || !p.is_identified)
-            })
-            .flatten();
+        let mut first_eligible: Option<&Person> = None;
+        for source in request.sources.iter().filter(|s| {
+            !is_distinct_id_illegal(&s.source_distinct_id)
+                && !is_distinct_id_oversized(&s.source_distinct_id)
+        }) {
+            let Some(person) = resolved.get(&(request.team_id, source.source_distinct_id.clone()))
+            else {
+                break;
+            };
+            if request.allow_identified_sources {
+                first_eligible = Some(person);
+                break;
+            }
+            if person.is_identified {
+                continue;
+            }
+            // The identity row's flag lags the leader's; only the leader can clear the source.
+            if self.leader_identified(request.team_id, person.id).await? != Some(false) {
+                continue;
+            }
+            first_eligible = Some(person);
+            break;
+        }
         if let Some(survivor) = first_eligible {
             let attached = self
                 .storage
@@ -505,6 +531,27 @@ impl MergeEntrance {
                 Ok((self.resolve_target_after_race(request).await?, false))
             }
         }
+    }
+
+    /// `None` is a person the leader no longer holds, which cannot survive either.
+    async fn leader_identified(
+        &self,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<Option<bool>, Status> {
+        let identified = self.person_state.is_identified(team_id, person_id).await;
+        let result = match identified {
+            Ok(Some(true)) => "identified",
+            Ok(Some(false)) => "unidentified",
+            Ok(None) => "absent",
+            Err(_) => "error",
+        };
+        common_metrics::inc(
+            ESTABLISH_IDENTIFIED_READS_TOTAL,
+            &[("result".to_string(), result.to_string())],
+            1,
+        );
+        identified
     }
 
     /// Re-resolve the target distinct id after losing an establishment

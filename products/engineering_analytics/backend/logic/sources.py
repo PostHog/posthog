@@ -374,10 +374,13 @@ def resolve_trunk_quarantined_tests_source(
             # job_inputs is an EncryptedJSONField and can hold any JSON shape.
             inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
             resolved = TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
-            source_repo = f"{inputs.get('repo_owner', '')}/{inputs.get('repo_name', '')}"
-            if source_repo.lower() == repository.lower():
+            owner, name = inputs.get("repo_owner") or "", inputs.get("repo_name") or ""
+            if f"{owner}/{name}".lower() == repository.lower():
                 return resolved
-            fallback = fallback or resolved
+            # A source that names another repository holds that repository's quarantines, so only a
+            # legacy source with no repository keys may stand in.
+            if not owner and not name:
+                fallback = fallback or resolved
     return fallback
 
 

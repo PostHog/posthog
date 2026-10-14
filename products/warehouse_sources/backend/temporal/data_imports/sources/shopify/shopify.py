@@ -37,9 +37,11 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
     SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_COST_LIMITED_START_PAGE_SIZES,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
-    SHOPIFY_PAGE_SIZE_OVERRIDES,
+    SHOPIFY_MAX_PAGE_SIZE,
+    SHOPIFY_MAX_QUERY_COST,
 )
 
 logger = structlog.get_logger(__name__)
@@ -300,6 +302,51 @@ def _shopify_retry_wait(retry_state: RetryCallState) -> float:
     return backoff
 
 
+# The share of Shopify's single-query cost limit that a resized page aims for.
+_SHOPIFY_QUERY_COST_TARGET = 0.9
+# The share of the store's cost bucket that one request can ask for. Shopify throttles a request
+# when the bucket holds less than its requested cost, and every table of the source uses the bucket.
+_SHOPIFY_COST_BUCKET_SHARE = 0.5
+
+_SHOPIFY_MAX_COST_EXCEEDED_CODE = "MAX_COST_EXCEEDED"
+_SHOPIFY_MAX_COST_EXCEEDED_MESSAGE = "exceeds the single query max cost limit"
+
+
+class ShopifyQueryCostExceededError(Exception):
+    """Shopify rejected the query because its requested cost is above the single-query limit."""
+
+
+def _is_max_cost_exceeded(errors: Any) -> bool:
+    if not isinstance(errors, list):
+        return False
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        extensions = error.get("extensions")
+        if isinstance(extensions, dict) and extensions.get("code") == _SHOPIFY_MAX_COST_EXCEEDED_CODE:
+            return True
+        if _SHOPIFY_MAX_COST_EXCEEDED_MESSAGE in str(error.get("message", "")):
+            return True
+    return False
+
+
+def _page_size_for_cost(page_size: int, payload: Any) -> int:
+    """The page size that brings the requested cost of this query near Shopify's single-query limit.
+
+    Shopify sizes the requested cost from the `first` arguments, not from the rows it returns, so
+    the cost of one page predicts the cost of a larger one. Returns `page_size` when the response
+    has no usable cost.
+    """
+    requested, ok = safe_unwrap(payload, path="extensions.cost.requestedQueryCost")
+    if not ok or isinstance(requested, bool) or not isinstance(requested, int | float) or requested <= 0:
+        return page_size
+    target = SHOPIFY_MAX_QUERY_COST * _SHOPIFY_QUERY_COST_TARGET
+    bucket_size, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.maximumAvailable")
+    if ok and not isinstance(bucket_size, bool) and isinstance(bucket_size, int | float) and bucket_size > 0:
+        target = min(target, bucket_size * _SHOPIFY_COST_BUCKET_SHARE)
+    return min(SHOPIFY_MAX_PAGE_SIZE, int(page_size * target / requested))
+
+
 def _make_paginated_shopify_request(
     url: str,
     sess: requests.Session,
@@ -345,6 +392,8 @@ def _make_paginated_shopify_request(
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
             joined = "; ".join(error_messages)
+            if _is_max_cost_exceeded(payload["errors"]):
+                raise ShopifyQueryCostExceededError(f"Shopify GraphQL error: {joined}")
             raise Exception(f"Shopify GraphQL error: {joined}")
 
         if "data" not in payload:
@@ -352,8 +401,9 @@ def _make_paginated_shopify_request(
 
         return payload
 
-    pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
-    vars: dict[str, Any] = {"pageSize": pageSize}
+    starting_page_size = SHOPIFY_COST_LIMITED_START_PAGE_SIZES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
+    size_page_from_cost = graphql_object.name in SHOPIFY_COST_LIMITED_START_PAGE_SIZES
+    vars: dict[str, Any] = {"pageSize": starting_page_size}
     logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
         vars.update({"query": query})
@@ -362,7 +412,34 @@ def _make_paginated_shopify_request(
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
-        payload = execute(vars)
+        try:
+            payload = execute(vars)
+        except (
+            ShopifyQueryCostExceededError,
+            ShopifyRetryableError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
+            if not size_page_from_cost or vars["pageSize"] <= starting_page_size:
+                raise
+            # A grown page can be too costly or too slow for Shopify to answer. The starting size
+            # is known to work, so read the same cursor again at that size and stop growing.
+            logger.debug(
+                f"Shopify could not serve page size {vars['pageSize']} for {graphql_object.name}, "
+                f"using {starting_page_size}. {e}"
+            )
+            size_page_from_cost = False
+            vars["pageSize"] = starting_page_size
+            continue
+        if size_page_from_cost:
+            # The starting size already works, so the cost only ever grows the page from it.
+            next_page_size = max(starting_page_size, _page_size_for_cost(vars["pageSize"], payload))
+            if next_page_size != vars["pageSize"]:
+                logger.debug(
+                    f"Changing page size for {graphql_object.name} from {vars['pageSize']} to {next_page_size}. "
+                    f"Query cost: {payload['extensions']['cost']}"
+                )
+                vars["pageSize"] = next_page_size
         data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         if endpoint_config is not None:
             if endpoint_config.incremental_field_resolver:

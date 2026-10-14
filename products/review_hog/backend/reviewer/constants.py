@@ -114,12 +114,12 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
     (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 3),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-3`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -170,6 +170,14 @@ FLASH_MAX_FINDINGS_CEILING = 10
 FLASH_MUST_FIX_CAP_MULTIPLIER = 2
 # A finding on a line next to a change is often about that change.
 FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
+
+
+# The first review keeps more of what it finds. A finding the cap cuts is recorded only as a dropped finding, so
+# a later turn finds it again and posts it on its own, one push at a time.
+FLASH_FIRST_REVIEW_CAP_MULTIPLIER = 2
+# Turns up to this run review the whole pull request: one run finds only part of what is there, so a second pass
+# is worth it. A later automatic follow-up only comments on what its push changed, plus must-fix anywhere.
+FLASH_WHOLE_PR_TURNS = 2
 
 
 def flash_max_findings(lens_part_count: int) -> int:

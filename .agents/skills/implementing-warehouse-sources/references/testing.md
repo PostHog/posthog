@@ -62,15 +62,59 @@ Use parameterized cases. Never use the network.
 Run the source against scripted vendor answers with the helpers in `sources/common/testing`.
 They answer the real request at the socket, so the test asserts what goes on the wire.
 
-- `SourceDriver(source, config).run(schema_name, script)` runs an extraction through `source_for_pipeline`. The result holds `rows`, `requests`, `saved_states` and `committed_states`.
-- `scripted_network(script)` covers a call outside an extraction, such as a credential probe or a webhook call.
-- A script is a list of `ScriptedResponse`, or `route({path: [...]})` when the source mixes endpoints. A request the script does not answer fails the run.
+- `SourceDriver(source, config).run(schema_name, script)` runs an extraction through `source_for_pipeline`, as the pipeline does. It commits the resume cursor as the pipeline does, so a cursor saved after the last row does not persist.
+- `scripted_network(script)` covers a call outside an extraction, such as a credential probe or a webhook call. Assert on `network.requests_log`.
+
+```python
+result = SourceDriver(MySource(), MySourceConfig(api_key="key")).run(
+    "orders",
+    [ScriptedResponse(json={"data": [{"id": 1}], "next": "c2"}), ScriptedResponse(json={"data": []})],
+    incremental_field="updated_at",
+    db_incremental_field_last_value="2024-01-01",
+)
+assert result.raised is None
+assert result.params("cursor") == [None, "c2"]
+```
+
+The script answers the requests:
+
+- A list of `ScriptedResponse` answers them in order. A request the script does not answer fails the run.
+- `route({path: [...]})` answers each path from its own queue, for a source that mixes endpoints or a token exchange.
+- `always(answer)` gives every request the same answer. The answer can be an exception, such as `requests.ConnectionError`.
+- A function of the `RecordedRequest` gives the answer for a request that needs logic.
+
+**Retried failures need `always`.**
+The real stack retries a 429, a 5xx and a dropped connection.
+A list with one such answer runs out on the retry and fails with `UnexpectedRequest`.
+Use `always(...)`, and assert the set of paths, not the request count.
+
+The keywords after the script go to `source_inputs`: `incremental_field`, `db_incremental_field_last_value`, `should_use_incremental_field`, `api_version` and `logger`.
+`should_use_incremental_field` follows `incremental_field`. Set it to `False` for a full refresh on a schema with an incremental field.
+`resume_state=` starts the run from a cursor that an earlier attempt saved.
+
+The result holds:
+
+| Field                               | What it holds                                                                                         |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `rows`, `items`                     | The rows the source yielded, flat or as yielded                                                       |
+| `requests`, `paths`, `params(name)` | What went on the wire, in order                                                                       |
+| `raised`                            | The error the run raised, or `None`. The driver catches it, so assert on it                           |
+| `saved_states`, `committed_states`  | Every cursor the source saved, and each cursor that persisted                                         |
+| `final_state`, `completed_state`    | The cursor at the end of the run, and after the `on_complete` hook. `None` when the source cleared it |
+| `response`                          | The `SourceResponse`: name, primary keys, partitioning, sort mode                                     |
+| `session_options`                   | The keyword arguments of each `make_tracked_session` call, such as `redact_values`                    |
+
+The driver answers the webhook checks as for a schema with no webhook, so a webhook source polls the API.
+A test that needs the webhook path patches `WebhookSourceManager.webhook_enabled` itself, and the driver keeps that answer.
+A test that touches the database fails with `DatabaseBlockedError`.
 
 `sources/zylo/tests/test_zylo.py` shows the pattern.
 For a source built on a vendor SDK, mock the SDK client instead.
 
 Do not patch `make_tracked_session`, mock `ResumableSourceManager`, or patch a private name in `sources/common`.
 Each one lets a test pass against wrong behavior, and `posthog/test/repo_invariants/test_warehouse_source_test_shapes.py` fails a new test file that does it.
+Its baselines list the files that still do, and may only get shorter.
+When you move a listed file onto the driver, run `python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py` to remove it from the baseline.
 
 - **Pagination:** one test that walks at least two pages to the terminal page, and asserts the request parameters of each page. Add the cases where the vendor's termination signal is unusual (an empty page with a cursor, a `has_more` flag that lies).
 - **Request shaping:** an incremental request sends the watermark in the vendor's filter and sort; a full refresh sends no watermark. One parameterized test.

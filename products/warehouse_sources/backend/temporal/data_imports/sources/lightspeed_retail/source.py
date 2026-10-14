@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
+    codebase_detection = detect(env=("^(LIGHTSPEED_RETAIL|LIGHTSPEEDRETAIL)_",))
+
     supported_versions = (
         LIGHTSPEED_RETAIL_API_VERSION_2_0,
         LIGHTSPEED_RETAIL_API_VERSION_2026_01,

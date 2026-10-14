@@ -599,6 +599,11 @@ export interface DataWarehouseSyncWarning {
     status: string
     /** Human-readable warning shown to the user */
     message: string
+    /**
+     * True when the last sync is still within the table's sync interval, so the data is current and the
+     * warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date.
+     */
+    data_is_current?: boolean
 }
 
 export interface AccessControlFilterWarning {
@@ -4334,7 +4339,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 /* Error Tracking */
 
 /** @title ErrorTrackingOrderBy */
-export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'severity'
 
 /** @title ErrorTrackingQueryIssueSeverity */
 export type ErrorTrackingQueryIssueSeverity = 'low' | 'medium' | 'high' | 'critical'
@@ -4920,7 +4925,7 @@ export interface MetricsQuerySeries {
     metricName?: string
     /** Clause alias that produced this series (`formula` for the formula result) */
     clause?: string
-    /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+    /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
     unit?: string
 }
 
@@ -5555,6 +5560,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
     flag?: string
+    /** Other flags that also show the item. The item is shown when `flag` or any of these is on. */
+    alternativeFlags?: string[]
     /** Order of object in tree */
     visualOrder?: number
     /** Tag for the product 'beta' / 'alpha' */
