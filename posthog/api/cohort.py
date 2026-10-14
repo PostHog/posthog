@@ -799,7 +799,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _create_static_person_ids = serializers.ListField(
-        required=False, child=serializers.CharField(), write_only=True, default=[]
+        required=False,
+        child=serializers.CharField(),
+        write_only=True,
+        default=[],
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        help_text="Person UUIDs to add to a new static cohort.",
     )
 
     # Explicit filters field with proper OpenAPI schema

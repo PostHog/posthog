@@ -575,7 +575,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         return None
 
-    def get_github_login(self) -> str | None:
+    def get_github_login(self, *, include_team_fallback: bool = True) -> str | None:
         """Resolve this user's GitHub login.
 
         Precedence:
@@ -584,12 +584,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
            team's GitHub integration (e.g. captured at install). Still a supported integration path,
            lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+
+        Set `include_team_fallback=False` when a member's personal GitHub identity is required.
         """
-        return (
-            self._get_github_login_from_user_integration()
-            or self._get_github_login_from_social_auth()
-            or self._get_github_login_from_team_integration()
-        )
+        login = self._get_github_login_from_user_integration() or self._get_github_login_from_social_auth()
+        if login or not include_team_fallback:
+            return login
+        return self._get_github_login_from_team_integration()
 
     def join(
         self,
@@ -744,26 +745,3 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
         from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
 
         revoke_other_sessions(instance, keep_session_key=None)
-
-
-@receiver(pre_save, sender=User)
-def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
-    """Pause every loop owned by a user when they are deactivated (is_active True->False).
-
-    Loops execute as their owner for GitHub authorship and MCP identity; deactivation is often the
-    security response and must not leave a loop still scheduled, or a sandbox still running,
-    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
-    Temporal schedule is an irreversible external side effect.
-    """
-    if instance._state.adding or instance.is_active:
-        return
-    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
-    if not was_active:
-        return
-
-    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
-        pause_loops_for_deactivated_user,
-    )
-
-    user_id = instance.pk
-    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

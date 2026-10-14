@@ -1674,16 +1674,20 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
 
     @pytest.mark.asyncio
-    async def test_codex_thread_limit_reaches_the_state_the_agent_server_reads(self) -> None:
-        # The agent server sees only allowlisted state keys, so a dropped key silently keeps the default limit.
+    async def test_codex_options_reach_the_state_the_agent_server_reads(self) -> None:
+        # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
-        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, codex_max_subagents=9)
+        context = CustomPromptSandboxContext(
+            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True
+        )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
             task_run = await agents_facade.create_task_and_trigger("prompt", context)
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
-        assert _public_task_run_state(persisted.state)["codex_max_subagents"] == 9
+        public_state = _public_task_run_state(persisted.state)
+        assert public_state["codex_max_subagents"] == 9
+        assert public_state["codex_shared_prompt_cache"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

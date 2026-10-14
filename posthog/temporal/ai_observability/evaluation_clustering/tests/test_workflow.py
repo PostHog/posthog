@@ -11,10 +11,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.ai_observability.evaluation_clustering.activities import (
+    EvaluationClusteringComputeInputs,
     EvaluationClusteringComputeResult,
     FetchEvaluationMetadataResult,
     GenerateEvaluationLabelsInputs,
     GenerateEvaluationLabelsOutputs,
+    _compute_sync,
 )
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     SAMPLER_MAX_SAMPLES_PER_JOB,
@@ -259,3 +261,11 @@ class TestClusteringWorkflowWiring:
             "clustering_run_id": compute_result.clustering_run_id,
             "clustering_job_id": "job-1",
         }
+
+
+@pytest.mark.django_db
+def test_compute_skips_deleted_team() -> None:
+    result = _compute_sync(EvaluationClusteringComputeInputs(team_id=999_999_999, job_id="job-1", job_name="job"))
+
+    assert result.skip_reason == "team_not_found"
+    assert result.eval_ids == []

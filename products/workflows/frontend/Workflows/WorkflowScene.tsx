@@ -29,6 +29,7 @@ import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowOverview } from './overview/WorkflowOverview'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
 import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
@@ -114,8 +115,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         }
     }, [isActive, markHasBeenActive])
     const { featureFlags } = useValues(featureFlagLogic)
-    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
@@ -207,7 +208,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
-        selfOptimisingEnabled
+        suggestionsAvailable
             ? {
                   label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
                   key: 'self-driving',
@@ -250,7 +251,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
-                {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
+                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />

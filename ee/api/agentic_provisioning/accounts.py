@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -17,9 +17,10 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import User
+from posthog.models.user import OnboardingSkippedReason, User
 from posthog.scopes import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 
@@ -34,11 +35,6 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
-from ee.api.agentic_provisioning.wizard import (
-    apply_provisioned_onboarding_flags,
-    create_wizard_run,
-    link_github_grant_to_team,
-)
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
@@ -216,6 +212,27 @@ def require_user_consent(
     }
 
 
+def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
+    """Keep the app from routing a partner-provisioned account into onboarding on first
+    login. Only applied to unclaimed accounts (never logged in, no password set) so an
+    existing user going through the consent path keeps their onboarding state."""
+    # Bootstrapped accounts store password="" (create_user skips set_password when the
+    # password is None), which Django counts as *usable* — treat it as no password.
+    has_password = bool(user.password) and user.has_usable_password()
+    if user.last_login is not None or has_password:
+        return
+    if user.onboarding_skipped_at is None:
+        user.onboarding_skipped_at = timezone.now()
+    user.onboarding_skipped_reason = OnboardingSkippedReason.PROVISIONED
+    user.onboarding_skipped_organization_id = team.organization_id
+    user.save(
+        update_fields=["onboarding_skipped_at", "onboarding_skipped_reason", "onboarding_skipped_organization_id"]
+    )
+    if not team.completed_snippet_onboarding:
+        team.completed_snippet_onboarding = True
+        team.save(update_fields=["completed_snippet_onboarding"])
+
+
 def handle_new_user(
     request_id: str,
     data: dict,
@@ -242,13 +259,20 @@ def handle_new_user(
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
     try:
-        organization, team, user = User.objects.bootstrap(
-            organization_name=org_name,
-            email=email,
-            password=None,
-            first_name=first_name,
-            is_email_verified=False,
-        )
+        with transaction.atomic():
+            organization, team, user = User.objects.bootstrap(
+                organization_name=org_name,
+                email=email,
+                password=None,
+                first_name=first_name,
+                is_email_verified=False,
+            )
+            TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=partner,
+            )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
@@ -275,11 +299,6 @@ def handle_new_user(
         team_id=team.id,
     )
 
-    TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
-
-    # Every provisioned account is treated as already onboarded — apply the flags at
-    # bootstrap so the account is covered regardless of which follow-up blocks (if any)
-    # run, rather than only on the GitHub wizard path.
     apply_provisioned_onboarding_flags(user, team)
 
     # Emit the standard signup event so provisioned accounts flow into the shared
@@ -295,29 +314,9 @@ def handle_new_user(
         org_analytics_metadata=organization.get_analytics_metadata(),
     )
 
-    # Optional drop-flow wizard block: link the GitHub grant to the bootstrap team and
-    # enqueue a cloud wizard run in the same call. A wizard failure never fails the
-    # request — the account exists, so the partner gets the account plus a structured
-    # wizard.error and retries via the granular resource actions. Partners that don't
-    # send a wizard block are unaffected (no wizard key, unchanged email behavior).
-    # Grants are region-local, so this request must hit the region that minted the grant.
-    wizard_config = configuration.get("wizard")
-    wizard_payload: dict[str, Any] | None = None
-    wizard_repository: str | None = None
-    if isinstance(wizard_config, dict):
-        wizard_payload = process_wizard_block(partner=partner, user=user, team=team, wizard_config=wizard_config)
-        if "error" not in wizard_payload:
-            wizard_repository = str(wizard_config.get("repository"))
-
-    # Queued after the wizard block so the "we're setting up your repo" email only
-    # sends once the run actually exists; the email still goes out (without the
-    # repository paragraph) when the wizard block failed, since the account is real.
     try:
         reset_token = password_reset_token_generator.make_token(user)
-        if wizard_repository:
-            send_provisioning_welcome.delay(user.id, reset_token, label, repository=wizard_repository)
-        else:
-            send_provisioning_welcome.delay(user.id, reset_token, label)
+        send_provisioning_welcome.delay(user.id, reset_token, label)
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
@@ -332,63 +331,7 @@ def handle_new_user(
         code_challenge_method=code_challenge_method,
     )
 
-    response_body: dict[str, Any] = {"id": request_id, "type": "oauth", "oauth": {"code": code}}
-    if wizard_payload is not None:
-        response_body["wizard"] = wizard_payload
-    return response_body
-
-
-def process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, wizard_config: dict) -> dict[str, Any]:
-    """Run the bundled drop flow for a freshly bootstrapped account: link the GitHub
-    grant to the team, then enqueue the cloud wizard run.
-
-    Never raises — returns either the run payload ({task_id, run_id, status}) or
-    {"error": {code, message}} for the partner to branch on and retry granularly.
-    """
-    try:
-        # create_wizard_run refuses an ungranted partner anyway, but checking before the grant
-        # is linked keeps a refused request from consuming a single-use grant the partner
-        # would then have to mint again.
-        if not partner.provisioning.can_start_wizard_runs:
-            return {
-                "error": {
-                    "code": "forbidden",
-                    "message": "Starting wizard runs is not enabled for this partner",
-                }
-            }
-
-        grant_id = wizard_config.get("grant_id")
-        installation_id = wizard_config.get("installation_id")
-        repository = wizard_config.get("repository")
-        if not grant_id or not installation_id or not repository:
-            return {
-                "error": {
-                    "code": "invalid_request",
-                    "message": "wizard requires grant_id, installation_id and repository",
-                }
-            }
-
-        link_github_grant_to_team(
-            partner=partner,
-            user=user,
-            team=team,
-            grant_id=str(grant_id),
-            installation_id=str(installation_id),
-        )
-
-        run_payload = create_wizard_run(
-            partner=partner,
-            user_id=user.id,
-            team=team,
-            repository=str(repository),
-            branch=str(wizard_config.get("branch") or "") or None,
-        )
-        return dict(run_payload)
-    except ProvisioningError as exc:
-        return {"error": {"code": exc.code, "message": exc.message}}
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id, "step": "account_requests_wizard_block"})
-        return {"error": {"code": "run_creation_failed", "message": "Unexpected error starting the wizard run"}}
+    return {"id": request_id, "type": "oauth", "oauth": {"code": code}}
 
 
 def resolve_pending_partner(partner_id: str) -> OAuthApplication | None:

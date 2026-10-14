@@ -5,10 +5,9 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
 
+import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowMetricCard } from '../WorkflowMetricCard'
 import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 import { WorkflowMessageLeaderboard } from './WorkflowMessageLeaderboard'
@@ -85,8 +84,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
         retry()
         loadConversionStats({})
     }
-    const { featureFlags } = useValues(featureFlagLogic)
-    const selfDrivingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
 
     const sentFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
         hasEmail && hasPush
@@ -243,7 +241,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 </div>
                 <div className="flex min-w-0 flex-col gap-4">
                     <WorkflowOverviewInFlight id={id} logicKey={logicKey} />
-                    {selfDrivingEnabled ? <WorkflowOverviewSuggestions id={id} /> : null}
+                    {suggestionsAvailable ? <WorkflowOverviewSuggestions id={id} /> : null}
                     <WorkflowMessageLeaderboard id={id} logicKey={logicKey} />
                 </div>
             </div>

@@ -1245,6 +1245,14 @@ class DataWarehouseSyncWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    data_is_current: bool | None = Field(
+        default=None,
+        description=(
+            "True when the last sync is still within the table's sync interval, so the"
+            " data is current and the warning only says it will stop updating (a sync"
+            " paused recently). False or absent when the data is out of date."
+        ),
+    )
     message: str = Field(..., description="Human-readable warning shown to the user")
     schema_name: str = Field(
         ...,
@@ -5969,6 +5977,10 @@ class FileSystemImport(BaseModel):
         alias="_loading",
         description="Used to indicate pending actions, frontend only",
     )
+    alternativeFlags: list[str] | None = Field(
+        default=None,
+        description=("Other flags that also show the item. The item is shown when `flag` or any of these is on."),
+    )
     category: str | None = Field(default=None, description="Category label to place this under")
     created_at: str | None = Field(
         default=None,
@@ -8326,8 +8338,13 @@ class SurveyAppearanceSchema(BaseModel):
     borderColor: str | None = None
     buttonColor: str | None = None
     buttonTextColor: str | None = None
+    displayIntroScreen: bool | None = None
     inputBackground: str | None = None
     inputTextColor: str | None = None
+    introScreenButtonText: str | None = None
+    introScreenDescription: str | None = None
+    introScreenDescriptionContentType: SurveyQuestionDescriptionContentType | None = None
+    introScreenHeader: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None
@@ -10181,8 +10198,8 @@ class AssistantDataVisualizationNode(BaseModel):
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
             " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
             " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
-            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut`"
+            " or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or"
             " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
             " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
             " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
