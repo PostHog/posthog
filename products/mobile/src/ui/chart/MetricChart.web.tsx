@@ -1,8 +1,8 @@
 import { WithSkiaWeb } from '@shopify/react-native-skia/lib/module/web'
 import type { ReactElement } from 'react'
-import { View } from 'react-native'
 
-import { CHART_DEFAULT_HEIGHT } from './chartMath'
+import { useCanvasSlot } from './budget/ChartCanvasBudget'
+import { MetricChartPlaceholder } from './MetricChartPlaceholder'
 import type { MetricChartProps } from './types'
 
 // CanvasKit is a large wasm file, so only a screen with a chart waits for it. `npx setup-skia-web public` (run by
@@ -14,11 +14,16 @@ function loadCanvas(): Promise<{ default: (props: MetricChartProps) => ReactElem
 }
 
 export function MetricChart(props: MetricChartProps): ReactElement {
+    // Browsers cap live WebGL contexts at about 16, so the budget matters on web as well.
+    const mounted = useCanvasSlot(props.canvasSlot)
+    if (!mounted) {
+        return <MetricChartPlaceholder {...props} />
+    }
     return (
         <WithSkiaWeb
             getComponent={loadCanvas}
             opts={canvasKitOptions}
-            fallback={<View style={{ height: props.height ?? CHART_DEFAULT_HEIGHT }} />}
+            fallback={<MetricChartPlaceholder {...props} />}
             componentProps={props}
         />
     )
