@@ -40,7 +40,7 @@ export interface ReportCardSelection {
  * pointer events into its actions, and it does nothing at all on a row the list marks unselectable.
  */
 export function useReportCardSelection(reportId: string, enabled: boolean): ReportCardSelection {
-    const { hasSelection, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
+    const { hasSelection, isDismissing, isResolving, isUnassigning } = useValues(inboxBulkActionsLogic)
     const { toggleReportSelection, selectRange } = useActions(inboxBulkActionsLogic)
     // Only this row's own flag, not the id list: reading the list subscribed every card to every
     // other card's selection, so picking one row repainted the whole inbox. The booleans above
@@ -48,7 +48,7 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
     const isReportSelected: boolean = useSelector((state) =>
         inboxBulkActionsLogic.selectors.selectedReportIds(state).includes(reportId)
     )
-    const selectionDisabled = isDismissing || isResolving
+    const selectionDisabled = isDismissing || isResolving || isUnassigning
 
     const holdTimerRef = useRef<number | null>(null)
     const holdOriginRef = useRef<{ x: number; y: number } | null>(null)

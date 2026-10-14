@@ -36,6 +36,13 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 _REQUEST_TIMEOUT = 30
 
+# X rate limit windows are 15 minutes wide, and a 429 names the end of the window. The shared
+# client fails a request that is asked to wait longer than its default limit, so both limits are
+# raised here to let one request wait a whole window out.
+_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+_RETRY_AFTER_MAX_SECONDS = _RATE_LIMIT_WINDOW_SECONDS + 60
+_RETRY_BUDGET_SECONDS = _RETRY_AFTER_MAX_SECONDS + 60
+
 # Smallest `max_results` every paged endpoint accepts: the post timelines require at least 5, the
 # user and list endpoints at least 1. Used for the permission probes, which only need the status.
 _PROBE_PAGE_SIZE = 5
@@ -251,6 +258,8 @@ def _iter_pages(
             "allowed_hosts": [],
             "allow_redirects": False,
             "request_timeout": _REQUEST_TIMEOUT,
+            "retry_after_max_seconds": _RETRY_AFTER_MAX_SECONDS,
+            "retry_budget_seconds": _RETRY_BUDGET_SECONDS,
         },
         "resources": [get_resource(endpoint_config, username, user_id, should_use_incremental_field)],
     }

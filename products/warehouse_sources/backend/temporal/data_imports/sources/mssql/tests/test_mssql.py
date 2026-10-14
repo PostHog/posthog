@@ -8,6 +8,7 @@ import pymssql
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -18,10 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    MSSQL_LOGIN_TIMEOUT_SECONDS,
+    MSSQL_METADATA_LOCK_TIMEOUT_MS,
+    MSSQL_ROW_READ_LOCK_TIMEOUT_MS,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLColumn,
     MSSQLImplementation,
     MSSQLMetadataTimeoutError,
+    MSSQLRowReadTimeoutError,
     _build_query,
     filter_mssql_incremental_fields,
     retry_on_deadlock,
@@ -29,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
     _FIREWALL_BLOCKED_ERROR,
+    _GENERIC_CONNECTION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -409,6 +415,11 @@ def build_pipeline_mocks(mocker):
     return mock_connect, streaming_cursor
 
 
+def _drain_source():
+    source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+    list(source.items())  # type: ignore[arg-type]
+
+
 class TestBuildPipeline:
     def test_setup_that_hangs_at_connect_raises_a_non_retryable_timeout(self, build_pipeline_mocks, mocker):
         mock_connect, _ = build_pipeline_mocks
@@ -423,6 +434,54 @@ class TestBuildPipeline:
             release.set()
 
         assert error_message_matches(str(error.value), MSSQLSource().get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "hangs_at, batches_before_the_hang",
+        [("execute", 0), ("fetchmany", 0), ("fetchmany", 1)],
+        ids=["query", "first_fetch", "later_fetch"],
+    )
+    def test_row_read_that_goes_silent_raises_a_retryable_timeout(
+        self, build_pipeline_mocks, mocker, hangs_at, batches_before_the_hang
+    ):
+        _, streaming_cursor = build_pipeline_mocks
+        release = threading.Event()
+        # One full batch of the 1000 row chunk size for each batch before the hang.
+        answers = [[(n,) for n in range(1000)] for _ in range(batches_before_the_hang)]
+
+        def _answer_then_hang(*args):
+            # Every connection of the fixture shares this cursor, and each one sets its lock timeout.
+            if args and str(args[0]).startswith("SET LOCK_TIMEOUT"):
+                return None
+            return answers.pop(0) if answers else release.wait()
+
+        getattr(streaming_cursor, hangs_at).side_effect = _answer_then_hang
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_FIRST_BATCH_DEADLINE_SECONDS", 0.05)
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_NEXT_BATCH_DEADLINE_SECONDS", 0.05)
+        source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+
+        batches = []
+        try:
+            with pytest.raises(MSSQLRowReadTimeoutError) as error:
+                for batch in source.items():  # type: ignore[union-attr]
+                    batches.append(batch)
+        finally:
+            release.set()
+
+        assert len(batches) == batches_before_the_hang
+        message = str(error.value)
+        assert error_message_matches(message, MSSQLSource().get_retryable_errors())
+        assert not error_message_matches(message, {**Any_Source_Errors, **MSSQLSource().get_non_retryable_errors()})
+
+    def test_row_read_connection_limits_its_lock_wait(self, build_pipeline_mocks, mocker):
+        connect = mocker.spy(MSSQLImplementation, "connect")
+        _drain_source()
+
+        # Metadata, row count, then the connection that reads the rows.
+        assert [call.kwargs.get("lock_timeout_ms") for call in connect.call_args_list] == [
+            None,
+            None,
+            MSSQL_ROW_READ_LOCK_TIMEOUT_MS,
+        ]
 
     @pytest.mark.parametrize("fails", [False, True], ids=["count_hangs", "count_connection_fails"])
     def test_row_count_fault_costs_the_estimate_and_not_the_import(self, build_pipeline_mocks, mocker, fails):
@@ -442,6 +501,36 @@ class TestBuildPipeline:
             release.set()
 
         assert source.rows_to_sync == 0
+
+
+class TestConnectTimeouts:
+    @pytest.mark.parametrize(
+        "connect_kwargs, expected_statements",
+        [
+            ({}, [f"SET LOCK_TIMEOUT {MSSQL_METADATA_LOCK_TIMEOUT_MS}"]),
+            (
+                {"lock_timeout_ms": MSSQL_ROW_READ_LOCK_TIMEOUT_MS},
+                [f"SET LOCK_TIMEOUT {MSSQL_ROW_READ_LOCK_TIMEOUT_MS}"],
+            ),
+        ],
+        ids=["metadata_connection", "row_reading_connection"],
+    )
+    def test_connect_limits_the_login_and_the_lock_wait_but_not_the_query(
+        self, mocker, connect_kwargs, expected_statements
+    ):
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        mock_connect = mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect", return_value=connection)
+
+        with MSSQLImplementation().connect(_make_config(), **connect_kwargs):
+            pass
+
+        assert mock_connect.call_args.kwargs["login_timeout"] == MSSQL_LOGIN_TIMEOUT_SECONDS
+        # pymssql applies `timeout` to every connection in the process, the row reads included.
+        assert "timeout" not in mock_connect.call_args.kwargs
+        assert [call.args[0] for call in cursor.execute.call_args_list] == expected_statements
 
 
 class _RaisingTunnel:
@@ -584,6 +673,26 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
+
+    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real DB-Lib 20017/20002 pair: the server closed the connection mid-handshake, which
+        # FreeTDS reports as both an EOF and a generic "connection failed".
+        dropped_connection_error = pymssql.OperationalError(
+            20017,
+            b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server (127.0.0.1)\n"
+            b"DB-Lib error message 20002, severity 9:\nAdaptive Server connection failed (127.0.0.1)\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=dropped_connection_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _GENERIC_CONNECTION_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(

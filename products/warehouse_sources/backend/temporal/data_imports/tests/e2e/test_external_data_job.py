@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -71,6 +72,13 @@ def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, tab
     )
 
 
+def _run_create_job_activity(activity_environment, inputs: CreateExternalDataJobModelActivityInputs):
+    # The default test activity info has a one second start-to-close timeout counted from import time,
+    # which the activity's deadline check would see as already passed.
+    activity_environment.info = dataclasses.replace(activity_environment.info, start_to_close_timeout=None)
+    return activity_environment.run(create_external_data_job_model_activity, inputs)
+
+
 @sync_to_async
 def _create_external_data_job(
     external_data_source_id: uuid.UUID,
@@ -113,7 +121,7 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
 
     runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
@@ -140,7 +148,7 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
 
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
 
     runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
@@ -184,7 +192,7 @@ def test_create_external_job_activity_emit_signals_respects_ai_consent(
     inputs = CreateExternalDataJobModelActivityInputs(
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
     assert result.emit_signals_enabled is expected
 
 
@@ -213,7 +221,7 @@ def test_create_external_job_activity_enrichment_gates_on_consent(activity_envir
     inputs = CreateExternalDataJobModelActivityInputs(
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
     assert result.enrichment_needed is expected
 
 

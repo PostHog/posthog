@@ -80,6 +80,20 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 }
                             />
                         </LemonField>
+                        <LemonField
+                            name="reply_to"
+                            label="Default reply-to address"
+                            help="Replies go here when an email step has no reply-to address of its own. Leave empty to send replies to the sender address."
+                            showOptional
+                        >
+                            <LemonInput
+                                type="text"
+                                placeholder="support@example.com"
+                                disabledReason={
+                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
+                                }
+                            />
+                        </LemonField>
                         {!savedIntegration && (
                             <div className="flex justify-end">
                                 <LemonButton
@@ -222,10 +236,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             </LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={async () => {
-                                    await submitEmailSender()
-                                    props.onComplete(savedIntegration?.id)
-                                }}
+                                onClick={submitEmailSender}
+                                loading={isEmailSenderSubmitting}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >
                                 {isDomainVerified ? 'Save' : 'Save & finish later'}

@@ -13,6 +13,7 @@ import {
     ActionFilter,
     FilterLogicalOperator,
     PropertyFilterType,
+    PersonPropertyFilter,
     PropertyOperator,
     RecordingUniversalFilters,
 } from '~/types'
@@ -2111,6 +2112,55 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     date_from: '-7d',
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
+        })
+
+        it.each([
+            ['$ip', '192.0.2.1', PropertyFilterType.Event],
+            ['$browser', 'Chrome', PropertyFilterType.Event],
+            ['$geoip_country_code', 'AU', PropertyFilterType.Person],
+            ['$entry_current_url', 'https://example.com', PropertyFilterType.Session],
+        ])('toggles a %s overview filter with the matching filter type', async (key, value, type) => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePropertyFilter(key, value)
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.filter_group.values[0]).toMatchObject({
+                values: expect.arrayContaining([{ type, key, value, operator: PropertyOperator.Exact }]),
+            })
+        })
+
+        it.each([
+            ['the same value', '192.0.2.1'],
+            ['a different value', '192.0.2.2'],
+        ])('keeps a person $ip filter with %s when toggling the overview $ip filter', async (_, existingValue) => {
+            const personFilter: PersonPropertyFilter = {
+                type: PropertyFilterType.Person,
+                key: '$ip',
+                value: existingValue,
+                operator: PropertyOperator.Exact,
+            }
+            logic.actions.setFilters({
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [personFilter] }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePropertyFilter('$ip', '192.0.2.1')
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.filter_group.values[0]).toMatchObject({
+                values: [
+                    personFilter,
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$ip',
+                        value: '192.0.2.1',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
         })
     })
 

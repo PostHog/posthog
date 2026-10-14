@@ -37,6 +37,9 @@ class SavedHeatmap(UUIDTModel):
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
+    history_configuration_revision = models.UUIDField(null=True, blank=True)
+    next_history_capture_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     # Error handling
@@ -51,6 +54,7 @@ class SavedHeatmap(UUIDTModel):
             models.Index(fields=["team", "url"]),
             models.Index(fields=["status"]),
             models.Index(fields=["deleted"]),
+            models.Index(fields=["last_viewed_at"], name="heatmap_last_viewed_idx"),
         ]
         constraints = []
         unique_together = ("team", "short_id")

@@ -530,6 +530,32 @@ describe('survey utils', () => {
             expect(result?.submitButtonTextColor).toBe('#cccccc')
         })
 
+        it.each([
+            ['introScreenHeader', '<b>Welcome</b><script>alert(1)</script>', '<b>Welcome</b>'],
+            ['introScreenDescription', '<p onclick="alert(1)">Takes a minute</p>', '<p>Takes a minute</p>'],
+            ['introScreenHeader', undefined, ''],
+        ] as const)('sanitizes %s HTML (%s)', (field, value, expected) => {
+            const result = sanitizeSurveyAppearance({ [field]: value })
+
+            expect(result?.[field]).toBe(expected)
+        })
+
+        it.each([
+            ['text', 'a < b && c > d'],
+            ['html', 'a &lt; b &amp;&amp; c &gt; d'],
+            [undefined, 'a &lt; b &amp;&amp; c &gt; d'],
+        ] as const)(
+            'sanitizes the intro description only as HTML when its content type is %s',
+            (contentType, expected) => {
+                const result = sanitizeSurveyAppearance({
+                    introScreenDescription: 'a < b && c > d',
+                    introScreenDescriptionContentType: contentType,
+                })
+
+                expect(result?.introScreenDescription).toBe(expected)
+            }
+        )
+
         it('removes surveyPopupDelaySeconds for external surveys', () => {
             const input: SurveyAppearance = {
                 backgroundColor: '#ffffff',

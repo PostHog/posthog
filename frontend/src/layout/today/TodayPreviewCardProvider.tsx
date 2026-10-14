@@ -18,9 +18,6 @@ const TodayChatHoverCard = lazyWithRetry(() =>
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
-const TodaySpaceHoverCard = lazyWithRetry(() =>
-    import('./TodaySpaceHoverCard').then((m) => ({ default: m.TodaySpaceHoverCard }))
-)
 
 function isInTextLink(payload: TodayPreviewPayload): boolean {
     return payload.kind === 'report' && payload.surface === 'briefing'
@@ -68,8 +65,6 @@ export function TodayPreviewCardProvider({
 }): JSX.Element {
     const [handle] = useState(() => PreviewCard.createHandle<TodayPreviewPayload>())
     const [open, setOpen] = useState(false)
-    // "File to…" opens outside the card, so the pointer moving there reads as leaving it.
-    const [submenuOpen, setSubmenuOpen] = useState(false)
     // A ref, so a hover that lands while a menu is open is refused on the same event.
     const menuOpen = useRef(false)
     const card = useMemo<TodayPreviewCard>(
@@ -86,7 +81,6 @@ export function TodayPreviewCardProvider({
     )
     useEffect(trackPointer, [])
     const close = useCallback(() => {
-        setSubmenuOpen(false)
         setOpen(false)
     }, [])
 
@@ -96,7 +90,7 @@ export function TodayPreviewCardProvider({
             <PreviewCard.Root
                 handle={handle}
                 // A session dialog or the bulk archive confirm keeps the card shut, so the card cannot open over it.
-                open={(open || submenuOpen) && !disabled}
+                open={open && !disabled}
                 onOpenChange={(next) => setOpen(next && !menuOpen.current && !disabled)}
             >
                 {({ payload }) =>
@@ -110,20 +104,12 @@ export function TodayPreviewCardProvider({
                                         className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
                                     >
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-                                            {payload.kind === 'space' ? (
-                                                <TodaySpaceHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'chat' ? (
+                                            {payload.kind === 'chat' ? (
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
                                             ) : payload.kind === 'report' ? (
                                                 <TodayReportHoverCard preview={payload} />
                                             ) : (
-                                                <TodaySessionHoverCard
-                                                    // Keyed on the row, so moving to another row unmounts the card and lowers the submenu flag.
-                                                    key={payload.menu.menuId}
-                                                    preview={payload}
-                                                    onAction={close}
-                                                    onSubmenuOpenChange={setSubmenuOpen}
-                                                />
+                                                <TodaySessionHoverCard preview={payload} onAction={close} />
                                             )}
                                         </Suspense>
                                     </Card>

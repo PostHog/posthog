@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconShare } from '@posthog/icons'
+import { IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -17,6 +17,8 @@ import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BIEditor } from './BIEditor'
+import { biEditorLogic } from './biEditorLogic'
+import { BIResultSummary } from './BIResultSummary'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -29,6 +31,7 @@ export const scene: SceneExport = {
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { chartTypesOpen } = useValues(biEditorLogic({ tabId }))
     const logic = biSceneLogic({ tabId })
     const {
         name,
@@ -86,6 +89,9 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                 <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
                     <LemonButton size="small" to={urls.businessIntelligence()}>
                         Worksheets
+                    </LemonButton>
+                    <LemonButton size="small" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
+                        New worksheet
                     </LemonButton>
                     <LemonInput
                         aria-label="Worksheet name"
@@ -170,15 +176,21 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                 context={{
                                     insightProps: { dashboardItemId: `new-bi-${tabId}` },
                                     showOpenEditorButton: false,
+                                    chartTypeSelectorClassName: chartTypesOpen ? '@3xl/bi-editor:hidden' : undefined,
                                 }}
                             />
                         ) : (
                             <div className="flex flex-1 items-center justify-center p-4 text-secondary">
                                 {worksheet.config.source
-                                    ? 'Press Run to see the results of this worksheet.'
+                                    ? worksheet.config.rows.length ||
+                                      worksheet.config.columns.length ||
+                                      worksheet.config.values.length
+                                        ? 'Press Run to see the results of this worksheet.'
+                                        : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
                                     : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}
+                        <BIResultSummary tabId={tabId} />
                     </BIEditor>
                 )}
                 <LemonModal

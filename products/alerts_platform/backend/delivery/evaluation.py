@@ -16,6 +16,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
@@ -50,6 +51,7 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.TEAMS: TeamsTransport,
     DestinationType.DISCORD: DiscordTransport,
     DestinationType.PAGERDUTY: PagerDutyTransport,
+    DestinationType.EMAIL: EmailTransport,
 }
 
 
@@ -101,6 +103,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         request.team_id,
         request.configuration_id,
         request.evaluation_key,
+        source=request.source,
         incident_grouping_keys=request.incident_actions.keys(),
     )
     if announced is None:

@@ -55,6 +55,9 @@ MAX_RETRY_ATTEMPTS = 8
 # sync never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
+# The waits of the report attempts above add up to about 1,100 seconds, which is more than the
+# shared client's default budget for one request.
+REPORT_RETRY_BUDGET_SECONDS = 1200.0
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -829,6 +832,7 @@ def anthropic_source(
     }
     if is_report_endpoint:
         client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
+        client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

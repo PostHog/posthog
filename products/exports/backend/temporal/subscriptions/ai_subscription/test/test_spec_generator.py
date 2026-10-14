@@ -152,6 +152,26 @@ class TestPersonPropertyNames(APIBaseTest):
         assert "country" in names
         assert "$browser" not in names
 
+    @parameterized.expand(
+        [
+            ("other_project", False, ["mine"]),
+            ("sibling_environment", True, ["from_other", "mine"]),
+        ]
+    )
+    def test_reads_properties_across_the_project_only(
+        self, _name: str, same_project: bool, expected: list[str]
+    ) -> None:
+        if same_project:
+            other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="other")
+        else:
+            other_team = Team.objects.create(organization=self.organization, name="other")
+        PropertyDefinition.objects.create(
+            team=other_team, project=other_team.project, name="from_other", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyDefinition.objects.create(team=self.team, name="mine", type=PropertyDefinition.Type.PERSON)
+
+        assert _person_property_names(self.team, limit=30) == expected
+
 
 class TestGroupTypeLabels(APIBaseTest):
     @patch(

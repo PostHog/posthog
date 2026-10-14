@@ -12,6 +12,9 @@ from products.replay_vision.backend.temporal.activities.backfill import (
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
+from products.replay_vision.backend.temporal.activities.complete_observation_requests import (
+    complete_observation_requests_activity,
+)
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
@@ -95,6 +98,7 @@ __all__ = [
     "reap_orphaned_observations_activity",
     "resolve_experiment_variant_activity",
     "start_launched_scanners_activity",
+    "complete_observation_requests_activity",
     "refresh_scanner_estimate_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",

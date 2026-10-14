@@ -1,17 +1,17 @@
 from typing import Optional
 
-from unittest.mock import patch
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
     ThinkificCoursesSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source import (
     ThinkificCoursesSource,
 )
-
-PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source.validate_thinkific_credentials"
 
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCoursesSourceConfig:
@@ -20,11 +20,11 @@ def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCour
 
 class TestThinkificCoursesValidateCredentials:
     def test_rejects_invalid_subdomain_without_calling_api(self) -> None:
-        with patch(PATCH_VALIDATE) as mock_validate:
+        with scripted_network([]) as network:
             ok, err = ThinkificCoursesSource().validate_credentials(_config(subdomain="bad domain"), team_id=1)
         assert ok is False
         assert err is not None
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -36,7 +36,7 @@ class TestThinkificCoursesValidateCredentials:
         ]
     )
     def test_status_handling(self, _name: str, status: int, schema_name: Optional[str], expected_ok: bool) -> None:
-        with patch(PATCH_VALIDATE, return_value=(False, status)):
+        with scripted_network([ScriptedResponse(status=status)]):
             ok, _err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
 
@@ -50,6 +50,7 @@ class TestThinkificCoursesValidateCredentials:
         ]
     )
     def test_schema_probe_path(self, _name: str, schema_name: str, expected_path: str) -> None:
-        with patch(PATCH_VALIDATE, return_value=(True, 200)) as mock_validate:
-            ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
-        assert mock_validate.call_args.args[2] == expected_path
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            ok, _err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+        assert ok is True
+        assert network.requests_log[0].path == f"/api/public/v1{expected_path}"

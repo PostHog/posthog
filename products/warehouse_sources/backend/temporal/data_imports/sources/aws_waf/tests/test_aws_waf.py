@@ -6,7 +6,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
-from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf import (
     AwsWafClient,
@@ -19,6 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aw
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.source import AwsWafSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf"
@@ -56,6 +61,10 @@ def manager(state: AwsWafResumeConfig | None = None) -> MagicMock:
     result = MagicMock(spec=ResumableSourceManager)
     result.load_state.return_value = state
     return result
+
+
+def driver() -> SourceDriver:
+    return SourceDriver(AwsWafSource(), config())
 
 
 @pytest.mark.parametrize(
@@ -179,16 +188,21 @@ def test_full_refresh_pagination_and_details(
 
 
 @pytest.mark.parametrize("marker", ["saved-page", None])
-def test_resume_from_checkpoint(session: MagicMock, marker: str | None) -> None:
-    resume = manager(AwsWafResumeConfig(next_marker=marker))
-    assert list(cast(Iterable[Any], aws_waf_source(config(), "web_acls", resume).items())) == []
-    payload = json.loads(session.post.call_args.kwargs["data"])
+def test_resume_from_checkpoint(marker: str | None) -> None:
+    result = driver().run(
+        "web_acls",
+        [ScriptedResponse(json={"WebACLs": []})],
+        resume_state=AwsWafResumeConfig(next_marker=marker),
+    )
+    assert result.raised is None
+    assert result.items == []
+    payload = result.requests[0].json()
     if marker:
         assert payload["NextMarker"] == marker
     else:
         assert "NextMarker" not in payload
-    resume.save_state.assert_called_once_with(AwsWafResumeConfig())
-    resume.safe_point.assert_called_once()
+    assert result.saved_states == [AwsWafResumeConfig()]
+    assert result.committed_states == [AwsWafResumeConfig()]
 
 
 def test_checkpoint_is_staged_before_yield(session: MagicMock) -> None:
@@ -224,36 +238,43 @@ def test_resource_deleted_or_denied_during_sync(session: MagicMock, error_code: 
     session.close.assert_called_once()
 
 
-def test_repeated_marker_fails_without_advancing_checkpoint(session: MagicMock) -> None:
-    session.post.return_value = response({"WebACLs": [], "NextMarker": "saved"})
-    resume = manager(AwsWafResumeConfig(next_marker="saved"))
-    with pytest.raises(ValueError, match="repeated pagination marker"):
-        list(cast(Iterable[Any], aws_waf_source(config(), "web_acls", resume).items()))
-    resume.save_state.assert_not_called()
+def test_repeated_marker_fails_without_advancing_checkpoint() -> None:
+    saved = AwsWafResumeConfig(next_marker="saved")
+    result = driver().run(
+        "web_acls",
+        [ScriptedResponse(json={"WebACLs": [], "NextMarker": "saved"})],
+        resume_state=saved,
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "repeated pagination marker" in str(result.raised)
+    assert result.saved_states == []
+    assert result.final_state == saved
 
 
 @pytest.mark.parametrize("schema", [None, "ip_sets"])
 @pytest.mark.parametrize("code", ["AccessDenied", "AccessDeniedException", "WAFUnauthorizedOperationException"])
-def test_missing_permissions_at_creation_or_schema_probe(session: MagicMock, schema: str | None, code: str) -> None:
-    session.post.return_value = response({"__type": f"com.amazonaws.wafv2#{code}"}, 400)
-    valid, reason = validate_credentials(config(), schema)
+def test_missing_permissions_at_creation_or_schema_probe(schema: str | None, code: str) -> None:
+    with scripted_network([ScriptedResponse(status=400, json={"__type": f"com.amazonaws.wafv2#{code}"})]) as network:
+        valid, reason = validate_credentials(config(), schema)
     assert valid is (schema is None)
     if schema:
         assert reason == "Grant wafv2:ListIPSets and wafv2:GetIPSet for this table."
     else:
         assert reason is None
-    assert session.post.call_count == 1
+    assert len(network.requests_log) == 1
 
 
-def test_schema_probe_checks_detail_permission(session: MagicMock) -> None:
-    session.post.side_effect = [
-        response({"IPSets": [{"Id": "id", "Name": "example"}]}),
-        response({"__type": "AccessDeniedException"}, 400),
-    ]
-    valid, reason = validate_credentials(config(), "ip_sets")
+def test_schema_probe_checks_detail_permission() -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"IPSets": [{"Id": "id", "Name": "example"}]}),
+            ScriptedResponse(status=400, json={"__type": "AccessDeniedException"}),
+        ]
+    ) as network:
+        valid, reason = validate_credentials(config(), "ip_sets")
     assert not valid
     assert reason and "wafv2:GetIPSet" in reason
-    assert json.loads(session.post.call_args.kwargs["data"]) == {"Scope": "REGIONAL", "Id": "id", "Name": "example"}
+    assert network.requests_log[-1].json() == {"Scope": "REGIONAL", "Id": "id", "Name": "example"}
 
 
 @pytest.mark.parametrize(
@@ -269,17 +290,19 @@ def test_schema_probe_checks_detail_permission(session: MagicMock) -> None:
         ("SubscriptionRequiredException", "subscription"),
     ],
 )
-def test_credential_errors_are_actionable_and_non_retryable(session: MagicMock, code: str, expected: str) -> None:
+def test_credential_errors_are_actionable_and_non_retryable(code: str, expected: str) -> None:
     error_response = response({"__type": code, "Message": "AWS rejected this request."}, 400)
-    session.post.return_value = error_response
-    valid, reason = validate_credentials(config())
+    with scripted_network(
+        [ScriptedResponse(status=400, json={"__type": code, "Message": "AWS rejected this request."})]
+    ) as network:
+        valid, reason = validate_credentials(config())
     assert not valid and reason and expected in reason
     error = error_for_response(error_response)
     mapped = [
         message for pattern, message in AwsWafSource().get_non_retryable_errors().items() if pattern in str(error)
     ]
     assert mapped and all(message and expected in message for message in mapped)
-    assert session.post.call_count == 1
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize(
@@ -303,28 +326,30 @@ def test_error_classification(status: int, body: object, headers: dict[str, str]
 
 
 @pytest.mark.parametrize("status,code", [(400, "ThrottlingException"), (429, "TooManyRequests"), (503, "Unavailable")])
-def test_transient_errors_retry_without_transport_retry(session: MagicMock, status: int, code: str) -> None:
-    session.post.side_effect = [response({"__type": code}, status), response({"WebACLs": []})]
-    client = AwsWafClient(config())
-    request = client.request.retry_with(wait=wait_none())  # type: ignore[attr-defined]
-    assert request(client, "ListWebACLs", {"Scope": "REGIONAL", "Limit": 1}) == {"WebACLs": []}
-    assert session.post.call_count == 2
+def test_transient_errors_retry_without_transport_retry(status: int, code: str) -> None:
+    with scripted_network(
+        [ScriptedResponse(status=status, json={"__type": code}), ScriptedResponse(json={"WebACLs": []})]
+    ) as network:
+        client = AwsWafClient(config())
+        assert client.request("ListWebACLs", {"Scope": "REGIONAL", "Limit": 1}) == {"WebACLs": []}
+        client.close()
+    assert len(network.requests_log) == 2
 
 
-def test_retries_stop_after_five_attempts(session: MagicMock) -> None:
-    session.post.return_value = response({"__type": "ThrottlingException"}, 400)
-    client = AwsWafClient(config())
-    request = client.request.retry_with(wait=wait_none())  # type: ignore[attr-defined]
-    with pytest.raises(AwsWafRetryableError, match="ThrottlingException"):
-        request(client, "ListWebACLs", {"Scope": "REGIONAL", "Limit": 1})
-    assert session.post.call_count == 5
+def test_retries_stop_after_five_attempts() -> None:
+    with scripted_network(always(ScriptedResponse(status=400, json={"__type": "ThrottlingException"}))) as network:
+        client = AwsWafClient(config())
+        with pytest.raises(AwsWafRetryableError, match="ThrottlingException"):
+            client.request("ListWebACLs", {"Scope": "REGIONAL", "Limit": 1})
+        client.close()
+    assert len(network.requests_log) == 5
 
 
 def test_tracked_transport_redacts_secrets_and_disables_nested_retries() -> None:
-    with patch(f"{MODULE}.make_tracked_session") as factory:
-        AwsWafClient(config())
-    assert factory.call_args.kwargs["retry"].total == 0
-    assert set(factory.call_args.kwargs["redact_values"]) == {"example-secret", "example-token"}
+    with scripted_network([ScriptedResponse(json={"WebACLs": []})]) as network:
+        assert validate_credentials(config()) == (True, None)
+    assert network.session_options[0]["retry"].total == 0
+    assert set(network.session_options[0]["redact_values"]) == {"example-secret", "example-token"}
 
 
 def test_service_errors_do_not_become_credential_failures(session: MagicMock) -> None:
@@ -344,18 +369,20 @@ def test_service_errors_do_not_become_credential_failures(session: MagicMock) ->
         ({"aws_region": "https://example.com"}, "region"),
     ],
 )
-def test_invalid_configuration_does_not_send_credentials(
-    session: MagicMock, overrides: dict[str, str], expected: str
-) -> None:
-    valid, reason = validate_credentials(config(**overrides))
+def test_invalid_configuration_does_not_send_credentials(overrides: dict[str, str], expected: str) -> None:
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config(**overrides))
     assert not valid and reason and expected in reason
-    session.post.assert_not_called()
+    assert network.requests_log == []
 
 
-def test_unknown_schema_and_api_version_fail_before_requests(session: MagicMock) -> None:
-    assert validate_credentials(config(), "unknown") == (False, "Unknown AWS WAF table: unknown")
-    valid, reason = validate_credentials(config(), api_version="2015-08-24")
+def test_unknown_schema_and_api_version_fail_before_requests() -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(config(), "unknown") == (False, "Unknown AWS WAF table: unknown")
+        valid, reason = validate_credentials(config(), api_version="2015-08-24")
     assert not valid and reason and "Unsupported AWS WAF API version" in reason
-    with pytest.raises(ValueError, match="Unknown AWS WAF table"):
-        aws_waf_source(config(), "unknown", manager())
-    session.post.assert_not_called()
+    result = driver().run("unknown", [])
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown AWS WAF table" in str(result.raised)
+    assert network.requests_log == []
+    assert result.requests == []

@@ -160,6 +160,10 @@ class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
     # The provider's own handle, `{"channel": ..., "ts": ...}` for Slack. Opaque to everything
     # but the transport that issued it.
     external_ref = models.JSONField(default=dict)
+    # What the transport posted to open the conversation, so an edit to it keeps what fired and
+    # changes only the current state. Opaque to everything but that transport. Null for a
+    # provider that cannot edit a message it posted.
+    root_message = models.JSONField(null=True, blank=True)
 
     # Evaluations already delivered into this conversation, newest last. Capped, because a
     # thread lives as long as its firing and the list only has to outlive a retry.

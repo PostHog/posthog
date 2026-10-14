@@ -20,14 +20,12 @@ jobs:
             contents: read
             pull-requests: read
         outputs:
-            # The image is only consumed by ci-hobby.yml. Skip the long image build
-            # when ci-hobby would also skip, plus on changes to inputs that can
-            # only break inside the Docker build (workflow self-edits, frontend
-            # lockfile bumps that ci-hobby's filter ignores).
+            # Build for Hobby on PRs. In the merge queue, also check inputs that
+            # can break inside the Docker build, including frontend source.
             should_build: >-
                 ${{
                     steps.filter.outputs.hobby == 'true'
-                    || steps.filter.outputs.build_inputs == 'true'
+                    || (startsWith(github.head_ref, 'trunk-merge/') && steps.filter.outputs.build_inputs == 'true')
                     || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
                 }}
             dockerignore_changed: ${{ steps.filter.outputs.dockerignore }}
@@ -79,12 +77,10 @@ jobs:
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
                       # Inputs that can break inside the Docker build but aren't covered
-                      # by the `hobby:` filter — workflow self-edits, `.dockerignore`
-                      # (silently changes the build context), and `pnpm-lock.yaml` so
-                      # Renovate-style dep bumps are exercised on PR (otherwise they'd
-                      # only fail after merging). Root `package.json` carries the
-                      # `packageManager` pin the image seeds corepack from, and a pin-only
-                      # edit leaves the lockfile untouched.
+                      # by the `hobby:` filter. The merge queue checks these before
+                      # merging. Root `package.json` carries the `packageManager` pin
+                      # the image seeds corepack from, and a pin-only edit leaves the
+                      # lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/workflows/container-images-label-ci.yml
@@ -92,6 +88,31 @@ jobs:
                         - .dockerignore
                         - pnpm-lock.yaml
                         - package.json
+                        - pnpm-workspace.yaml
+                        - tsconfig.json
+                        - turbo.json
+                        - bin/turbo
+                        - patches/**
+                        - frontend/**
+                        - products/**/frontend/**
+                        - products/**/*.ts
+                        - products/**/*.tsx
+                        - products/**/*.json
+                        - '!products/desktop/**'
+                        - common/esbuilder/**
+                        - common/hogvm/typescript/**
+                        - common/replay-shared/**
+                        - common/tailwind/**
+                        - packages/quill/**
+                        - packages/llm-normalizer/**
+                        - packages/agent/packages/agent-contracts/src/**
+                        - docs/onboarding/**
+                        - '!products/**/*.test.*'
+                        - '!products/**/*.spec.*'
+                        - '!products/**/*.stories.*'
+                        - '!frontend/src/**/*.test.*'
+                        - '!frontend/src/**/*.spec.*'
+                        - '!frontend/src/**/*.stories.*'
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:
@@ -147,15 +168,16 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
+                  push-image: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   # PR-only publish role: any branch, but can ONLY push to posthog-cloud-prs (not posthog-cloud).
                   aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
-                  pr-number: ${{ github.event.number }}
+                  pr-number: ${{ !startsWith(github.head_ref, 'trunk-merge/') && github.event.number || '' }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
             - name: Container image digest
+              if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
               env:
                   IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
                   IMAGE_REGISTRY: ${{ steps.build.outputs.registry }}

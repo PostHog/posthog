@@ -27,6 +27,8 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.dev_stack_image_refresh import reconcile_dev_stack_image
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
@@ -582,6 +584,10 @@ def execute_bake_dev_stack_image_workflow(
     TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
     fresh one instead of blocking it.
     """
+    target = DevStackImageState.target(publish_name)
+    if target is not None:
+        reconcile_dev_stack_image(target, trigger=trigger)
+        return
     client = sync_connect()
     asyncio.run(
         client.start_workflow(

@@ -12,15 +12,20 @@ from temporalio import (
     activity as temporal_activity,
     workflow as temporal_workflow,
 )
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
+from temporalio.workflow import ParentClosePolicy
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
     NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
+    check_team_managed_warehouse_shadow_eligibility_activity,
     get_dag_structure_activity,
+    preempt_dag_run_activity,
 )
 from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
@@ -46,8 +51,16 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+
+@frozen(slots=False)
+class ShadowRunOutcome:
+    result: ExecuteDAGResult
+    start_child: AsyncMock
+    execute_activity: AsyncMock
 
 
 class TestGetDagStructureActivity:
@@ -463,6 +476,11 @@ async def stub_preempt_dag_run(_: PreemptDAGRunInputs) -> None:
     pass
 
 
+@temporal_activity.defn(name="check_team_managed_warehouse_shadow_eligibility_activity")
+async def stub_check_team_shadow_eligibility(_: int) -> bool:
+    return False
+
+
 class TestExecuteDAGWorkflow:
     async def test_handles_empty_dag(self, ateam):
         """Test that the workflow returns early with empty result when no executable nodes exist."""
@@ -478,6 +496,7 @@ class TestExecuteDAGWorkflow:
                 workflows=[ExecuteDAGWorkflow],
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -576,6 +595,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -630,6 +650,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -673,6 +694,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -721,6 +743,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -760,7 +783,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_notify_dag_materialization_failures],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -801,6 +829,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
                 activities=[
                     stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
                     stub_get_dag_structure,
                     stub_record_skipped_data_modeling_jobs,
                     stub_notify_dag_materialization_failures,
@@ -846,7 +875,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_notify_dag_materialization_failures],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -891,7 +925,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_notify_dag_materialization_failures],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -959,6 +998,7 @@ class TestTrinoDependencyOutcomes:
             patch.object(temporal_workflow, "info", return_value=info),
             patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
             patch.object(temporal_workflow, "logger"),
+            patch.object(temporal_workflow, "patched", return_value=False),
         ):
             result = await ExecuteDAGWorkflow().run(ExecuteDAGInputs(team_id=7, dag_id="dag"))
 
@@ -976,3 +1016,188 @@ class TestTrinoDependencyOutcomes:
             assert [n.node_id for n in skips[0].skipped_nodes] == ["b", "c"]
         else:
             assert not skips
+
+
+class TestTrinoShadowRun:
+    async def _run(
+        self,
+        inputs: ExecuteDAGInputs,
+        *,
+        workflow_id: str = "execute-dag-dag:3600-2026-01-01T00:00:00Z",
+        eligible: bool = True,
+        shadow_start_error: Exception | None = None,
+        failing_node_ids: frozenset[str] = frozenset(),
+        patched: bool = True,
+    ) -> ShadowRunOutcome:
+        plan = DAGPlan(nodes=["a", "b"], executable_nodes=["a", "b"], edges=[])
+
+        async def start_child(workflow: object, child_inputs: object, **kwargs: object) -> object:
+            if isinstance(child_inputs, ExecuteDAGInputs):
+                if shadow_start_error is not None:
+                    raise shadow_start_error
+                return MagicMock()
+            assert isinstance(child_inputs, MaterializeViewWorkflowInputs)
+            future = asyncio.get_running_loop().create_future()
+            if child_inputs.node_id in failing_node_ids:
+                future.set_exception(RuntimeError(f"{child_inputs.node_id} failed"))
+            else:
+                future.set_result(
+                    MaterializeViewWorkflowResult(
+                        job_id=f"job-{child_inputs.node_id}",
+                        node_id=child_inputs.node_id,
+                        rows_materialized=10,
+                        duration_seconds=1,
+                    )
+                )
+            return future
+
+        async def execute_activity(fn: object, *args: object, **kwargs: object) -> object:
+            if fn == get_dag_structure_activity:
+                return plan
+            if fn == check_team_managed_warehouse_shadow_eligibility_activity:
+                return eligible
+            return None
+
+        info = MagicMock()
+        info.workflow_id = workflow_id
+        start_child_mock = AsyncMock(side_effect=start_child)
+        execute_activity_mock = AsyncMock(side_effect=execute_activity)
+        with (
+            patch.object(temporal_workflow, "execute_activity", new=execute_activity_mock),
+            patch.object(temporal_workflow, "start_child_workflow", new=start_child_mock),
+            patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
+            patch.object(temporal_workflow, "info", return_value=info),
+            patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
+            patch.object(temporal_workflow, "logger"),
+            patch.object(temporal_workflow, "patched", return_value=patched),
+            patch("posthog.temporal.data_modeling.workflows.execute_dag.capture_exception"),
+        ):
+            result = await ExecuteDAGWorkflow().run(inputs)
+        return ShadowRunOutcome(result=result, start_child=start_child_mock, execute_activity=execute_activity_mock)
+
+    @staticmethod
+    def _shadow_starts(start_child: AsyncMock) -> list:
+        return [call for call in start_child.await_args_list if isinstance(call.args[1], ExecuteDAGInputs)]
+
+    @staticmethod
+    def _activity_names(execute_activity: AsyncMock) -> list[str]:
+        return [getattr(call.args[0], "__name__", call.args[0]) for call in execute_activity.await_args_list]
+
+    @pytest.mark.parametrize(
+        "workflow_id,expected_shadow_id",
+        [
+            pytest.param("execute-dag-dag:3600-2026-01-01T00:00:00Z", "execute-dag-trino-dag:3600", id="tier"),
+            pytest.param(
+                "execute-dag-dag:604800:180-2026-01-01T00:00:00Z",
+                "execute-dag-trino-dag:604800:180",
+                id="anchored_tier",
+            ),
+            pytest.param("execute-dag-0b0e2b8e-5c4f-4d47-9a51-3f4f0c1d2e3a", "execute-dag-trino-dag", id="ad_hoc"),
+        ],
+    )
+    async def test_a_clickhouse_run_starts_one_abandoned_trino_shadow_of_its_nodes(
+        self, workflow_id: str, expected_shadow_id: str
+    ) -> None:
+        outcome = await self._run(
+            ExecuteDAGInputs(team_id=7, dag_id="dag", node_ids=["a", "b"]), workflow_id=workflow_id
+        )
+
+        [shadow] = self._shadow_starts(outcome.start_child)
+        assert shadow.args[1] == ExecuteDAGInputs(
+            team_id=7, dag_id="dag", node_ids=["a", "b"], managed_warehouse_only=True, shadow=True
+        )
+        assert shadow.kwargs["id"] == expected_shadow_id
+        assert shadow.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
+        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=12)
+        assert outcome.result.successful_nodes == 2
+
+    @pytest.mark.parametrize(
+        "managed_warehouse_only,expected_engine",
+        [(False, "clickhouse"), (True, "managed_warehouse")],
+    )
+    async def test_dag_metrics_carry_the_runs_engine(self, managed_warehouse_only: bool, expected_engine: str) -> None:
+        # Production alerts on DAG failure ratio and duration exclude shadow runs by this label.
+        module = "posthog.temporal.data_modeling.workflows.execute_dag"
+        with (
+            patch(f"{module}.get_dag_finished_metric") as finished,
+            patch(f"{module}.get_dag_duration_metric") as duration,
+            patch(f"{module}.get_dag_node_count_metric") as node_count,
+        ):
+            await self._run(
+                ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=managed_warehouse_only, shadow=True)
+            )
+
+        assert finished.call_args.args[1] == expected_engine
+        assert duration.call_args.args[0] == expected_engine
+        assert {call.args[1] for call in node_count.call_args_list} == {expected_engine}
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pytest.param(
+                WorkflowAlreadyStartedError("execute-dag-trino-dag:3600", "data-modeling-execute-dag"),
+                id="previous_shadow_still_running",
+            ),
+            pytest.param(RuntimeError("task queue is gone"), id="start_failed"),
+        ],
+    )
+    async def test_a_shadow_that_cannot_start_does_not_fail_the_clickhouse_run(self, error: Exception) -> None:
+        outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
+
+        assert outcome.result.successful_nodes == 2
+        assert outcome.result.failed_nodes == 0
+
+    @pytest.mark.parametrize(
+        "inputs,eligible,patched",
+        [
+            pytest.param(ExecuteDAGInputs(team_id=7, dag_id="dag"), False, True, id="ineligible_org"),
+            pytest.param(
+                ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=True),
+                True,
+                True,
+                id="managed_warehouse_only_run",
+            ),
+            pytest.param(
+                ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=True, shadow=True),
+                True,
+                True,
+                id="shadow_run",
+            ),
+            pytest.param(ExecuteDAGInputs(team_id=7, dag_id="dag"), True, False, id="history_before_the_patch"),
+        ],
+    )
+    async def test_no_trino_shadow_starts(self, inputs: ExecuteDAGInputs, eligible: bool, patched: bool) -> None:
+        outcome = await self._run(inputs, eligible=eligible, patched=patched)
+
+        assert self._shadow_starts(outcome.start_child) == []
+        assert outcome.result.successful_nodes == 2
+
+    @pytest.mark.parametrize("shadow", [True, False])
+    async def test_a_shadow_run_neither_checks_quality_nor_notifies_failures(self, shadow: bool) -> None:
+        outcome = await self._run(
+            ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=True, shadow=shadow),
+            failing_node_ids=frozenset({"b"}),
+        )
+
+        started = self._activity_names(outcome.execute_activity)
+        assert outcome.result.failed_nodes == 1
+        assert (MATERIALIZATION_GATE_ACTIVITY_NAME in started) is not shadow
+        assert ("notify_dag_materialization_failures_activity" in started) is not shadow
+
+    @pytest.mark.parametrize(
+        "managed_warehouse_only,engine",
+        [(False, DataModelingJobEngine.CLICKHOUSE), (True, DataModelingJobEngine.MANAGED_WAREHOUSE)],
+    )
+    async def test_preemption_is_scoped_to_the_runs_engine(
+        self, managed_warehouse_only: bool, engine: DataModelingJobEngine
+    ) -> None:
+        outcome = await self._run(
+            ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=managed_warehouse_only), eligible=False
+        )
+
+        preempt_inputs = next(
+            call.args[1]
+            for call in outcome.execute_activity.await_args_list
+            if call.args[0] == preempt_dag_run_activity
+        )
+        assert preempt_inputs.engine == engine.value

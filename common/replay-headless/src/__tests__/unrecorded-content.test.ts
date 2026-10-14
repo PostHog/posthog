@@ -20,6 +20,12 @@ function replayerWith(tagName: string, attributes: Record<string, string>, eleme
 
 function build(tagName: string, attributes: Record<string, string>, events: eventWithTime[]): string | null {
     const element = document.createElement(tagName)
+    // rrweb's rebuild sets ordinary attributes on the element and keeps `rr_*` ones in the mirror only.
+    for (const [name, value] of Object.entries(attributes)) {
+        if (!name.startsWith('rr_')) {
+            element.setAttribute(name, value)
+        }
+    }
     UnrecordedContentPlugin(events).onBuild?.(element, {
         id: NODE_ID,
         replayer: replayerWith(tagName, attributes, element),
@@ -72,8 +78,20 @@ describe('UnrecordedContentPlugin', () => {
         ['a canvas with a snapshot image', 'canvas', { rr_dataURL: 'data:image/png;base64,AA==' }, [], null],
         ['a canvas whose image arrives later', 'canvas', {}, [imageSetLater], null],
         ['a canvas whose image is removed', 'canvas', {}, [attributeChange({ rr_dataURL: null })], 'canvas'],
+        ['a video', 'video', { src: 'https://cdn.example.com/clip.mp4' }, [], 'video'],
+        ['an embedded document', 'embed', { src: 'https://cdn.example.com/file.pdf' }, [], 'document'],
+        ['an object', 'object', { data: 'https://cdn.example.com/file.pdf' }, [], 'document'],
+        ['an object holding an image', 'object', { data: 'https://cdn.example.com/logo.svg' }, [], null],
+        ['an embed typed as an image', 'embed', { src: 'https://cdn.example.com/logo', type: 'image/png' }, [], null],
     ])('labels %s correctly', (_label, tagName, attributes, events, expected) => {
         expect(build(tagName, attributes, events)).toBe(expected)
+    })
+
+    it('drops the video poster so the label shows', () => {
+        const element = document.createElement('video')
+        element.setAttribute('poster', 'https://cdn.example.com/poster.jpg')
+        UnrecordedContentPlugin([]).onBuild?.(element, { id: NODE_ID, replayer: replayerWith('video', {}, element) })
+        expect(element.hasAttribute('poster')).toBe(false)
     })
 
     it('labels an iframe whose cross-origin src arrives later', () => {

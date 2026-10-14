@@ -414,6 +414,7 @@ def test_retry_relays_only_the_verdict_of_the_new_execution(
         pytest.param(True, [run(10, "failure")], [], "success", "success", 1, id="a failed gate is retried"),
         pytest.param(True, [run(10, "success")], [], "failure", "success", 0, id="a passed gate is relayed"),
         pytest.param(True, [run(10, "failure")], [], None, "failure", 1, id="Depot unreachable"),
+        pytest.param(True, [run(10, "cancelled")], [], "success", "success", 1, id="a cancelled gate is retried"),
         pytest.param(True, [None, run(10, "success")], [], "failure", "success", 0, id="a running gate is awaited"),
         pytest.param(
             True,

@@ -285,6 +285,15 @@ export interface llmPlaygroundPromptsLogicActions {
         index: number
         promptId: string | undefined
     }
+    moveMessage: (
+        index: number,
+        direction: 'down' | 'up',
+        promptId?: string
+    ) => {
+        direction: 'down' | 'up'
+        index: number
+        promptId: string | undefined
+    }
     removePromptConfig: (promptId: string) => {
         promptId: string
     }
@@ -521,6 +530,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         clearConversation: (promptId?: string) => ({ promptId }),
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
+        moveMessage: (index: number, direction: 'up' | 'down', promptId?: string) => ({ index, direction, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         addResultToConversation: (response: string, toolCalls?: MessageToolCall[], promptId?: string) => ({
             response,
@@ -638,6 +648,24 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             return prompt
                         }
                         return { ...prompt, messages: prompt.messages.filter((_, i) => i !== index) }
+                    }),
+                moveMessage: (
+                    state: PromptConfig[],
+                    { index, direction, promptId }: { index: number; direction: 'up' | 'down'; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => {
+                        const target = direction === 'up' ? index - 1 : index + 1
+                        if (
+                            index < 0 ||
+                            index >= prompt.messages.length ||
+                            target < 0 ||
+                            target >= prompt.messages.length
+                        ) {
+                            return prompt
+                        }
+                        const messages = [...prompt.messages]
+                        ;[messages[index], messages[target]] = [messages[target], messages[index]]
+                        return { ...prompt, messages }
                     }),
                 addMessage: (
                     state: PromptConfig[],
@@ -1004,6 +1032,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 has_tool_calls: !!toolCalls?.length,
                 tool_call_count: toolCalls?.length ?? 0,
             })
+        },
+        moveMessage: ({ direction }) => {
+            posthog.capture('llma playground message moved', { direction })
         },
         setTools: ({ tools }) => {
             posthog.capture('llma playground tools configured', {

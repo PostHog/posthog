@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 
+import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -307,6 +308,17 @@ export function getDashboardFilterChanges(
                 : [],
             value: currentHasTestAccountSetting ? [formatTestAccounts(currentFilters.filterTestAccounts)] : [],
             status: getChangeStatus(previousHasTestAccountSetting, currentHasTestAccountSetting),
+        })
+    }
+
+    if (!dashboardFilterValuesEqual(previousFilters.compareFilter, currentFilters.compareFilter)) {
+        const previousHasCompareSetting = previousFilters.compareFilter != null
+        const currentHasCompareSetting = currentFilters.compareFilter != null
+        changes.push({
+            label: 'Compare',
+            previousValue: previousHasCompareSetting ? [compareFilterLabel(previousFilters.compareFilter)] : [],
+            value: currentHasCompareSetting ? [compareFilterLabel(currentFilters.compareFilter)] : [],
+            status: getChangeStatus(previousHasCompareSetting, currentHasCompareSetting),
         })
     }
 

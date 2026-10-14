@@ -1,40 +1,38 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import time_machine
-from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
+    SmartwaiverSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.smartwaiver import (
     CHECKINS_MAX_OFFSET,
     PAGE_SIZE,
     SmartwaiverResumeConfig,
     _clamp_before_current_hour,
     _format_dts,
-    smartwaiver_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the smartwaiver module.
-SMARTWAIVER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.smartwaiver.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
 
 _NOW = datetime(2026, 7, 8, 15, 42, 30, tzinfo=UTC)
 # `fromDts` must not be within the current hour, so recent cursors clamp to 14:59:59.
 _HOUR_BOUNDARY = "2026-07-08T14:59:59"
 
 
-def _response(body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _response(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 def _waiver_body(ids: list[str]) -> dict[str, Any]:
@@ -48,41 +46,8 @@ def _checkin_body(ids: list[int], more: bool) -> dict[str, Any]:
     }
 
 
-def _make_manager(resume_state: SmartwaiverResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared instead of inspecting it after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(session_mock: mock.MagicMock, responses: list[Response], **kwargs: Any) -> Any:
-    session = session_mock.return_value
-    params = _wire(session, responses)
-    manager = kwargs.pop("manager", None) or _make_manager()
-    source = smartwaiver_source(api_key="key", team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-    return source, params, manager
+def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(SmartwaiverSource(), SmartwaiverSourceConfig(api_key="key")).run(endpoint, script, **inputs)
 
 
 class TestFormatDts:
@@ -115,30 +80,23 @@ class TestClampBeforeCurrentHour:
 
 
 class TestWaivers:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_second_page_ends_pagination(self, MockSession) -> None:
+    def test_empty_second_page_ends_pagination(self) -> None:
         full_page = [str(i) for i in range(PAGE_SIZE)]
-        source, _params, manager = _source(
-            MockSession,
-            [_response(_waiver_body(full_page)), _response(_waiver_body([]))],
-            endpoint="waivers",
+
+        result = _run("waivers", [_response(_waiver_body(full_page)), _response(_waiver_body([]))])
+
+        assert result.saved_states == [SmartwaiverResumeConfig(next_offset=1, from_dts=None)]
+
+    def test_resumes_from_saved_offset_and_window(self) -> None:
+        result = _run(
+            "waivers",
+            [_response(_waiver_body(["w1"]))],
+            resume_state=SmartwaiverResumeConfig(next_offset=3, from_dts="2026-01-01T00:00:00"),
         )
-        _rows(source)
 
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == SmartwaiverResumeConfig(next_offset=1, from_dts=None)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset_and_window(self, MockSession) -> None:
-        manager = _make_manager(SmartwaiverResumeConfig(next_offset=3, from_dts="2026-01-01T00:00:00"))
-        source, params, _manager = _source(
-            MockSession, [_response(_waiver_body(["w1"]))], endpoint="waivers", manager=manager
-        )
-        rows = _rows(source)
-
-        assert [r["waiverId"] for r in rows] == ["w1"]
-        assert params[0]["offset"] == 3
-        assert params[0]["fromDts"] == "2026-01-01T00:00:00"
+        assert [r["waiverId"] for r in result.rows] == ["w1"]
+        assert result.requests[0].param("offset") == "3"
+        assert result.requests[0].param("fromDts") == "2026-01-01T00:00:00"
 
     @parameterized.expand(
         [
@@ -149,70 +107,58 @@ class TestWaivers:
         ]
     )
     @time_machine.travel(_NOW, tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_cursor_added_and_clamped(self, _name, cursor, expected, MockSession) -> None:
-        source, params, _manager = _source(
-            MockSession,
+    def test_incremental_cursor_added_and_clamped(self, _name, cursor, expected) -> None:
+        result = _run(
+            "waivers",
             [_response(_waiver_body(["w1"]))],
-            endpoint="waivers",
             should_use_incremental_field=True,
             db_incremental_field_last_value=cursor,
         )
-        _rows(source)
-        assert params[0]["fromDts"] == expected
+
+        assert result.requests[0].param("fromDts") == expected
 
 
 class TestCheckins:
     @time_machine.travel(_NOW, tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sync_starts_window_at_watermark(self, MockSession) -> None:
-        source, params, _manager = _source(
-            MockSession,
+    def test_incremental_sync_starts_window_at_watermark(self) -> None:
+        result = _run(
+            "checkins",
             [_response(_checkin_body([1], more=False))],
-            endpoint="checkins",
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-06-01 08:00:00",
         )
-        _rows(source)
-        assert params[0]["fromDts"] == "2026-06-01T08:00:00"
-        assert params[0]["toDts"] == _HOUR_BOUNDARY
+
+        assert result.requests[0].param("fromDts") == "2026-06-01T08:00:00"
+        assert result.requests[0].param("toDts") == _HOUR_BOUNDARY
 
     @time_machine.travel(_NOW, tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_while_more_checkins_and_saves_state(self, MockSession) -> None:
-        source, params, manager = _source(
-            MockSession,
+    def test_paginates_while_more_checkins_and_saves_state(self) -> None:
+        result = _run(
+            "checkins",
             [_response(_checkin_body([1], more=True)), _response(_checkin_body([2], more=False))],
-            endpoint="checkins",
-        )
-        rows = _rows(source)
-
-        assert [r["checkinId"] for r in rows] == [1, 2]
-        assert params[0]["offset"] == 0
-        assert params[1]["offset"] == 1
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == SmartwaiverResumeConfig(
-            next_offset=1, from_dts="2000-01-01T00:00:00", to_dts=_HOUR_BOUNDARY
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_at_offset_cap(self, MockSession) -> None:
+        assert [r["checkinId"] for r in result.rows] == [1, 2]
+        assert result.params("offset") == ["0", "1"]
+        assert result.saved_states == [
+            SmartwaiverResumeConfig(next_offset=1, from_dts="2000-01-01T00:00:00", to_dts=_HOUR_BOUNDARY)
+        ]
+
+    def test_stops_at_offset_cap(self) -> None:
         # A window with more results past the API's offset cap must terminate, not loop, and must
         # not persist a resume state past the cap.
-        manager = _make_manager(
-            SmartwaiverResumeConfig(
+        result = _run(
+            "checkins",
+            [_response(_checkin_body([1], more=True))],
+            resume_state=SmartwaiverResumeConfig(
                 next_offset=CHECKINS_MAX_OFFSET, from_dts="2000-01-01T00:00:00", to_dts=_HOUR_BOUNDARY
-            )
+            ),
         )
-        source, params, _manager = _source(
-            MockSession, [_response(_checkin_body([1], more=True))], endpoint="checkins", manager=manager
-        )
-        rows = _rows(source)
 
-        assert [r["checkinId"] for r in rows] == [1]
-        assert MockSession.return_value.send.call_count == 1
-        assert params[0]["offset"] == CHECKINS_MAX_OFFSET
-        manager.save_state.assert_not_called()
+        assert [r["checkinId"] for r in result.rows] == [1]
+        assert len(result.requests) == 1
+        assert result.requests[0].param("offset") == str(CHECKINS_MAX_OFFSET)
+        assert result.saved_states == []
 
 
 class TestSmartwaiverSourceResponse:
@@ -223,17 +169,12 @@ class TestSmartwaiverSourceResponse:
             ("checkins", ["checkinId", "position"], ["date"]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_keys_and_partitioning(
-        self, endpoint: str, expected_pks: list[str], expected_partition_keys: list[str] | None, MockSession
+        self, endpoint: str, expected_pks: list[str], expected_partition_keys: list[str] | None
     ) -> None:
-        response = smartwaiver_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        response = _run(endpoint, always(_response(_waiver_body([])))).response
+
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         assert response.partition_keys == expected_partition_keys
@@ -250,19 +191,15 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Smartwaiver returned HTTP 500"),
         ]
     )
-    @mock.patch(SMARTWAIVER_SESSION_PATCH)
-    def test_status_mapping(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None, mock_session
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        is_valid, message = validate_credentials("key")
+    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))):
+            is_valid, message = validate_credentials("key")
         assert is_valid is expected_valid
         assert message == expected_message
 
-    @mock.patch(SMARTWAIVER_SESSION_PATCH)
-    def test_connection_error_is_not_validated(self, mock_session) -> None:
+    def test_connection_error_is_not_validated(self) -> None:
         # A probe that raises (transport error) must never bubble out of validate_credentials.
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, message = validate_credentials("key")
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, message = validate_credentials("key")
         assert is_valid is False
         assert message == "Could not validate Smartwaiver API key"
