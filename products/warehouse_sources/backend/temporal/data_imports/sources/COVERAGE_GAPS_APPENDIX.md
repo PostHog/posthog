@@ -1080,14 +1080,14 @@ Note: The wiki.awin.com URLs in the source config are dead - they now 302 to the
 
 ## AWS Batch — gaps
 
-Today (4): `compute_environments`, `job_definitions`, `job_queues`, `jobs`
+Today (8): `compute_environments`, `consumable_resources`, `job_children`, `job_definitions`, `job_queues`, `jobs`, `scheduling_policies`, `service_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/batch/2016-08-10/service-2.json>
 
-- [ ] `Scheduling policies (ListSchedulingPolicies, POST /v1/listschedulingpolicies; DescribeSchedulingPolicies, POST /v1/describeschedulingpolicies)` — resolves schedulingPolicyArn in job queues and explains fair-share allocation (high)
-- [ ] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
-- [ ] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high)
-- [ ] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium)
+- [x] `Scheduling policies (ListSchedulingPolicies, POST /v1/listschedulingpolicies; DescribeSchedulingPolicies, POST /v1/describeschedulingpolicies)` — resolves schedulingPolicyArn in job queues and explains fair-share allocation (high)
+- [x] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
+- [x] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high) — the `job_children` table describes children by their derived IDs (`parentId:index`, `parentId#node`) with DescribeJobs, because ListJobs ignores its all-status filter for children and would need one walk per status
+- [x] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium) — the `service_jobs` table uses the ListServiceJobs summaries; DescribeServiceJob takes one request per job, so it is not called
 - [ ] `Job queue snapshots (GetJobQueueSnapshot, POST /v1/getjobqueuesnapshot)` — measures queued demand, dispatch order, and capacity utilization over time (medium)
 
 Note: Parsed read operations, request fields, and response shapes in the official botocore service model. AWS reads mainly use POST; existing jobs already call DescribeJobs, but child discovery needs arrayJobId or multiNodeJobId. Scheduling policies and consumable resources need detail reads, and queue snapshots need retained timestamps. Excluded writes and tag plumbing.
