@@ -23,15 +23,12 @@ export function MyDefaultCell({ className }: { className?: string }): JSX.Elemen
         <div className={`flex min-w-0 flex-col gap-2 px-4 py-3 ${className ?? ''}`}>
             <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-semibold">My default</span>
-                <span className="text-xs text-secondary">
-                    Applies to every repository where you have not picked something else.
-                </span>
+                <span className="text-xs text-secondary">For repositories where you have no saved choice.</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-secondary">Automatic review on my PRs</span>
                 <LemonSelect<DefaultReviewModeEnumApi>
                     size="small"
-                    aria-label="Automatic review on my PRs"
+                    aria-label="My default for automatic reviews"
                     value={value}
                     options={DEFAULT_REVIEW_MODE_OPTIONS}
                     onChange={(mode) => mode !== value && setMyDefault(mode)}
@@ -52,7 +49,7 @@ export function MyDefaultCell({ className }: { className?: string }): JSX.Elemen
                     />
                     <YouMark shown={!reviewDrafts} />
                 </div>
-                <span className="text-xs text-secondary">When off, a draft is reviewed once you mark it ready.</span>
+                <span className="text-xs text-secondary">Turn off to wait until your PR is ready for review.</span>
             </div>
             {notice && (
                 <LemonBanner type="info" className="text-xs">

@@ -13,7 +13,7 @@ export interface SkillKept {
 
 function KeptCount({ kept }: { kept: SkillKept | null }): JSX.Element {
     if (kept === null || kept.raised === 0) {
-        return <span className="text-xs text-secondary">No findings in your last 10</span>
+        return <span className="text-xs text-secondary">No recent findings</span>
     }
     return (
         <span className="flex items-center gap-2 text-xs text-secondary">
@@ -57,12 +57,12 @@ export function SkillRow({
                         className="inline-flex items-center gap-0.5 text-xs"
                         data-attr="review-hog-edit-skill-text"
                     >
-                        Edit text for the project <IconExternal className="size-3" />
+                        Edit skill <IconExternal className="size-3" />
                     </Link>
                 </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-1">
-                <span className="text-xs text-secondary @min-[48rem]:hidden">Mine:</span>
+                <span className="text-xs text-secondary @min-[48rem]:hidden">My preference:</span>
                 {mine}
             </div>
         </div>

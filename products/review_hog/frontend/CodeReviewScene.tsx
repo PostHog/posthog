@@ -866,7 +866,7 @@ export function CodeReviewScene(): JSX.Element {
     const titleSection = (
         <SceneTitleSection
             name="Code review"
-            description="PostHog Review reads your pull requests and posts the findings worth fixing. Start a review, see recent ones, and choose what gets reviewed."
+            description="Automated code reviews of your pull requests."
             resourceType={{ type: 'code_review' }}
         />
     )

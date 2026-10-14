@@ -67,13 +67,14 @@ export function FullReviewSettingsSection(): JSX.Element {
     return (
         <SettingsTable>
             <SettingRow
-                title="Resolve comments on my pull requests"
-                description="Applies on your PRs. A Deep review can push fix commits to your branch. Only your own setting counts, whoever starts the review. Nothing is pushed while the PR is in the merge queue, has a PR stacked on it, or has no PostHog account behind it."
+                title="Commit fixes to my pull requests"
+                description="Allow Deep reviews to push fixes to your branch. Only you can enable this."
                 project={<span className="text-xs text-secondary">Personal only</span>}
                 mine={
                     <>
                         <LemonSwitch
-                            aria-label="Resolve comments on my pull requests"
+                            aria-label="Commit fixes to my pull requests"
+                            tooltip="Requires a PostHog account linked to the PR author. Fixes are paused while your PR is in the merge queue or another PR is stacked on it. Applies even when someone else starts the review."
                             checked={settings?.resolve_comments ?? false}
                             onChange={(checked) => updateSettings({ resolve_comments: checked })}
                             disabledReason={mineDisabledReason}
@@ -84,12 +85,12 @@ export function FullReviewSettingsSection(): JSX.Element {
                 }
             />
             <SettingRow
-                title="Post findings at or above"
-                description="Applies to Deep reviews you start. Findings below this stay in PostHog."
+                title="Findings to post on GitHub"
+                description="Lower-priority findings stay in the PostHog report."
                 project={
                     <LemonSelect<UrgencyThresholdEnumApi>
                         size="small"
-                        aria-label="Project: Post findings at or above"
+                        aria-label="Project: Findings to post on GitHub"
                         value={projectThreshold}
                         options={THRESHOLD_OPTIONS}
                         onChange={(value) => updateProjectSettings({ urgency_threshold: value })}
@@ -103,7 +104,7 @@ export function FullReviewSettingsSection(): JSX.Element {
                             size="small"
                             className="min-w-0 shrink"
                             truncateText={{ maxWidthClass: 'max-w-full' }}
-                            aria-label="Mine: Post findings at or above"
+                            aria-label="Mine: Findings to post on GitHub"
                             value={ownThreshold ?? 'project'}
                             options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
                             onChange={(value) =>
@@ -120,7 +121,7 @@ export function FullReviewSettingsSection(): JSX.Element {
             />
             <SettingRow
                 title="Celebrate clean reviews"
-                description="Applies to Deep reviews you start. A clean review gets a small celebration."
+                description="Add a celebration to the status comment when no issues are found."
                 project={
                     <LemonSelect<OnOff>
                         size="small"
