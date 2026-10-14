@@ -181,7 +181,9 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         )
 
         assert response.status_code == 200, response.json()
-        assert "LEGACY-SECRET" not in json.dumps(response.json())
+        stored = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}").json()
+        assert stored["scope"] == "organization"
+        assert "LEGACY-SECRET" not in json.dumps(stored)
 
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
