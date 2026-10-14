@@ -1161,6 +1161,7 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...columnDimensions.map(({ field }) => fieldExpression(field)),
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
+        ...(config.dateField ? [fieldExpression(config.dateField)] : []),
     ]
     const usedAliases = new Set([
         'bi_rows',
@@ -1174,7 +1175,10 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     for (const dimension of [...rowDimensions, ...columnDimensions]) {
         const preferred = dimension.alias
         let suffix = 2
-        while (usedAliases.has(dimension.alias)) {
+        while (
+            usedAliases.has(dimension.alias) ||
+            expressions.some((expression) => expression.includes(dimension.alias))
+        ) {
             dimension.alias = `${preferred}_${suffix++}`
         }
         usedAliases.add(dimension.alias)
@@ -1203,9 +1207,13 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     return { rowDimensions, columnDimensions, configuredValues }
 }
 
-function needsUniqueDimensionAliases(dimensions: BIDimension[], hasMeasures: boolean): boolean {
+function needsGeneratedDimensionAliases(dimensions: BIDimension[], hasMeasures: boolean): boolean {
     const expressions = dimensions.map(({ field }) => fieldExpression(field))
-    return new Set(expressions).size !== expressions.length || (!hasMeasures && expressions.includes('count'))
+    return (
+        new Set(expressions).size !== expressions.length ||
+        (!hasMeasures && expressions.includes('count')) ||
+        expressions.some((expression) => expression.includes('%'))
+    )
 }
 
 export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
@@ -1221,7 +1229,7 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
         )
     }
     const aliased =
-        needsUniqueDimensionAliases(dimensions, config.values.length > 0) ||
+        needsGeneratedDimensionAliases(dimensions, config.values.length > 0) ||
         hasBIAnalysis(config) ||
         config.compareFilter?.compare ||
         (dimensions.length === 2 &&
@@ -1430,7 +1438,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
-    const uniqueDimensionAliases = needsUniqueDimensionAliases(dimensions, configuredValues.length > 0)
+    const generatedDimensionAliases = needsGeneratedDimensionAliases(dimensions, configuredValues.length > 0)
     const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
@@ -1451,7 +1459,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensions.map(({ field, alias }) =>
-              hasSeriesBreakdown || comparing || hasBIAnalysis(config) || uniqueDimensionAliases
+              hasSeriesBreakdown || comparing || hasBIAnalysis(config) || generatedDimensionAliases
                   ? `${fieldExpression(field)} AS ${alias}`
                   : `${fieldExpression(field)} AS ${escapeRawPropertyAsHogQLIdentifier(fieldExpression(field))}`
           )
@@ -1506,7 +1514,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                   xAxis: xDimension
                       ? {
                             column:
-                                hasBIAnalysis(config) || uniqueDimensionAliases
+                                hasBIAnalysis(config) || generatedDimensionAliases
                                     ? xDimension.alias
                                     : fieldExpression(xDimension.field),
                         }
@@ -1719,7 +1727,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                         hasBIAnalysis(config) ||
                                         comparing ||
                                         hasSeriesBreakdown ||
-                                        uniqueDimensionAliases
+                                        generatedDimensionAliases
                                             ? dimension.alias
                                             : fieldExpression(dimension.field)
                                     )),
@@ -1731,7 +1739,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                       (hasBIAnalysis(config) ||
                                       comparing ||
                                       hasSeriesBreakdown ||
-                                      uniqueDimensionAliases ||
+                                      generatedDimensionAliases ||
                                       isPivotTable
                                           ? dimension.alias
                                           : fieldExpression(dimension.field)) === column

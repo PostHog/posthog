@@ -64,24 +64,78 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
-    it.each([ChartDisplayType.ActionsTable, ChartDisplayType.ActionsLineGraph, ChartDisplayType.ScatterPlot])(
-        'binds repeated dimensions to distinct result columns in %s',
-        (chartType) => {
-            const config = {
+    it.each(
+        [ChartDisplayType.ActionsTable, ChartDisplayType.ActionsLineGraph, ChartDisplayType.ScatterPlot].flatMap(
+            (chartType) => [
+                { chartType, name: 'repeated dimensions', rows: [eventField, eventField, eventField] },
+                {
+                    chartType,
+                    name: 'an expression containing a percent sign',
+                    rows: [{ ...eventField, expression: "if(event LIKE 'page%', 'page', 'other')" }],
+                },
+            ]
+        )
+    )('binds $name to supported distinct result columns in $chartType', ({ chartType, rows }) => {
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: eventField.source,
+            chartType,
+            rows,
+        }
+        const result = buildBIQuery(config)!
+        const columns = getBIResultDimensions(config).map(({ column }) => column)
+        expect(new Set(columns).size).toBe(rows.length)
+        for (const [index, column] of columns.entries()) {
+            expect(column).not.toContain('%')
+            expect(result.query).toContain(`${rows[index].expression} AS ${column}`)
+            expect(result.node.tableSettings?.columns).toContainEqual(expect.objectContaining({ column }))
+        }
+        if (chartType !== ChartDisplayType.ScatterPlot) {
+            expect(result.node.chartSettings?.xAxis?.column).toBe(columns[0])
+        }
+    })
+
+    it.each(['measure', 'custom measure', 'filter', 'custom filter'] as const)(
+        'keeps generated dimension aliases from shadowing a source identifier in a %s',
+        (reference) => {
+            const sourceField = { ...revenueField, name: 'bi_row_event', expression: 'bi_row_event' }
+            const config: BIConfig = {
                 ...DEFAULT_BI_CONFIG,
                 source: eventField.source,
-                chartType,
-                rows: [eventField, eventField, eventField],
+                rows: [eventField, eventField],
+                values: reference.includes('measure')
+                    ? [
+                          reference === 'measure'
+                              ? { field: sourceField, aggregation: 'sum' }
+                              : {
+                                    field: sourceField,
+                                    aggregation: 'custom',
+                                    customExpression: 'sum(bi_row_event)',
+                                },
+                      ]
+                    : [],
+                filters: reference.includes('filter')
+                    ? [
+                          reference === 'filter'
+                              ? { field: sourceField, operator: 'greater_than', value: '0' }
+                              : {
+                                    field: sourceField,
+                                    operator: 'custom',
+                                    value: '',
+                                    customExpression: 'bi_row_event > 0',
+                                },
+                      ]
+                    : [],
             }
             const result = buildBIQuery(config)!
             const columns = getBIResultDimensions(config).map(({ column }) => column)
-            expect(new Set(columns).size).toBe(3)
+            expect(new Set(columns).size).toBe(2)
+            expect(columns).not.toContain('bi_row_event')
+            expect(result.query).not.toMatch(/event AS bi_row_event[,\n]/)
+            expect(result.query).toContain(reference.includes('measure') ? 'sum(bi_row_event)' : 'bi_row_event > 0')
             for (const column of columns) {
                 expect(result.query).toContain(`event AS ${column}`)
                 expect(result.node.tableSettings?.columns).toContainEqual(expect.objectContaining({ column }))
-            }
-            if (chartType !== ChartDisplayType.ScatterPlot) {
-                expect(result.node.chartSettings?.xAxis?.column).toBe(columns[0])
             }
         }
     )
