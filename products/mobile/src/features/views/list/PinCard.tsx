@@ -11,7 +11,6 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
-import { formatMonthDay } from '@/lib/dates'
 import type { InsightSnapshot, PinView } from '@/model/views'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import { Sparkline } from '@/ui/chart/Sparkline'
@@ -25,7 +24,7 @@ import { colors, radii, type } from '@/ui/tokens'
 import { DeltaPill, deltaSpoken } from '../DeltaPill'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { type PinData, usePinData } from '../pinHooks'
-import { deltaBasisText, snapshotFormatter } from '../snapshotChart'
+import { deltaBasisText, snapshotFormatter, valueAtText } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { itemErrorMessage } from '../viewHooks'
 import { useSnapshot } from '../viewsCache'
@@ -207,6 +206,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
     const format = snapshot ? snapshotFormatter(snapshot) : null
     const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
     const delta = snapshot && format ? pinDelta(snapshot, format) : null
+    const at = snapshot ? valueAtText(snapshot) : null
     const values = (snapshot?.series?.points ?? []).slice(-SPARKLINE_BUCKETS).map((point) => point.value)
     const label = [pin.name, value, delta?.spoken, second].filter(Boolean).join(', ')
     return (
@@ -231,9 +231,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
                             </Text>
                             <View style={styles.deltaRow}>
                                 {delta ? <DeltaPill {...delta.props} /> : null}
-                                {snapshot?.valueAt ? (
-                                    <Text style={styles.meta}>{formatMonthDay(new Date(snapshot.valueAt))}</Text>
-                                ) : null}
+                                {at ? <Text style={styles.meta}>{at}</Text> : null}
                             </View>
                         </View>
                         {values.length > 1 ? (
@@ -256,6 +254,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     const format = snapshot ? snapshotFormatter(snapshot) : null
     const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
     const delta = snapshot && format ? pinDelta(snapshot, format) : null
+    const at = snapshot ? valueAtText(snapshot) : null
     const series = snapshot ? pinChartSeries(snapshot) : []
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
@@ -280,9 +279,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                             <Text style={styles.chartValue} numberOfLines={1} testID={pinTestId(pin, 'value')}>
                                 {value ?? '–'}
                             </Text>
-                            {snapshot?.valueAt ? (
-                                <Text style={styles.meta}>{formatMonthDay(new Date(snapshot.valueAt))}</Text>
-                            ) : null}
+                            {at ? <Text style={styles.meta}>{at}</Text> : null}
                             {delta ? <DeltaPill {...delta.props} /> : null}
                         </>
                     ) : (
