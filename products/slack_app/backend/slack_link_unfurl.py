@@ -10,12 +10,13 @@ import asyncio
 import dataclasses
 from collections.abc import Callable
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
@@ -55,6 +56,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
 from products.slack_app.backend.logic.link_unfurl_charts import chat_unfurl_kwargs
@@ -660,10 +662,16 @@ def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _S
     tiles = (
         DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
         .exclude(deleted=True)
+        .select_related("insight")
         .order_by("id")
-        .values_list("insight__name", "insight__derived_name")
     )
-    names = [name or derived_name or "Untitled" for name, derived_name in tiles]
+    insights = [tile.insight for tile in tiles if tile.insight]
+    ctx.uac.preload_object_access_controls(cast(list, insights))
+    names = [
+        insight.name or insight.derived_name or "Untitled"
+        for insight in insights
+        if ctx.uac.check_access_level_for_object(insight, required_level="viewer")
+    ]
     return _UnfurlCard(
         label="Dashboard",
         title=dashboard.name or "Untitled",
@@ -745,6 +753,8 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
     notebook = (
         Notebook.objects.filter(team_id=ctx.team.pk, short_id=ref, deleted=False)
         .exclude(visibility=Notebook.Visibility.INTERNAL)
+        .defer("content", "text_content")
+        .annotate(excerpt=Substr("text_content", 1, _MAX_BODY_CHARS + 1))
         .first()
     )
     if not notebook:
@@ -755,7 +765,7 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
         label="Notebook",
         title=notebook.title or "Untitled",
         details=_by(notebook.created_by),
-        body=notebook.text_content,
+        body=notebook.excerpt,
         timestamp=notebook.last_modified_at,
     )
 
@@ -810,7 +820,7 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
-        status=experiment.get_status_display() if experiment.status else None,
+        status=_humanize(experiment.status_label),
         details=tuple(details),
         chart=_chart_rows(_variant_rows(_flag_variants(experiment.feature_flag))),
         body=experiment.description,
@@ -891,6 +901,8 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     )
     if not report:
         return "not_found"
+    if not may_read_reports(user=ctx.user, team=ctx.team):
+        return "no_access"
     return _UnfurlCard(
         label="Inbox report",
         title=report.title or "Untitled report",

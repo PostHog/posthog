@@ -92,21 +92,32 @@ class TestLinkUnfurlCharts(BaseTest):
             image_urls_by_insight={self.insight.id: "https://example.com/chart.png"},
         )
 
-    @parameterized.expand([("project_access", True), ("project_access_revoked", False)])
-    def test_targets_render_each_insight_once_and_only_with_project_access(
-        self, _name: str, project_access: bool
+    def _sharer(self, kind: str) -> User:
+        if kind == "project_access_revoked":
+            return self._deny_project_access()
+        if kind == "deactivated":
+            self.user.is_active = False
+            self.user.save()
+        return self.user
+
+    @parameterized.expand(
+        [("member", True), ("project_access_revoked", False), ("deactivated", False)],
+    )
+    def test_targets_render_each_insight_once_and_only_for_an_active_member(
+        self, sharer: str, expect_render: bool
     ) -> None:
-        user = self.user if project_access else self._deny_project_access()
+        user = self._sharer(sharer)
 
         targets = unfurl_chart_targets(self._inputs(urls=(_URL, _SHORT_URL), user=user))
 
-        assert targets.insight_ids == ([self.insight.id] if project_access else [])
+        assert targets.insight_ids == ([self.insight.id] if expect_render else [])
 
     @parameterized.expand(
         [
-            ("allowed", True, True, True),
-            ("public_sharing_turned_off", False, True, False),
-            ("project_access_revoked", True, False, False),
+            ("allowed", True, "member", True),
+            ("public_sharing_turned_off", False, "member", False),
+            ("project_access_revoked", True, "project_access_revoked", False),
+            ("deactivated", True, "deactivated", False),
         ]
     )
     @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
@@ -114,13 +125,13 @@ class TestLinkUnfurlCharts(BaseTest):
         self,
         _name: str,
         public_sharing: bool,
-        project_access: bool,
+        sharer: str,
         expect_unfurl: bool,
         mock_slack: MagicMock,
     ) -> None:
         self.organization.allow_publicly_shared_resources = public_sharing
         self.organization.save()
-        user = self.user if project_access else self._deny_project_access()
+        user = self._sharer(sharer)
 
         self._post(self._inputs(user=user))
 

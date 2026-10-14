@@ -30,6 +30,7 @@ from products.canvas.backend.facade import testing as canvas_testing
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -775,6 +776,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("survey", "survey"),
             ("cohort", "cohort"),
             ("error", "error_tracking"),
+            ("report", "task"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -796,6 +798,55 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self._unfurl_links([url])
 
         mock_client.chat_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_dashboard_card_lists_only_insights_the_sharer_can_view(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "dashboard-viewer@posthog.com", "password")
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth review")
+        visible = Insight.objects.create(team=self.team, name="Visible tile", saved=True)
+        hidden = Insight.objects.create(team=self.team, name="Hidden tile", saved=True)
+        DashboardTile.objects.create(dashboard=dashboard, insight=visible)
+        DashboardTile.objects.create(dashboard=dashboard, insight=hidden)
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(hidden.id), access_level="none"
+        )
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}"
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Visible tile" in text
+        assert "1 insight" in text
+        assert "Hidden tile" not in text
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_experiment_card_shows_a_paused_experiment_as_paused(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="paused-test", created_by=self.user, active=False)
+        experiment = Experiment.objects.create(
+            team=self.team, name="Paused test", feature_flag=flag, start_date=timezone.now(), status="running"
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment.pk}"
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "*Paused*" in text
 
     @staticmethod
     def _assert_slack_accepts(unfurl: dict) -> None:

@@ -53,7 +53,7 @@ def chat_unfurl_kwargs(
 def _has_project_access(user: User, team: Team) -> bool:
     # The insight check alone is not enough, because it can fall back to the default access level
     # in a project that denies the user. The webhook checks project access the same way.
-    return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+    return user.is_active and UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
 
 
 @frozen
