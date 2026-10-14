@@ -35,9 +35,10 @@ struct HedgehogView: View {
             .rotationEffect(.degrees(spin - orbit))
             .rotationEffect(.degrees(orbit), anchor: UnitPoint(x: 0.5, y: 0.5 - radius / spriteSize))
             .animation(travelAnimation, value: orbit)
-            .offset(x: feetX(width: geometry.size.width) - spriteSize / 2, y: floorY - spriteSize)
+            // Button content changes must not override the position animation.
+            .geometryGroup()
+            .position(x: feetX(width: geometry.size.width), y: floorY - spriteSize / 2)
             .animation(travelAnimation, value: entry.tick.x)
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
         }
     }
 
@@ -50,8 +51,6 @@ struct HedgehogView: View {
             .scaleEffect(x: entry.tick.facing == .left ? -1 : 1, y: 1)
             .contentTransition(.identity)
             .animation(nil, value: entry.tick.facing)
-            .animation(nil, value: entry.tick.spriteName)
-            .animation(nil, value: entry.tick.hoggie)
     }
 
     private var travelAnimation: Animation? {

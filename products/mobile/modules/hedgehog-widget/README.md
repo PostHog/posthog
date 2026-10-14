@@ -17,14 +17,15 @@ So the app's JavaScript plans the choreography and the widget plays it back:
 3. Each platform plays the script with what the OS allows:
    - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's *keyframes*, one per 2-second beat.
      From iOS 17 WidgetKit animates the change between entries, so the hedgehog glides, hops, flips and turns to its next spot.
-     Walking follows each destination in steps of at most 6% of the travel area, with a stationary turn before reversing.
-     Hops and flips use built-in rotations that complete a full turn in 1.6 seconds. Every entry ends upright on the ground,
+     Walking interpolates continuously between destinations across the full two-second interval. A geometry group keeps
+     the button’s content updates from overriding its position animation; facing changes do not insert a stationary beat.
+     Hops and flips use built-in rotations that complete a full turn within the same interval. Every entry ends upright on the ground,
      so a delayed or skipped update cannot leave the hog upside down. Image changes and facing changes do not crossfade or spring.
      The widget saves its scheduled entries per family: tapping changes only the character, and a refresh resumes the
      existing timeline. After it expires, the new routine starts at the last position instead of a distant wall-clock sample.
      Dialogue is not rendered on either platform, including when reading an older script.
      The hedgehog is an interactive `Button(intent:)`; a tap anywhere else opens the app.
-   - **Android (RemoteViews)** uses `ViewFlipper` to play a closed loop, interpolating halfway positions every 60 ms for the standard 120 ms script.
+   - **Android (RemoteViews)** uses `ViewFlipper` to play a closed loop, interpolating four positions every 30 ms (about 33 fps) for the standard 120 ms script.
      A placed widget keeps its loop across daily script syncs. Android 12+ reuses stable frame views so taps, refreshes
      and resizing retain the launcher's displayed frame. On older Android versions, a tap carries the visible frame's
      index and restores it when the views are rebuilt; an OS recreation or resize may restart the loop.

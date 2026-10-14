@@ -13,11 +13,20 @@ struct CheckHedgehogTimeline {
         })
         for (from, to) in zip(plan.entries, plan.entries.dropFirst()) {
             precondition(abs(to.tick.x - from.tick.x) <= 0.060001)
-            if to.tick.facing != from.tick.facing {
-                precondition(to.tick.x == from.tick.x)
+            if to.tick.x != from.tick.x {
+                precondition(to.motion == .glide(to.date.timeIntervalSince(from.date)))
+                precondition(to.tick.facing == (to.tick.x < from.tick.x ? .left : .right))
             }
             precondition(abs(to.spin - from.spin) <= 360)
             precondition(abs(to.orbit! - from.orbit!) <= 360)
+        }
+        let stepping = plan.entries.map { entry in
+            HedgehogEntry(date: entry.date, tick: entry.tick, spin: entry.spin, motion: .glide(1.6), orbit: entry.orbit)
+        }
+        let smoothed = HedgehogTimelineProvider.plan(for: choreography, now: now.addingTimeInterval(0.5), previous: stepping)
+        precondition(smoothed.entries.allSatisfy { $0.motion == .glide(2) })
+        for (old, new) in zip(stepping, smoothed.entries) {
+            precondition(old.date == new.date && old.tick == new.tick && old.spin == new.spin && old.orbit == new.orbit)
         }
         let encoded = try JSONEncoder().encode(plan.entries)
         let saved = try JSONDecoder().decode([HedgehogEntry].self, from: encoded)

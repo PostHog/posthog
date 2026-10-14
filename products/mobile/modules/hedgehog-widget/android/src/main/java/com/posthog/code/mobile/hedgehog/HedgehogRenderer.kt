@@ -93,11 +93,14 @@ object HedgehogRenderer {
         val loop = HedgehogStore.loop(context, id) ?: choreography.loopAt(now)
             .take(Choreography.MAX_TICKS).map { it.copy(hoggie = null, bubble = null) }
             .also { HedgehogStore.saveLoop(context, id, it) }
-        val smooth = choreography.tickMs >= 80
-        val movement = if (smooth) loop.flatMapIndexed { index, tick ->
+        val substeps = ((choreography.tickMs + 32) / 33).coerceIn(1, 4)
+        val movement = loop.flatMapIndexed { index, tick ->
             val next = loop[(index + 1) % loop.size]
-            listOf(tick, tick.copy(x = (tick.x + next.x) / 2, y = (tick.y + next.y) / 2))
-        } else loop
+            List(substeps) { part ->
+                val progress = part.toFloat() / substeps
+                tick.copy(x = tick.x + (next.x - tick.x) * progress, y = tick.y + (next.y - tick.y) * progress)
+            }
+        }
         val character = HedgehogStore.selected(context, id)
         var facing = movement.first().facing
         val ticks = movement.mapIndexed { index, tick ->
@@ -138,7 +141,7 @@ object HedgehogRenderer {
                 root.addView(R.id.hedgehog_flipper, frame)
             }
         }
-        root.setInt(R.id.hedgehog_flipper, "setFlipInterval", if (smooth) choreography.tickMs / 2 else choreography.tickMs)
+        root.setInt(R.id.hedgehog_flipper, "setFlipInterval", choreography.tickMs / substeps)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && frameIndex != null) {
             root.setDisplayedChild(R.id.hedgehog_flipper, Math.floorMod(frameIndex, ticks.size))
         }

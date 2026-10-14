@@ -26,7 +26,7 @@ struct HedgehogEntry: TimelineEntry, Codable {
 
 struct HedgehogTimelineProvider: TimelineProvider {
     private static let entryLimit = 270
-    private static let longestAnimation: TimeInterval = 1.6
+    private static let longestAnimation: TimeInterval = 2
 
     struct Plan {
         let entries: [HedgehogEntry]
@@ -61,7 +61,11 @@ struct HedgehogTimelineProvider: TimelineProvider {
     static func plan(for choreography: Choreography, now: Date, previous: [HedgehogEntry] = []) -> Plan {
         if let end = previous.last?.date, end > now, previous.allSatisfy({ ($0.orbit == 0 || $0.orbit == 360) && ($0.spin == 0 || $0.spin == 360) }) {
             let current = previous.lastIndex { $0.date <= now } ?? 0
-            return Plan(entries: Array(previous[current...]), reloadAt: end)
+            let remaining = previous[current...].map { entry in
+                HedgehogEntry(date: entry.date, tick: entry.tick, spin: entry.spin,
+                              motion: entry.motion == .settle ? .settle : .glide(longestAnimation), orbit: entry.orbit)
+            }
+            return Plan(entries: remaining, reloadAt: end)
         }
 
         let step = TimeInterval(max(choreography.keyframeSec, 2))
@@ -91,9 +95,6 @@ struct HedgehogTimelineProvider: TimelineProvider {
             let prior = entries[entries.count - 1].tick
             if target.pose == .walk && abs(target.x - prior.x) > 0.025 {
                 let facing: Facing = target.x < prior.x ? .left : .right
-                if facing != prior.facing {
-                    append(Tick(pose: .idle, frame: 0, x: prior.x, y: 0, facing: facing))
-                }
                 let distance = target.x - prior.x
                 let steps = Int(ceil(abs(distance) / 0.06))
                 for part in 1...steps where entries.count < entryLimit {
