@@ -63,9 +63,11 @@ const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
 
 // An unencoded `+` in a URL query decodes to a space, so `+00:00` arrives as ` 00:00`.
 function parseUrlDate(value: string): string | null {
-    const repaired = String(value)
-        .trim()
-        .replace(/ (\d{2}:?\d{2})$/, '+$1')
+    const raw = String(value).trim()
+    if (dayjs(raw).isValid()) {
+        return raw
+    }
+    const repaired = raw.replace(/ (\d{2}:?\d{2})$/, '+$1')
     return dayjs(repaired).isValid() ? repaired : null
 }
 

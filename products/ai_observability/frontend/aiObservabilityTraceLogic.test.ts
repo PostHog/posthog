@@ -113,6 +113,11 @@ describe('aiObservabilityTraceLogic', () => {
             { timestamp: '2026-10-12T10:20:30.310693 00:00' },
             '2026-10-12T10:20:30.310693+00:00',
         ],
+        [
+            'keeps a valid timestamp that ends in a space-separated time',
+            { timestamp: '2026-10-12 10:20' },
+            '2026-10-12 10:20',
+        ],
         ['ignores a timestamp that is not a date', { timestamp: 'not-a-date' }, null],
         ['ignores an exception_ts that is not a date', { exception_ts: 'not-a-date' }, null],
     ])('%s', async (_, params, expectedDateFrom) => {
