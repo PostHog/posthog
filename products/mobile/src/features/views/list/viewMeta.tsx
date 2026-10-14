@@ -15,7 +15,8 @@ import type { PinTarget } from '../shortcutInput'
 const TYPE_LABEL: Record<ViewKind, string | null> = {
     dashboard: 'Dashboard',
     insight: 'Insight',
-    web_analytics: 'Web analytics',
+    // The view's name is already "Web analytics", so its second line says what kind of view it is.
+    web_analytics: 'Built-in view',
     notebook: 'Notebook',
     canvas: 'Canvas',
     web_link: null,
