@@ -12,6 +12,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
@@ -63,6 +64,37 @@ class ChannelsAPITestCase(TestCase):
 
     def _tasks_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/"
+
+    def test_space_resources_preserve_references_and_reject_cross_project_files(self) -> None:
+        channel_id = self._provision()["channels"][0]["id"]
+        url = f"{self._channels_url()}{channel_id}/resources/"
+        file = FileSystem.objects.create(team=self.team, path="Weekly overview", type="dashboard", ref="123")
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(channel_id), name="Space overview", created_by_id=self.user.id
+        )
+        config = {"featured_canvas": str(canvas_id), "resources": [{"file_id": str(file.id), "pinned": True}]}
+        self.assertEqual(self.client.put(url, config, format="json").status_code, 200)
+        self.assertEqual(self.client.get(url).json(), config)
+        other_channel = self._create_private_channel()["id"]
+        other_canvas = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(other_channel), name="Other space", created_by_id=self.user.id
+        )
+        invalid_canvas = {**config, "featured_canvas": str(other_canvas)}
+        self.assertEqual(self.client.put(url, invalid_canvas, format="json").status_code, 400)
+        other_team = Team.objects.create(organization=self.organization)
+        other_file = FileSystem.objects.create(team=other_team, path="Private dashboard", type="dashboard", ref="456")
+        invalid = {"resources": [{"file_id": str(other_file.id), "pinned": True}]}
+        self.assertEqual(self.client.put(url, invalid, format="json").status_code, 400)
+        self.assertEqual(self.client.get(url).json(), config)
+
+    @parameterized.expand([("get",), ("put",)])
+    def test_space_resources_are_hidden_from_private_space_nonmembers(self, method: str) -> None:
+        channel_id = self._create_private_channel()["id"]
+        self.client.force_authenticate(self.other_user)
+        response = getattr(self.client, method)(
+            f"{self._channels_url()}{channel_id}/resources/", {"resources": []}, format="json"
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_provision_creates_personal_channel(self):
         provisioned = self._provision()

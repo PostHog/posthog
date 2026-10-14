@@ -15,6 +15,7 @@ import { selectionClick } from './todaySessionSelection'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { todayShellLogic } from './todayShellLogic'
 import { todayRecentClearLabel, todaySidebarSectionState } from './todaySidebarSectionState'
+import { TodaySpaceLinks } from './TodaySpaceLinks'
 import { TodayWorkSectionId, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesSectionTabs } from './TodaySpacesSectionTabs'
 import { TodayWorkItem } from './todayWorkItems'
@@ -208,6 +209,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         return (
             <TooltipProvider>
                 <div className="TodayPane" data-quill>
+                    <TodaySpaceLinks />
                     <TodayPaneSearchList
                         query={recentQuery}
                         onQueryChange={setRecentQuery}
@@ -235,6 +237,7 @@ export function TodaySpacesSidebar(): JSX.Element {
     return (
         <TooltipProvider>
             <div className="TodayPane" data-quill>
+                <TodaySpaceLinks />
                 <TodayPaneSearchList
                     query={recentQuery}
                     onQueryChange={setRecentQuery}

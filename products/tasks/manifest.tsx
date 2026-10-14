@@ -31,6 +31,7 @@ export const manifest: ProductManifest = {
         // Before `/spaces/:id`, so the router does not read `new` as a space id.
         '/spaces/new': ['TaskNewSession', 'taskNewSession'],
         '/spaces/:id': ['TaskSpace', 'taskSpace'],
+        '/spaces/:id/activity': ['TaskSpace', 'taskSpaceActivity'],
         '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
         '/spaces/:id/new': ['TaskNewSession', 'taskSpaceNewSession'],
         '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
@@ -41,6 +42,7 @@ export const manifest: ProductManifest = {
         taskSpaces: (): string => '/spaces',
         taskNewSession: (): string => '/spaces/new',
         taskSpace: (id: string): string => `/spaces/${id}`,
+        taskSpaceActivity: (id: string): string => `/spaces/${id}/activity`,
         taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
         taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,
         taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,

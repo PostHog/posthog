@@ -390,7 +390,8 @@ describe('spaceSceneLogic', () => {
     })
 
     it.each<[string, SpaceTab, string[]]>([
-        [urls.taskSpace('space-a'), 'feed', []],
+        [urls.taskSpace('space-a'), 'overview', []],
+        [urls.taskSpaceActivity('space-a'), 'feed', []],
         [urls.taskSpaceCanvases('space-a'), 'canvases', ['space-a']],
         [urls.taskSpaceSettings('space-a'), 'settings', []],
     ])('opens %s on the %s tab and loads its canvases: %j', async (url, tab, expectedRequests) => {

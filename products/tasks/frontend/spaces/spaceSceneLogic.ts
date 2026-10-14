@@ -52,7 +52,7 @@ const SPACE_FEED_LIMIT = 50
 
 export const SPACE_CANVASES_MAX = 200
 
-export type SpaceTab = 'feed' | 'canvases' | 'settings'
+export type SpaceTab = 'overview' | 'feed' | 'canvases' | 'settings'
 
 export type SpaceFeedSourceStatus = 'hidden' | 'loading' | 'failed' | 'ready'
 
@@ -738,7 +738,9 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                     ? 'settings'
                     : location.pathname.endsWith('/canvases')
                       ? 'canvases'
-                      : 'feed',
+                      : location.pathname.endsWith('/activity')
+                        ? 'feed'
+                        : 'overview',
         ],
         canvasSections: [
             (s) => [s.canvases],

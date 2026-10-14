@@ -30,6 +30,7 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { SpaceCanvases } from './SpaceCanvases'
 import { SpaceFeed } from './SpaceFeed'
+import { SpaceOverview } from './SpaceOverview'
 import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
 import { SpaceTaskComposer } from './SpaceTaskComposer'
@@ -79,7 +80,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
             </SceneContent>
         )
     }
-    const starLabel = space?.starred ? 'Unstar space' : 'Star space'
+    const starLabel = space?.starred ? 'Unpin space' : 'Pin space'
     return (
         <TooltipProvider>
             <SceneContent>
@@ -123,7 +124,9 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                                 ? urls.taskSpaceSettings(id)
                                 : tab === 'canvases'
                                   ? urls.taskSpaceCanvases(id)
-                                  : urls.taskSpace(id)
+                                  : tab === 'feed'
+                                    ? urls.taskSpaceActivity(id)
+                                    : urls.taskSpace(id)
                         )
                     }
                     className="-mt-4"
@@ -131,6 +134,9 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                 >
                     <div className="-mx-4 border-b border-border px-4">
                         <TabsList variant="line" aria-label="Space pages">
+                            <TabsTrigger value="overview" data-attr="space-tab-overview">
+                                Overview
+                            </TabsTrigger>
                             <TabsTrigger value="feed" data-attr="today-space-tab-feed">
                                 Activity
                             </TabsTrigger>
@@ -142,6 +148,9 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                             </TabsTrigger>
                         </TabsList>
                     </div>
+                    <TabsContent value="overview">
+                        <SpaceOverview id={id} />
+                    </TabsContent>
                     <TabsContent value="feed">
                         {/* The same centered column and top inset as PostHog Desktop's space feed. */}
                         <div className="mx-auto flex w-full max-w-165 flex-col pt-3">

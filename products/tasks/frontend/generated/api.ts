@@ -74,6 +74,7 @@ import type {
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
+    SpaceResourceConfigApi,
     SpaceSetupStartedDTOApi,
     StreamReadTokenResponseApi,
     TaskActivityListParams,
@@ -1148,6 +1149,39 @@ export const taskChannelsMembersUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelMembersWriteApi),
+    })
+}
+
+export const getTaskChannelsResourcesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/resources/`
+}
+
+export const taskChannelsResourcesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SpaceResourceConfigApi> => {
+    return apiMutator<SpaceResourceConfigApi>(getTaskChannelsResourcesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsResourcesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/resources/`
+}
+
+export const taskChannelsResourcesUpdate = async (
+    projectId: string,
+    id: string,
+    spaceResourceConfigApi: SpaceResourceConfigApi,
+    options?: RequestInit
+): Promise<SpaceResourceConfigApi> => {
+    return apiMutator<SpaceResourceConfigApi>(getTaskChannelsResourcesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(spaceResourceConfigApi),
     })
 }
 
