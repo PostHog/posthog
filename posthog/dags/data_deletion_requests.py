@@ -1193,8 +1193,9 @@ def _cleaned_select_list(
     # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
     # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
     # second because _timestamp is second-precision while the marker is microsecond-precision.
-    # On flag_evaluations the bump also moves the Kafka position that flag_evaluations_backfill reads
-    # from _timestamp (see _KAFKA_POSITION_QUERY there).
+    # flag_evaluations_backfill reads max(_timestamp) per Kafka partition as the consumer position. On
+    # flag_evaluations a bumped row can therefore make a stalled partition look current (see
+    # _KAFKA_POSITION_QUERY there).
     if "ReplacingMergeTree" in engine:
         replacements["_timestamp"] = "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1"
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and

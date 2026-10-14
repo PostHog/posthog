@@ -1040,7 +1040,18 @@ def test_auto_approve_schedule_launches_a_run_on_tick():
 PROP_TEAM_ID = 88888
 
 
-def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
+@pytest.mark.parametrize(
+    "engine, timestamp_expression",
+    [
+        pytest.param(
+            "ReplicatedReplacingMergeTree",
+            "CAST(toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1 AS DateTime) AS `_timestamp`",
+            id="replacing_merge_tree_bumps_version",
+        ),
+        pytest.param("ReplicatedMergeTree", "`_timestamp`", id="plain_merge_tree_keeps_kafka_time"),
+    ],
+)
+def test_property_removal_cleaned_select_expressions(engine: str, timestamp_expression: str) -> None:
     client = Mock(spec=Client)
     client.execute.side_effect = [
         [
@@ -1049,7 +1060,7 @@ def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
             ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
             ("_timestamp", "DateTime"),
         ],
-        [("ReplicatedReplacingMergeTree",)],
+        [(engine,)],
     ]
     request = DeletionRequestContext(
         request_id=str(uuid4()),
@@ -1078,6 +1089,7 @@ def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
         "JSONDropKeysPool(if(empty(person_properties), '{}', person_properties), %(person_keys)s)) "
         "AS String) AS `person_properties`" in cleaned.expressions
     )
+    assert timestamp_expression in cleaned.expressions
 
 
 def _insert_events_with_properties(events: list[tuple], client: Client) -> None:

@@ -57,7 +57,7 @@ FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 # is monthly — without it, a one-day query for one flag would read that flag's
 # whole month. flag_key is a DEFAULT column; ClickHouse fills column defaults at
 # insert, before it sorts a part, so one can carry a sort key, though a key
-# column can never be ALTER UPDATEd, whatever its kind. The trailing hash intentionally
+# column can never be ALTER UPDATEd, whatever its kind. cityHash64(distinct_id) intentionally
 # differs from the sharding key — cityHash64 is the events table's convention for
 # within-shard ordering — and a MergeTree ORDER BY is immutable once data exists,
 # so the two must not silently move together. cityHash64(uuid) comes last, as on the
