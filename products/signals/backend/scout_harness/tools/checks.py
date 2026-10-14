@@ -125,7 +125,7 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
             raise InvalidCheckResultError(
                 f"check {check_id} is not due until {check.next_run_at.isoformat()}, so it is not yours to close yet"
             )
-        pause_reason = _pause_reason(check, check.report.status, now)
+        pause_reason = _pause_reason(check, check.report.effective_status, now)
         if pause_reason is not None:
             raise InvalidCheckResultError(
                 f"check {check_id} is paused because {pause_reason}, so nothing is owed on it"
@@ -358,7 +358,7 @@ def create_report_check(
         )
     except CheckCreationError as error:
         raise InvalidCheckWriteError(str(error)) from None
-    return _summarize(check, report.status)
+    return _summarize(check, report.effective_status)
 
 
 def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]:
@@ -372,7 +372,8 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     )
     run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
     now = timezone.now()
-    return [_summarize(check, report.status, run_ids.get(str(check.id)), now) for check in checks]
+    report_status = report.effective_status
+    return [_summarize(check, report_status, run_ids.get(str(check.id)), now) for check in checks]
 
 
 def _run_attribution(run: SignalScoutRun) -> ArtefactAttribution:
@@ -396,4 +397,4 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
         raise InvalidCheckWriteError(f"check {check_id} not found")
     if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
         raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
-    return _summarize(check, check.report.status)
+    return _summarize(check, check.report.effective_status)
