@@ -31,7 +31,12 @@ with open(sys.argv[1], "w") as output:
 
 def catalog_json() -> str:
     # Imported here because the catalog needs Django set up, which only the child process does.
+    from products.warehouse_sources.backend.facade.source_management import load_all_sources_or_raise  # noqa: PLC0415
     from products.wizard.backend.tool_catalog.catalog import CATALOG_SCHEMA_VERSION, get_tool_catalog  # noqa: PLC0415
+
+    # The registry's own loader skips a source module that fails to import, and a catalog rendered
+    # without that source would silently drop its detection.
+    load_all_sources_or_raise()
 
     tools: list[dict[str, Any]] = [
         {
