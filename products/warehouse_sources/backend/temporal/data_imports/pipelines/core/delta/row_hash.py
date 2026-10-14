@@ -1,4 +1,5 @@
 import json
+import decimal
 import hashlib
 from collections.abc import Collection
 from typing import cast
@@ -14,6 +15,8 @@ ROW_HASH_VERSION = 1
 _VERSION_PREFIX = f"v{ROW_HASH_VERSION}:"
 _FIELD_SEPARATOR = b"\x1f"
 _BINARY = pa.large_binary()
+# Wider than the 76 digits of the widest Arrow decimal, so normalizing never rounds a value.
+_DECIMAL_CONTEXT = decimal.Context(prec=100)
 
 
 def is_current_row_hash(row_hash: str | None) -> bool:
@@ -64,9 +67,16 @@ def _normalized_values(values: pa.Array) -> pa.Array:
         arrow_type = values.type
 
     if pa.types.is_decimal(arrow_type):
-        # A decimal prints its full scale, so 5.00 and 5.0000 differ until the trailing zeros go.
-        text = pc.replace_substring_regex(values.cast(pa.large_string()), r"(\.\d*?)0+$", r"\1")
-        return cast(pa.Array, pc.replace_substring_regex(text, r"\.$", "")).cast(_BINARY)
+        # Arrow prints a decimal padded to its scale, and a small one in scientific notation, so the
+        # same value prints as 1E-7 at scale 7 and as 1.0E-7 at scale 8. Fixed-point text of the
+        # normalized value is the same at every scale.
+        return pa.array(
+            [
+                None if value is None else format(_DECIMAL_CONTEXT.normalize(value), "f").encode()
+                for value in values.to_pylist()
+            ],
+            type=_BINARY,
+        )
     if pa.types.is_floating(arrow_type):
         return values.cast(pa.float64()).cast(pa.large_string()).cast(_BINARY)
     if pa.types.is_integer(arrow_type) or pa.types.is_boolean(arrow_type):

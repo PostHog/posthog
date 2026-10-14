@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+import pyarrow.dataset as pa_ds
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     first_per_pk_table,
@@ -93,19 +94,35 @@ class Scd2DeltaWriter:
     ) -> dict[tuple[Any, ...], str | None]:
         assert self._row_hash_column is not None
         dataset = delta_table.to_pyarrow_dataset()
-        first_pk = primary_keys[0]
-        wanted = pc.unique(data.column(first_pk)).cast(dataset.schema.field(first_pk).type)
-        is_current = pc.field(self._valid_to_column).is_null() & pc.field(first_pk).isin(wanted)
-
-        rows = dataset.to_table(columns=[*primary_keys, self._row_hash_column], filter=is_current)
+        rows = dataset.to_table(
+            columns=[*primary_keys, self._row_hash_column],
+            filter=self._current_rows_filter(dataset, data, primary_keys),
+        )
         hashes = rows.column(self._row_hash_column).to_pylist()
-        if not all(is_current_row_hash(row_hash) for row_hash in hashes):
+        current_hashes = dict(zip(_key_tuples(rows, primary_keys), hashes))
+
+        is_stale = pa.array([not is_current_row_hash(row_hash) for row_hash in hashes], type=pa.bool_())
+        if is_stale.true_count:
             # A row written before skip-unchanged was on, or under another hash version, has no
             # comparable hash. Hash its stored values instead, so that it does not read as changed.
-            rows = dataset.to_table(filter=is_current)
-            hashes = compute_row_hashes(rows, self._unhashed_columns).to_pylist()
+            stale_keys = rows.filter(is_stale).select(primary_keys)
+            stale_rows = dataset.to_table(filter=self._current_rows_filter(dataset, stale_keys, primary_keys))
+            stale_hashes = compute_row_hashes(stale_rows, self._unhashed_columns).to_pylist()
+            current_hashes.update(zip(_key_tuples(stale_rows, primary_keys), stale_hashes))
 
-        return dict(zip(_key_tuples(rows, primary_keys), hashes))
+        return current_hashes
+
+    def _current_rows_filter(self, dataset: pa_ds.Dataset, keys: pa.Table, primary_keys: list[str]) -> pc.Expression:
+        """Match the current rows whose key columns each hold a value from `keys`.
+
+        For a composite key this also matches some keys that are not in `keys`. The caller looks
+        rows up by the full key, so those extra rows are never compared.
+        """
+        expression = pc.field(self._valid_to_column).is_null()
+        for name in primary_keys:
+            wanted = pc.unique(keys.column(name)).cast(dataset.schema.field(name).type)
+            expression = expression & pc.field(name).isin(wanted)
+        return expression
 
     async def write(
         self,

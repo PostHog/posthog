@@ -33,6 +33,11 @@ class TestComputeRowHashes:
                 pa.table({"a": pa.array([Decimal("5.1000")], type=pa.decimal128(38, 4))}),
             ),
             (
+                "small_decimal_scale_widening",
+                pa.table({"a": pa.array([Decimal("0.0000001")], type=pa.decimal128(10, 7))}),
+                pa.table({"a": pa.array([Decimal("0.0000001")], type=pa.decimal128(10, 8))}),
+            ),
+            (
                 "float_widening",
                 pa.table({"a": pa.array([1.5], type=pa.float32())}),
                 pa.table({"a": pa.array([1.5], type=pa.float64())}),

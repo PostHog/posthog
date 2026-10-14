@@ -213,6 +213,27 @@ class TestScd2SkipUnchanged:
         ]
 
     @pytest.mark.asyncio
+    async def test_composite_key_compares_each_row_with_its_own_key(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+        writer = _make_skip_unchanged_writer(delta_path)
+        seed = _history_batch([("a", "free", 1, ts1), ("a", "pro", 1, ts1)])
+        await writer.write(data=seed.append_column("tenant", pa.array(["t1", "t2"])), primary_keys=["tenant", "id"])
+
+        batch = _history_batch([("a", "free", 2, ts2), ("a", "free", 2, ts2)])
+        result = await writer.write(
+            data=batch.append_column("tenant", pa.array(["t1", "t2"])), primary_keys=["tenant", "id"]
+        )
+
+        rows = result.to_pyarrow_table().to_pylist()
+        assert sorted((r["tenant"], r["plan"], r["valid_from"], r["valid_to"]) for r in rows) == [
+            ("t1", "free", ts1, None),
+            ("t2", "free", ts2, None),
+            ("t2", "pro", ts1, ts2),
+        ]
+
+    @pytest.mark.asyncio
     async def test_batch_of_only_unchanged_rows_commits_nothing(self, tmp_path: Path) -> None:
         delta_path = str(tmp_path / "scd2_table")
         ts1 = datetime(2026, 1, 1, tzinfo=UTC)
