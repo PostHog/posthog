@@ -71,7 +71,7 @@ class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
     )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self.hog_flow_id is not None and _project_id(self.hog_flow.team) != _project_id(self.team):
+        if self.hog_flow is not None and _project_id(self.hog_flow.team) != _project_id(self.team):
             raise ValueError("A workflow idea can only link a workflow from its own project.")
         super().save(*args, **kwargs)
 
