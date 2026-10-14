@@ -898,10 +898,7 @@ fn both_engines_count_and_collect_an_image_once_or_not_at_all() {
             let out = anonymize_kafka_payload_opts(
                 &allow,
                 &mut bytes,
-                AnonymizeOpts {
-                    byte_walk,
-                    ..Default::default()
-                },
+                AnonymizeOpts { byte_walk },
                 Some(ImageCollection::new(
                     "42".to_string(),
                     "fedcba9876543210fedcba9876543210".to_string(),
