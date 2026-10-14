@@ -42,6 +42,10 @@ const seconds = (value: number): string => {
  * a count that happens to be in 0..1 is left alone by the caller passing a more specific unit. */
 const RATIO_AS_PERCENT_MAX = 1
 
+const fitsPercent = (value: number): boolean => Math.abs(value) <= RATIO_AS_PERCENT_MAX
+
+const ratio = (value: number, asPercent: boolean): string => (asPercent ? `${compact(value * 100)}%` : compact(value))
+
 /** Format one metric value with a UCUM unit. `unit` is the raw OTel string; `undefined`
  * or an unknown unit falls back to a compact number. */
 export function formatMetricValue(value: number, unit: string | undefined): string {
@@ -73,10 +77,7 @@ export function formatMetricValue(value: number, unit: string | undefined): stri
     }
     if (unit === '1') {
         // UCUM "one": a dimensionless ratio. Render small ratios as a percent.
-        if (Math.abs(value) <= RATIO_AS_PERCENT_MAX) {
-            return `${compact(value * 100)}%`
-        }
-        return compact(value)
+        return ratio(value, fitsPercent(value))
     }
     if (unit === '1/s') {
         return `${compact(value)}/s`
@@ -89,7 +90,13 @@ export function formatMetricValue(value: number, unit: string | undefined): stri
     return `${compact(value)} ${unit}`
 }
 
-/** An axis/tooltip formatter bound to a unit. */
-export function unitAxisFormatter(unit: string | undefined): (value: number) => string {
+/** A formatter for values one visual shows together: a chart's ticks and tooltips, a table, a bucket list.
+ * A ratio picks percent or bare numbers once from all `values`, so one visual never shows `100%` next
+ * to `1.5`. Every other unit formats each value on its own. */
+export function metricValuesFormatter(unit: string | undefined, values: readonly number[]): (value: number) => string {
+    if (unit === '1') {
+        const asPercent = values.every(fitsPercent)
+        return (value: number) => ratio(value, asPercent)
+    }
     return (value: number) => formatMetricValue(value, unit)
 }

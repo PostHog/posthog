@@ -1,4 +1,4 @@
-import { formatMetricValue, unitAxisFormatter } from './metricsUnits'
+import { formatMetricValue, metricValuesFormatter } from './metricsUnits'
 
 describe('formatMetricValue', () => {
     it.each([
@@ -53,14 +53,17 @@ describe('formatMetricValue', () => {
     })
 })
 
-describe('unitAxisFormatter', () => {
-    it('binds the unit into a reusable formatter', () => {
-        const fmt = unitAxisFormatter('ms')
-        expect(fmt(340)).toBe('340 ms')
-        expect(fmt(2000)).toBe('2 s')
-    })
-
-    it('falls back to compact with no unit', () => {
-        expect(unitAxisFormatter(undefined)(1500)).toBe('1.5K')
+describe('metricValuesFormatter', () => {
+    it.each([
+        // a ratio picks one scale for every value shown together, from the largest of them
+        ['1', [0, 0.5, 1, 1.5, 2], ['0', '0.5', '1', '1.5', '2']],
+        ['1', [-2, 0.5], ['-2', '0.5']],
+        ['1', [0, 0.25, 1], ['0%', '25%', '100%']],
+        // other units still format each value on its own
+        ['ms', [340, 2000], ['340 ms', '2 s']],
+        [undefined, [1500], ['1.5K']],
+    ])('formats unit %s over values %j', (unit, values, expected) => {
+        const fmt = metricValuesFormatter(unit, values)
+        expect(values.map(fmt)).toEqual(expected)
     })
 })

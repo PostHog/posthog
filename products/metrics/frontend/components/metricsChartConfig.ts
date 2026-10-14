@@ -8,7 +8,7 @@ import type {
 
 import type { GoalLine, MetricsDisplaySettings, MetricsYAxisSettings } from '~/queries/schema/schema-general'
 
-import { unitAxisFormatter } from '../panels/metricsUnits'
+import { metricValuesFormatter } from '../panels/metricsUnits'
 
 /** The config keys metrics sets. `TimeSeriesLineChartConfig` and `TimeSeriesBarChartConfig` declare
  * these identically, so one builder serves both charts. */
@@ -62,6 +62,7 @@ export function buildMetricsChartConfig({
     seriesCount,
     labelFormatter,
     unit,
+    values = [],
 }: {
     display: MetricsDisplaySettings | undefined
     xAxis: XAxisConfig
@@ -69,8 +70,10 @@ export function buildMetricsChartConfig({
     labelFormatter: (label: string) => string
     /** The unit every series shares, as `MetricsPanel` resolves it. Undefined leaves quill's number formatting. */
     unit?: string
+    /** Every plotted value. A ratio unit picks one scale for the whole chart from them. */
+    values?: readonly number[]
 }): MetricsChartConfig {
-    const valueFormatter = unit ? unitAxisFormatter(unit) : undefined
+    const valueFormatter = unit ? metricValuesFormatter(unit, values) : undefined
     const yAxisSettings = yAxisToConfig(display?.yAxis)
     const yAxis = valueFormatter ? { ...yAxisSettings, tickFormatter: valueFormatter } : yAxisSettings
     const goalLines = goalLinesToConfigs(display?.goalLines)
