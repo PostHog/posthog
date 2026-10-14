@@ -185288,8 +185288,9 @@ export interface ReviewHogReviewHogReviewsGetResponseShape9 {
      * * `dedup_comment` - Already in a PR comment
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
-     * * `cap` - Over the limit */
-    disposition: 'old_code' | 'dedup_prior' | 'dedup_comment' | 'dedup_anchor' | 'dedup_sibling' | 'cap'
+     * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit */
+    disposition: 'old_code' | 'dedup_prior' | 'dedup_comment' | 'dedup_anchor' | 'dedup_sibling' | 'cap' | 'budget'
     /** For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions. */
     duplicate_of: null | string
     /** Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise. */
