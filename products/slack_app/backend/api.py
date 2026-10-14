@@ -3925,14 +3925,17 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
     client = slack.client
     client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
 
-    # The reply goes in a message of its own, so the thread reads in order: the question, the
-    # reply, the next answer. Its ts carries the reactions that show progress and keys the
-    # follow-up's idempotent message id. Without it, the answer's ts stands in.
-    chosen = reply_suggestions.chosen_reply_text(clicker_slack_user_id, clicked.text)
+    # A message of its own keeps the thread in order: the question, the reply, the next answer.
+    # Its ts carries the progress reactions and keys the follow-up's idempotent message id.
     reply_ts = message_ts
     try:
-        posted = client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=chosen)
-        if isinstance(posted.get("ts"), str):
+        posted = post_slack_thread_reply(
+            client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f"<@{clicker_slack_user_id}> picked a suggested reply: *{clicked.text}*",
+        )
+        if posted is not None and isinstance(posted.get("ts"), str):
             reply_ts = posted["ts"]
     except Exception:
         logger.warning("slack_app_reply_suggestion_post_failed", integration_id=integration.id, exc_info=True)
@@ -3955,13 +3958,8 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         untagged_followup_confirmed=True,
     )
 
-    # Slack can only replace a message whole, so the answer is sent back with every block but the buttons.
-    blocks = reply_suggestions.without_reply_suggestions(message.get("blocks") or [])
     try:
-        if blocks:
-            client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or chosen, blocks=blocks)
-        else:
-            client.chat_delete(channel=channel, ts=message_ts)
+        reply_suggestions.strip_reply_suggestions(client, channel, message_ts, message)
     except Exception:
         logger.warning("slack_app_reply_suggestion_update_failed", integration_id=integration.id, exc_info=True)
 

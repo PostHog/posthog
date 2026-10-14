@@ -193,12 +193,11 @@ def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttributio
 def reply_suggestions_block(
     integration_id: int, suggestions: list[SuggestedReply], trace_id: str | None
 ) -> dict[str, Any]:
-    """Slack needs a unique action id for each element in a block, so the index is part of the id.
+    """The index is part of the action id, because Slack needs a unique one for each element in a block.
 
-    The value carries the full reply, which is what a click sends. The integration lets the
-    cross-region interactivity router claim the click, and the trace id joins the click event to
-    the generation that suggested the reply. Slack has no tooltip on a button, so the full reply
-    reaches only screen readers, through the accessibility label.
+    Slack has no tooltip on a button, so the full reply reaches only screen readers, through the
+    accessibility label. The value carries it too, because a click sends it. The integration in the
+    value lets the cross-region interactivity router claim the click.
     """
     return {
         "type": "actions",
@@ -218,10 +217,6 @@ def reply_suggestions_block(
 
 def reply_suggestions_fallback_text(suggestions: list[SuggestedReply]) -> str:
     return "Suggested replies: " + ", ".join(suggestion.label for suggestion in suggestions)
-
-
-def chosen_reply_text(slack_user_id: str, text: str) -> str:
-    return f"<@{slack_user_id}> picked a suggested reply: *{text}*"
 
 
 def is_reply_suggestion_action(action_id: object) -> bool:
@@ -252,8 +247,19 @@ def clicked_suggestion(payload: dict) -> ClickedSuggestion | None:
     )
 
 
-def without_reply_suggestions(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [block for block in blocks if block.get("block_id") != REPLY_SUGGESTIONS_BLOCK_ID]
+def strip_reply_suggestions(client: WebClient, channel: str, message_ts: str, message: dict[str, Any]) -> None:
+    """Send the message back without its buttons, because Slack can only replace a message whole.
+
+    A message that held nothing but the buttons is deleted.
+    """
+    blocks = message.get("blocks") or []
+    kept = [block for block in blocks if block.get("block_id") != REPLY_SUGGESTIONS_BLOCK_ID]
+    if len(kept) == len(blocks):
+        return
+    if kept:
+        client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or "", blocks=kept)
+    else:
+        client.chat_delete(channel=channel, ts=message_ts)
 
 
 def _open_suggestions_key(integration_id: int, channel: str, thread_ts: str) -> str:
@@ -274,7 +280,6 @@ def clear_open_suggestions(client: WebClient, integration_id: int, channel: str,
     """Remove buttons that a newer message in the thread made stale, so nobody answers an old question.
 
     The message is read back from Slack because a streamed answer's blocks exist only there.
-    A message that held nothing but the buttons is deleted.
     """
     key = _open_suggestions_key(integration_id, channel, thread_ts)
     message_ts = cache.get(key)
@@ -286,16 +291,8 @@ def clear_open_suggestions(client: WebClient, integration_id: int, channel: str,
             channel=channel, ts=message_ts, oldest=message_ts, latest=message_ts, inclusive=True, limit=1
         )
         message = next((m for m in response.get("messages") or [] if m.get("ts") == message_ts), None)
-        if message is None:
-            return
-        blocks = message.get("blocks") or []
-        kept = without_reply_suggestions(blocks)
-        if len(kept) == len(blocks):
-            return
-        if kept:
-            client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or "", blocks=kept)
-        else:
-            client.chat_delete(channel=channel, ts=message_ts)
+        if message is not None:
+            strip_reply_suggestions(client, channel, message_ts, message)
     except Exception:
         logger.warning(
             "slack_app_reply_suggestions_clear_failed", channel=channel, message_ts=message_ts, exc_info=True

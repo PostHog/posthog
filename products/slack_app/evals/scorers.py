@@ -380,11 +380,7 @@ class ReplyOfferMatch(Scorer):
 
 
 class NoUnaskedButtons(Scorer):
-    """The expensive direction: buttons under an answer that asks nothing, which invite an instruction nobody meant.
-
-    Skips on cases that really wait for the reader, so the score reads as a rate over the
-    answers that should have stayed bare.
-    """
+    """Buttons under an answer that asks nothing. Skips cases that wait for the reader, so the score is a rate."""
 
     def _name(self) -> str:
         return "no_unasked_buttons"
@@ -408,8 +404,8 @@ class SuggestedRepliesFit(JudgedScorer):
     """
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:
-        want = (expected or {}).get(REPLY_OFFER_KEY) if isinstance(expected, dict) else None
-        if not isinstance(want, dict) or not want.get("offer"):
+        want = (expected or {}).get(REPLY_OFFER_KEY) or {}
+        if not want.get("offer"):
             return Score(name=self._name(), score=None, metadata={"reason": "Case expects no replies"})
         suggestions = (output or {}).get("suggestions") or []
         if not suggestions:

@@ -1,12 +1,7 @@
 """Which agent answers get one-click reply buttons, and are the buttons ones a person would press?
 
-After a turn, `suggest_replies` reads the agent's answer and offers up to three replies
-when the answer waits for the reader. The errors are not symmetric: a missing button
-costs one typed reply, while a button under an answer that asks nothing invites an
-instruction nobody meant. So `no_unasked_buttons` is the number to watch, then
-`reply_offer`, then `suggested_replies_fit` for the quality of the offered text.
-
-Each case prompt is the agent's answer, not a user request.
+Each case prompt is the agent's answer, not a user request. Watch `no_unasked_buttons` first,
+for the reason `suggest_replies` gives, then `reply_offer`, then `suggested_replies_fit`.
 
 To run:
     hogli evals eval_reply_suggestions
