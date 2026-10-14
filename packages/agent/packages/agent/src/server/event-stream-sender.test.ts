@@ -208,11 +208,30 @@ describe("TaskRunEventStreamSender", () => {
   });
 
   it.each([
-    { reporting: true, header: "1", callbacks: ["awaiting_input"] },
-    { reporting: false, header: null, callbacks: [] },
+    {
+      name: "with a reporter",
+      reporting: true,
+      maxBufferedEvents: undefined,
+      header: "1",
+      callbacks: ["awaiting_input"],
+    },
+    {
+      name: "with a reporter and a full buffer",
+      reporting: true,
+      maxBufferedEvents: 0,
+      header: "1",
+      callbacks: ["awaiting_input"],
+    },
+    {
+      name: "without a reporter",
+      reporting: false,
+      maxBufferedEvents: undefined,
+      header: null,
+      callbacks: [],
+    },
   ])(
-    "sends callbacks and marks its ingest requests only with a reporter (reporting: $reporting)",
-    async ({ reporting, header, callbacks }) => {
+    "reports turn state and marks its ingest requests $name",
+    async ({ reporting, maxBufferedEvents, header, callbacks }) => {
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, init?: RequestInit) => {
           const body = await readRequestBody(init);
@@ -224,13 +243,15 @@ describe("TaskRunEventStreamSender", () => {
       const callbackReporter = new AgentCallbackReporter({
         send: async (callback) => {
           sent.push(callback);
+          return true;
         },
         logger: new Logger({ debug: false }),
       });
 
       const sender = createSender({
         eventIngestBaseUrl: "http://agent-proxy:8003/",
-        callbackReporter: reporting ? callbackReporter : undefined,
+        maxBufferedEvents,
+        callbackReporter: reporting ? callbackReporter : null,
       });
       sender.enqueue({
         type: "notification",
@@ -835,18 +856,37 @@ describe("TaskRunEventStreamSender", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
+    const sent: AgentCallback[] = [];
 
-    const sender = createSender();
+    const sender = createSender({
+      callbackReporter: new AgentCallbackReporter({
+        send: async (callback) => {
+          sent.push(callback);
+          return true;
+        },
+        logger: new Logger({ debug: false }),
+      }),
+    });
 
     sender.enqueue({
       type: "notification",
-      notification: { method: "after-restart" },
+      notification: {
+        method: "_posthog/process_killed",
+        params: {
+          comm: "bash",
+          signal: "SIGKILL",
+          treeRssBytes: 100,
+          memoryCurrentBytes: 200,
+          memoryLimitBytes: 300,
+        },
+      },
     });
     sender.enqueue({ type: "notification", notification: { method: "next" } });
     await sender.stop();
 
     expect(eventSequences(requestBodies[0])).toEqual([43, 44]);
     expect(completionSequences(requestBodies[0])).toEqual([44]);
+    expect(sent).toMatchObject([{ kind: "process_killed", sequence: 43 }]);
   });
 
   it("rebases buffered events after a sequence gap response", async () => {

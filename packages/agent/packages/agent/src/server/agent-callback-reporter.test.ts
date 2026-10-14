@@ -27,14 +27,14 @@ const ingestToken = (claims: Event): string =>
   `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
 
 function createReporter(
-  send: (callback: AgentCallback) => Promise<void> = async () => {},
+  send: (callback: AgentCallback) => Promise<boolean> = async () => true,
 ) {
   const sent: AgentCallback[] = [];
   const clock = { nowMs: 0 };
   const reporter = new AgentCallbackReporter({
     send: async (callback) => {
       sent.push(callback);
-      await send(callback);
+      return send(callback);
     },
     logger: new Logger({ debug: false }),
     now: () => clock.nowMs,
@@ -106,7 +106,7 @@ describe("AgentCallbackReporter", () => {
   ])("reports $name", async ({ event, expected }) => {
     const { reporter, sent } = createReporter();
 
-    reporter.observe(1, event);
+    reporter.observe(event);
     await reporter.settled();
 
     expect(sent).toEqual([expected]);
@@ -115,11 +115,11 @@ describe("AgentCallbackReporter", () => {
   it("sends one heartbeat per 30 seconds of activity", async () => {
     const { reporter, sent, clock } = createReporter();
 
-    reporter.observe(1, sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"));
     clock.nowMs = 29_999;
-    reporter.observe(2, sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"));
     clock.nowMs = 30_000;
-    reporter.observe(3, sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"));
     await reporter.settled();
 
     expect(sent).toEqual([
@@ -131,13 +131,13 @@ describe("AgentCallbackReporter", () => {
   it("stays quiet after a turn ends until the agent is active again", async () => {
     const { reporter, sent } = createReporter();
 
-    reporter.observe(1, sessionUpdate("plan"));
-    reporter.observe(2, turnComplete("end_turn"));
-    reporter.observe(3, {
+    reporter.observe(sessionUpdate("plan"));
+    reporter.observe(turnComplete("end_turn"));
+    reporter.observe({
       type: "notification",
       notification: { method: "_posthog/usage" },
     });
-    reporter.observe(4, sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"));
     await reporter.settled();
 
     expect(sent.map((callback) => callback.kind)).toEqual([
@@ -164,33 +164,48 @@ describe("AgentCallbackReporter", () => {
   ])("reports the $kind boot milestone once", async ({ kind, event }) => {
     const { reporter, sent } = createReporter();
 
-    reporter.observe(1, event);
-    reporter.observe(2, event);
+    reporter.observe(event);
+    reporter.observe(event);
     await reporter.settled();
 
     expect(sent.filter((callback) => callback.kind === kind)).toHaveLength(1);
   });
 
-  it("reports a boot milestone again after its callback failed", async () => {
+  it.each([
+    {
+      name: "again after the server failed",
+      first: () =>
+        Promise.reject(Object.assign(new Error("down"), { status: 503 })),
+      reports: 2,
+    },
+    {
+      name: "again after Django skipped the dispatch",
+      first: () => Promise.resolve(false),
+      reports: 2,
+    },
+    {
+      name: "once when the server refused it",
+      first: () =>
+        Promise.reject(Object.assign(new Error("forbidden"), { status: 403 })),
+      reports: 1,
+    },
+  ])("reports a boot milestone $name", async ({ first, reports }) => {
     const send = vi
-      .fn<(callback: AgentCallback) => Promise<void>>()
-      .mockRejectedValueOnce(Object.assign(new Error("down"), { status: 503 }))
-      .mockResolvedValue(undefined);
+      .fn<(callback: AgentCallback) => Promise<boolean>>()
+      .mockImplementationOnce(first)
+      .mockResolvedValue(true);
     const { reporter, sent } = createReporter(send);
     const dispatched = {
       type: "notification",
       notification: { method: "_posthog/agent_command_dispatched" },
     };
 
-    reporter.observe(1, dispatched);
+    reporter.observe(dispatched);
     await reporter.settled();
-    reporter.observe(2, dispatched);
+    reporter.observe(dispatched);
     await reporter.settled();
 
-    expect(sent.map((callback) => callback.kind)).toEqual([
-      "command_dispatched",
-      "command_dispatched",
-    ]);
+    expect(sent).toHaveLength(reports);
   });
 
   it.each([
@@ -223,7 +238,7 @@ describe("AgentCallbackReporter", () => {
       throw failure;
     });
 
-    reporter.observe(1, event);
+    reporter.observe(event);
     await reporter.settled();
 
     expect(sent).toHaveLength(attempts);
@@ -293,7 +308,7 @@ describe("AgentCallbackReporter", () => {
     async ({ event, expected }) => {
       const { reporter, sent } = createReporter();
 
-      reporter.observe(7, event);
+      reporter.observeAccepted(7, event);
       await reporter.settled();
 
       expect(JSON.parse(JSON.stringify(sent))).toEqual([expected]);
@@ -331,11 +346,11 @@ describe("AgentCallbackReporter", () => {
       const reporter = createAgentCallbackReporter({
         eventIngestToken: ingestToken(claims),
         eventIngestBaseUrl,
-        send: async () => {},
+        send: async () => true,
         logger: new Logger({ debug: false }),
       });
 
-      expect(reporter !== undefined).toBe(reports);
+      expect(reporter !== null).toBe(reports);
     },
   );
 
@@ -343,10 +358,10 @@ describe("AgentCallbackReporter", () => {
     const reporter = createAgentCallbackReporter({
       eventIngestToken: "not-a-jwt",
       eventIngestBaseUrl: "http://agent-proxy:8003",
-      send: async () => {},
+      send: async () => true,
       logger: new Logger({ debug: false }),
     });
 
-    expect(reporter).toBeUndefined();
+    expect(reporter).toBeNull();
   });
 });

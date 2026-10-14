@@ -15,7 +15,7 @@ interface TaskRunEventStreamSenderConfig {
   // Base URL for the event-ingest POST only; falls back to apiUrl (Django path) when unset.
   eventIngestBaseUrl?: string;
   keepProxyStreamOpen?: boolean;
-  callbackReporter?: AgentCallbackReporter;
+  callbackReporter?: AgentCallbackReporter | null;
   projectId: number;
   taskId: string;
   runId: string;
@@ -168,6 +168,7 @@ export class TaskRunEventStreamSender {
   enqueue(event: Record<string, unknown>): void {
     if (this.stopped) return;
 
+    this.config.callbackReporter?.observe(event);
     const acceptedEvent = this.prepareEvent(event);
     if (!acceptedEvent) {
       return;
@@ -178,7 +179,6 @@ export class TaskRunEventStreamSender {
       event: acceptedEvent,
     };
     this.bufferedEvents.push(envelope);
-    this.config.callbackReporter?.observe(envelope.seq, acceptedEvent);
     this.scheduleFlush();
   }
 
@@ -677,12 +677,21 @@ export class TaskRunEventStreamSender {
   }
 
   private acceptThrough(lastAcceptedSeq: number): void {
-    const previousLength = this.bufferedEvents.length;
+    const accepted = this.bufferedEvents.filter(
+      (event) => event.seq <= lastAcceptedSeq,
+    );
+    if (accepted.length === 0) {
+      return;
+    }
     this.bufferedEvents = this.bufferedEvents.filter(
       (event) => event.seq > lastAcceptedSeq,
     );
-    if (this.bufferedEvents.length !== previousLength) {
-      this.bufferRevision += 1;
+    this.bufferRevision += 1;
+    for (const envelope of accepted) {
+      this.config.callbackReporter?.observeAccepted(
+        envelope.seq,
+        envelope.event,
+      );
     }
   }
 

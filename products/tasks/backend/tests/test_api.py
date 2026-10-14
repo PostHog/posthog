@@ -14291,6 +14291,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         [
             ("sandbox_of_opted_in_run", "sandbox", True, status.HTTP_200_OK, 1),
             ("sandbox_of_proxy_reported_run", "sandbox", False, status.HTTP_403_FORBIDDEN, 0),
+            ("sandbox_of_another_run", "other_run_sandbox", True, status.HTTP_403_FORBIDDEN, 0),
             ("human_session", "session", True, status.HTTP_403_FORBIDDEN, 0),
         ]
     )
@@ -14298,10 +14299,13 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self, _name, caller, opted_in, expected_status, expected_heartbeats
     ):
         task = self.create_task()
+        self._create_run_with_sandbox(task)
+        client = self._sandbox_oauth_client(task.id) if caller == "other_run_sandbox" else self.client
         run = self._create_run_with_sandbox(task)
         run.state = {**run.state, "agent_sends_callbacks": opted_in}
         run.save(update_fields=["state"])
-        client = self._sandbox_oauth_client(task.id) if caller == "sandbox" else self.client
+        if caller == "sandbox":
+            client = self._sandbox_oauth_client(task.id)
 
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
             response = client.post(

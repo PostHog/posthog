@@ -67,7 +67,6 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
-from products.tasks.backend.agent_callback import dispatch_agent_callback
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -79,6 +78,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
+from products.tasks.backend.facade.agent_callback import dispatch_agent_callback
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
@@ -2618,7 +2618,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="agent_callback")
     def agent_callback(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        if not is_sandbox_agent_request(request, task_id):
+        if not run_context.is_sandbox_run_request(request=request, team_id=self.team_id, task_id=task_id, run_id=pk):
             raise PermissionDenied("Only this run's sandbox can send its callbacks.")
         outcome = dispatch_agent_callback(
             run_id=pk, task_id=task_id, team_id=self.team_id, body=request.data, data=request.validated_data

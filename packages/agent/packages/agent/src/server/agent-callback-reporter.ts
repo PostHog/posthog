@@ -50,8 +50,10 @@ const RETRYABLE_KINDS: ReadonlySet<AgentCallbackKind> = new Set([
 
 type JsonObject = Record<string, unknown>;
 
+type DeliveryOutcome = "dispatched" | "skipped" | "refused" | "failed";
+
 interface AgentCallbackReporterConfig {
-  send: (callback: AgentCallback) => Promise<void>;
+  send: (callback: AgentCallback) => Promise<boolean>;
   logger: Logger;
   now?: () => number;
   retryDelayMs?: number;
@@ -247,17 +249,18 @@ export class AgentCallbackReporter {
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   }
 
-  observe(sequence: number, event: JsonObject): void {
-    const budgetSteer = budgetSteerCallback(sequence, event);
-    if (budgetSteer) {
-      this.dispatch(budgetSteer);
-    }
-    const processKilled = processKilledCallback(sequence, event);
-    if (processKilled) {
-      this.dispatch(processKilled);
-    }
+  observe(event: JsonObject): void {
     this.reportBootMilestone(event);
     this.reportTurnState(event);
+  }
+
+  observeAccepted(sequence: number, event: JsonObject): void {
+    const callback =
+      budgetSteerCallback(sequence, event) ??
+      processKilledCallback(sequence, event);
+    if (callback) {
+      this.dispatch(callback);
+    }
   }
 
   private reportBootMilestone(event: JsonObject): void {
@@ -320,11 +323,11 @@ export class AgentCallbackReporter {
     await Promise.all(this.inFlight);
   }
 
-  private dispatch(callback: AgentCallback, onFailure?: () => void): void {
+  private dispatch(callback: AgentCallback, releaseClaim?: () => void): void {
     const delivery = this.deliver(callback)
-      .then((delivered) => {
-        if (!delivered) {
-          onFailure?.();
+      .then((outcome) => {
+        if (outcome === "skipped" || outcome === "failed") {
+          releaseClaim?.();
         }
       })
       .finally(() => {
@@ -333,39 +336,48 @@ export class AgentCallbackReporter {
     this.inFlight.add(delivery);
   }
 
-  private async deliver(callback: AgentCallback): Promise<boolean> {
+  private async deliver(callback: AgentCallback): Promise<DeliveryOutcome> {
     const attempts = RETRYABLE_KINDS.has(callback.kind) ? 2 : 1;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        await this.config.send(callback);
-        return true;
+        if (await this.config.send(callback)) {
+          return "dispatched";
+        }
+        this.config.logger.warn("Agent callback was not dispatched", {
+          kind: callback.kind,
+        });
+        return "skipped";
       } catch (error) {
         this.config.logger.warn("Agent callback failed", {
           kind: callback.kind,
           attempt,
           error: error instanceof Error ? error.message : String(error),
         });
-        if (attempt === attempts || !isRetryableFailure(error)) {
-          return false;
+        if (!isRetryableFailure(error)) {
+          return "refused";
         }
-        await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+        if (attempt < attempts) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.retryDelayMs),
+          );
+        }
       }
     }
-    return false;
+    return "failed";
   }
 }
 
 export function createAgentCallbackReporter(options: {
   eventIngestToken: string;
   eventIngestBaseUrl?: string;
-  send: (callback: AgentCallback) => Promise<void>;
+  send: (callback: AgentCallback) => Promise<boolean>;
   logger: Logger;
-}): AgentCallbackReporter | undefined {
+}): AgentCallbackReporter | null {
   if (
     !options.eventIngestBaseUrl ||
     !agentSendsCallbacks(options.eventIngestToken)
   ) {
-    return undefined;
+    return null;
   }
   return new AgentCallbackReporter({
     send: options.send,
