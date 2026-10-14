@@ -2536,6 +2536,10 @@ snapshots:
         hash: v1.k794b7964.5f13bf50d33b9d3257d8a93eea04dc06edfc31a86ac947e74fc7f32ff23750da.vV-ots4x1jS78n1arxGnPxkVZ2x3hiQSekk9XBwvvdo
     components-sample-data-state--wizard-installing--light:
         hash: v1.k794b7964.2052c49beff2e0a5c5c533ae05c73bacc2619a04053b4529acf93574160c3a66.sTXp62J02o4EVCFfSt9_QV7YwS6UN87FpVxkPGrmZ3o
+    components-sample-data-tag--default--dark:
+        hash: v1.k794b7964.59c7a8b6d1d563565a9f3efa7c9bac27a87225ec9bee0021e0b80e5420783056.9w3awIuhlR02uWkYgTVenAzkCRqWD4s20qdlLzfmwnw
+    components-sample-data-tag--default--light:
+        hash: v1.k794b7964.8ebad648dbf23b4ccf50c7b2543d02e9429c2f5c67446cee8823fc06fc98a97d.MSu4A4yz_nNpo8sN007sucqXSdbb7pJQExT5Z2ki0Ys
     components-search--default--dark:
         hash: v1.k794b7964.da49a8420c703e68e52fc9091f69cbe6f9b145bbdae11bef03d31e3523168cac.iQUGfMwL8k8_L-SfZAShZ6S6gLXnlrhUWMVZf01c16M
     components-search--default--light:
@@ -13523,9 +13527,9 @@ snapshots:
     scenes-app-product-analytics-home-dashboard-starter--with-custom-dashboard--light:
         hash: v1.k794b7964.3955f90c8826d28cbc8ea87ae21c2736e2ff3b67999586e1901969a2a11a7acb.YjXt5UQ0a2xK9iFx0IGxA9lIQFU4q66REMcDhWsHAXs
     scenes-app-product-analytics-home-overview--before-ingestion--dark:
-        hash: v1.k794b7964.48b65f3dbe882c551df657d0b9a78332819528de6691037310e456bdf6e0b71a.JmauGDlQzy9IlkbJbj6jdII20poToLzHc7PUreuu7hc
+        hash: v1.k794b7964.c9c3a3bcad0d8d6b1978454f6b7425e931171755e46d4422f9483a3f3e9d7066.OrUa2KPTzEeViZagRu3IMyexInpaS4_kRvrSd1LnKmk
     scenes-app-product-analytics-home-overview--before-ingestion--light:
-        hash: v1.k794b7964.2321ed939beecdb0220b228d4adf80ec5bd5cd0a2317116c7a32c503dacb1dcd.r7oXDGw5c-_yRvT4Q66seo1sfW7h1e_GZY9NK5VYANM
+        hash: v1.k794b7964.dbfafea3a0fa32deb41e802b69cff725b8851cec68293425419d719b1b37833b.MIpMguoTmAH-TuOqNYcoRIWvP6gO_22SHLcL6CDk_Mc
     scenes-app-product-analytics-home-overview--empty--dark:
         hash: v1.k794b7964.803d51407dca494e41d04f4cb5fb324abd193b22d9cad2b60b92087ec1bf76b5.nESq7Ay6ngu1UriAYHASMUKdnt6lU8FQZwgXkFcizKw
     scenes-app-product-analytics-home-overview--empty--light:
