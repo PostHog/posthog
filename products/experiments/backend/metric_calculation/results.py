@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.db.models.fields.json import KT, KeyTransform
+from django.db.models.functions import Least
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -412,10 +413,13 @@ class MetricResultStore:
     def current_outcomes(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> dict[int, ResultSummary]:
         """For each experiment, the current result of the metric that its calculation config describes, in one query.
 
-        The current result is the completed row with the newest query_to among the rows filed under the config's
-        calculation key, by a recalculation run or by the daily workflows. A row under another key was computed from
-        another configuration, for example from the start date before a relaunch, so it does not count. The newest
-        window counts, not the newest write, because a backfill writes past windows after the newer ones.
+        The current result is the completed row whose data ends last among the rows filed under the config's
+        calculation key, by a recalculation run or by the daily workflows. A row's data ends at its query_to, or at
+        its completed_at when that comes first. A backfill stamps the current day with the end of that day, but the
+        row holds data only up to the moment the backfill ran, so a later run of the same day must win over it. A row
+        under another key was computed from another configuration, for example from the start date before a
+        relaunch, so it does not count. The end of the data counts, not the newest write, because a backfill writes
+        past windows after the newer ones.
         """
         if not config_by_experiment:
             return {}
@@ -429,7 +433,9 @@ class MetricResultStore:
             )
         rows = (
             ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
-            .order_by("experiment_id", "-query_to", F("completed_at").desc(nulls_last=True), "-id")
+            # Postgres LEAST skips a NULL, so a row without completed_at ranks by its query_to.
+            .alias(data_until=Least("query_to", "completed_at"))
+            .order_by("experiment_id", F("data_until").desc(), F("completed_at").desc(nulls_last=True), "-id")
             .distinct("experiment_id")
             .values(
                 "experiment_id",

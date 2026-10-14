@@ -171,6 +171,28 @@ class TestMetricResultStore(BaseTest):
         assert list(timeseries.by_day) == [_WINDOW_DAY]
         assert _samples(timeseries.by_day[_WINDOW_DAY]) == [2]
 
+    def test_the_current_outcome_is_the_row_whose_data_ends_last(self) -> None:
+        experiment = self._experiment()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
+        # A backfill that ran at 10:00 on 9 January stamps that day with the end of the day.
+        self._row(experiment, key, query_to=_WINDOW, completed_at=_WINDOW - timedelta(hours=14), samples=1)
+        # A recalculation run at 14:00 on the same day holds newer data under an earlier query_to.
+        self._row(
+            experiment,
+            _recalc_fingerprint(key),
+            query_to=_WINDOW - timedelta(hours=10),
+            completed_at=_WINDOW - timedelta(hours=9, minutes=55),
+            samples=2,
+        )
+        # A backfill of 8 January written after both, so the write time alone picks it.
+        self._row(
+            experiment, key, query_to=_WINDOW - timedelta(days=1), completed_at=_WINDOW - timedelta(hours=9), samples=3
+        )
+
+        assert self._read("current_outcome", experiment, calculation_config) == [2]
+
     @parameterized.expand([("own_team", True), ("other_team", False)])
     def test_previous_completed_metric_result_reads_only_the_callers_team(self, _name: str, own_team: bool) -> None:
         experiment = self._experiment()
