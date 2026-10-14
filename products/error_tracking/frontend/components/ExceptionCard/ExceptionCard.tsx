@@ -9,6 +9,7 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
+import { cn } from 'lib/utils/css-classes'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 
@@ -18,6 +19,8 @@ import { LogsTab } from './Tabs/LogsTab/LogsTab'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
+
+const NO_SESSION_TAB_TITLE = 'No session ID on this exception'
 
 interface ExceptionCardContentProps {
     eventId?: string
@@ -79,11 +82,15 @@ function ExceptionCardContent({
     renderStackTraceActions,
     label,
 }: ExceptionCardContentProps): JSX.Element {
-    const { currentTab } = useValues(exceptionCardLogic)
-    const { sessionId } = useValues(errorPropertiesLogic)
+    const { currentTab, loading } = useValues(exceptionCardLogic)
+    const { sessionId, properties } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
     const headerRef = useRef<HTMLDivElement>(null)
+    // Without a session ID the recording tab is always empty. The timeline can still show exception steps.
+    const recordingEmpty = !loading && !sessionId
+    const timelineEmpty =
+        recordingEmpty && !(Array.isArray(properties?.$exception_steps) && properties.$exception_steps.length > 0)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the
     // value changes from elsewhere. The timeline switches to the recording tab on a timestamp click, so
@@ -162,15 +169,17 @@ function ExceptionCardContent({
                             </TabsTrigger>
                             <TabsTrigger
                                 value="timeline"
-                                className="text-sm"
+                                className={cn('text-sm', { 'text-muted-foreground': timelineEmpty })}
                                 style={{ '--background': 'transparent' } as CSSProperties}
+                                title={timelineEmpty ? NO_SESSION_TAB_TITLE : undefined}
                             >
                                 Timeline
                             </TabsTrigger>
                             <TabsTrigger
                                 value="recording"
-                                className="text-sm"
+                                className={cn('text-sm', { 'text-muted-foreground': recordingEmpty })}
                                 style={{ '--background': 'transparent' } as CSSProperties}
+                                title={recordingEmpty ? NO_SESSION_TAB_TITLE : undefined}
                             >
                                 Recording
                             </TabsTrigger>
