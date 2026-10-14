@@ -401,7 +401,8 @@ pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
 // Transitional (#66179): background comparison of legacy-token auth against the
-// backfilled PSAK mirror rows. Labels: result = match | missing | team_mismatch | error | timeout | skipped (cap).
+// backfilled PSAK mirror rows. Labels: result = match | missing | team_mismatch |
+// revoked (leak-revoked, must stay without a row) | error | timeout | skipped (cap).
 pub const LEGACY_TOKEN_MIRROR_SHADOW_COUNTER: &str = "flags_legacy_token_mirror_shadow_total";
 
 // Counter for /flags requests classified as bot traffic. Fires regardless

@@ -7,7 +7,6 @@ use axum::http::HeaderMap;
 use common_database::PostgresReader;
 use metrics::counter;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{debug, warn};
@@ -210,7 +209,11 @@ async fn load_token_from_pg(
         match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
             Ok(team) => {
                 if mirror_shadow {
-                    spawn_mirror_shadow_check(pg_reader.clone(), hashed_token.to_string(), team.id);
+                    drop(spawn_mirror_shadow_check(
+                        pg_reader.clone(),
+                        hashed_token.to_string(),
+                        team.id,
+                    ));
                 }
                 return Ok(Some(TokenAuthData::Secret {
                     team_id: team.id,
@@ -226,20 +229,17 @@ async fn load_token_from_pg(
     let mut conn =
         get_connection_with_metrics(&pg_reader, "non_persons_reader", "fetch_project_secret_key")
             .await?;
-    let query = r#"
+    let query = format!(
+        r#"
         SELECT k.id, k.team_id, k.scopes, t.api_token
         FROM posthog_projectsecretapikey k
         JOIN posthog_team t ON t.id = k.team_id
         WHERE k.secure_value = $1
-          AND (
-              k.scopes IS NULL
-              OR '*' = ANY(k.scopes)
-              OR 'feature_flag:read' = ANY(k.scopes)
-              OR 'feature_flag:write' = ANY(k.scopes)
-          )
-    "#;
+          AND {PSAK_FLAG_SCOPE_FILTER}
+    "#
+    );
 
-    match sqlx::query(query)
+    match sqlx::query(&query)
         .bind(hashed_token)
         .fetch_optional(&mut *conn)
         .await
@@ -267,62 +267,94 @@ async fn load_token_from_pg(
     }
 }
 
-/// Transitional (#66179): after a successful legacy-token auth, check in the background
-/// that the PSAK lookup replacing the legacy branch post-flip resolves this token to the
-/// same team. Fire-and-forget: it never delays or fails the auth path, and it only runs
-/// on auth-cache misses, so the extra query is bounded by unique active tokens per cache
-/// TTL, not by request volume.
-// Caps concurrent shadow queries. When the auth cache degrades (Redis down), the loader
-// runs per request instead of per token, and without this cap the shadow would double the
-// read load on the shared non_persons_reader pool. Excess checks are skipped and counted;
-// the flip gate reads mismatch *rates*, so sampling under pressure costs nothing.
-static MIRROR_SHADOW_PERMITS: LazyLock<Arc<Semaphore>> =
-    LazyLock::new(|| Arc::new(Semaphore::new(8)));
+/// Shared by the real PSAK lookup and the mirror shadow query so the predicates cannot
+/// drift. The key table must be aliased as `k`.
+const PSAK_FLAG_SCOPE_FILTER: &str = "(
+              k.scopes IS NULL
+              OR '*' = ANY(k.scopes)
+              OR 'feature_flag:read' = ANY(k.scopes)
+              OR 'feature_flag:write' = ANY(k.scopes)
+          )";
 
-// The detached task escapes the request timeout, and statement_timeout cannot unblock a
-// client whose socket stopped responding, so a stalled check would retain its pool
-// connection and permit until the socket fails. Bound it client-side.
+// One in-flight check per pod: the definitions fleet's non_persons_reader pool is tiny,
+// and when Redis degrades the loader runs per request. The flip gate reads the rates of
+// missing and team_mismatch results, so skipping excess checks (counted as "skipped")
+// loses nothing.
+static MIRROR_SHADOW_PERMITS: Semaphore = Semaphore::const_new(1);
+
+// Bounds only the query, not the pool checkout (acquire_timeout covers that):
+// statement_timeout cannot unblock a client whose socket stopped responding.
 const MIRROR_SHADOW_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn spawn_mirror_shadow_check(pg_reader: PostgresReader, hashed_token: String, team_id: i32) {
-    let Ok(permit) = MIRROR_SHADOW_PERMITS.clone().try_acquire_owned() else {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MirrorShadowResult {
+    Match,
+    Missing,
+    TeamMismatch,
+    Revoked,
+    Error,
+    Timeout,
+}
+
+impl MirrorShadowResult {
+    const fn as_label(self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::Missing => "missing",
+            Self::TeamMismatch => "team_mismatch",
+            Self::Revoked => "revoked",
+            Self::Error => "error",
+            Self::Timeout => "timeout",
+        }
+    }
+}
+
+/// Transitional (#66179): after a successful legacy-token auth, check in the background
+/// that the PSAK lookup replacing the legacy branch post-flip resolves this token to the
+/// same team. Fire-and-forget: it never delays or fails the auth path, and while the
+/// auth cache is healthy it only runs on cache misses, so the extra query is bounded by
+/// unique active tokens per cache TTL, not by request volume. Returns the task handle
+/// (None when skipped) so tests can await the classification.
+fn spawn_mirror_shadow_check(
+    pg_reader: PostgresReader,
+    hashed_token: String,
+    team_id: i32,
+) -> Option<tokio::task::JoinHandle<MirrorShadowResult>> {
+    let Ok(permit) = MIRROR_SHADOW_PERMITS.try_acquire() else {
         counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => "skipped").increment(1);
-        return;
+        return None;
     };
-    tokio::spawn(async move {
+    Some(tokio::spawn(async move {
         let _permit = permit;
-        let result = tokio::time::timeout(
-            MIRROR_SHADOW_TIMEOUT,
-            mirror_shadow_result(pg_reader, &hashed_token, team_id),
-        )
-        .await
-        .unwrap_or("timeout");
+        let result = mirror_shadow_result(pg_reader, &hashed_token, team_id).await;
         match result {
-            "match" => {}
-            // A failed read says nothing about the row; don't send operators to backfill.
-            "error" => warn!(team_id = team_id, "Legacy token mirror shadow query failed"),
-            "timeout" => warn!(
+            MirrorShadowResult::Match => {}
+            // Quiet: leak revocation deleted the mirror row on purpose; do not backfill.
+            MirrorShadowResult::Revoked => {}
+            // Already logged with the error at the query site.
+            MirrorShadowResult::Error | MirrorShadowResult::Timeout => {}
+            MirrorShadowResult::Missing => warn!(
                 team_id = team_id,
-                "Legacy token mirror shadow query timed out"
-            ),
-            _ => warn!(
-                team_id = team_id,
-                result = result,
                 "Legacy token has no usable PSAK mirror row"
             ),
+            MirrorShadowResult::TeamMismatch => warn!(
+                team_id = team_id,
+                "Legacy token's PSAK mirror row belongs to another team"
+            ),
         }
-        counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => result).increment(1);
-    });
+        counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => result.as_label()).increment(1);
+        result
+    }))
 }
 
 /// Classify a legacy token's PSAK mirror state. Uses the same scope filter as the real
-/// PSAK lookup in `load_token_from_pg`, so "match" means the post-flip lookup would
+/// PSAK lookup in `load_token_from_pg`, so `Match` means the post-flip lookup would
 /// authenticate this token hash for this team.
-pub async fn mirror_shadow_result(
+async fn mirror_shadow_result(
     pg_reader: PostgresReader,
     hashed_token: &str,
     team_id: i32,
-) -> &'static str {
+) -> MirrorShadowResult {
     let mut conn = match get_connection_with_metrics(
         &pg_reader,
         "non_persons_reader",
@@ -331,28 +363,46 @@ pub async fn mirror_shadow_result(
     .await
     {
         Ok(conn) => conn,
-        Err(_) => return "error",
+        Err(e) => {
+            warn!(team_id = team_id, error = %e, "Legacy token mirror shadow could not get a connection");
+            return MirrorShadowResult::Error;
+        }
     };
-    let query = r#"
-        SELECT team_id
-        FROM posthog_projectsecretapikey
-        WHERE secure_value = $1
-          AND (
-              scopes IS NULL
-              OR '*' = ANY(scopes)
-              OR 'feature_flag:read' = ANY(scopes)
-              OR 'feature_flag:write' = ANY(scopes)
-          )
-    "#;
-    match sqlx::query_scalar::<_, i32>(query)
-        .bind(hashed_token)
-        .fetch_optional(&mut *conn)
-        .await
+    let query = format!(
+        r#"
+        SELECT
+            (SELECT k.team_id FROM posthog_projectsecretapikey k
+              WHERE k.secure_value = $1 AND {PSAK_FLAG_SCOPE_FILTER}) AS team_id,
+            EXISTS (
+                SELECT 1 FROM posthog_revokedteamsecrettoken WHERE secure_value = $1
+            ) AS revoked
+    "#
+    );
+    match tokio::time::timeout(
+        MIRROR_SHADOW_TIMEOUT,
+        sqlx::query_as::<_, (Option<i32>, bool)>(&query)
+            .bind(hashed_token)
+            .fetch_one(&mut *conn),
+    )
+    .await
     {
-        Ok(Some(row_team_id)) if row_team_id == team_id => "match",
-        Ok(Some(_)) => "team_mismatch",
-        Ok(None) => "missing",
-        Err(_) => "error",
+        Ok(Ok((Some(row_team_id), _))) if row_team_id == team_id => MirrorShadowResult::Match,
+        Ok(Ok((Some(_), _))) => MirrorShadowResult::TeamMismatch,
+        Ok(Ok((None, true))) => MirrorShadowResult::Revoked,
+        Ok(Ok((None, false))) => MirrorShadowResult::Missing,
+        Ok(Err(e)) => {
+            warn!(team_id = team_id, error = %e, "Legacy token mirror shadow query failed");
+            MirrorShadowResult::Error
+        }
+        Err(_) => {
+            // Return-to-pool pings with no deadline; closing frees the slot instead.
+            conn.close_on_drop();
+            warn!(
+                team_id = team_id,
+                "Legacy token mirror shadow query timed out"
+            );
+            MirrorShadowResult::Timeout
+        }
     }
 }
 
@@ -455,7 +505,7 @@ pub async fn current_team_id_for_personal_api_key(
 /// Hash a token value using SHA256
 /// Ported from PostHog's `hash_key_value` function in `posthog/models/utils.py`
 /// Used by both PersonalAPIKey and ProjectSecretAPIKey
-pub fn hash_token_value(value: &str) -> String {
+pub(crate) fn hash_token_value(value: &str) -> String {
     use sha2::{Digest, Sha256};
 
     // No salt — see https://github.com/jazzband/django-rest-knox/issues/188
@@ -577,6 +627,126 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The mirror shadow check (#66179) must classify a legacy token's PSAK mirror
+    /// state the way the post-flip lookup would resolve it: same team with usable
+    /// scopes is a match, a row for another team is the cross-team case, and no row
+    /// (or a row without flag scopes) means the token dies at the flip. A leak-revoked
+    /// hash is its own class: it must not read as a backfill candidate.
+    #[rstest::rstest]
+    #[case::mirror_row_same_team("same_team", MirrorShadowResult::Match)]
+    #[case::mirror_row_other_team("other_team", MirrorShadowResult::TeamMismatch)]
+    #[case::mirror_row_without_flag_scopes("wrong_scopes", MirrorShadowResult::Missing)]
+    #[case::no_mirror_row("none", MirrorShadowResult::Missing)]
+    #[case::leak_revoked("revoked", MirrorShadowResult::Revoked)]
+    #[tokio::test]
+    async fn test_mirror_shadow_result_classification(
+        #[case] row: &str,
+        #[case] expected: MirrorShadowResult,
+    ) {
+        use crate::utils::test_utils::TestContext;
+
+        let context = TestContext::new(None).await;
+        let (team, secret_token, _) = context
+            .create_team_with_secret_token(None, None, None)
+            .await
+            .unwrap();
+        match row {
+            "same_team" => {
+                context
+                    .create_project_secret_api_key_with_value(
+                        team.id,
+                        "Migrated legacy secret API key",
+                        Some(vec!["feature_flag:read", "support_ticket:read"]),
+                        &secret_token,
+                    )
+                    .await
+                    .unwrap();
+            }
+            "other_team" => {
+                let other_team = context.insert_new_team(None).await.unwrap();
+                context
+                    .create_project_secret_api_key_with_value(
+                        other_team.id,
+                        "Migrated legacy secret API key",
+                        Some(vec!["feature_flag:read"]),
+                        &secret_token,
+                    )
+                    .await
+                    .unwrap();
+            }
+            "wrong_scopes" => {
+                context
+                    .create_project_secret_api_key_with_value(
+                        team.id,
+                        "Migrated legacy secret API key",
+                        Some(vec!["support_ticket:read"]),
+                        &secret_token,
+                    )
+                    .await
+                    .unwrap();
+            }
+            "none" => {}
+            "revoked" => {
+                context
+                    .create_revoked_team_secret_token(team.id, &secret_token)
+                    .await
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        let hashed = hash_token_value(&secret_token);
+        let result =
+            mirror_shadow_result(context.non_persons_reader.clone(), &hashed, team.id).await;
+        assert_eq!(result, expected);
+    }
+
+    /// Guards the wiring, not the classification: if a refactor stopped the spawned
+    /// shadow from running (or from reaching the classifier), the flip gate would read
+    /// green by absence of data. The single global permit may be held by a concurrent
+    /// test, so acquiring retries briefly.
+    #[tokio::test]
+    async fn test_spawn_mirror_shadow_check_classifies_in_background() {
+        use crate::utils::test_utils::TestContext;
+
+        let context = TestContext::new(None).await;
+        let (team, secret_token, _) = context
+            .create_team_with_secret_token(None, None, None)
+            .await
+            .unwrap();
+        let hashed = hash_token_value(&secret_token);
+
+        let spawn_with_retry = |hashed: String, team_id: i32| {
+            let pg_reader = context.non_persons_reader.clone();
+            async move {
+                for _ in 0..100 {
+                    if let Some(handle) =
+                        spawn_mirror_shadow_check(pg_reader.clone(), hashed.clone(), team_id)
+                    {
+                        return handle;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                panic!("no mirror shadow permit became available");
+            }
+        };
+
+        let handle = spawn_with_retry(hashed.clone(), team.id).await;
+        assert_eq!(handle.await.unwrap(), MirrorShadowResult::Missing);
+
+        context
+            .create_project_secret_api_key_with_value(
+                team.id,
+                "Migrated legacy secret API key",
+                Some(vec!["feature_flag:read"]),
+                &secret_token,
+            )
+            .await
+            .unwrap();
+        let handle = spawn_with_retry(hashed, team.id).await;
+        assert_eq!(handle.await.unwrap(), MirrorShadowResult::Match);
+    }
 
     #[test]
     fn test_extract_team_secret_token_from_header() {

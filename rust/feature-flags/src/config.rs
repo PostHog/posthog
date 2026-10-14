@@ -962,9 +962,10 @@ pub struct Config {
 
     // Transitional (#66179): after a successful legacy-token auth, verify in the
     // background that the PSAK mirror row resolves the same token to the same team.
-    // Emits flags_legacy_token_mirror_shadow_total; a sustained zero mismatch rate is
-    // the evidence gate for flipping ACCEPT_TEAM_SECRET_TOKENS off. Only runs while
-    // legacy auth is on, and only on auth-cache misses.
+    // Emits flags_legacy_token_mirror_shadow_total; a sustained zero rate of missing
+    // and team_mismatch results is the evidence gate for flipping
+    // ACCEPT_TEAM_SECRET_TOKENS off. Only runs while legacy auth is on, and only on
+    // auth-cache misses.
     #[envconfig(from = "LEGACY_TOKEN_MIRROR_SHADOW", default = "true")]
     pub legacy_token_mirror_shadow: FlexBool,
 
