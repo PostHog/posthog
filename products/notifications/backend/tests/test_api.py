@@ -72,6 +72,28 @@ class TestNotificationsAPI(BaseTest):
         assert self.client.get(url).json()["results"] == []
         assert self.client.get(url + "unread_count/").json()["count"] == 0
 
+    def test_notification_from_a_project_the_user_cannot_open_is_hidden(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        private_team = Team.objects.create(organization=self.organization, name="Private")
+        private_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=private_team,
+            notification_type="workflow_suggestion",
+            title="Secret workflow",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        url = f"/api/environments/{self.team.id}/notifications/"
+        assert {e["id"] for e in self.client.get(url).json()["results"]} == {str(self.event.id), str(private_event.id)}
+        AccessControl.objects.create(
+            team=private_team, resource="project", resource_id=str(private_team.id), access_level="none"
+        )
+        cache.clear()
+        assert [e["id"] for e in self.client.get(url).json()["results"]] == [str(self.event.id)]
+        assert self.client.get(url + "unread_count/").json()["count"] == 1
+
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
         assert resp.status_code == 200
