@@ -89,7 +89,7 @@ from products.web_analytics.backend.heatmap_history import (
     history_enabled,
     history_width,
 )
-from products.web_analytics.backend.heatmap_history_storage import Variant, read_image
+from products.web_analytics.backend.heatmap_history_storage import Variant, image_exists, read_image
 from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing, preflight_page
 from products.web_analytics.backend.models import (
     HeatmapCaptureConfigVersion,
@@ -2236,17 +2236,21 @@ class SavedHeatmapViewSet(
         history = rows.first()
         if history is None:
             raise NotFound()
+        etag = f'"{revision}:{variant}"'
+        conditional = get_conditional_response(request._request, etag=etag)
+        content: bytes | None = None
         try:
-            content = read_image(self.team.id, revision, cast(Variant, variant))
+            if conditional is None:
+                content = read_image(self.team.id, revision, cast(Variant, variant))
+                found = content is not None
+            else:
+                found = image_exists(self.team.id, revision, cast(Variant, variant))
         except Exception:
             logger.warning("heatmap_history.content_unavailable", history_id=str(history.id), exc_info=True)
             return response.Response({"detail": "The image is temporarily unavailable."}, status=503)
-        if content is None:
+        if not found:
             raise NotFound()
-        etag = f'"{revision}:{variant}"'
-        http_response = get_conditional_response(request._request, etag=etag) or HttpResponse(
-            content, content_type="image/jpeg"
-        )
+        http_response = conditional if conditional is not None else HttpResponse(content, content_type="image/jpeg")
         remaining = max(0, int((history.expires_at - now).total_seconds()))
         patch_cache_control(http_response, private=True, max_age=min(86400, remaining))
         http_response["ETag"] = etag

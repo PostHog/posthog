@@ -1,3 +1,4 @@
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
@@ -85,6 +86,7 @@ class TestHeatmapHistory(APIBaseTest):
         self.storage = MagicMock()
         self.storage.write.side_effect = lambda key, content, **kwargs: self.blobs.update({key: content})
         self.storage.read_bytes.side_effect = lambda key, **kwargs: self.blobs.get(key)
+        self.storage.head_object_strict.side_effect = lambda key, **kwargs: {} if key in self.blobs else None
         self.storage.delete_objects.side_effect = self.delete_blobs
         for name, replacement in [
             (f"{STORAGE_MODULE}.object_storage", self.storage),
@@ -237,10 +239,15 @@ class TestHeatmapHistory(APIBaseTest):
         assert not self.images(old)
         assert self.images(new)
 
-    def test_dispatch_failure_is_retryable_and_reported(self) -> None:
+    @parameterized.expand([("unavailable", RuntimeError("unavailable")), ("stalled", None)])
+    def test_dispatch_failure_is_retryable_and_reported(self, _name: str, error: Exception | None) -> None:
+        async def stall() -> None:
+            await asyncio.sleep(5)
+
         with (
             self.assertRaises(CaptureDispatchError),
-            patch(f"{TASK_MODULE}.async_connect", side_effect=RuntimeError("unavailable")),
+            patch(f"{TASK_MODULE}.HEATMAP_HISTORY_DISPATCH_TIMEOUT", timedelta(milliseconds=50)),
+            patch(f"{TASK_MODULE}.async_connect", side_effect=error or stall),
             self.captureOnCommitCallbacks(execute=True),
         ):
             HeatmapHistoryService.enqueue(team_id=self.team.id, heatmap_id=self.heatmap.id, trigger="manual")
@@ -335,8 +342,10 @@ class TestHeatmapHistory(APIBaseTest):
         image = self.client.get(url)
         assert image.status_code == 200
         assert image.content == jpeg()
+        self.storage.read_bytes.reset_mock()
         cached = self.client.get(url, HTTP_IF_NONE_MATCH=image["ETag"])
         assert cached.status_code == 304
+        self.storage.read_bytes.assert_not_called()
         assert cached["ETag"] == image["ETag"]
         assert cached["Cache-Control"] == image["Cache-Control"]
         assert self.client.get(url.replace(str(request.id), str(uuid4()))).status_code == 404
