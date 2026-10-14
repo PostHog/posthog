@@ -592,7 +592,8 @@ def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) 
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
         return None
-    setup = ((inputs or {}).get("analysis") or {}).get("value")
+    analysis = inputs.get("analysis") if isinstance(inputs, dict) else None
+    setup = analysis.get("value") if isinstance(analysis, dict) else None
     scanner_id: uuid_mod.UUID | None = None
     if isinstance(setup, dict) and setup.get("type") == "scanner":
         try:
@@ -1507,7 +1508,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         else's workflow must not forward recordings or scanner answers the editor may not read."""
         if strict:
             try:
-                parse_workflow_scan_setup((inputs.get("analysis") or {}).get("value"))
+                analysis = inputs.get("analysis") if isinstance(inputs, dict) else None
+                parse_workflow_scan_setup(analysis.get("value") if isinstance(analysis, dict) else None)
             except ObservationRequestRejected as rejected:
                 raise serializers.ValidationError({"inputs": {"analysis": rejected.detail}})
         get_team = self.context.get("get_team")
@@ -3155,7 +3157,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # A Replay Vision step can read its session from a variable, so changing variables alone changes what
         # it scans. Submitted actions get this check through HogFlowActionSerializer.
         if instance and "variables" in data and "actions" not in data:
-            _require_replay_vision_editor_access(self.context.get("request"), self.context, instance.actions)
+            # A content edit on an active workflow can land in its staged draft, whose steps may differ.
+            draft_actions = (instance.draft or {}).get("actions")
+            for stored in (instance.actions, draft_actions):
+                _require_replay_vision_editor_access(self.context.get("request"), self.context, stored)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
@@ -6429,6 +6434,7 @@ class HogFlowViewSet(
             serializer = HogFlowBatchJobSerializer(data={**request.data, "hog_flow": hog_flow.id})
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
+            self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
             batch_job = create_batch_job(
                 team_id=self.team_id,

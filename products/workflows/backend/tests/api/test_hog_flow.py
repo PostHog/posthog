@@ -7352,6 +7352,17 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
+_TRIGGER = {
+    "id": "trigger_node",
+    "name": "trigger_1",
+    "type": "trigger",
+    "config": {
+        "type": "event",
+        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+    },
+}
+
+
 class TestReplayVisionActionValidation(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -7420,6 +7431,88 @@ class TestReplayVisionActionValidation(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert error_attr in str(response.json()), response.json()
+
+    _VISION_STEP = {
+        "id": "vision",
+        "name": "vision",
+        "type": "function",
+        "config": {
+            "template_id": "template-posthog-replay-vision",
+            "inputs": {"session_id": {"value": "{variables.session}"}},
+        },
+    }
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_a_batch_run_with_the_step_needs_the_callers_recording_access(self, create_invocation: MagicMock) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Batch scan",
+            status="active",
+            trigger={"type": "batch", "filters": {"properties": []}},
+            actions=[self._VISION_STEP],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}/batch_jobs",
+            {"variables": [{"key": "session", "value": "s1"}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "session recordings" in response.json()["detail"], response.json()
+        create_invocation.assert_not_called()
+
+    def test_a_variables_only_edit_is_checked_against_the_staged_draft_too(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Draft scan",
+            status="active",
+            trigger={"type": "event", "filters": {}},
+            actions=[_TRIGGER],
+            draft={"actions": [_TRIGGER, self._VISION_STEP]},
+            variables=[{"key": "session", "type": "string", "label": "Session", "default": "s1"}],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"variables": [{"key": "session", "type": "string", "label": "Session", "default": "s2"}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "variables", response.json()
+
+    def test_a_web_draft_with_a_malformed_setup_saves(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Draft",
+                "actions": [
+                    {
+                        "id": "trigger_node",
+                        "name": "trigger_1",
+                        "type": "trigger",
+                        "config": {"type": "event", "filters": {}},
+                    },
+                    {
+                        "id": "action_1",
+                        "name": "action_1",
+                        "type": "function",
+                        "config": {"template_id": "template-posthog-replay-vision", "inputs": {"analysis": "invalid"}},
+                    },
+                ],
+                "edges": [],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_a_web_draft_can_hold_the_step_before_it_has_inputs(self) -> None:
         response = self.client.post(
