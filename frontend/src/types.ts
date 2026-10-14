@@ -764,6 +764,7 @@ export interface ProjectType extends ProjectBasicType {
 
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
+    seenSurveyWaitPeriodInDays?: number | null
 }
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'

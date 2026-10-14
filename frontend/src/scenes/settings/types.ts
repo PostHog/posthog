@@ -292,6 +292,7 @@ export type SettingId =
     | 'snippet'
     | 'snippet-v2'
     | 'surveys-default-appearance'
+    | 'surveys-global-wait-period'
     | 'surveys-interface'
     | 'task-agent-my-instructions'
     | 'task-agent-my-preference'
