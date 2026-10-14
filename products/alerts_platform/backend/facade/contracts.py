@@ -290,6 +290,8 @@ class AnnouncedTransition:
     error_message: str | None
     # A resolve states this as the time its firing ended.
     occurred_at: datetime
+    # The evaluation this transition came from, so a source can read back what it put in the key.
+    evaluation_key: str = ""
 
 
 @frozen
@@ -646,6 +648,24 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class LegacyWebhookBody(Protocol):
+    """The webhook body a source's own stack sent, for teams whose receivers still parse it.
+
+    Runs on the send path like a describer, so it builds the body from its arguments and does no
+    I/O. `alert_id` is the id the source's destinations match on.
+    """
+
+    def __call__(
+        self,
+        *,
+        project_id: int,
+        alert_id: str,
+        alert_name: str,
+        consecutive_failures: int,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
 
 
 # Comparison against a source's own stack.
