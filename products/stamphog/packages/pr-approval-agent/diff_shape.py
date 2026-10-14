@@ -85,21 +85,30 @@ def could_be_approvable(files: Iterable[Mapping[str, object]]) -> bool:
     return bool(files) and all(_path_shape(f) != "logic" for f in files)
 
 
-def _directive_anchors(source: bytes) -> Counter[tuple[str, str]]:
+@dataclass(frozen=True, kw_only=True)
+class _DirectiveAnchor:
+    comment: str
+    code: str
+
+
+def _directive_anchors(source: bytes) -> Counter[_DirectiveAnchor]:
     """Each directive comment with the code it applies to: its own line, or the next code line."""
     code_by_line: dict[int, list[str]] = {}
-    comments: list[tuple[int, str]] = []
+    comment_lines: list[int] = []
+    comment_texts: list[str] = []
     for token in tokenize.tokenize(io.BytesIO(source).readline):
         if token.type == tokenize.COMMENT:
             if _DIRECTIVE_COMMENT_RE.search(token.string):
-                comments.append((token.start[0], token.string.strip()))
+                comment_lines.append(token.start[0])
+                comment_texts.append(token.string.strip())
         elif token.type not in _LAYOUT_TOKENS:
             code_by_line.setdefault(token.start[0], []).append(token.string)
     code_lines = sorted(code_by_line)
-    anchors: Counter[tuple[str, str]] = Counter()
-    for line, comment in comments:
+    anchors: Counter[_DirectiveAnchor] = Counter()
+    for line, comment in zip(comment_lines, comment_texts):
         anchor_line = line if line in code_by_line else next((n for n in code_lines if n > line), None)
-        anchors[(comment, " ".join(code_by_line.get(anchor_line, [])) if anchor_line is not None else "")] += 1
+        code = " ".join(code_by_line[anchor_line]) if anchor_line is not None else ""
+        anchors[_DirectiveAnchor(comment=comment, code=code)] += 1
     return anchors
 
 
