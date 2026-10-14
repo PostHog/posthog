@@ -10,7 +10,7 @@ from posthog.models.scoping import team_scope
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import SourceKind
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
 from products.logs.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 
@@ -140,6 +140,9 @@ class TestPlatformCutover(APIBaseTest):
             5,
             later + timedelta(minutes=2),
         )
+        assert list(alert.events.values_list("kind", "state_before", "state_after")) == [
+            (LogsAlertEvent.Kind.HANDBACK, State.BROKEN, State.BROKEN)
+        ]
         with team_scope(self.team.id):
             assert platform_testing.copy_of(alert.id).owner == "source"
 

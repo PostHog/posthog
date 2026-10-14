@@ -20,7 +20,7 @@ from products.alerts_platform.backend.facade.contracts import HandbackRefusal, P
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_state_machine import FIRING_STATES, ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     PLATFORM_HANDOVER_STATE,
     logs_state_after_handback,
@@ -162,6 +162,7 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
                 new_state=logs_state_after_handback(alert, handback.state, at),
                 consecutive_failures=handback.consecutive_failures,
             ),
+            kind=LogsAlertEvent.Kind.HANDBACK,
         )
         alert.owner = PlatformAlertOwner.SOURCE
         alert.owner_changed_at = at
