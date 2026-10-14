@@ -48,6 +48,7 @@ export const CONNECTION_MAX_MS = 15 * 60 * 1000
 
 // Redis SET NX EX throttle window for the Temporal heartbeat callback (seconds)
 export const HEARTBEAT_THROTTLE_SECONDS = 30
+export const AGENT_CALLBACKS_HEADER = 'X-PostHog-Agent-Callbacks'
 
 // Redis key prefix (byte-identical to TASK_RUN_STREAM_PREFIX in Python)
 export const STREAM_PREFIX = 'task-run-stream:'

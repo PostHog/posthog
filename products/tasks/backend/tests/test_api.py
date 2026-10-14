@@ -14287,6 +14287,32 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["code"], "reauth_required")
 
+    @parameterized.expand(
+        [
+            ("sandbox_of_opted_in_run", "sandbox", True, status.HTTP_200_OK, 1),
+            ("sandbox_of_proxy_reported_run", "sandbox", False, status.HTTP_403_FORBIDDEN, 0),
+            ("human_session", "session", True, status.HTTP_403_FORBIDDEN, 0),
+        ]
+    )
+    def test_agent_callback_heartbeats_only_for_the_sandbox_of_an_opted_in_run(
+        self, _name, caller, opted_in, expected_status, expected_heartbeats
+    ):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": opted_in}
+        run.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(task.id) if caller == "sandbox" else self.client
+
+        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/",
+                {"kind": "heartbeat", "agent_active": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(heartbeat.call_count, expected_heartbeats)
+
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
         other_user = self.create_organization_user("task-owner")

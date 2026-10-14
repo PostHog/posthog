@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../utils/logger";
+import {
+  type AgentCallback,
+  AgentCallbackReporter,
+} from "./agent-callback-reporter";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
@@ -202,6 +206,50 @@ describe("TaskRunEventStreamSender", () => {
     expect(lastCall[0]).toBe("http://agent-proxy:8003/v1/runs/run-1/ingest");
     expect(lastCall[0]).not.toContain("/api/projects/");
   });
+
+  it.each([
+    { reporting: true, header: "1", callbacks: ["awaiting_input"] },
+    { reporting: false, header: null, callbacks: [] },
+  ])(
+    "sends callbacks and marks its ingest requests only with a reporter (reporting: $reporting)",
+    async ({ reporting, header, callbacks }) => {
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = await readRequestBody(init);
+          return responseForBody(body);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const sent: AgentCallback[] = [];
+      const callbackReporter = new AgentCallbackReporter({
+        send: async (callback) => {
+          sent.push(callback);
+        },
+        logger: new Logger({ debug: false }),
+      });
+
+      const sender = createSender({
+        eventIngestBaseUrl: "http://agent-proxy:8003/",
+        callbackReporter: reporting ? callbackReporter : undefined,
+      });
+      sender.enqueue({
+        type: "notification",
+        notification: {
+          method: "_posthog/turn_complete",
+          params: { stopReason: "end_turn" },
+        },
+      });
+      await sender.stop();
+
+      expect(sent.map((callback) => callback.kind)).toEqual(callbacks);
+      expect(fetchMock).toHaveBeenCalled();
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(
+          new Headers(init?.headers).get("X-PostHog-Agent-Callbacks"),
+        ).toBe(header);
+      }
+    },
+  );
 
   it.each([undefined, "http://agent-proxy:8003/"])(
     "closes each drained batch with ingest base %s",

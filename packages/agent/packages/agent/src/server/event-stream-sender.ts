@@ -1,6 +1,10 @@
 import { Buffer } from "node:buffer";
 import type { Logger } from "../utils/logger";
 import {
+  AGENT_CALLBACKS_HEADER,
+  type AgentCallbackReporter,
+} from "./agent-callback-reporter";
+import {
   createNodeStreamingUpload,
   type StreamingUpload,
   type StreamingUploadFactory,
@@ -11,6 +15,7 @@ interface TaskRunEventStreamSenderConfig {
   // Base URL for the event-ingest POST only; falls back to apiUrl (Django path) when unset.
   eventIngestBaseUrl?: string;
   keepProxyStreamOpen?: boolean;
+  callbackReporter?: AgentCallbackReporter;
   projectId: number;
   taskId: string;
   runId: string;
@@ -173,6 +178,7 @@ export class TaskRunEventStreamSender {
       event: acceptedEvent,
     };
     this.bufferedEvents.push(envelope);
+    this.config.callbackReporter?.observe(envelope.seq, acceptedEvent);
     this.scheduleFlush();
   }
 
@@ -191,6 +197,7 @@ export class TaskRunEventStreamSender {
 
     this.stopPromise = this.drainForStop(complete);
     await this.stopPromise;
+    await this.config.callbackReporter?.settled();
   }
 
   private scheduleFlush(delayMs = this.flushDelayMs): void {
@@ -683,6 +690,9 @@ export class TaskRunEventStreamSender {
     return {
       Authorization: `Bearer ${this.config.token}`,
       "Content-Type": "application/x-ndjson",
+      ...(this.config.callbackReporter
+        ? { [AGENT_CALLBACKS_HEADER]: "1" }
+        : {}),
     };
   }
 

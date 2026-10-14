@@ -61,6 +61,7 @@ import { attachmentFilePath } from "../utils/attachments";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
+import { createAgentCallbackReporter } from "./agent-callback-reporter";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
@@ -215,6 +216,17 @@ export class PiAgentServer {
           apiUrl: config.apiUrl,
           eventIngestBaseUrl: config.eventIngestBaseUrl,
           keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
+          callbackReporter: createAgentCallbackReporter({
+            eventIngestToken: config.eventIngestToken,
+            eventIngestBaseUrl: config.eventIngestBaseUrl,
+            logger: this.logger.child("AgentCallback"),
+            send: (callback) =>
+              this.posthogAPI.sendAgentCallback(
+                config.taskId,
+                config.runId,
+                callback,
+              ),
+          }),
           projectId: config.projectId,
           taskId: config.taskId,
           runId: config.runId,

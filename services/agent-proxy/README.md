@@ -34,6 +34,18 @@ Resume is via the `Last-Event-ID` header; `?start=latest` tails from the
 newest available entry. `?resync=1` declares that the client can rebuild from
 the durable run log when its cursor has been trimmed out of Redis.
 
+## Agents that send their own callbacks
+
+An agent-server can send the side-effect callbacks for its run directly to the PostHog API.
+The `tasks-agent-sends-callbacks` feature flag opts a run in.
+Django stamps the decision into the run state at dispatch and into the `agent_sends_callbacks` claim of the event ingest token.
+
+An agent that reads the claim sends `X-PostHog-Agent-Callbacks: 1` on every ingest request and posts its callbacks to `POST /api/projects/:project/tasks/:task/runs/:run/agent_callback/`.
+For a request with that header this service sends no callback to Django.
+It still records whether the agent is active, because the ingest disconnect metric needs it.
+
+An older agent build ignores the claim and sends no header, so this service keeps sending its callbacks.
+
 ## Environment variables
 
 | Variable                          | Required   | Default                   | Description                                                                                                                                                                      |

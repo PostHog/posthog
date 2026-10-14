@@ -19,6 +19,7 @@ import type { Redis } from 'ioredis'
 
 import type { Config } from '../lib/config.js'
 import {
+    AGENT_CALLBACKS_HEADER,
     MAX_EVENT_LINE_BYTES,
     MAX_REQUEST_BYTES,
     MAX_EVENTS_PER_REQUEST,
@@ -31,6 +32,7 @@ import {
     captureBudgetSteerIfNeeded,
     captureProcessKilledIfNeeded,
     heartbeatWorkflowIfNeeded,
+    trackAgentActivity,
 } from '../lib/side-effects.js'
 import {
     ClientDisconnected,
@@ -124,7 +126,15 @@ export async function handleIngest(
 
     let result: EventIngestResult
     try {
-        result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
+        result = await ingestEventLines(
+            redisStream,
+            claims,
+            token,
+            config,
+            c.req.raw,
+            bodyTiming,
+            c.req.header(AGENT_CALLBACKS_HEADER) === '1'
+        )
     } catch (err: unknown) {
         if (err instanceof ClientDisconnected) {
             const classification = await classifyDisconnect(redisStream)
@@ -217,7 +227,8 @@ async function ingestEventLines(
     originalToken: string,
     config: Config,
     rawRequest: Request,
-    bodyTiming: IngestBodyTiming
+    bodyTiming: IngestBodyTiming,
+    agentSendsCallbacks: boolean
 ): Promise<EventIngestResult> {
     const result: EventIngestResult = {
         accepted: 0,
@@ -252,7 +263,17 @@ async function ingestEventLines(
 
             const { seq, event } = eventLine
             const write = await redisStream.writeEventWithSequence(event, seq)
-            captureBudgetSteerIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
+            if (!agentSendsCallbacks) {
+                captureBudgetSteerIfNeeded(
+                    claims.runId,
+                    seq,
+                    event,
+                    claims.taskId,
+                    claims.teamId,
+                    originalToken,
+                    config
+                )
+            }
 
             if (!write.accepted) {
                 // Duplicate: advance last_accepted_seq to whatever Redis has.
@@ -267,6 +288,10 @@ async function ingestEventLines(
 
             result.accepted++
             result.last_accepted_seq = seq
+            if (agentSendsCallbacks) {
+                await trackAgentActivity(redisStream, event)
+                continue
+            }
             captureProcessKilledIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
             await heartbeatWorkflowIfNeeded(

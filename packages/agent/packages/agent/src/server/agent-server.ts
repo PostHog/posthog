@@ -135,6 +135,7 @@ import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
+import { createAgentCallbackReporter } from "./agent-callback-reporter";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -717,6 +718,17 @@ export class AgentServer {
         apiUrl: config.apiUrl,
         eventIngestBaseUrl: config.eventIngestBaseUrl,
         keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
+        callbackReporter: createAgentCallbackReporter({
+          eventIngestToken: config.eventIngestToken,
+          eventIngestBaseUrl: config.eventIngestBaseUrl,
+          logger: this.logger.child("AgentCallback"),
+          send: (callback) =>
+            this.posthogAPI.sendAgentCallback(
+              config.taskId,
+              config.runId,
+              callback,
+            ),
+        }),
         projectId: config.projectId,
         taskId: config.taskId,
         runId: config.runId,
