@@ -225,8 +225,8 @@ posthog:llma-evaluation-test-hog
 }
 ```
 
-The handler returns raw boolean or numeric results for the sampled units.
-For numeric previews, send `output_type: "numeric"` and the saved `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
+The handler returns raw boolean, numeric, or categorical results for the sampled units.
+For numeric or categorical previews, send the saved `output_type` and `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
 `llma-evaluation-create`:
 
 ```json
