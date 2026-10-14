@@ -217,6 +217,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
     @parameterized.expand([(True,), (False,)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_managed_source_switches_raw_and_hogql_execution_to_trino(self, raw: bool, _flag: MagicMock) -> None:
+        _flag.side_effect = lambda flag, *_args, **_kwargs: flag == "managed-warehouse-trino-query"
         source = self._dynamic_managed_source()
         source.job_inputs = {}
         source.save(update_fields=["job_inputs"])

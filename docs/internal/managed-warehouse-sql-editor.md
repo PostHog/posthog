@@ -1,8 +1,8 @@
 # Managed warehouse connections in the SQL editor
 
-The `data-warehouse-scene` and `data-warehouse-scene-trino` organization flags gate managed warehouse provisioning. Once a provision, onboarding, or generation-fenced recovery lifecycle action runs, a genuinely missing managed source is created unconditionally as a secretless `duckgres_service` source and presented as `PostHog (Managed warehouse)`.
+The `data-warehouse-scene` and `managed-warehouse-trino-query` organization flags gate managed warehouse provisioning. Once a provision, onboarding, or generation-fenced recovery lifecycle action runs, a genuinely missing managed source is created unconditionally as a secretless `duckgres_service` source and presented as `PostHog (Managed warehouse)`.
 
-The secretless built-in connection uses Trino when `data-warehouse-scene-trino` is enabled for the organization; otherwise it uses Duckgres. This applies to existing provisioned connections as well as new ones. The persisted source ID and its Postgres source type stay stable, while the connection option reports the selected engine. Ordinary external connections and existing stored project-reader or organization-login sources retain their configured engine and grants.
+The secretless built-in connection uses Trino when `managed-warehouse-trino-query` is enabled for the organization; otherwise it uses Duckgres. This applies to existing provisioned connections as well as new ones. The persisted source ID and its Postgres source type stay stable, while the connection option reports the selected engine. Ordinary external connections and existing stored project-reader or organization-login sources retain their configured engine and grants.
 
 Trino raw SQL and connection-scoped HogQL both use short-lived hosted service credentials, bounded execution, and asynchronous cancellation. Schema discovery also uses Trino with a separate project-scoped system principal and updates existing table projections in place. Its catalog queries share a 60-second deadline. Flag evaluation runs outside source and lifecycle locking transactions. A Trino failure produces an error without falling back to Duckgres. Query caches are partitioned by the selected engine. Turning the flag off restores Duckgres routing immediately; schema reconciliation refreshes the table projections on its existing schedule, so compiled queries can require a catalog refresh after either switch.
 
@@ -49,7 +49,7 @@ If Redis is unavailable, SQL editor queries and managed warehouse schema discove
 
 ## Hosted Trino opt-in
 
-The `managed-warehouse-trino-query` organization feature flag adds **PostHog (Trino)** directly below **PostHog (ClickHouse)** in the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
+The same `managed-warehouse-trino-query` organization feature flag adds **PostHog (Trino)** directly below **PostHog (ClickHouse)** in the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
 
 Hosted Trino runs the current HogQL query through the Django-backed Trino compiler, preserving project scoping and the requesting user's table permissions. It resolves logical table names to the project's managed warehouse tables without requiring a stored model translation. Data must already exist in the Trino target; unsupported expressions and missing tables produce query errors. The target accepts HogQL only and cannot be combined with an external connection or raw SQL mode.
 

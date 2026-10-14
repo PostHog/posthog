@@ -21,6 +21,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
+from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable, compile_hogql_to_trino_sql
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 
@@ -31,8 +32,6 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
-
-MANAGED_TRINO_QUERY_FLAG = "managed-warehouse-trino-query"
 
 
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:

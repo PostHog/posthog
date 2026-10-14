@@ -2,13 +2,13 @@ from uuid import UUID
 
 from posthog.ph_client import feature_enabled_or_false
 
-from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_TRINO_FLAG
+from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
 
 
 def managed_warehouse_sql_editor_uses_trino(organization_id: UUID | str) -> bool:
     org_id = str(organization_id)
     return feature_enabled_or_false(
-        DATA_WAREHOUSE_SCENE_TRINO_FLAG,
+        MANAGED_TRINO_QUERY_FLAG,
         org_id,
         groups={"organization": org_id},
         group_properties={"organization": {"id": org_id}},
