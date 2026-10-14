@@ -82,8 +82,8 @@ DispatchOutcome = Literal[
     "failed",
 ]
 
-GITHUB_COMMANDS_TOTAL = Counter(
-    "posthog_github_commands_total",
+COMMANDS_TOTAL = Counter(
+    "posthog_commands_total",
     "Pull request comment commands, by command and what dispatch did with them",
     labelnames=["verb", "outcome"],
 )
@@ -96,7 +96,7 @@ def dispatch_comment_command(request: CommentCommandRequest, *, github: CommandG
     # Unknown verbs share one label value, so a comment cannot mint a metric series. Aliases count
     # under their canonical verb.
     verb_label = spec.declaration.verb if spec else (HELP_VERB if request.verb == HELP_VERB else "unknown")
-    GITHUB_COMMANDS_TOTAL.labels(verb=verb_label, outcome=outcome).inc()
+    COMMANDS_TOTAL.labels(verb=verb_label, outcome=outcome).inc()
     logger.info(
         "github_command_dispatched",
         verb=verb_label,
@@ -276,7 +276,7 @@ def _reply_body(request: CommentCommandRequest, message: str) -> str:
 
 
 def _claim_key(comment_id: int) -> str:
-    return f"github_commands:comment:{comment_id}"
+    return f"commands:github_comment:{comment_id}"
 
 
 def _claim_comment(comment_id: int) -> DispatchOutcome | None:
@@ -299,7 +299,7 @@ def _release_comment(comment_id: int) -> None:
 
 
 def _within_rate_limit(github_user_id: int) -> bool:
-    decision = consume(f"github_commands:commenter:{github_user_id}", _COMMENTER_BUDGET)
+    decision = consume(f"commands:github_commenter:{github_user_id}", _COMMENTER_BUDGET)
     # Fail open when Redis can't answer, like the other per-caller buckets.
     return not isinstance(decision, BucketDecision) or decision.allowed
 

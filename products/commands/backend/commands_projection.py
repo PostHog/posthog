@@ -10,10 +10,10 @@ Registered in `tools/hogli-commands/hogli_commands/projections.py`; run
 
 import json
 
-from products.github_commands.backend.logic.schema import help_table, signature
+from products.commands.backend.logic.schema import help_table, signature
 
-JSON_OUTPUT = "products/github_commands/commands.generated.json"
-MARKDOWN_OUTPUT = "products/github_commands/COMMANDS.generated.md"
+JSON_OUTPUT = "products/commands/commands.generated.json"
+MARKDOWN_OUTPUT = "products/commands/COMMANDS.generated.md"
 
 
 def render() -> dict[str, str]:

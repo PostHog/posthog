@@ -1,4 +1,4 @@
-"""Facade for github_commands.
+"""Facade for commands.
 
 The ONLY module other products and core may import. It stays cheap to import, because the webhook
 consumer calls it inside the request for every comment on every pull request.
