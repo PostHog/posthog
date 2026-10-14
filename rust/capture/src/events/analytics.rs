@@ -2410,7 +2410,7 @@ mod tests {
 
     /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
+    /// it exactly when `AI_EVENTS_OVERFLOW_ENABLED` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
     #[case::limiter_present(AiValveCase {
