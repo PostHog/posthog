@@ -16,6 +16,7 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::kind::{AnalyticsKind, MainOrHistorical};
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
@@ -28,12 +29,15 @@ use chrono::{DateTime, Utc};
 
 #[derive(Default, Clone)]
 struct MemorySink {
-    events: Arc<Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<Mutex<Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>>>,
 }
 
 #[async_trait]
-impl PublishEvents for MemorySink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents<AnalyticsKind<MainOrHistorical>> for MemorySink {
+    async fn publish_events(
+        &self,
+        events: Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>>,
+    ) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
     }
@@ -47,7 +51,7 @@ impl PublishPrepared for MemorySink {
 }
 
 impl MemorySink {
-    fn events(&self) -> Vec<ProcessedEvent> {
+    fn events(&self) -> Vec<ProcessedEvent<AnalyticsKind<MainOrHistorical>>> {
         self.events.lock().unwrap().clone()
     }
 }
@@ -127,10 +131,13 @@ async fn setup_router_with_limits(
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let app = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink.clone(),
+        )),
         redis,
         None,
         quota_limiter,
@@ -189,7 +196,9 @@ fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
     }
 }
 
-fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
+fn extract_captured_event_names(
+    events: &[ProcessedEvent<AnalyticsKind<MainOrHistorical>>],
+) -> Vec<String> {
     events
         .iter()
         .map(|e| {
@@ -1180,10 +1189,13 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink.clone(),
+        )),
         redis,
         None,
         quota_limiter,
@@ -1271,10 +1283,13 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink.clone(),
+        )),
         redis,
         None,
         quota_limiter,
@@ -1366,10 +1381,13 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink.clone(),
+        )),
         redis,
         None,
         quota_limiter,
@@ -1798,10 +1816,13 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let app = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink.clone(),
+        )),
         redis,
         None,
         quota_limiter,

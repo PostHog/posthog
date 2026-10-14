@@ -11,12 +11,13 @@ use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
+use capture::kind::SnapshotKind;
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, ProcessedEvent};
+use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -38,7 +39,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent<SnapshotKind>>>>,
 }
 
 impl CapturingSink {
@@ -48,14 +49,17 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<ProcessedEvent<SnapshotKind>> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
-impl PublishEvents for CapturingSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents<SnapshotKind> for CapturingSink {
+    async fn publish_events(
+        &self,
+        events: Vec<ProcessedEvent<SnapshotKind>>,
+    ) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -105,10 +109,11 @@ async fn setup_recordings_router_with_restriction(
     service.update(manager).await;
 
     let router = router(
+        capture::router::recordings_routes(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink)),
+        Arc::new(OutputRegistry::<SnapshotKind>::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -162,7 +167,7 @@ struct ExpectedEvent<'a> {
     event_name: &'a str,
     session_id: &'a str,
     // ProcessedEventMetadata fields
-    data_type: DataType,
+    kind: SnapshotKind,
     force_overflow: bool,
     skip_person_processing: bool,
     redirect_to_dlq: bool,
@@ -171,7 +176,7 @@ struct ExpectedEvent<'a> {
     expected_properties: Option<Value>,
 }
 
-fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
+fn assert_event(event: &ProcessedEvent<SnapshotKind>, expected: &ExpectedEvent) {
     // Assert CapturedEvent fields
     assert_eq!(event.event.token, expected.token, "token mismatch");
     assert_eq!(
@@ -192,10 +197,7 @@ fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
     assert!(!event.event.data.is_empty(), "data should not be empty");
 
     // Assert ProcessedEventMetadata fields
-    assert_eq!(
-        event.metadata.data_type, expected.data_type,
-        "data_type mismatch"
-    );
+    assert_eq!(event.metadata.kind, expected.kind, "data_type mismatch");
     assert_eq!(
         event.metadata.event_name, expected.event_name,
         "metadata.event_name mismatch"
@@ -295,7 +297,7 @@ async fn test_recordings_redirect_to_dlq_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
+            kind: SnapshotKind,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: true,
@@ -337,7 +339,7 @@ async fn test_recordings_force_overflow_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
+            kind: SnapshotKind,
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -381,7 +383,7 @@ async fn test_recordings_skip_person_processing_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
+            kind: SnapshotKind,
             force_overflow: false,
             skip_person_processing: true,
             redirect_to_dlq: false,
@@ -427,7 +429,7 @@ async fn test_recordings_restriction_does_not_apply_to_other_tokens() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
+            kind: SnapshotKind,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
@@ -476,10 +478,11 @@ async fn setup_recordings_router_with_redirect_to_topic(
     service.update(manager).await;
 
     let router = router(
+        capture::router::recordings_routes(),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink)),
+        Arc::new(OutputRegistry::<SnapshotKind>::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -541,7 +544,7 @@ async fn test_recordings_redirect_to_topic_restriction() {
             distinct_id: "test_user",
             event_name: "$snapshot_items",
             session_id: &session_id,
-            data_type: DataType::SnapshotMain,
+            kind: SnapshotKind,
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,

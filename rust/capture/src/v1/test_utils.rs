@@ -562,6 +562,7 @@ use limiters::token_dropper::TokenDropper;
 use crate::config::CaptureMode;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::kind::{AnalyticsKind, EventKind, MainOrHistorical};
 use crate::outputs::OutputRegistry;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
@@ -573,8 +574,8 @@ use crate::time::TimeSource;
 /// Result of building a test state — gives access to both the `router::State`
 /// and the `MockKafkaProducer` behind its outputs, so tests can inspect sent
 /// records.
-pub struct TestState {
-    pub state: router::State,
+pub struct TestState<K: EventKind = AnalyticsKind<MainOrHistorical>> {
+    pub state: router::State<K>,
     pub mock_producer: MockKafkaProducer,
 }
 

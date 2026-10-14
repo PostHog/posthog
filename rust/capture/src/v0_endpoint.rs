@@ -8,16 +8,16 @@ use tracing::{instrument, Span};
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     events::{analytics::process_events, recordings::process_replay_events},
+    kind::{Classify, Route, SnapshotKind},
     payload::{handle_event_payload, handle_recording_payload, EventQuery},
     prometheus::{report_dropped_events, report_internal_error_metrics},
     router,
 };
 
 #[instrument(skip(state, body, meta), fields(params_compression))]
-#[debug_handler]
 #[allow(clippy::too_many_arguments)]
-pub async fn event(
-    state: State<router::State>,
+pub async fn event<K: Classify + Route>(
+    state: State<router::State<K>>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
     headers: HeaderMap,
@@ -122,7 +122,7 @@ pub async fn event(
 #[debug_handler]
 #[allow(clippy::too_many_arguments)]
 pub async fn recording(
-    state: State<router::State>,
+    state: State<router::State<SnapshotKind>>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
     headers: HeaderMap,

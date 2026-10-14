@@ -6,6 +6,8 @@
 
 use axum::body::Body;
 use axum::extract::{MatchedPath, State};
+
+use crate::kind::EventKind;
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use common_types::RawEvent;
@@ -30,8 +32,8 @@ use crate::{
     fields(method, path, token, ip, historical_migration, compression, batch_size)
 )]
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_event_payload(
-    state: &State<router::State>,
+pub async fn handle_event_payload<K: EventKind>(
+    state: &State<router::State<K>>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
     headers: &HeaderMap,

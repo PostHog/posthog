@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use metrics::counter;
 
 use crate::api::CaptureError;
+use crate::kind::EventKind;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
 use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
@@ -16,8 +17,8 @@ impl NoOpSink {
 }
 
 #[async_trait]
-impl PublishEvents for NoOpSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl<K: EventKind> PublishEvents<K> for NoOpSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         counter!("capture_events_ingested_total").increment(events.len() as u64);
         Ok(())
     }

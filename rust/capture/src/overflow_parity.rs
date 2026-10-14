@@ -19,6 +19,7 @@ use rstest::rstest;
 use std::num::NonZeroU32;
 
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::kind::{AnalyticsKind, MainOrHistorical};
 use crate::outputs::OutputRegistry;
 use crate::router::HistoricalConfig;
 use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
@@ -122,10 +123,9 @@ fn v0_context(now: DateTime<Utc>) -> ProcessingContext {
 /// at `observe` off the mock producer.
 async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     let producer = MockKafkaProducer::new();
-    let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-        producer.clone(),
-        test_outputs(),
-    )));
+    let outputs = Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+        KafkaSinkBase::with_producer(producer.clone(), test_outputs()),
+    ));
     let global = limits.globally_limited.then(|| {
         Arc::new(GlobalRateLimiter::mock_limiting(&[&format!(
             "{V0_TOKEN}:{V0_DISTINCT_ID}"

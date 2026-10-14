@@ -10,12 +10,13 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::kind::AiKind;
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
 use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
+use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_ingestion_warnings::test_support::CollectingEmitter;
 use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_OTEL};
@@ -54,7 +55,7 @@ impl TimeSource for FixedTime {
 
 #[derive(Clone)]
 struct CapturingSink {
-    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent<AiKind>>>>,
 }
 
 impl CapturingSink {
@@ -64,14 +65,17 @@ impl CapturingSink {
         }
     }
 
-    async fn get_events(&self) -> Vec<ProcessedEvent> {
+    async fn get_events(&self) -> Vec<ProcessedEvent<AiKind>> {
         self.events.lock().await.clone()
     }
 }
 
 #[async_trait]
-impl PublishEvents for CapturingSink {
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents<AiKind> for CapturingSink {
+    async fn publish_events(
+        &self,
+        events: Vec<ProcessedEvent<AiKind>>,
+    ) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -177,10 +181,11 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
     });
 
     let app = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink.clone())),
+        Arc::new(OutputRegistry::<AiKind>::single(sink.clone())),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -323,7 +328,7 @@ fn sign_gateway_body(
     hex::encode(mac.finalize().into_bytes())
 }
 
-fn parse_event_data(event: &ProcessedEvent) -> serde_json::Value {
+fn parse_event_data(event: &ProcessedEvent<AiKind>) -> serde_json::Value {
     serde_json::from_str(&event.event.data).expect("event data is valid JSON")
 }
 
@@ -423,7 +428,7 @@ async fn test_single_span_produces_one_event() {
     assert_eq!(event.event.token, TOKEN);
     assert_eq!(event.event.event, "$ai_generation");
     assert_eq!(event.event.distinct_id, "user-1");
-    assert_eq!(event.metadata.data_type, DataType::AiEvents);
+    assert_eq!(event.metadata.kind, AiKind);
     assert_eq!(event.metadata.event_name, "$ai_generation");
 
     let data = parse_event_data(event);
@@ -1573,7 +1578,7 @@ async fn test_restriction_types() {
         restriction_type: RestrictionType,
         args: Option<serde_json::Value>,
         expected_status: u16,
-        check: fn(&[ProcessedEvent]) -> bool,
+        check: fn(&[ProcessedEvent<AiKind>]) -> bool,
     }
 
     let cases = [
@@ -1682,7 +1687,7 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
 // ============================================================================
 //
 // `otel_handler` bypasses `events::analytics::process_events` and produces
-// `DataType::AiEvents` spans directly, so the shared `stamp_overflow_reason`
+// `AiKind` spans directly, so the shared `stamp_overflow_reason`
 // helper is what preserves OverflowLimiter parity for `capture-ai-prod-us`.
 // These tests exercise the helper end-to-end across the OTEL batch path.
 //
@@ -1782,7 +1787,7 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
             event.metadata.skip_person_processing,
             "span[{i}] ForceLimited implies skip_person_processing"
         );
-        assert_eq!(event.metadata.data_type, DataType::AiEvents);
+        assert_eq!(event.metadata.kind, AiKind);
     }
 }
 

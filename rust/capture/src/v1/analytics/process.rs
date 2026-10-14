@@ -29,6 +29,7 @@ use super::context::Context;
 use crate::api::CaptureError;
 use crate::config::CaptureMode;
 use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
+use crate::kind::EventKind;
 use crate::router;
 use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v1::context::RequestContext;
@@ -39,7 +40,7 @@ use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningType, CAPTURE_V1_ANALYTICS, CAPTURE_V1_RATE_LIMIT,
 };
 
-/// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
+/// Maps event name to its Kafka destination, mirroring v0 classification.
 ///
 /// Unlike legacy capture, v1 does NOT split heatmap/scroll-depth properties out of
 /// non-$$heatmap events (e.g. $pageview) into a synthetic redirect. We keep properties
@@ -63,8 +64,8 @@ fn destination_for_event_name(name: &str) -> Destination {
 /// response. The pipeline itself only decides each event's outcome; whatever
 /// stage it exits from, the warnings sweep sees the final outcomes exactly
 /// once, here.
-pub async fn process_batch(
-    state: &router::State,
+pub async fn process_batch<K: EventKind>(
+    state: &router::State<K>,
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
@@ -77,8 +78,8 @@ pub async fn process_batch(
 /// events with their final per-event outcomes; a whole-batch failure is the
 /// `Err`. Stages that leave nothing to publish return early with what they
 /// have, so the 200 with per-event drops still comes from `process_batch`.
-async fn run_pipeline(
-    state: &router::State,
+async fn run_pipeline<K: EventKind>(
+    state: &router::State<K>,
     context: &mut Context,
     batch: Batch,
 ) -> Result<Vec<WrappedEvent>, Error> {
@@ -199,7 +200,11 @@ async fn run_pipeline(
 // the trusted marker and exempts it from the llm_events meter; anything else has its
 // `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
 // plausibly carry a gateway key, so ordinary traffic stays off the hot path.
-fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+fn apply_gateway_provenance<K: EventKind>(
+    state: &router::State<K>,
+    context: &Context,
+    events: &mut [WrappedEvent],
+) {
     use crate::v1::gateway_provenance as gp;
 
     let secret = state
@@ -323,8 +328,8 @@ pub fn merge_publish_results(
 /// The batch is rejected as a unit, so `count` charges the full batch length;
 /// no per-event identifiers exist at this point. Unregistered tags emit
 /// nothing (allowlist in `WarningType::from_tag`). Never fails the request.
-fn emit_batch_abort_warning(
-    state: &router::State,
+fn emit_batch_abort_warning<K: EventKind>(
+    state: &router::State<K>,
     context: &Context,
     err: &Error,
     batch_len: usize,
@@ -354,7 +359,11 @@ fn emit_batch_abort_warning(
 /// every outcome, so a stage reports a drop by tagging it and nothing else.
 /// Whether the tag turns into a warning is decided in one place,
 /// `WarningType::from_tag`.
-fn emit_drop_warnings(state: &router::State, context: &Context, events: &[WrappedEvent]) {
+fn emit_drop_warnings<K: EventKind>(
+    state: &router::State<K>,
+    context: &Context,
+    events: &[WrappedEvent],
+) {
     let emitter = state.ingestion_warning_emitter.as_deref();
     if emitter.is_none() {
         // Checked up front so a deployment with warnings off doesn't pay for the
@@ -742,10 +751,7 @@ fn route_historical(
             .increment(1);
         return Destination::AnalyticsHistorical;
     }
-    if cfg.should_reroute(
-        crate::v0_request::DataType::AnalyticsMain,
-        adjusted_timestamp,
-    ) {
+    if cfg.should_reroute(adjusted_timestamp) {
         metrics::counter!(CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, "reason" => "timestamp")
             .increment(1);
         return Destination::AnalyticsHistorical;
@@ -824,7 +830,7 @@ async fn apply_restrictions(
         // against the correct restriction slice (Analytics vs ErrorTracking
         // vs Ai) — an event diverted to the AI lane is governed by ai-scoped
         // restrictions, not analytics ones. v0 derives the same mapping from
-        // `DataType::pipeline`.
+        // the event kind.
         let Some(pipeline) = event.destination.pipeline() else {
             continue;
         };
@@ -889,7 +895,11 @@ async fn apply_restrictions(
 /// deployment rejects the whole request (`CaptureError::NonAiEventOnAiLane`)
 /// because its contract has no way to say less. The gate runs before quota and
 /// restrictions so a refused event spends neither.
-fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+fn drop_non_ai_events<K: EventKind>(
+    state: &router::State<K>,
+    context: &Context,
+    events: &mut [WrappedEvent],
+) {
     let mut dropped: u64 = 0;
     // Identifiers for the warning, kept only while exactly one event offended.
     // With several they would be an arbitrary pick, and the count already says
@@ -958,7 +968,7 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
 /// operator redirected: `force_overflow` retargets an AI event to
 /// `AiOverflow`, which is still the AI lane, and a `redirect_to_topic`
 /// or DLQ restriction moves it off `AiMain` without taking it off the wire.
-/// [`is_ai_event`] is the same rule v0 stamps `DataType::AiEvents` from, so both
+/// [`is_ai_event`] is the same rule v0 classifies AI events by, so both
 /// pipelines charge and measure the same set.
 fn on_ai_lane(event: &WrappedEvent) -> bool {
     is_ai_event(&event.event.event)
@@ -4781,7 +4791,10 @@ mod tests {
 
     /// State wired to a `CollectingEmitter` so tests can assert exactly what
     /// `process_batch` emitted (type, count, details) without any Kafka.
-    fn state_with_warning_collector() -> (router::State, Arc<CollectingEmitter>) {
+    fn state_with_warning_collector() -> (
+        router::State<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>,
+        Arc<CollectingEmitter>,
+    ) {
         let collector = Arc::new(CollectingEmitter::new());
         let state = TestStateBuilder::new()
             .with_ingestion_warning_emitter(collector.clone())
@@ -5014,7 +5027,8 @@ mod tests {
         batch_payload, event_with_all_options, event_with_empty_options, WrappedEventMut,
     };
 
-    fn test_outputs() -> Arc<OutputRegistry> {
+    fn test_outputs(
+    ) -> Arc<OutputRegistry<crate::kind::AnalyticsKind<crate::kind::MainOrHistorical>>> {
         test_utils::TestStateBuilder::new().build().state.outputs
     }
 

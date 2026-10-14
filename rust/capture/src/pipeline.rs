@@ -1,7 +1,8 @@
 //! Pipeline and lane — an event's address, and the one place it is decided.
 //!
-//! [`resolve`] folds the intent stamped on [`ProcessedEventMetadata`] during
-//! processing (restrictions, overflow reasons, the historical flag) through
+//! Each kind's [`Route::resolve`](crate::kind::Route::resolve) folds the intent
+//! stamped on [`ProcessedEventMetadata`] during processing (restrictions,
+//! overflow reasons, the event's kind) through
 //! one precedence chain — dlq > custom > historical > overflow > main — and
 //! returns an [`AddressDecision`]: the [`Address`] the event publishes to and
 //! the customer-facing [`OrderingGuarantee`] the sink realizes as a partition
@@ -9,10 +10,11 @@
 //! are implied by the address and applied by the layer that realizes it.
 
 use crate::api::CaptureError;
+use crate::kind::{AiKind, AnalyticsKind, AnalyticsVariant, SnapshotKind};
 use crate::ordering::{person_ordering, OrderingGuarantee};
-use crate::v0_request::{DataType, OverflowReason, ProcessedEventMetadata};
+use crate::v0_request::{OverflowReason, ProcessedEventMetadata};
 
-/// Pipeline from [`DataType`], lane from [`resolve`]. Each pipeline names only
+/// Pipeline from the event kind, lane from its resolve. Each pipeline names only
 /// the lanes it has, so an address no output backs cannot be built.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PipelineLane {
@@ -91,159 +93,186 @@ impl AddressDecision {
     }
 }
 
-/// Decide an event's address from its metadata. DLQ and custom-topic
-/// redirects take priority over per-datatype and overflow routing, and a
-/// restriction's `force_overflow` takes priority over a stamped
-/// `overflow_reason`. Consulted
-/// by the sink, which resolves the address to a topic string and the ordering
-/// guarantee to a partition key, and applies the address-implied side
-/// effects. A replay event with no session id is rejected here, so every
-/// returned decision is realizable by the sink.
-pub fn resolve(
-    metadata: &ProcessedEventMetadata,
+/// DLQ and custom-topic redirects take priority over every lane decision, and
+/// both key on the event key.
+fn redirect<K>(metadata: &ProcessedEventMetadata<K>) -> Option<AddressDecision> {
+    let address = if metadata.redirect_to_dlq {
+        Address::Dlq
+    } else {
+        Address::Custom(metadata.redirect_to_topic.clone()?)
+    };
+    Some(AddressDecision::redirect(address))
+}
+
+/// A restriction's `force_overflow` takes priority over a stamped
+/// `overflow_reason`.
+fn analytics_main<K>(metadata: &ProcessedEventMetadata<K>) -> (AnalyticsLane, OrderingGuarantee) {
+    if metadata.force_overflow {
+        return (
+            AnalyticsLane::Overflow,
+            person_ordering(metadata.person_processing_disabled()),
+        );
+    }
+    match &metadata.overflow_reason {
+        Some(OverflowReason::ForceLimited) => (AnalyticsLane::Overflow, OrderingGuarantee::None),
+        // The person flag alone decides the key here, in both directions. A
+        // burst keeps its key while person processing is on — the overflow
+        // consumer updates persons keyed on distinct id, so spreading one
+        // distinct id across partitions turns a hot key into contended
+        // person-row updates — which makes the locality preference irrelevant
+        // on this lane. And a key whose person processing is already off (the
+        // global rate limiter stamps its verdict before the overflow limiter
+        // overwrites the reason) must not get its partition back.
+        Some(OverflowReason::RateLimited { .. }) => (
+            AnalyticsLane::Overflow,
+            person_ordering(metadata.person_processing_disabled()),
+        ),
+        // ReplayLimited is stamped only by the recordings pipeline, so an
+        // analytics event cannot carry it — the shared OverflowReason enum
+        // forces the arm, which treats the impossible stamp as unstamped.
+        Some(OverflowReason::ReplayLimited) | None => (
+            AnalyticsLane::Main,
+            person_ordering(metadata.person_processing_disabled()),
+        ),
+    }
+}
+
+/// The AI lanes route overflow like analytics, except that a burst may spread
+/// while person processing is on — the AI consumer reads persons without
+/// writing them, so keyless person-on records cause no person-update
+/// contention there. Without an overflow lane AI events never overflow, and
+/// the default route keeps the event key regardless of skip_person_processing.
+fn ai<K>(
+    metadata: &ProcessedEventMetadata<K>,
     has_ai_overflow_lane: bool,
-) -> Result<AddressDecision, CaptureError> {
-    if metadata.redirect_to_dlq {
-        return Ok(AddressDecision::redirect(Address::Dlq));
+) -> (AiLane, OrderingGuarantee) {
+    if !has_ai_overflow_lane {
+        return (AiLane::Main, OrderingGuarantee::PerDistinctId);
     }
-
-    if let Some(ref topic) = metadata.redirect_to_topic {
-        return Ok(AddressDecision::redirect(Address::Custom(topic.clone())));
+    if metadata.force_overflow {
+        return (
+            AiLane::Overflow,
+            person_ordering(metadata.person_processing_disabled()),
+        );
     }
+    match &metadata.overflow_reason {
+        Some(OverflowReason::ForceLimited) => (AiLane::Overflow, OrderingGuarantee::None),
+        Some(OverflowReason::RateLimited {
+            preserve_locality: true,
+        }) => (
+            AiLane::Overflow,
+            // Same precedence as the analytics overflow lane above.
+            person_ordering(metadata.person_processing_disabled()),
+        ),
+        Some(OverflowReason::RateLimited {
+            preserve_locality: false,
+        }) => (AiLane::Overflow, OrderingGuarantee::None),
+        // ReplayLimited cannot be stamped on the AI lane either; treated as
+        // unstamped, as above.
+        Some(OverflowReason::ReplayLimited) | None => {
+            (AiLane::Main, OrderingGuarantee::PerDistinctId)
+        }
+    }
+}
 
-    Ok(match metadata.data_type {
-        DataType::AnalyticsHistorical => AddressDecision::lane(
-            // Historical events never overflow — force_overflow and
-            // overflow_reason are deliberately ignored here.
+pub(crate) fn resolve_analytics<A: AnalyticsVariant>(
+    metadata: &ProcessedEventMetadata<AnalyticsKind<A>>,
+    has_ai_overflow_lane: bool,
+) -> AddressDecision {
+    if let Some(decision) = redirect(metadata) {
+        return decision;
+    }
+    match metadata.kind {
+        // Historical events never overflow — force_overflow and
+        // overflow_reason are deliberately ignored here.
+        AnalyticsKind::Analytics(analytics) if analytics.is_historical() => AddressDecision::lane(
             PipelineLane::Analytics(AnalyticsLane::Historical),
             OrderingGuarantee::PerDistinctId,
         ),
-        DataType::AnalyticsMain => {
-            if metadata.force_overflow {
-                AddressDecision::lane(
-                    PipelineLane::Analytics(AnalyticsLane::Overflow),
-                    person_ordering(metadata.person_processing_disabled()),
-                )
-            } else {
-                match &metadata.overflow_reason {
-                    Some(OverflowReason::ForceLimited) => AddressDecision::lane(
-                        PipelineLane::Analytics(AnalyticsLane::Overflow),
-                        OrderingGuarantee::None,
-                    ),
-                    // The person flag alone decides the key here, in both
-                    // directions. A burst keeps its key while person processing
-                    // is on — the overflow consumer updates persons keyed on
-                    // distinct id, so spreading one distinct id across
-                    // partitions turns a hot key into contended person-row
-                    // updates — which makes the locality preference irrelevant
-                    // on this lane. And a key whose person processing is
-                    // already off (the global rate limiter stamps its verdict
-                    // before the overflow limiter overwrites the reason) must
-                    // not get its partition back.
-                    Some(OverflowReason::RateLimited { .. }) => AddressDecision::lane(
-                        PipelineLane::Analytics(AnalyticsLane::Overflow),
-                        person_ordering(metadata.person_processing_disabled()),
-                    ),
-                    // ReplayLimited is stamped only by the recordings pipeline,
-                    // so an analytics event cannot carry it — the shared
-                    // OverflowReason enum forces the arm, which treats the
-                    // impossible stamp as unstamped.
-                    Some(OverflowReason::ReplayLimited) | None => AddressDecision::lane(
-                        PipelineLane::Analytics(AnalyticsLane::Main),
-                        person_ordering(metadata.person_processing_disabled()),
-                    ),
-                }
-            }
+        AnalyticsKind::Analytics(_) => {
+            let (lane, ordering) = analytics_main(metadata);
+            AddressDecision::lane(PipelineLane::Analytics(lane), ordering)
         }
-        DataType::AiEvents => {
-            // The AI lanes route overflow like analytics, except that a burst
-            // may spread while person processing is on — the AI consumer reads
-            // persons without writing them, so keyless person-on records cause
-            // no person-update contention there. Without an overflow lane AI
-            // events never overflow, and the default route keeps the event key
-            // regardless of skip_person_processing.
-            if has_ai_overflow_lane && metadata.force_overflow {
-                AddressDecision::lane(
-                    PipelineLane::Ai(AiLane::Overflow),
-                    person_ordering(metadata.person_processing_disabled()),
-                )
-            } else if has_ai_overflow_lane {
-                match &metadata.overflow_reason {
-                    Some(OverflowReason::ForceLimited) => AddressDecision::lane(
-                        PipelineLane::Ai(AiLane::Overflow),
-                        OrderingGuarantee::None,
-                    ),
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: true,
-                    }) => AddressDecision::lane(
-                        PipelineLane::Ai(AiLane::Overflow),
-                        // Same precedence as the analytics overflow lane above.
-                        person_ordering(metadata.person_processing_disabled()),
-                    ),
-                    Some(OverflowReason::RateLimited {
-                        preserve_locality: false,
-                    }) => AddressDecision::lane(
-                        PipelineLane::Ai(AiLane::Overflow),
-                        OrderingGuarantee::None,
-                    ),
-                    // ReplayLimited cannot be stamped on the AI lane either;
-                    // treated as unstamped, as above.
-                    Some(OverflowReason::ReplayLimited) | None => AddressDecision::lane(
-                        PipelineLane::Ai(AiLane::Main),
-                        OrderingGuarantee::PerDistinctId,
-                    ),
-                }
-            } else {
-                AddressDecision::lane(
-                    PipelineLane::Ai(AiLane::Main),
-                    OrderingGuarantee::PerDistinctId,
-                )
-            }
+        AnalyticsKind::Ai => {
+            let (lane, ordering) = ai(metadata, has_ai_overflow_lane);
+            AddressDecision::lane(PipelineLane::Ai(lane), ordering)
         }
         // A ForceOverflow restriction can stamp `force_overflow` on these
         // events. Their lane type has no overflow, so the stamp is ignored and
         // the event publishes to main.
-        DataType::ClientIngestionWarning => AddressDecision::lane(
+        AnalyticsKind::ClientWarning => AddressDecision::lane(
             PipelineLane::Warnings(BasicLane::Main),
             OrderingGuarantee::PerDistinctId,
         ),
-        DataType::HeatmapMain => AddressDecision::lane(
+        AnalyticsKind::Heatmap => AddressDecision::lane(
             PipelineLane::Heatmaps(BasicLane::Main),
             OrderingGuarantee::PerDistinctId,
         ),
-        DataType::ExceptionErrorTracking => AddressDecision::lane(
+        AnalyticsKind::Exception => AddressDecision::lane(
             PipelineLane::ErrorTracking(BasicLane::Main),
             OrderingGuarantee::PerDistinctId,
         ),
-        DataType::SnapshotMain => {
-            // Partition key is always session_id for replay to keep per-session
-            // ordering on the overflow lane; a missing id makes the decision
-            // unrealizable, so it is rejected as part of the decision.
-            if metadata.session_id.is_none() {
-                return Err(CaptureError::MissingSessionId);
-            }
-            let lane = if metadata.force_overflow
-                || matches!(
-                    metadata.overflow_reason,
-                    Some(OverflowReason::ReplayLimited)
-                ) {
-                SessionReplayLane::Overflow
-            } else {
-                SessionReplayLane::Main
-            };
-            AddressDecision::lane(PipelineLane::Replay(lane), OrderingGuarantee::PerSession)
-        }
-    })
+    }
+}
+
+pub(crate) fn resolve_ai(
+    metadata: &ProcessedEventMetadata<AiKind>,
+    has_ai_overflow_lane: bool,
+) -> AddressDecision {
+    if let Some(decision) = redirect(metadata) {
+        return decision;
+    }
+    let (lane, ordering) = ai(metadata, has_ai_overflow_lane);
+    AddressDecision::lane(PipelineLane::Ai(lane), ordering)
+}
+
+/// A replay event with no session id is rejected here, so every returned
+/// decision is realizable by the sink.
+pub(crate) fn resolve_session_replay(
+    metadata: &ProcessedEventMetadata<SnapshotKind>,
+) -> Result<AddressDecision, CaptureError> {
+    if let Some(decision) = redirect(metadata) {
+        return Ok(decision);
+    }
+    // Partition key is always session_id for replay to keep per-session
+    // ordering on the overflow lane; a missing id makes the decision
+    // unrealizable, so it is rejected as part of the decision.
+    if metadata.session_id.is_none() {
+        return Err(CaptureError::MissingSessionId);
+    }
+    let lane = if metadata.force_overflow
+        || matches!(
+            metadata.overflow_reason,
+            Some(OverflowReason::ReplayLimited)
+        ) {
+        SessionReplayLane::Overflow
+    } else {
+        SessionReplayLane::Main
+    };
+    Ok(AddressDecision::lane(
+        PipelineLane::Replay(lane),
+        OrderingGuarantee::PerSession,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kind::MainOrHistorical;
     use rstest::rstest;
 
-    fn meta(data_type: DataType) -> ProcessedEventMetadata {
+    const MAIN: AnalyticsKind<MainOrHistorical> = AnalyticsKind::Analytics(MainOrHistorical::Main);
+
+    fn resolve(
+        m: &ProcessedEventMetadata<AnalyticsKind<MainOrHistorical>>,
+        has_ai_overflow_lane: bool,
+    ) -> Result<AddressDecision, CaptureError> {
+        Ok(resolve_analytics(m, has_ai_overflow_lane))
+    }
+
+    fn meta<K>(kind: K) -> ProcessedEventMetadata<K> {
         ProcessedEventMetadata {
-            data_type,
+            kind,
             session_id: Some("session123".to_string()),
             computed_timestamp: None,
             event_name: "test_event".to_string(),
@@ -265,7 +294,7 @@ mod tests {
     fn dlq_wins_over_custom_topic_and_datatype() {
         // redirect_to_dlq set alongside redirect_to_topic and an overflow
         // reason: DLQ still wins, keyed on the event key, with the DLQ effect.
-        let mut m = meta(DataType::AnalyticsMain);
+        let mut m = meta(MAIN);
         m.redirect_to_dlq = true;
         m.redirect_to_topic = Some("custom".to_string());
         m.force_overflow = true;
@@ -281,7 +310,7 @@ mod tests {
     #[test]
     fn custom_topic_wins_over_datatype() {
         // Custom-topic redirect beats per-datatype/overflow routing (but not DLQ).
-        let mut m = meta(DataType::AnalyticsMain);
+        let mut m = meta(MAIN);
         m.redirect_to_topic = Some("my_topic".to_string());
         m.force_overflow = true;
         assert_eq!(
@@ -294,60 +323,49 @@ mod tests {
     }
 
     #[rstest]
-    #[case(DataType::AnalyticsMain, PipelineLane::Analytics(AnalyticsLane::Main))]
     #[case(
-        DataType::AnalyticsHistorical,
+        AnalyticsKind::Analytics(MainOrHistorical::Main),
+        PipelineLane::Analytics(AnalyticsLane::Main)
+    )]
+    #[case(
+        AnalyticsKind::Analytics(MainOrHistorical::Historical),
         PipelineLane::Analytics(AnalyticsLane::Historical)
     )]
-    #[case(
-        DataType::ClientIngestionWarning,
-        PipelineLane::Warnings(BasicLane::Main)
-    )]
-    #[case(DataType::HeatmapMain, PipelineLane::Heatmaps(BasicLane::Main))]
-    #[case(
-        DataType::ExceptionErrorTracking,
-        PipelineLane::ErrorTracking(BasicLane::Main)
-    )]
-    #[case(DataType::AiEvents, PipelineLane::Ai(AiLane::Main))]
-    #[case(DataType::SnapshotMain, PipelineLane::Replay(SessionReplayLane::Main))]
-    fn per_datatype_addresses(#[case] data_type: DataType, #[case] expected_lane: PipelineLane) {
-        let m = meta(data_type);
+    #[case(AnalyticsKind::ClientWarning, PipelineLane::Warnings(BasicLane::Main))]
+    #[case(AnalyticsKind::Heatmap, PipelineLane::Heatmaps(BasicLane::Main))]
+    #[case(AnalyticsKind::Exception, PipelineLane::ErrorTracking(BasicLane::Main))]
+    #[case(AnalyticsKind::Ai, PipelineLane::Ai(AiLane::Main))]
+    fn per_datatype_addresses(
+        #[case] kind: AnalyticsKind<MainOrHistorical>,
+        #[case] expected_lane: PipelineLane,
+    ) {
+        let m = meta(kind);
         let d = resolve(&m, false).unwrap();
-        assert_eq!(
-            d.address,
-            lane(expected_lane),
-            "wrong address for {data_type:?}"
-        );
+        assert_eq!(d.address, lane(expected_lane), "wrong address for {kind:?}");
     }
 
     #[rstest]
-    #[case(
-        DataType::ClientIngestionWarning,
-        PipelineLane::Warnings(BasicLane::Main)
-    )]
-    #[case(DataType::HeatmapMain, PipelineLane::Heatmaps(BasicLane::Main))]
-    #[case(
-        DataType::ExceptionErrorTracking,
-        PipelineLane::ErrorTracking(BasicLane::Main)
-    )]
+    #[case(AnalyticsKind::ClientWarning, PipelineLane::Warnings(BasicLane::Main))]
+    #[case(AnalyticsKind::Heatmap, PipelineLane::Heatmaps(BasicLane::Main))]
+    #[case(AnalyticsKind::Exception, PipelineLane::ErrorTracking(BasicLane::Main))]
     fn single_lane_pipelines_ignore_overflow_intent(
-        #[case] data_type: DataType,
+        #[case] kind: AnalyticsKind<MainOrHistorical>,
         #[case] main: PipelineLane,
     ) {
-        let mut m = meta(data_type);
+        let mut m = meta(kind);
         m.force_overflow = true;
         m.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
             resolve(&m, true).unwrap().address,
             lane(main),
-            "overflow intent must not move {data_type:?} off its main lane"
+            "overflow intent must not move {kind:?} off its main lane"
         );
     }
 
     #[test]
     fn analytics_main_overflow_ordering() {
         // force_overflow -> overflow lane; key policy follows skip_person.
-        let mut m = meta(DataType::AnalyticsMain);
+        let mut m = meta(MAIN);
         m.force_overflow = true;
         assert_eq!(
             resolve(&m, false).unwrap().ordering,
@@ -366,7 +384,7 @@ mod tests {
 
     #[test]
     fn analytics_main_overflow_reason_precedence() {
-        let base = meta(DataType::AnalyticsMain);
+        let base = meta(MAIN);
 
         let mut force_limited = base.clone();
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
@@ -430,16 +448,16 @@ mod tests {
     /// limiter preserves locality.
     #[rstest]
     #[case::analytics(
-        DataType::AnalyticsMain,
+        AnalyticsKind::Analytics(MainOrHistorical::Main),
         PipelineLane::Analytics(AnalyticsLane::Overflow)
     )]
-    #[case::ai(DataType::AiEvents, PipelineLane::Ai(AiLane::Overflow))]
+    #[case::ai(AnalyticsKind::Ai, PipelineLane::Ai(AiLane::Overflow))]
     fn person_processing_off_outranks_preserve_locality(
-        #[case] data_type: DataType,
+        #[case] kind: AnalyticsKind<MainOrHistorical>,
         #[case] overflow: PipelineLane,
     ) {
-        let has_ai_overflow_lane = data_type == DataType::AiEvents;
-        let mut m = meta(data_type);
+        let has_ai_overflow_lane = kind == AnalyticsKind::Ai;
+        let mut m = meta(kind);
         m.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: true,
         });
@@ -464,7 +482,7 @@ mod tests {
     fn ai_events_overflow_needs_an_overflow_lane() {
         // Without the lane, force_overflow and stamped reasons are ignored:
         // the AI lane never overflows and keeps its event key.
-        let mut m = meta(DataType::AiEvents);
+        let mut m = meta(AnalyticsKind::Ai);
         m.force_overflow = true;
         assert_eq!(
             resolve(&m, false).unwrap(),
@@ -486,7 +504,7 @@ mod tests {
         m.skip_person_processing = true;
         assert_eq!(resolve(&m, true).unwrap().ordering, OrderingGuarantee::None);
 
-        let mut force_limited = meta(DataType::AiEvents);
+        let mut force_limited = meta(AnalyticsKind::Ai);
         force_limited.overflow_reason = Some(OverflowReason::ForceLimited);
         assert_eq!(
             resolve(&force_limited, true).unwrap(),
@@ -505,7 +523,7 @@ mod tests {
     fn ai_events_default_route_keeps_event_key() {
         // skip_person_processing must not null the key on the AI default
         // route: v1 only nulls keys for Main/Overflow-shaped destinations.
-        let mut m = meta(DataType::AiEvents);
+        let mut m = meta(AnalyticsKind::Ai);
         m.skip_person_processing = true;
         for has_ai_overflow_lane in [false, true] {
             assert_eq!(
@@ -521,9 +539,9 @@ mod tests {
 
     #[test]
     fn snapshot_routing_keeps_per_session_ordering() {
-        let mut m = meta(DataType::SnapshotMain);
+        let mut m = meta(SnapshotKind);
         assert_eq!(
-            resolve(&m, false).unwrap(),
+            resolve_session_replay(&m).unwrap(),
             AddressDecision {
                 address: lane(PipelineLane::Replay(SessionReplayLane::Main)),
                 ordering: OrderingGuarantee::PerSession,
@@ -532,18 +550,18 @@ mod tests {
 
         m.force_overflow = true;
         assert_eq!(
-            resolve(&m, false).unwrap().address,
+            resolve_session_replay(&m).unwrap().address,
             lane(PipelineLane::Replay(SessionReplayLane::Overflow))
         );
         assert_eq!(
-            resolve(&m, false).unwrap().ordering,
+            resolve_session_replay(&m).unwrap().ordering,
             OrderingGuarantee::PerSession
         );
 
         m.force_overflow = false;
         m.overflow_reason = Some(OverflowReason::ReplayLimited);
         assert_eq!(
-            resolve(&m, false).unwrap().address,
+            resolve_session_replay(&m).unwrap().address,
             lane(PipelineLane::Replay(SessionReplayLane::Overflow))
         );
     }
@@ -553,16 +571,16 @@ mod tests {
     /// guarantee it cannot key.
     #[test]
     fn snapshot_without_session_id_is_rejected() {
-        let mut m = meta(DataType::SnapshotMain);
+        let mut m = meta(SnapshotKind);
         m.session_id = None;
         assert!(matches!(
-            resolve(&m, false),
+            resolve_session_replay(&m),
             Err(CaptureError::MissingSessionId)
         ));
 
         // A dlq redirect keys on the event key, so it stays realizable
         // without a session id.
         m.redirect_to_dlq = true;
-        assert_eq!(resolve(&m, false).unwrap().address, Address::Dlq);
+        assert_eq!(resolve_session_replay(&m).unwrap().address, Address::Dlq);
     }
 }

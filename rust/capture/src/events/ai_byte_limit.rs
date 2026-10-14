@@ -1,6 +1,6 @@
 //! The AI lane's per-project byte budget. The lane is the whole gate: every
 //! `$ai_` event (`v0_request::is_ai_event`) is bound for the AI Kafka topic on
-//! every deployment, stamped `DataType::AiEvents` in v0 and
+//! every deployment, classified as an AI kind in v0 and
 //! `Destination::AiMain` in v1. Import deployments are exempt — backfills
 //! are never throttled, matching the other limiters — which setup enforces by
 //! not building the limiter at all in import mode.
@@ -32,8 +32,9 @@
 use std::sync::Arc;
 
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::kind::EventKind;
 use crate::prometheus::report_dropped_events;
-use crate::v0_request::{DataType, ProcessedEvent};
+use crate::v0_request::ProcessedEvent;
 
 /// Flat allowance for the `CapturedEvent` envelope fields not in `data`.
 const ENVELOPE_WEIGHT_BYTES: usize = 512;
@@ -61,8 +62,8 @@ pub async fn charge_ai_bytes(
     limiter.is_limited(token, weight).await.is_some()
 }
 
-pub async fn drop_ai_byte_limited(
-    events: &mut Vec<ProcessedEvent>,
+pub async fn drop_ai_byte_limited<K: EventKind>(
+    events: &mut Vec<ProcessedEvent<K>>,
     limiter: Option<&Arc<GlobalRateLimiter>>,
 ) {
     let Some(limiter) = limiter else {
@@ -81,7 +82,7 @@ pub async fn drop_ai_byte_limited(
 
     for read in 0..events.len() {
         let event = &events[read];
-        let over_budget = event.metadata.data_type == DataType::AiEvents
+        let over_budget = event.metadata.kind.is_ai()
             && charge_ai_bytes(limiter, &event.event.token, event.event.data.len()).await;
         if over_budget {
             dropped += 1;
@@ -105,12 +106,17 @@ pub async fn drop_ai_byte_limited(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kind::{AnalyticsKind, MainOrHistorical};
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+    use crate::v0_request::{ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use std::sync::Arc;
 
-    fn event_of(data_type: DataType, token: &str, data: &str) -> ProcessedEvent {
+    fn event_of(
+        kind: AnalyticsKind<MainOrHistorical>,
+        token: &str,
+        data: &str,
+    ) -> ProcessedEvent<AnalyticsKind<MainOrHistorical>> {
         let timestamp = chrono::Utc::now();
         let event = CapturedEvent {
             uuid: uuid_v7_from_datetime(timestamp),
@@ -127,7 +133,7 @@ mod tests {
             historical_migration: false,
         };
         let metadata = ProcessedEventMetadata {
-            data_type,
+            kind,
             session_id: None,
             computed_timestamp: None,
             event_name: "test".to_string(),
@@ -151,13 +157,13 @@ mod tests {
 
     /// One enveloped event of this size weighs ~517 B, so a 1000-byte budget
     /// admits the first and rejects the second.
-    fn small_ai_event(token: &str) -> ProcessedEvent {
-        event_of(DataType::AiEvents, token, &"x".repeat(5))
+    fn small_ai_event(token: &str) -> ProcessedEvent<AnalyticsKind<MainOrHistorical>> {
+        event_of(AnalyticsKind::Ai, token, &"x".repeat(5))
     }
 
     #[tokio::test]
     async fn none_limiter_is_a_no_op() {
-        let mut events = vec![event_of(DataType::AiEvents, "t", "xxxxxxxxxx")];
+        let mut events = vec![event_of(AnalyticsKind::Ai, "t", "xxxxxxxxxx")];
         drop_ai_byte_limited(&mut events, None).await;
         assert_eq!(events.len(), 1);
     }
@@ -199,8 +205,16 @@ mod tests {
     async fn non_ai_lanes_are_never_dropped_by_this_helper() {
         let l = limiter(1);
         let mut events = vec![
-            event_of(DataType::AnalyticsMain, "t", &"x".repeat(40)),
-            event_of(DataType::AnalyticsMain, "t", &"x".repeat(40)),
+            event_of(
+                AnalyticsKind::Analytics(MainOrHistorical::Main),
+                "t",
+                &"x".repeat(40),
+            ),
+            event_of(
+                AnalyticsKind::Analytics(MainOrHistorical::Main),
+                "t",
+                &"x".repeat(40),
+            ),
         ];
         drop_ai_byte_limited(&mut events, Some(&l)).await;
         assert_eq!(events.len(), 2, "AnalyticsMain must not be touched");
@@ -212,8 +226,8 @@ mod tests {
         // senders into one bucket.
         let l = limiter(1);
         let mut events = vec![
-            event_of(DataType::AiEvents, "", &"x".repeat(40)),
-            event_of(DataType::AiEvents, "", &"x".repeat(40)),
+            event_of(AnalyticsKind::Ai, "", &"x".repeat(40)),
+            event_of(AnalyticsKind::Ai, "", &"x".repeat(40)),
         ];
         drop_ai_byte_limited(&mut events, Some(&l)).await;
         assert_eq!(events.len(), 2);
@@ -257,11 +271,19 @@ mod tests {
         // only position decides who survives.
         let l = limiter(1_000);
         let mut events = vec![
-            event_of(DataType::AiEvents, "t", "aaaaa"), // first: admitted
-            event_of(DataType::AiEvents, "t", "bbbbb"), // over budget
-            event_of(DataType::AnalyticsMain, "t", "ccccc"), // never charged
-            event_of(DataType::AiEvents, "t", "ddddd"), // over budget
-            event_of(DataType::AnalyticsMain, "t", "eeeee"), // never charged
+            event_of(AnalyticsKind::Ai, "t", "aaaaa"), // first: admitted
+            event_of(AnalyticsKind::Ai, "t", "bbbbb"), // over budget
+            event_of(
+                AnalyticsKind::Analytics(MainOrHistorical::Main),
+                "t",
+                "ccccc",
+            ), // never charged
+            event_of(AnalyticsKind::Ai, "t", "ddddd"), // over budget
+            event_of(
+                AnalyticsKind::Analytics(MainOrHistorical::Main),
+                "t",
+                "eeeee",
+            ), // never charged
         ];
         drop_ai_byte_limited(&mut events, Some(&l)).await;
         let kept: Vec<&str> = events.iter().map(|e| e.event.data.as_str()).collect();
@@ -272,14 +294,18 @@ mod tests {
     async fn mixed_batch_drops_only_over_budget_ai_events() {
         let l = limiter(1_000);
         let mut events = vec![
-            small_ai_event("t"),                                     // first: admitted
-            event_of(DataType::AnalyticsMain, "t", &"x".repeat(99)), // untouched
-            small_ai_event("t"),                                     // exceeds remaining
+            small_ai_event("t"), // first: admitted
+            event_of(
+                AnalyticsKind::Analytics(MainOrHistorical::Main),
+                "t",
+                &"x".repeat(99),
+            ), // untouched
+            small_ai_event("t"), // exceeds remaining
         ];
         drop_ai_byte_limited(&mut events, Some(&l)).await;
         assert_eq!(events.len(), 2);
         assert!(events
             .iter()
-            .any(|e| e.metadata.data_type == DataType::AnalyticsMain));
+            .any(|e| e.metadata.kind == AnalyticsKind::Analytics(MainOrHistorical::Main)));
     }
 }

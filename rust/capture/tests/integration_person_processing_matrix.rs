@@ -41,6 +41,7 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::kind::{AnalyticsKind, MainOrHistorical};
 use capture::outputs::OutputRegistry;
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
@@ -235,6 +236,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     let router = router(
+        capture::router::analytics_routes::<AnalyticsKind<MainOrHistorical>>(),
         FixedTime {
             time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
                 .expect("invalid fixed time")
@@ -242,7 +244,9 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         },
         readiness,
         liveness,
-        Arc::new(OutputRegistry::single(sink)),
+        Arc::new(OutputRegistry::<AnalyticsKind<MainOrHistorical>>::single(
+            sink,
+        )),
         redis,
         Some(Arc::new(limiter)),
         quota_limiter,
@@ -333,12 +337,13 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         .with_global_rate_limiter(Arc::new(limiter))
         .build();
 
-    let router = v1_router(V1RouterConfig {
-        concurrency_limit: None,
-        max_compressed_body_bytes: 10 * 1024 * 1024,
-        serves_analytics: true,
-        serves_ai_events: false,
-    })
+    let router = v1_router(
+        V1RouterConfig {
+            concurrency_limit: None,
+            max_compressed_body_bytes: 10 * 1024 * 1024,
+        },
+        capture::v1::analytics::router::routes(),
+    )
     .with_state(ts.state.clone());
 
     // v1 reads the customer's choice from the event options, not the property.

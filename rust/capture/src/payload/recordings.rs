@@ -6,6 +6,8 @@
 
 use axum::body::Body;
 use axum::extract::{MatchedPath, State};
+
+use crate::kind::EventKind;
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use metrics::counter;
@@ -45,8 +47,8 @@ impl RecordingPayload {
 /// if we went through RawRequest -> Vec<RawEvent> -> process
 #[instrument(skip_all, fields(batch_size, params_compression))]
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_recording_payload(
-    state: &State<router::State>,
+pub async fn handle_recording_payload<K: EventKind>(
+    state: &State<router::State<K>>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
     headers: &HeaderMap,

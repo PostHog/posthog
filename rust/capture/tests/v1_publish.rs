@@ -18,6 +18,7 @@ use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
 
 use capture::config::EnvelopeCompression;
+use capture::kind::{AnalyticsKind, MainOrHistorical};
 use capture::outputs::OutputRegistry;
 use capture::producers::{self, ProducerRegistry};
 use capture::sinks::kafka::KafkaSink;
@@ -33,7 +34,7 @@ fn v1_test_context() -> RequestContext {
     ctx
 }
 
-async fn v1_outputs(topic: &str) -> OutputRegistry {
+async fn v1_outputs(topic: &str) -> OutputRegistry<AnalyticsKind<MainOrHistorical>> {
     let producer_configs =
         producers::load_all(&test_producer_env()).expect("failed to load producer config");
     let producers = ProducerRegistry::build(&producer_configs, HashMap::new())
