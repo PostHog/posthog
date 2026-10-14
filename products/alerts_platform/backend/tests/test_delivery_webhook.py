@@ -17,6 +17,7 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
+from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -137,6 +138,30 @@ class TestWebhookTransport(SimpleTestCase):
 
         assert handle is None
         assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
+
+    def test_a_stored_header_is_sent_but_cannot_change_the_body_version(self) -> None:
+        target = cast(
+            AlertDestinationData,
+            {
+                **TARGET,
+                "webhook_headers": {"Authorization": "Bearer not-a-real-token", "X-PostHog-Webhook-Version": "9"},
+            },
+        )
+
+        with pinned_post(200) as adapter:
+            WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
+
+        assert adapter.sent[-1].headers["Authorization"] == "Bearer not-a-real-token"
+        assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
+
+    def test_destinations_on_one_url_with_different_headers_are_separate_receivers(self) -> None:
+        with_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": {"Authorization": "Bearer a"}})
+        other_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": {"Authorization": "Bearer b"}})
+        transport = WebhookTransport()
+
+        assert len({transport.channel_target(t) for t in (TARGET, with_auth, other_auth)}) == 3
+        # A destination without added headers keeps the key its existing threads were stored under.
+        assert transport.channel_target(TARGET) == credential_digest(SECRET_URL)
 
     def test_a_redirect_is_refused_without_reading_its_body(self) -> None:
         with pinned_post(302, headers={"Location": "https://elsewhere.example.com/"}, body=b"x" * 1_000_000) as adapter:
