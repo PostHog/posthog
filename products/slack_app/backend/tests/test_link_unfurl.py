@@ -41,13 +41,14 @@ from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
+    _flag_chart,
     _insight_resource_label,
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
 from products.slack_app.backend.tasks import start_slack_unfurl_charts
 from products.surveys.backend.models import Survey
-from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 _TASK_ID = "c76f58f4-4c64-4cd7-825d-4ef89f6dd4ac"
 _CHANNEL_ID = "0192f0a0-0000-4000-8000-000000000001"
@@ -121,6 +122,39 @@ class TestInsightResourceLabel:
     def test_fallback(self):
         insight = Insight(team_id=1)
         assert _insight_resource_label(insight) == "Insight"
+
+
+class TestFlagChart:
+    @parameterized.expand(
+        [
+            (
+                "simple_rollout",
+                {"groups": [{"properties": [], "rollout_percentage": 25}]},
+                ["Rollout  █████░░░░░░░░░░░░░░░  25% of users"],
+            ),
+            (
+                "multivariate",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+                [
+                    "Rollout  ████████████████████  100% of users",
+                    "control  ██████████░░░░░░░░░░  50%",
+                    "test     ██████████░░░░░░░░░░  50%",
+                ],
+            ),
+            ("conditions_only", {"groups": [{"properties": [{"key": "email"}], "rollout_percentage": 50}]}, None),
+        ]
+    )
+    def test_chart(self, _name: str, filters: dict, expected_lines: list[str] | None) -> None:
+        chart = _flag_chart(filters)
+        assert (chart.splitlines() if chart else None) == expected_lines
 
 
 @pytest.mark.django_db
@@ -588,7 +622,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 notebook = Notebook.objects.create(
                     team=self.team, title="Activation dip", text_content="Activation fell", created_by=self.user
                 )
-                return f"{base}/notebooks/{notebook.short_id}", ["Activation dip", ">>> Activation fell"]
+                return f"{base}/notebooks/{notebook.short_id}", ["Activation dip", "Activation fell"]
             case "flag":
                 flag = FeatureFlag.objects.create(
                     team=self.team,
@@ -616,7 +650,26 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 issue_id = error_tracking_testing.create_issue(
                     team_id=self.team.pk, name="TypeError", description="Cannot read id"
                 )
-                return f"{base}/error_tracking/{issue_id}", ["TypeError", "*Active*", ">>> Cannot read id"]
+                return f"{base}/error_tracking/{issue_id}", ["TypeError", "*Active*", "Cannot read id"]
+            case "task":
+                task = Task.objects.create(
+                    team=self.team,
+                    created_by=self.user,
+                    title="Fix checkout",
+                    description="",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                )
+                TaskRun.objects.create(
+                    task=task,
+                    team=self.team,
+                    status=TaskRun.Status.COMPLETED,
+                    output={"pr_url": "https://github.com/example/repo/pull/7"},
+                )
+                return f"http://testserver/code/task/{task.id}", [
+                    "Fix checkout",
+                    "*Completed*",
+                    "View pull request",
+                ]
             case "report":
                 report = SignalReport.objects.create(
                     team=self.team,
@@ -624,11 +677,19 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     summary="Fewer orders",
                     status=SignalReport.Status.IN_PROGRESS,
                 )
-                return f"{base}/inbox/reports/{report.pk}", ["Checkout drop", "*In progress*", ">>> Fewer orders"]
+                return f"{base}/inbox/reports/{report.pk}", [
+                    "Checkout drop",
+                    "*In progress*",
+                    "0 signals",
+                    "Fewer orders",
+                ]
         raise ValueError(kind)
 
     @parameterized.expand(
-        [(kind,) for kind in ("canvas", "notebook", "flag", "experiment", "survey", "cohort", "error", "report")]
+        [
+            (kind,)
+            for kind in ("canvas", "notebook", "flag", "experiment", "survey", "cohort", "error", "report", "task")
+        ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
@@ -720,6 +781,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 parts.extend(field["text"] for field in [block.get("text"), *block.get("fields", [])] if field)
             elif block["type"] == "context":
                 parts.extend(element["text"] for element in block["elements"])
+            elif block["type"] == "actions":
+                parts.extend(element["text"]["text"] for element in block["elements"])
         return "\n".join(parts)
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -858,7 +921,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
-        assert ">>> App crashes on login" in text
+        assert "App crashes on login" in text
 
     @parameterized.expand(
         [
@@ -894,7 +957,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
-        assert ">>>" not in text
+        assert "internal only" not in text
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
