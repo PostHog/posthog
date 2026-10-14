@@ -635,6 +635,45 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('add users controls on an existing people cohort', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { count: 0, showsInlineUpload: true },
+            { count: 3, showsInlineUpload: false },
+        ])('with $count people shows inline upload: $showsInlineUpload', async ({ count, showsInlineUpload }) => {
+            const cohortId = 20 + count
+            const cohortName = `People cohort ${count}`
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: cohortName,
+                        is_static: true,
+                        filters: { properties: { type: 'OR', values: [] } },
+                        count,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText(cohortName)
+            const dropzone = screen.queryByText('Drag a file here or click to browse for a file')
+            const addUsersMenu = document.querySelector('[data-attr="cohort-add-users-menu"]')
+            if (showsInlineUpload) {
+                expect(dropzone).toBeInTheDocument()
+                expect(addUsersMenu).not.toBeInTheDocument()
+            } else {
+                expect(dropzone).not.toBeInTheDocument()
+                expect(addUsersMenu).toBeInTheDocument()
+            }
+        })
+    })
+
     describe('used-in summary', () => {
         afterEach(() => {
             cleanup()

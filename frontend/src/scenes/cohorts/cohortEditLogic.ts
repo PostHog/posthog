@@ -132,6 +132,7 @@ export interface cohortEditLogicValues {
     cohortLoading: boolean
     cohortManualErrors: Record<string, any>
     cohortMissing: boolean
+    csvUploadModalOpen: boolean
     cohortTouched: boolean
     cohortTouches: Record<string, boolean>
     cohortValidationErrors: DeepPartialMap<CohortType, ValidationErrorType>
@@ -414,6 +415,9 @@ export interface cohortEditLogicActions {
     setRealtimeReadiness: (realtime: CohortType['realtime']) => {
         realtime: CohortRealtimeReadinessApi | null | undefined
     }
+    setCsvUploadModalOpen: (open: boolean) => {
+        open: boolean
+    }
     setStaticCohortMode: (mode: StaticCohortMode) => {
         mode: StaticCohortMode
     }
@@ -589,6 +593,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
         setActiveTab: (tab: CohortEditTab) => ({ tab }),
         setUsedInExpanded: (expanded: boolean) => ({ expanded }),
+        setCsvUploadModalOpen: (open: boolean) => ({ open }),
     }),
 
     reducers(({ props }) => ({
@@ -799,6 +804,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             false,
             {
                 setUsedInExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        csvUploadModalOpen: [
+            false,
+            {
+                setCsvUploadModalOpen: (_, { open }) => open,
+                // A failed save returns the cohort with the CSV still attached, so the modal stays open for a retry.
+                saveCohortSuccess: (state, { cohort }) => (cohort.csv ? state : false),
             },
         ],
     })),
