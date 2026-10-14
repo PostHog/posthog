@@ -10,7 +10,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -30,6 +29,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge
     JUDGE_PROMPT_VERSION,
     AutoMergeConfig,
     JudgeUnavailableError,
+    JudgeVerdict,
     ask_judge,
     load_auto_merge_config,
 )
@@ -72,7 +72,7 @@ CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
 }
 
 
-FINGERPRINT_DOCUMENTS_QUERY_BY_MODEL = {
+FINGERPRINT_DOCUMENT_QUERY_BY_MODEL = {
     "text-embedding-3-large-3072": """
         SELECT document_id, argMax(content, inserted_at) AS content
         FROM document_embeddings_text_embedding_3_large_3072
@@ -80,7 +80,7 @@ FINGERPRINT_DOCUMENTS_QUERY_BY_MODEL = {
         AND product = 'error_tracking'
         AND rendering = {rendering}
         AND team_id = {team_id}
-        AND document_id IN {fingerprints}
+        AND document_id = {fingerprint}
         AND timestamp >= {min_timestamp}
         GROUP BY document_id
         """,
@@ -91,7 +91,7 @@ FINGERPRINT_DOCUMENTS_QUERY_BY_MODEL = {
         AND product = 'error_tracking'
         AND rendering = {rendering}
         AND team_id = {team_id}
-        AND document_id IN {fingerprints}
+        AND document_id = {fingerprint}
         AND timestamp >= {min_timestamp}
         GROUP BY document_id
         """,
@@ -310,56 +310,45 @@ def _merge_into_candidate(
     return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
 
 
-def _fetch_fingerprint_documents(
-    team: Team, inputs: FingerprintEmbeddingResultInputs, fingerprints: list[str]
-) -> dict[str, str]:
-    """The text that was embedded for each fingerprint, within the nearest-neighbour search window."""
+def _fetch_fingerprint_document(team: Team, inputs: FingerprintEmbeddingResultInputs, fingerprint: str) -> str | None:
+    """The text that was embedded for a fingerprint, within the nearest-neighbour search window."""
     query = parse_select(
-        _model_specific_query(FINGERPRINT_DOCUMENTS_QUERY_BY_MODEL, inputs.model_name),
+        _model_specific_query(FINGERPRINT_DOCUMENT_QUERY_BY_MODEL, inputs.model_name),
         placeholders={
             "rendering": ast.Constant(value=inputs.rendering),
             "team_id": ast.Constant(value=team.id),
-            "fingerprints": ast.Constant(value=fingerprints),
+            "fingerprint": ast.Constant(value=fingerprint),
             "min_timestamp": ast.Constant(value=_parse_timestamp(inputs.timestamp) - timedelta(days=30)),
         },
     )
     response = execute_hogql_query(
         query=query,
         team=team,
-        query_type="ErrorTrackingAutoMergeJudgeDocuments",
+        query_type="ErrorTrackingAutoMergeJudgeDocument",
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
     )
-    return {row[0]: row[1] for row in response.results if row[1]}
+    return next((row[1] for row in response.results if row[1]), None)
 
 
-@frozen
-class JudgeDocuments:
-    source: str
-    candidate: str
-
-
-def _judge_documents(
-    team: Team, inputs: FingerprintEmbeddingResultInputs, candidate: SimilarFingerprintDistance
-) -> JudgeDocuments | str:
-    """Both documents to judge, or the reason they can't be sent."""
+def _judge(
+    team: Team, inputs: FingerprintEmbeddingResultInputs, candidate: SimilarFingerprintDistance, config: AutoMergeConfig
+) -> JudgeVerdict:
+    """Judge one pair. Raises JudgeUnavailableError with the reason when it can't."""
     # Consent can be withdrawn between embedding and this (possibly retried) activity.
     if not team.organization.is_ai_data_processing_approved:
-        return "ai_processing_not_approved"
-    # The source text normally arrives with the inputs; only the neighbour's is read back.
-    wanted = [candidate.fingerprint] if inputs.content else [inputs.fingerprint, candidate.fingerprint]
+        raise JudgeUnavailableError("ai_processing_not_approved")
     try:
-        documents = _fetch_fingerprint_documents(team, inputs, wanted)
+        candidate_document = _fetch_fingerprint_document(team, inputs, candidate.fingerprint)
     except Exception as err:
         if is_expected_activity_failure(err):
             raise
         capture_exception(err, additional_properties={"team_id": team.id, "fingerprint": inputs.fingerprint})
-        return "document_fetch_failed"
-    source_document = inputs.content or documents.get(inputs.fingerprint)
-    candidate_document = documents.get(candidate.fingerprint)
-    if source_document is None or candidate_document is None:
-        return "missing_document"
-    return JudgeDocuments(source=source_document, candidate=candidate_document)
+        raise JudgeUnavailableError("document_fetch_failed") from err
+    # The source text arrives with the inputs: ClickHouse may not have ingested it yet.
+    if not inputs.content or not candidate_document:
+        raise JudgeUnavailableError("missing_document")
+    return ask_judge(team.id, inputs.content, candidate_document, config.judge_timeout_seconds)
 
 
 def _judge_candidate(
@@ -375,15 +364,11 @@ def _judge_candidate(
     score: float | None = None
     latency_ms: float | None = None
     error: str | None = None
-    documents = _judge_documents(team, inputs, candidate)
-    if isinstance(documents, str):
-        error = documents
-    else:
-        try:
-            verdict = ask_judge(team.id, documents.source, documents.candidate, config.judge_timeout_seconds)
-            score, latency_ms = verdict.score, verdict.latency_ms
-        except JudgeUnavailableError as err:
-            error = str(err)
+    try:
+        verdict = _judge(team, inputs, candidate, config)
+        score, latency_ms = verdict.score, verdict.latency_ms
+    except JudgeUnavailableError as err:
+        error = str(err)
 
     capture = ph_background_capture()
     capture(
