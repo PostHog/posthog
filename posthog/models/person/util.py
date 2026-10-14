@@ -885,16 +885,21 @@ class PersonTombstonePublication:
     team_id: int
     source: str = "delete"
     failures: list[PersonTombstonePublishFailure] = field(default_factory=list)
-    _pending: list[tuple[PersonTombstone, list[ProduceResult]]] = field(default_factory=list, init=False, repr=False)
+    _pending: list[tuple[PersonTombstone, list[ProduceResult], bool]] = field(
+        default_factory=list, init=False, repr=False
+    )
 
-    def publish(self, tombstones: Sequence[tuple[PersonTombstone, Optional[datetime.datetime]]]) -> None:
+    def publish(
+        self, tombstones: Sequence[tuple[PersonTombstone, Optional[datetime.datetime]]], *, ack: bool = True
+    ) -> None:
+        """Produce the rows. With ``ack=False`` a delivered person stays queued for the weekly sweep to confirm."""
         for tombstone, created_at in tombstones:
             try:
                 results = publish_person_tombstone(self.team_id, tombstone, created_at=created_at)
             except Exception as exc:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
-            self._pending.append((tombstone, results))
+            self._pending.append((tombstone, results, ack))
 
     def await_and_ack(self) -> None:
         pending, self._pending = self._pending, []
@@ -902,19 +907,20 @@ class PersonTombstonePublication:
             return
 
         started = time.monotonic()
-        if not all(result.done() for _, results in pending for result in results):
+        if not all(result.done() for _, results, _ack in pending for result in results):
             _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
         PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS.labels(source=self.source).observe(time.monotonic() - started)
 
         delivered: list[tuple[UUID, int]] = []
-        for tombstone, results in pending:
+        for tombstone, results, ack in pending:
             try:
                 for result in results:
                     result.get(timeout=0)
             except Exception as exc:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
-            delivered.append((tombstone.uuid, tombstone.version))
+            if ack:
+                delivered.append((tombstone.uuid, tombstone.version))
         for i in range(0, len(delivered), 1000):
             chunk = delivered[i : i + 1000]
             try:

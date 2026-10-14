@@ -1,7 +1,7 @@
 import contextlib
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from confluent_kafka import KafkaError
@@ -25,6 +25,7 @@ from posthog.models.person.bulk_delete import (
 from posthog.models.person.util import (
     TOMBSTONE_DELIVERY_TIMEOUT_SECONDS,
     PersonTombstone,
+    create_person as create_person_in_ch,
     tombstone_persons_in_postgres,
 )
 from posthog.personhog_client.fake_client import get_active_fake
@@ -104,7 +105,7 @@ class QueueEventDeletionTests(BaseTest):
         assert AsyncDeletion.objects.filter(team_id=self.team.pk).count() == 1
 
 
-class DeletePersonsProfileTests(BaseTest):
+class DeletePersonsProfileTests(ClickhouseTestMixin, BaseTest):
     def test_tombstones_postgres_first_then_publishes_clickhouse_at_the_returned_versions_and_acks(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         fake = get_active_fake()
@@ -124,6 +125,34 @@ class DeletePersonsProfileTests(BaseTest):
         assert publish.call_args.kwargs["created_at"] == p.created_at
         assert fake.tombstone_queue == {}
         assert _sample("posthog_person_tombstone_acks_total", outcome="acked") == acked_before + 1
+
+    @parameterized.expand(
+        [
+            ("newer_live_clickhouse_row", False, 7),
+            ("check_failed", True, 1),
+        ]
+    )
+    def test_a_tombstone_is_published_above_a_newer_live_clickhouse_row(self, _name, check_fails, expected_version):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        # A live row from an earlier lifetime of the same uuid, above the version the replica writes.
+        create_person_in_ch(uuid=str(p.uuid), team_id=self.team.pk, version=6)
+        outcome = "check_failed" if check_fails else "raised"
+        checks_before = _sample("posthog_person_deletion_clickhouse_version_checks_total", outcome=outcome)
+        check = (
+            patch("posthog.models.person.bulk_delete.raise_tombstones_above_clickhouse", side_effect=RuntimeError("ch"))
+            if check_fails
+            else contextlib.nullcontext()
+        )
+        with _no_publish() as publish, check:
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user)
+
+        assert (result.deleted_count, result.failures) == (1, [])
+        assert publish.call_args.args[1].version == expected_version
+        stored = get_active_fake().stored_person(self.team.pk, str(p.uuid))
+        assert stored is not None and stored.is_deleted and stored.version == expected_version
+        # An unchecked tombstone stays queued, so the weekly repair checks it again.
+        assert list(get_active_fake().tombstone_queue) == ([(self.team.pk, str(p.uuid))] if check_fails else [])
+        assert _sample("posthog_person_deletion_clickhouse_version_checks_total", outcome=outcome) == checks_before + 1
 
     @parameterized.expand([("produce_raises",), ("delivery_fails",)])
     def test_counts_and_logs_a_person_whose_clickhouse_publish_failed_and_keeps_it_queued(self, case):

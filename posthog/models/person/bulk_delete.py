@@ -26,6 +26,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_uuids_via_personhog,
     _paginated_get_distinct_ids_for_person,
     get_person_tombstones,
+    raise_tombstones_above_clickhouse,
     tombstone_persons_in_postgres,
 )
 from posthog.models.user import User
@@ -53,6 +54,13 @@ class PersonDeletionStep(StrEnum):
 # so a failure here is reported but never retried.
 STEPS_AFTER_DELETION = frozenset({PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, PersonDeletionStep.LOG_ACTIVITY})
 
+
+PERSON_DELETION_CLICKHOUSE_VERSION_CHECKS = Counter(
+    "posthog_person_deletion_clickhouse_version_checks_total",
+    "Deleted persons checked against ClickHouse before their tombstone is published: raised above a newer live row, "
+    "left as written, or not checked because the check failed (left queued for the weekly repair).",
+    labelnames=["outcome"],
+)
 
 PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
     "posthog_person_deletion_step_failures_total",
@@ -581,13 +589,14 @@ def _tombstone_persons_at_exact_versions(
             tombstones = tombstone_persons_in_postgres(team_id, uuids)
         except Exception as exc:
             tombstones = _committed_tombstones(team_id, uuids, exc, failures)
-        to_publish = [
-            (tombstone, person_by_uuid[tombstone.uuid].created_at)
-            for tombstone in tombstones
-            if tombstone.uuid in person_by_uuid
-        ]
-        deleted.extend(person_by_uuid[tombstone.uuid] for tombstone, _ in to_publish)
-        publication.publish(to_publish)
+        tombstones = [tombstone for tombstone in tombstones if tombstone.uuid in person_by_uuid]
+        tombstones, checked = _raise_tombstones_above_clickhouse(team_id, tombstones)
+        deleted.extend(person_by_uuid[tombstone.uuid] for tombstone in tombstones)
+        # An unchecked tombstone may lose to a newer live ClickHouse row, so it stays queued for the weekly
+        # repair, which checks again.
+        publication.publish(
+            [(tombstone, person_by_uuid[tombstone.uuid].created_at) for tombstone in tombstones], ack=checked
+        )
 
     publication.await_and_ack()
     for failure in publication.failures:
@@ -599,6 +608,32 @@ def _tombstone_persons_at_exact_versions(
             person_uuids=[failure.person_uuid],
         )
     return deleted
+
+
+def _raise_tombstones_above_clickhouse(
+    team_id: int, tombstones: builtins.list[PersonTombstone]
+) -> tuple[builtins.list[PersonTombstone], bool]:
+    """Return the tombstones raised above any newer live ClickHouse row, and whether the check ran.
+
+    The person is already deleted in Postgres, so a failed check never fails the delete.
+    """
+    if not tombstones:
+        return [], True
+    try:
+        raised = raise_tombstones_above_clickhouse(team_id, tombstones)
+    except Exception:
+        PERSON_DELETION_CLICKHOUSE_VERSION_CHECKS.labels(outcome="check_failed").inc(len(tombstones))
+        logger.warning(
+            "person_deletion.clickhouse_version_check_failed",
+            team_id=team_id,
+            person_count=len(tombstones),
+            exc_info=True,
+        )
+        return tombstones, False
+    raised_count = sum(new.version != old.version for old, new in zip(tombstones, raised))
+    PERSON_DELETION_CLICKHOUSE_VERSION_CHECKS.labels(outcome="raised").inc(raised_count)
+    PERSON_DELETION_CLICKHOUSE_VERSION_CHECKS.labels(outcome="unchanged").inc(len(tombstones) - raised_count)
+    return raised, True
 
 
 class PersonTombstoneStateUnknown(Exception):
