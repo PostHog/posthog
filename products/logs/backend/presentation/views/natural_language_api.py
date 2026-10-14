@@ -33,6 +33,11 @@ class LogsNaturalLanguageFilterType(models.TextChoices):
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
 
 
+class LogsNaturalLanguageRankedBy(models.TextChoices):
+    DECISION_MODEL = "decision_model"
+    PROPOSAL_ORDER = "proposal_order"
+
+
 class _LogsNaturalLanguageDateRangeSerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
@@ -89,6 +94,7 @@ class _LogsNaturalLanguageCandidateFilterSerializer(serializers.Serializer):
 class _LogsNaturalLanguageCandidateQuerySerializer(serializers.Serializer):
     dateRange = _LogsNaturalLanguageDateRangeSerializer(help_text="Date range of this reading.")
     severityLevels = serializers.ListField(
+        # nosemgrep: choices-need-a-class -- same inline list as the logs query serializers in api.py, so all of them share SeverityLevelsEnum
         child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
         help_text="Severity levels to keep. Empty means all levels.",
     )
@@ -120,7 +126,7 @@ class LogsNaturalLanguageQueryResponseSerializer(serializers.Serializer):
         help_text="The first candidate's probability from the decision model. Null when it did not rank them.",
     )
     ranked_by = serializers.ChoiceField(
-        choices=["decision_model", "proposal_order"],
+        choices=LogsNaturalLanguageRankedBy.choices,
         help_text="decision_model when Jev ranked the candidates, proposal_order when it was skipped.",
     )
     dropped_count = serializers.IntegerField(

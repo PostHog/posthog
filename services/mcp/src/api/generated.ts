@@ -63249,13 +63249,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `decision_model` - decision_model
-     * * `proposal_order` - proposal_order
+     * * `decision_model` - Decision Model
+     * * `proposal_order` - Proposal Order
      */
-    export type RankedByEnum = typeof RankedByEnum[keyof typeof RankedByEnum];
+    export type LogsNaturalLanguageRankedByEnum = typeof LogsNaturalLanguageRankedByEnum[keyof typeof LogsNaturalLanguageRankedByEnum];
 
 
-    export const RankedByEnum = {
+    export const LogsNaturalLanguageRankedByEnum = {
       DecisionModel: 'decision_model',
       ProposalOrder: 'proposal_order',
     } as const;
@@ -63270,9 +63270,9 @@ export namespace Schemas {
       confidence: number | null;
       /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
        *
-       * * `decision_model` - decision_model
-       * * `proposal_order` - proposal_order */
-      ranked_by: RankedByEnum;
+       * * `decision_model` - Decision Model
+       * * `proposal_order` - Proposal Order */
+      ranked_by: LogsNaturalLanguageRankedByEnum;
       /** Proposed readings dropped because they named a service or attribute key the project lacks. */
       dropped_count: number;
     }

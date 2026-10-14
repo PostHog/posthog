@@ -2103,12 +2103,13 @@ export interface _LogsNaturalLanguageCandidateApi {
 }
 
 /**
- * * `decision_model` - decision_model
- * * `proposal_order` - proposal_order
+ * * `decision_model` - Decision Model
+ * * `proposal_order` - Proposal Order
  */
-export type RankedByEnumApi = (typeof RankedByEnumApi)[keyof typeof RankedByEnumApi]
+export type LogsNaturalLanguageRankedByEnumApi =
+    (typeof LogsNaturalLanguageRankedByEnumApi)[keyof typeof LogsNaturalLanguageRankedByEnumApi]
 
-export const RankedByEnumApi = {
+export const LogsNaturalLanguageRankedByEnumApi = {
     DecisionModel: 'decision_model',
     ProposalOrder: 'proposal_order',
 } as const
@@ -2123,9 +2124,9 @@ export interface LogsNaturalLanguageQueryResponseApi {
     confidence: number | null
     /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
      *
-     * * `decision_model` - decision_model
-     * * `proposal_order` - proposal_order */
-    ranked_by: RankedByEnumApi
+     * * `decision_model` - Decision Model
+     * * `proposal_order` - Proposal Order */
+    ranked_by: LogsNaturalLanguageRankedByEnumApi
     /** Proposed readings dropped because they named a service or attribute key the project lacks. */
     dropped_count: number
 }
