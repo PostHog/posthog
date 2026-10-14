@@ -487,6 +487,7 @@ export const productRedirects: Record<
     },
     '/data-warehouse': () => urls.sources(),
     '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
+    '/data-management/sources/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
