@@ -1,0 +1,512 @@
+import { focusManager } from '@tanstack/react-query'
+import { useFocusEffect, useIsFocused } from 'expo-router'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+
+import type { BudgetFamily } from '@/api/budget'
+import { serverNow } from '@/api/serverClock'
+import { addSessionEndTask } from '@/auth/authStore'
+import { sleep } from '@/lib/sleep'
+import { useNow } from '@/lib/useNow'
+import type { Freshness } from '@/model/views'
+
+import { type RefreshTrigger, trackViewsRefreshed, type ViewsScreen } from './analytics'
+import {
+    type BlockedState,
+    blockedState,
+    bulkFloorUntil,
+    cacheTargetPassed,
+    clearBulkFloors,
+    dashboardFloorUntil,
+    HINT_MS,
+    hasGoodValue,
+    isDue,
+    isEligible,
+    PULL_MIN_MS,
+    RECHECK_MS,
+    readFloorPassed,
+    refreshHintText,
+    type StatusLine,
+    startBulkFloor,
+    statusLine,
+} from './freshness'
+import { type JobResult, type ReadResult, type RefreshMode, viewsQueue } from './refreshQueue'
+
+addSessionEndTask(() => {
+    viewsQueue.reset()
+    clearBulkFloors()
+})
+
+/** One data item on a screen: a Number or Chart pin, a dashboard tile, the insight, or the web analytics overview. */
+export interface RefreshItem {
+    /** The freshness key. Items with one key share one cache entry and one request. */
+    key: string
+    family: BudgetFamily
+    /** Reads the cached snapshot when called, so a pass sees what an earlier step of the same pass wrote. */
+    snapshot: () => Freshness | undefined
+    /** Sends one read and writes the result to the cache, also on failure (`readAt`, `refreshFailed`). */
+    read: (mode: RefreshMode, signal: AbortSignal) => Promise<ReadResult>
+    /**
+     * The button's read for an item still inside its window: `force_cache` for insights, `blocking` for `POST query/`,
+     * which has no cache-only read and returns its cache inside the window.
+     */
+    windowMode: 'force_cache' | 'blocking'
+}
+
+/** The dashboard read that carries every tile. A dashboard read counts as a read of each tile it carries. */
+export interface RefreshContainer {
+    /** Changes with the range override, which starts a new open path. */
+    key: string
+    family: BudgetFamily
+    readAt: () => number | null
+    /** `GET dashboards/{id}/?refresh=force_cache`. */
+    read: (signal: AbortSignal) => Promise<ReadResult>
+    /** `Dashboard.last_refresh`, for the web's shared bulk floor. */
+    lastRefresh: () => string | null
+}
+
+/** A list read the button and focus also refresh: the pin list and the web-viewed dashboards in Recent. */
+export interface RefreshList {
+    key: string
+    /** Device ms of the last successful read, 0 when never read. */
+    updatedAt: () => number
+    refetch: () => Promise<unknown>
+}
+
+export interface ViewRefreshOptions {
+    screen: ViewsScreen
+    /** The queue group and bulk floor key: `list`, `dashboard:{id}`, `insight:{short_id}`, `web`. */
+    screenKey: string
+    /** Every data item, in screen order (top first). */
+    items: readonly RefreshItem[]
+    /** The keys on screen now. Undefined: every item is visible. */
+    visibleKeys?: ReadonlySet<string>
+    container?: RefreshContainer | null
+    lists?: readonly RefreshList[]
+    /** The list and dashboards allow one button or pull pass per 5 minutes. */
+    bulkFloor: boolean
+    /** False while signed out, loading, or without the Views scopes: no pass runs. */
+    enabled: boolean
+    /** Changes when the user picks another range, so the next first read reports `range`. */
+    rangeKey?: string
+}
+
+export type RefreshButtonState = 'idle' | 'busy' | 'blocked'
+
+export interface ViewRefresh {
+    status: StatusLine
+    button: RefreshButtonState
+    /** "Up to date. You can refresh again in 3 min." for 3 s after a tap or pull that could not force. */
+    hint: string | null
+    blocked: BlockedState
+    pulling: boolean
+    onButton: () => void
+    onPull: () => void
+    /** A tile menu's "Refresh": forces the item when it is eligible, else shows the hint. True when it sent a request. */
+    refreshItem: (key: string) => boolean
+}
+
+type PassTrigger = RefreshTrigger | 'open'
+
+interface PassCounters {
+    jobs: Promise<JobResult>[]
+}
+
+function useQueueBusy(group: string): boolean {
+    const subscribe = useCallback((listener: () => void) => viewsQueue.subscribe(listener), [])
+    return useSyncExternalStore(subscribe, () => viewsQueue.isBusy(group))
+}
+
+function visibleOf(options: ViewRefreshOptions): RefreshItem[] {
+    const { items, visibleKeys } = options
+    return visibleKeys ? items.filter((item) => visibleKeys.has(item.key)) : [...items]
+}
+
+function maxAgeSeconds(snapshots: readonly (Freshness | undefined)[], now: number): number | null {
+    const times = snapshots.flatMap((snapshot) => (snapshot?.lastRefreshAt ? [Date.parse(snapshot.lastRefreshAt)] : []))
+    return times.length > 0 ? Math.round((now - Math.min(...times)) / 1000) : null
+}
+
+function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): BlockedState {
+    const snapshots = visibleOf(options).map((item) => item.snapshot())
+    return blockedState({
+        snapshots,
+        bulkFloorUntil: options.bulkFloor ? bulkFloorUntil(options.screenKey) : null,
+        dashboardFloorUntil: options.container
+            ? dashboardFloorUntil(options.container.lastRefresh(), snapshots, now)
+            : null,
+        now,
+    })
+}
+
+/**
+ * Runs the refresh rules of one Views screen. It reads on first paint and when items scroll into view, on screen focus
+ * and on app foreground (never forcing), and on the button or pull (forcing only what the server allows). Every
+ * request goes through the app-wide queue. No timer sends requests while the app is open.
+ */
+export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
+    const optionsRef = useRef(options)
+    optionsRef.current = options
+    const { screenKey, enabled } = options
+
+    const busy = useQueueBusy(screenKey)
+    const [hintUntil, setHintUntil] = useState<{ text: string; until: number } | null>(null)
+    const [pulling, setPulling] = useState(false)
+    const [, setTick] = useState(0)
+    const pendingRangeTrigger = useRef(false)
+    const lastRangeKey = useRef(options.rangeKey)
+    if (lastRangeKey.current !== options.rangeKey) {
+        lastRangeKey.current = options.rangeKey
+        pendingRangeTrigger.current = true
+    }
+    // Relative ages and the blocked state move with time.
+    useNow(30_000)
+
+    const containerReading = useRef<Promise<JobResult> | null>(null)
+
+    const send = useCallback(
+        (counters: PassCounters, key: string, family: BudgetFamily, mode: RefreshMode, read: RefreshItem['read']) => {
+            counters.jobs.push(
+                viewsQueue.enqueue({ key, family, group: optionsRef.current.screenKey, mode, run: read })
+            )
+        },
+        []
+    )
+
+    const readContainer = useCallback((counters: PassCounters, container: RefreshContainer): Promise<JobResult> => {
+        const job = viewsQueue.enqueue({
+            key: container.key,
+            family: container.family,
+            group: optionsRef.current.screenKey,
+            mode: 'force_cache',
+            run: (_mode, signal) => container.read(signal),
+        })
+        counters.jobs.push(job)
+        containerReading.current = job
+        return job
+    }, [])
+
+    const showHint = useCallback((until: number | null) => {
+        setHintUntil({ text: refreshHintText(until), until: Date.now() + HINT_MS })
+    }, [])
+
+    const report = useCallback(
+        async (
+            trigger: PassTrigger,
+            counters: PassCounters,
+            startedAt: number,
+            ageAtStart: number | null,
+            blocked: BlockedState | null
+        ): Promise<void> => {
+            const results = await Promise.all(counters.jobs)
+            const sent = results.filter((result) => ['ok', 'failed'].includes(result.status))
+            const capped = results.find((result) => result.status === 'capped')
+            const reported: RefreshTrigger | null = trigger === 'open' ? null : trigger
+            if (!reported) {
+                return
+            }
+            const quiet = (reported === 'focus' || reported === 'foreground') && sent.length === 0 && !capped
+            if (quiet) {
+                return
+            }
+            trackViewsRefreshed({
+                trigger: reported,
+                screen: optionsRef.current.screen,
+                itemsRequested: sent.length,
+                itemsForced: sent.filter((result) => result.forced).length,
+                itemsComputed: sent.filter((result) => result.computed).length,
+                itemsFailed: sent.filter((result) => result.status === 'failed').length,
+                durationMs: Date.now() - startedAt,
+                maxAgeSeconds: ageAtStart,
+                blockedUntil:
+                    blocked?.blocked && blocked.until !== null
+                        ? Math.max(0, Math.round((blocked.until - serverNow()) / 1000))
+                        : null,
+                blockedReason: blocked?.blocked ? blocked.reason : null,
+                cappedFamily: capped?.family ?? null,
+            })
+        },
+        []
+    )
+
+    const refetchLists = useCallback((minAgeMs: number) => {
+        for (const list of optionsRef.current.lists ?? []) {
+            if (Date.now() - list.updatedAt() >= minAgeMs) {
+                void list.refetch()
+            }
+        }
+    }, [])
+
+    /** Open path for items seen for the first time: on mount, when they scroll into view, or after a range change. */
+    const openItems = useCallback(
+        async (fresh: RefreshItem[], trigger: PassTrigger, counters: PassCounters) => {
+            const current = optionsRef.current
+            const startedAt = Date.now()
+            const age = maxAgeSeconds(
+                fresh.map((item) => item.snapshot()),
+                serverNow()
+            )
+            if (current.container && containerReading.current) {
+                await containerReading.current
+            }
+            for (const item of fresh) {
+                const snapshot = item.snapshot()
+                // Dashboard tiles follow the web's open path: after the cache-only dashboard read, a tile computes
+                // only when it has no result or its `cache_target_age` has passed.
+                const wanted = current.container
+                    ? !hasGoodValue(snapshot) || cacheTargetPassed(snapshot)
+                    : isDue(snapshot)
+                if (wanted) {
+                    send(counters, item.key, item.family, 'blocking', item.read)
+                }
+            }
+            await report(trigger, counters, startedAt, age, null)
+        },
+        [report, send]
+    )
+
+    const focusPass = useCallback(
+        async (trigger: 'focus' | 'foreground') => {
+            const current = optionsRef.current
+            if (!current.enabled) {
+                return
+            }
+            const counters: PassCounters = { jobs: [] }
+            const startedAt = Date.now()
+            const visible = visibleOf(current)
+            const age = maxAgeSeconds(
+                visible.map((item) => item.snapshot()),
+                serverNow()
+            )
+            refetchLists(RECHECK_MS)
+            if (current.container) {
+                const readAt = current.container.readAt()
+                if (!readAt || Date.now() - readAt >= RECHECK_MS) {
+                    await readContainer(counters, current.container)
+                }
+                for (const item of visibleOf(optionsRef.current)) {
+                    const snapshot = item.snapshot()
+                    if (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot)) {
+                        send(counters, item.key, item.family, 'blocking', item.read)
+                    }
+                }
+            } else {
+                for (const item of visible) {
+                    if (isDue(item.snapshot())) {
+                        send(counters, item.key, item.family, 'blocking', item.read)
+                    }
+                }
+            }
+            await report(trigger, counters, startedAt, age, null)
+        },
+        [readContainer, refetchLists, report, send]
+    )
+
+    const cacheOnlyReads = useCallback(
+        (counters: PassCounters) => {
+            const current = optionsRef.current
+            if (current.container) {
+                if (readFloorPassed(current.container.readAt())) {
+                    void readContainer(counters, current.container)
+                }
+                return
+            }
+            for (const item of visibleOf(current)) {
+                if (readFloorPassed(item.snapshot()?.readAt)) {
+                    send(counters, item.key, item.family, item.windowMode, item.read)
+                }
+            }
+        },
+        [readContainer, send]
+    )
+
+    const tapPass = useCallback(
+        async (trigger: 'button' | 'pull') => {
+            const current = optionsRef.current
+            if (!current.enabled) {
+                return
+            }
+            const counters: PassCounters = { jobs: [] }
+            const startedAt = Date.now()
+            const now = serverNow()
+            const visible = visibleOf(current)
+            const age = maxAgeSeconds(
+                visible.map((item) => item.snapshot()),
+                now
+            )
+            const blocked = blockedFor(current, now)
+            if (blocked.blocked) {
+                showHint(blocked.until)
+                if (trigger === 'pull') {
+                    refetchLists(60_000)
+                    cacheOnlyReads(counters)
+                }
+                await report(trigger, counters, startedAt, age, blocked)
+                return
+            }
+            refetchLists(60_000)
+            let forced = false
+            let rest = false
+            for (const item of visible) {
+                const snapshot = item.snapshot()
+                if (isEligible(snapshot, now)) {
+                    forced = true
+                    send(counters, item.key, item.family, 'force_blocking', item.read)
+                } else if (!hasGoodValue(snapshot)) {
+                    send(counters, item.key, item.family, 'blocking', item.read)
+                } else if (current.container) {
+                    rest = true
+                } else if (readFloorPassed(snapshot?.readAt)) {
+                    send(counters, item.key, item.family, item.windowMode, item.read)
+                }
+            }
+            if (current.container && rest && readFloorPassed(current.container.readAt())) {
+                void readContainer(counters, current.container)
+            }
+            if (forced && current.bulkFloor) {
+                startBulkFloor(current.screenKey, now)
+            }
+            await report(trigger, counters, startedAt, age, null)
+        },
+        [cacheOnlyReads, readContainer, refetchLists, report, send, showHint]
+    )
+
+    // First paint and items that come into view. A container (dashboard) read goes first when its key is new.
+    const seen = useRef(new Set<string>())
+    const containerKey = useRef<string | null>(null)
+    const itemKeys = options.items.map((item) => item.key).join('|')
+    const visibleKeyList = options.visibleKeys ? [...options.visibleKeys].sort().join('|') : '*'
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the key strings stand for the items, read through the ref.
+    useEffect(() => {
+        if (!enabled) {
+            return
+        }
+        const current = optionsRef.current
+        const counters: PassCounters = { jobs: [] }
+        let containerOpened = false
+        if (current.container && containerKey.current !== current.container.key) {
+            containerKey.current = current.container.key
+            containerOpened = true
+            if (readFloorPassed(current.container.readAt())) {
+                void readContainer(counters, current.container)
+            }
+        }
+        const fresh = visibleOf(current).filter((item) => !seen.current.has(item.key))
+        for (const item of fresh) {
+            seen.current.add(item.key)
+        }
+        if (!containerOpened && fresh.length === 0) {
+            return
+        }
+        const trigger: PassTrigger = pendingRangeTrigger.current ? 'range' : 'open'
+        pendingRangeTrigger.current = false
+        void openItems(fresh, trigger, counters)
+    }, [enabled, itemKeys, visibleKeyList, options.container?.key, openItems, readContainer])
+
+    // Screen focus after the first one, which is the mount. Leaving drops what only this screen queued.
+    const focusedBefore = useRef(false)
+    useFocusEffect(
+        useCallback(() => {
+            if (focusedBefore.current) {
+                void focusPass('focus')
+            }
+            focusedBefore.current = true
+            return () => viewsQueue.leave(optionsRef.current.screenKey)
+        }, [focusPass])
+    )
+
+    // App foreground after a minute or more in the background, while this screen is the focused one.
+    const isFocused = useIsFocused()
+    const isFocusedRef = useRef(isFocused)
+    isFocusedRef.current = isFocused
+    useEffect(() => {
+        let backgroundAt: number | null = null
+        return focusManager.subscribe((focused) => {
+            if (!focused) {
+                backgroundAt = Date.now()
+                return
+            }
+            if (backgroundAt !== null && Date.now() - backgroundAt >= 60_000 && isFocusedRef.current) {
+                void focusPass('foreground')
+            }
+            backgroundAt = null
+        })
+    }, [focusPass])
+
+    useEffect(() => () => viewsQueue.leave(optionsRef.current.screenKey), [])
+
+    // The hint hides after 3 s.
+    useEffect(() => {
+        if (!hintUntil) {
+            return
+        }
+        const timer = setTimeout(() => setHintUntil(null), Math.max(0, hintUntil.until - Date.now()))
+        return () => clearTimeout(timer)
+    }, [hintUntil])
+
+    const blocked = enabled ? blockedFor(options) : blockedState({ snapshots: [], bulkFloorUntil: null })
+    // Re-render when the blocked state ends, so the check turns back into the refresh icon on time.
+    useEffect(() => {
+        if (!blocked.blocked || blocked.until === null) {
+            return
+        }
+        const timer = setTimeout(() => setTick((tick) => tick + 1), Math.max(0, blocked.until - serverNow()) + 50)
+        return () => clearTimeout(timer)
+    }, [blocked.blocked, blocked.until])
+
+    const onButton = useCallback(() => {
+        void tapPass('button')
+    }, [tapPass])
+
+    const onPull = useCallback(() => {
+        setPulling(true)
+        void Promise.all([tapPass('pull'), sleep(PULL_MIN_MS)]).finally(() => setPulling(false))
+    }, [tapPass])
+
+    const refreshItem = useCallback(
+        (key: string): boolean => {
+            const current = optionsRef.current
+            const item = current.items.find((candidate) => candidate.key === key)
+            if (!item || !current.enabled) {
+                return false
+            }
+            const snapshot = item.snapshot()
+            const mode: RefreshMode | null = isEligible(snapshot)
+                ? 'force_blocking'
+                : hasGoodValue(snapshot)
+                  ? null
+                  : 'blocking'
+            if (!mode) {
+                showHint(blockedState({ snapshots: [snapshot], bulkFloorUntil: null }).until)
+                return false
+            }
+            void viewsQueue.enqueue({
+                key: item.key,
+                family: item.family,
+                group: current.screenKey,
+                mode,
+                run: item.read,
+            })
+            return true
+        },
+        [showHint]
+    )
+
+    const status = statusLine(
+        visibleOf(options).map((item) => item.snapshot()),
+        busy
+    )
+    const button: RefreshButtonState = busy ? 'busy' : blocked.blocked ? 'blocked' : 'idle'
+
+    return {
+        status: enabled ? status : { kind: 'hidden', text: null },
+        button,
+        hint: hintUntil?.text ?? null,
+        blocked,
+        pulling,
+        onButton,
+        onPull,
+        refreshItem,
+    }
+}
+
+export type { ReadResult, RefreshMode } from './refreshQueue'
