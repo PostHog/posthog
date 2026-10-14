@@ -134,6 +134,7 @@ class _LogsNaturalLanguageErrorSerializer(serializers.Serializer):
 
 class LogsNaturalLanguageQueryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "logs"
+    required_scopes = ["logs:read"]
     posthog_feature_flag = LOGS_NATURAL_LANGUAGE_SEARCH_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
