@@ -130,6 +130,21 @@ def _resource_chain(endpoint: str) -> list[EndpointResource]:
     return chain
 
 
+def _fanout_depth(endpoint: str) -> int:
+    depth = 0
+    parent = TMDB_ENDPOINTS[endpoint].parent
+    while parent is not None:
+        depth += 1
+        parent = TMDB_ENDPOINTS[parent].parent
+    return depth
+
+
+def endpoint_supports_resume(endpoint: str) -> bool:
+    # The framework cannot checkpoint a fan-out of two or more levels (tv_episodes), so a retry of
+    # that table starts again from the first title.
+    return _fanout_depth(endpoint) <= 1
+
+
 def tmdb_source(
     api_key: str,
     endpoint: str,
@@ -140,9 +155,7 @@ def tmdb_source(
     config = TMDB_ENDPOINTS[endpoint]
     resources = _resource_chain(endpoint)
     fanout_depth = len(resources) - 1
-    # The framework cannot checkpoint a fan-out of two or more levels (tv_episodes), so a retry of
-    # that table starts again from the first title.
-    supports_resume = fanout_depth <= 1
+    supports_resume = endpoint_supports_resume(endpoint)
 
     rest_config: RESTAPIConfig = {
         "client": {

@@ -19,6 +19,13 @@ class TestTMDbSource:
         # Per-title tables make one request per discover title, so a new source must not enable them.
         assert all(s.should_sync_default is (TMDB_ENDPOINTS[s.name].parent is None) for s in schemas)
 
+    def test_resume_covers_run_excludes_endpoints_that_cannot_checkpoint(self) -> None:
+        # tv_episodes fans out two levels, which the framework cannot checkpoint, so it must not get
+        # the resumable retry budget.
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name="tv_episodes") is False
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name="movie_credits") is True
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name="discover_movies") is True
+
     def test_canonical_descriptions_keyed_by_known_endpoints(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
         # Only documents endpoints that actually exist; partial coverage is allowed.

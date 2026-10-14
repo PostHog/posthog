@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.setti
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.tmdb import (
     TMDbResumeConfig,
+    endpoint_supports_resume,
     tmdb_source,
     validate_credentials as validate_tmdb_credentials,
 )
@@ -41,6 +42,16 @@ class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TMDB
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # An endpoint that cannot checkpoint restarts from the first title on every attempt, so the
+        # larger resumable retry budget would only repeat the whole fan-out.
+        return schema_name is None or schema_name not in ENDPOINTS or endpoint_supports_resume(schema_name)
 
     @property
     def get_source_config(self) -> SourceConfig:
