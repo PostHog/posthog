@@ -730,7 +730,7 @@ def _arm_disabled_monitoring_checks(now: datetime, *, disabled_monitoring_organi
         .order_by("id")[:MAX_CHECK_PARKS_PER_TICK]
     )
     for report in reports:
-        arm_pending_checks(team_id=report.team_id, report_id=report.id, resolved_at=now)
+        arm_pending_checks(team_id=report.team_id, report_id=report.id, resolved_at=now, monitoring_enabled=False)
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:

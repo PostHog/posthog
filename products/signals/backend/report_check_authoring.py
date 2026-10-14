@@ -48,6 +48,7 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = structlog.get_logger(__name__)
@@ -515,9 +516,19 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
     return armed
 
 
-def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
+def arm_pending_checks(
+    *,
+    team_id: int,
+    report_id: str | uuid.UUID,
+    resolved_at: datetime,
+    monitoring_enabled: bool | None = None,
+) -> int:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
-        if report is None or report.effective_status != SignalReport.Status.RESOLVED:
+        if (
+            report is None
+            or effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
+            != SignalReport.Status.RESOLVED
+        ):
             return 0
         return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)

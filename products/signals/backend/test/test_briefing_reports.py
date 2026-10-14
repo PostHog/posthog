@@ -140,6 +140,9 @@ class TestReportsForBriefing(BaseTest):
             {"chart_id": "form-errors", "title": "Form errors", "query": query},
         ]
         report.save(update_fields=["status", "metrics", "charts", "summary"])
+        other_reports = [self._urgent_report(f"Other report {index}") for index in range(2)]
+        SignalReport.objects.filter(id__in=[other.id for other in other_reports]).update(status=status)
+        report_ids = [str(item.id) for item in [report, *other_reports]]
 
         viewer = ReportMetricAccessPolicy(
             request=cast(Request, SimpleNamespace(user=self.user, successful_authenticator=None)), team=self.team
@@ -153,12 +156,28 @@ class TestReportsForBriefing(BaseTest):
         )
         SignalReportArtefact.objects.filter(pk=cross_team.pk).update(created_at=timezone.now() + timedelta(hours=1))
 
-        with patch(
-            "products.signals.backend.report_content_gates.feature_enabled_or_false",
-            return_value=flag_result if isinstance(flag_result, bool) else False,
-            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                return_value=flag_result if isinstance(flag_result, bool) else False,
+                side_effect=flag_result if isinstance(flag_result, Exception) else None,
+            ) as evaluate,
+            CaptureQueriesContext(connection) as queries,
         ):
-            [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)], metric_access=viewer)
+            results = report_details(team_id=self.team.id, report_ids=report_ids, metric_access=viewer)
+        assert len(results) == len(report_ids)
+        assert {item.status for item in results} == {expected_status}
+        team_gate_reads = [
+            query
+            for query in queries
+            if query["sql"].startswith("SELECT")
+            and 'FROM "posthog_team"' in query["sql"]
+            and '"organization_id"' in query["sql"]
+        ]
+        expected_gate_reads = int(status == SignalReport.Status.MONITORING)
+        assert evaluate.call_count == expected_gate_reads
+        assert len(team_gate_reads) == expected_gate_reads
+        details = next(item for item in results if item.report_id == str(report.id))
         # Without a viewer the policy reads nothing, so the briefing must hide every metric, as the Inbox does.
         [unreadable] = report_details(
             team_id=self.team.id,

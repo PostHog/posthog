@@ -46,6 +46,7 @@ from products.signals.backend.report_check_agent import (
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
+    arm_pending_checks,
     cancel_check,
     create_check,
     create_checks_from_specs,
@@ -2070,9 +2071,9 @@ class TestPendingChecks(APIBaseTest):
         super().setUp()
         self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Fix")
 
-    def _pending(self, **overrides) -> SignalReportCheck:
+    def _pending(self, *, report: SignalReport | None = None, **overrides) -> SignalReportCheck:
         return create_check(
-            report=self.report,
+            report=report or self.report,
             title="Checkout errors stay low",
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=_threshold_config(),
@@ -2092,14 +2093,20 @@ class TestPendingChecks(APIBaseTest):
     def test_monitoring_checks_wait_for_manual_finish_or_use_the_resolved_fallback(
         self, _name: str, flag_result: bool | Exception
     ) -> None:
-        check = self._pending()
+        reports = [self.report] + [
+            SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title=f"Fix {index}")
+            for index in range(2)
+        ]
+        checks = [self._pending(report=report) for report in reports]
+        check = checks[0]
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             with self.captureOnCommitCallbacks(execute=True):
-                self.report.save(
-                    update_fields=self.report.transition_to(
-                        SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                for report in reports:
+                    report.save(
+                        update_fields=report.transition_to(
+                            SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                        )
                     )
-                )
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.PENDING
         now = timezone.now()
@@ -2107,10 +2114,17 @@ class TestPendingChecks(APIBaseTest):
             "products.signals.backend.report_content_gates.feature_enabled_or_false",
             return_value=flag_result if isinstance(flag_result, bool) else False,
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
-        ):
+        ) as evaluate:
             with patch(_MEASURE) as measure:
                 run_due_report_checks(now=now)
                 measure.assert_not_called()
+            assert evaluate.call_count == 1
+            for pending in checks:
+                pending.refresh_from_db()
+                assert pending.status == (
+                    SignalReportCheck.Status.PENDING if flag_result is True else SignalReportCheck.Status.ACTIVE
+                )
+                assert pending.measurement_start_at == (None if flag_result is True else now)
             check.refresh_from_db()
             if flag_result is True:
                 assert check.status == SignalReportCheck.Status.PENDING
@@ -2121,7 +2135,9 @@ class TestPendingChecks(APIBaseTest):
             else:
                 assert check.measurement_start_at == now
             assert check.status == SignalReportCheck.Status.ACTIVE
-            assert collect_due_checks(check.next_run_at + timedelta(minutes=1)) == [check]
+            assert {due.id for due in collect_due_checks(check.next_run_at + timedelta(minutes=1))} == {
+                pending.id for pending in ([check] if flag_result is True else checks)
+            }
 
     def test_a_pending_check_is_never_due_while_its_report_is_unresolved(self) -> None:
         self._pending()
@@ -2138,6 +2154,12 @@ class TestPendingChecks(APIBaseTest):
             self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
             self.report.save(update_fields=self.report.transition_to(report_status))
 
+        assert (
+            arm_pending_checks(
+                team_id=self.team.id, report_id=self.report.id, resolved_at=timezone.now(), monitoring_enabled=False
+            )
+            == 0
+        )
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.PENDING
         assert check.measurement_start_at is None
