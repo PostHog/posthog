@@ -9,7 +9,7 @@ from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
-from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
+from posthog.schema import ClickhouseQueryProgress, HogQLQueryModifiers, QueryScanSummary, QueryStatus
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -231,6 +231,7 @@ def execute_process_query(
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    runner_state: Optional[dict] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -280,9 +281,14 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
+        modifiers = None
+        if runner_state is not None:
+            modifiers = HogQLQueryModifiers.model_validate(runner_state["modifiers"])
+            query_json = runner_state["query"]
         results = process_query_dict(
             team=team,
             query_json=query_json,
+            modifiers=modifiers,
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             query_id=query_id,
@@ -380,6 +386,7 @@ def enqueue_process_query_task(
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    runner_state: Optional[dict] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -437,6 +444,9 @@ def enqueue_process_query_task(
         labels=labels,
     )
     query_tags = get_query_tags().model_dump()
+    if runner_state is not None:
+        # Existing workers accept arbitrary query tags but reject new task kwargs and query-schema fields.
+        query_tags["query"] = {"_async_query_runner": runner_state}
     manager.store_query_status(query_status)
 
     if cache_key:

@@ -66,7 +66,16 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         """
 
     try:
-        if get_new_events_cluster_host():
+        native_enabled = bool(get_new_events_cluster_host())
+    except Exception:
+        logger.exception("Failed to resolve native query progress host")
+        native_enabled = False
+
+    native = (
+        submit_native_metadata(partial(_get_native_query_results, SYSTEM_PROCESSES_SQL)) if native_enabled else None
+    )
+    try:
+        if native_enabled:
             legacy = submit_legacy_metadata(partial(_get_legacy_query_results, SYSTEM_PROCESSES_SQL))
             if legacy is None:
                 raw_results = []
@@ -84,22 +93,19 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
                 ch_user=ClickHouseUser.OPS,
             )
     except Exception:
-        if not get_new_events_cluster_host():
+        if not native_enabled:
             raise
         logger.exception("Failed to poll legacy query progress")
         raw_results = []
     # Publish healthy legacy results before waiting on the separate native cluster.
     yield _format_results(raw_results)
-    if not get_new_events_cluster_host():
+    if not native_enabled:
         return
     remaining = min(3.0, Polling.SOFT_TIME_LIMIT_SECONDS - 1 - (perf_counter() - started))
-    if remaining <= 0:
-        return
-    native = submit_native_metadata(partial(_get_native_query_results, SYSTEM_PROCESSES_SQL))
     if native is None:
         return
     try:
-        yield _format_results(native.result(timeout=remaining))
+        yield _format_results(native.result(timeout=max(0.0, remaining)))
     except TimeoutError:
         logger.warning("Native query progress exceeded polling budget")
         native.add_done_callback(partial(_log_detached_poll, "native"))

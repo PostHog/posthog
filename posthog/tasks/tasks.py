@@ -470,6 +470,10 @@ def process_query_task(
     """
     from posthog.clickhouse.client import execute_process_query
 
+    queued_query = query_tags.get("query")
+    runner_state = queued_query.get("_async_query_runner") if isinstance(queued_query, dict) else None
+    if runner_state is not None:
+        query_tags = {**query_tags, "query": query_json}
     existing_query_tags = get_query_tags()
     all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
     tag_queries(**all_query_tags)
@@ -486,6 +490,7 @@ def process_query_task(
         is_query_service=is_query_service,
         analytics_props=analytics_props,
         sharing_configuration_id=sharing_configuration_id,
+        runner_state=runner_state,
     )
 
 

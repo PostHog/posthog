@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from threading import Event
 from typing import Any
@@ -25,37 +25,53 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    @override_settings(
-        CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=False
-    )
-    def test_native_cancellation_deadline_includes_time_spent_on_legacy(self) -> None:
+    @parameterized.expand([("legacy",), ("native",)])
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_cancellation_deadline_bounds_either_stalled_cluster(self, stalled: str) -> None:
         from posthog.clickhouse.cancel import cancel_query_on_cluster
 
-        release_native, native_started, native_finished = Event(), Event(), Event()
+        legacy: Future[bool] = Future()
+        native: Future[bool] = Future()
+        (native if stalled == "legacy" else legacy).set_result(False)
+        with (
+            patch("posthog.clickhouse.cancel.monotonic", side_effect=[0, 20, 20]),
+            patch("posthog.clickhouse.cancel.submit_legacy_metadata", return_value=legacy),
+            patch("posthog.clickhouse.cancel.submit_native_metadata", return_value=native),
+        ):
+            with self.assertRaises(TimeoutError):
+                cancel_query_on_cluster(44, "example-query")
 
-        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
-            if "ON CLUSTER" in query:
-                native_started.set()
-                try:
-                    self.assertTrue(release_native.wait(2))
-                    return []
-                finally:
-                    native_finished.set()
-            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_confirmed_native_cleanup_does_not_wait_for_stalled_legacy(self) -> None:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+        legacy: Future[bool] = Future()
+        native: Future[bool] = Future()
+        native.set_result(True)
+        with (
+            patch("posthog.clickhouse.cancel.submit_legacy_metadata", return_value=legacy),
+            patch("posthog.clickhouse.cancel.submit_native_metadata", return_value=native),
+        ):
+            cancel_query_on_cluster(44, "example-query")
+        self.assertFalse(legacy.done())
+
+    def test_legacy_cancellation_survives_native_host_setting_failure(self) -> None:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
 
         with (
-            patch("posthog.clickhouse.cancel.monotonic", side_effect=[0, 19.9]),
+            patch(
+                "posthog.clickhouse.cancel.get_new_events_cluster_host",
+                side_effect=RuntimeError("settings unavailable"),
+            ),
             patch("posthog.clickhouse.cancel.default_client"),
-            patch("posthog.clickhouse.cancel.sync_execute", side_effect=execute),
+            patch(
+                "posthog.clickhouse.cancel.sync_execute",
+                side_effect=[[("legacy.example.com", "44_example-query_12345678")], []],
+            ) as execute,
         ):
-            try:
-                with self.assertRaises(TimeoutError):
-                    cancel_query_on_cluster(44, "example-query")
-                self.assertTrue(native_started.is_set())
-                self.assertFalse(native_finished.is_set())
-            finally:
-                release_native.set()
-                self.assertTrue(native_finished.wait(1))
+            cancel_query_on_cluster(44, "example-query")
+        self.assertIn("KILL QUERY", execute.call_args.args[0])
+        self.assertEqual(execute.call_args.args[1], {"query_id": "44_example-query_12345678"})
 
     @parameterized.expand([(False,), (True,)])
     @override_settings(
@@ -219,8 +235,9 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             try:
                 if native_result == "unavailable":
                     raise RuntimeError("native unavailable")
-                rows = [("waiting", "44_example-query_12345678")] if native_result == "confirmed" else []
-                return rows, [("kill_status", "String"), ("query_id", "String")]
+                if "system.processes" in query:
+                    return [("native.example.com", "44_example-query_12345678")] if native_result == "confirmed" else []
+                return [("finished", "44_example-query_12345678")], [("kill_status", "String"), ("query_id", "String")]
             finally:
                 native_finished.set()
 
@@ -238,9 +255,15 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         native_calls = [
             call for call in client.call_args_list if call.kwargs.get("workload") == Workload.NEW_EVENTS_CLUSTER
         ]
-        self.assertEqual(len(native_calls), 1)
+        self.assertEqual(len(native_calls), 2 if native_result == "confirmed" else 1)
         self.assertEqual(native_calls[0].kwargs["send_receive_timeout"], 15)
-        native_kills = [call for call in executed.call_args_list if call.kwargs["sync_client"] is native_client]
-        self.assertEqual(len(native_kills), 1)
-        self.assertIn("ON CLUSTER", native_kills[0].args[0])
-        self.assertEqual(native_kills[0].args[1], {"client_query_id": "44_example-query_"})
+        native_kills = [
+            call
+            for call in executed.call_args_list
+            if call.kwargs["sync_client"] is native_client and "KILL" in call.args[0]
+        ]
+        self.assertEqual(len(native_kills), 1 if native_result == "confirmed" else 0)
+        if native_kills:
+            self.assertIn("SYNC", native_kills[0].args[0])
+            self.assertNotIn("ON CLUSTER", native_kills[0].args[0])
+            self.assertEqual(native_kills[0].args[1], {"query_id": "44_example-query_12345678"})

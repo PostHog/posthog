@@ -134,7 +134,8 @@ def test_native_events_workload_without_host_fails_closed(settings):
         get_pool(Workload.NEW_EVENTS_CLUSTER)
 
 
-def test_bounded_native_client_preserves_ops_identity_and_reads_rotated_token(settings, monkeypatch, tmp_path):
+@pytest.mark.parametrize("host", [None, "native-replica.example.com"])
+def test_bounded_native_client_preserves_ops_identity_and_reads_rotated_token(settings, monkeypatch, tmp_path, host):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
     settings.CLICKHOUSE_VERIFY = False
     token = tmp_path / "token"
@@ -144,9 +145,9 @@ def test_bounded_native_client_preserves_ops_identity_and_reads_rotated_token(se
         for value in ("tok-0", "tok-1"):
             token.write_text(value)
             connection.default_client(
-                workload=Workload.NEW_EVENTS_CLUSTER, ch_user=ClickHouseUser.OPS, send_receive_timeout=15
+                host=host, workload=Workload.NEW_EVENTS_CLUSTER, ch_user=ClickHouseUser.OPS, send_receive_timeout=15
             )
-            assert client.call_args.kwargs["host"] == "native.example.com"
+            assert client.call_args.kwargs["host"] == (host or "native.example.com")
             assert client.call_args.kwargs["user"] == "ops-example"
             assert client.call_args.kwargs["password"] == value
             assert client.call_args.kwargs["verify"] is False

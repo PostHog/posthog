@@ -7,7 +7,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -51,6 +51,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             runner.enqueue_async_calculation(
                 cache_manager=MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None), user=self.user
             )
+        self.runner_state = enqueue.call_args.kwargs.get("runner_state")
         return enqueue.call_args.kwargs["query_json"]
 
     @parameterized.expand(
@@ -123,6 +124,14 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             ("schema_override", {}, {"useNewEventsSchema": False}, {"useNewEventsSchema": True}, False, None),
             ("cluster_false", {"useNewEventsCluster": True}, {"useNewEventsCluster": False}, {}, False, False),
             ("cluster_unset", {"useNewEventsCluster": True}, {"useNewEventsCluster": None}, {}, False, None),
+            (
+                "session_override",
+                {"useNewEventsCluster": True, "sessionTableVersion": SessionTableVersion.V2},
+                {"useNewEventsCluster": False, "sessionTableVersion": SessionTableVersion.V1},
+                {},
+                False,
+                False,
+            ),
         ]
     )
     def test_async_route_and_cache_identity_survive_worker_reconstruction(
@@ -145,7 +154,16 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 modifiers=self.modifiers.model_copy(update=override) if override is not None else None,
             )
             serialized = self._enqueue(request)
-            worker = get_query_runner(serialized, self.team, user=self.user)
+            runner_state = self.runner_state
+            worker = get_query_runner(
+                runner_state["query"] if runner_state else serialized,
+                self.team,
+                user=self.user,
+                modifiers=HogQLQueryModifiers.model_validate(runner_state["modifiers"]) if runner_state else None,
+            )
+            old_worker = get_query_runner(serialized, self.team, user=self.user)
+            self.assertEqual(old_worker.modifiers, worker.modifiers)
+        self.assertEqual(worker.modifiers.sessionTableVersion, request.modifiers.sessionTableVersion)
         self.assertIs(worker.modifiers.useNewEventsSchema, schema)
         self.assertIs(worker.modifiers.useNewEventsCluster, cluster)
         self.assertEqual(source.model_dump(), original)
@@ -156,10 +174,29 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             patch.object(worker, "_get_property_access_restrictions", return_value=None),
             patch.object(request, "_products_modifiers_for_cache", return_value={}),
             patch.object(worker, "_products_modifiers_for_cache", return_value={}),
+            patch.object(old_worker, "_get_property_access_restrictions", return_value=None),
+            patch.object(old_worker, "_products_modifiers_for_cache", return_value={}),
             patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
         ):
-            if override is None:
-                self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
+            self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
+            if override is not None:
+                self.assertNotEqual(request.get_cache_key(), old_worker.get_cache_key())
+
+    @parameterized.expand([(None,), (False,)])
+    def test_legacy_enqueue_survives_native_host_lookup_failure(self, schema: bool | None) -> None:
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(
+                query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsSchema": schema})
+            ),
+            team=self.team,
+        )
+        with patch(
+            "posthog.hogql_queries.query_runner.get_new_events_cluster_host",
+            side_effect=RuntimeError("settings unavailable"),
+        ):
+            queued = self._enqueue(runner)
+        self.assertEqual(queued["query"], "SELECT 1")
+        self.assertIsNot(queued["modifiers"].get("useNewEventsCluster"), True)
 
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_direct_trino_queue_preserves_pure_inputs(self) -> None:

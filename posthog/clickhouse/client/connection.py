@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.event.new_events_schema import get_new_events_cluster_host
 from posthog.settings import data_stores
 from posthog.utils import patchable
 
@@ -432,6 +431,8 @@ def get_kwargs_for_client(
     base_kwargs = {"user": creds.user, "password": creds.password}
 
     if workload == Workload.NEW_EVENTS_CLUSTER:
+        from posthog.models.event.new_events_schema import get_new_events_cluster_host  # noqa: PLC0415
+
         host = get_new_events_cluster_host()
         if not host:
             raise ValueError("Native events ClickHouse host is not configured")
@@ -531,7 +532,7 @@ def get_pool(
 
 
 def default_client(
-    host=settings.CLICKHOUSE_HOST,
+    host=None,
     password=None,
     *,
     database: str = "system",
@@ -549,7 +550,7 @@ def default_client(
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
     kwargs = {
-        "host": host,
+        "host": settings.CLICKHOUSE_HOST,
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
         # assuming that this exists and we have permissions to access it. This
@@ -568,6 +569,8 @@ def default_client(
         creds = connection_creds(workload, ch_user)
         if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
             kwargs["password"] = creds.read_password()
+    if host is not None:
+        kwargs["host"] = host
     if password is not None:
         kwargs["password"] = password
     if send_receive_timeout is not None:

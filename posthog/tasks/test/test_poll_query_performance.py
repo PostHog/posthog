@@ -125,30 +125,37 @@ class TestPollQueryPerformance(SimpleTestCase):
         self.assertEqual({row["query_id"] for row in latest}, {"legacy-child", "native-child"})
 
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_legacy_progress_is_published_before_the_native_probe(self) -> None:
+    def test_native_progress_survives_legacy_publication_exhausting_the_budget(self) -> None:
         legacy_id = "44_550e8400-e29b-41d4-a716-446655440001_example"
-        saw_legacy_progress = False
+        native_id = "44_550e8400-e29b-41d4-a716-446655440002_example"
+        native_finished = Event()
+        published_legacy = False
 
-        def execute(
-            _query: str, _parameters: dict[str, str], **kwargs: object
-        ) -> list[tuple[str, int, int, int, int, int, str]]:
-            nonlocal saw_legacy_progress
+        def execute(_query: str, _parameters: dict[str, str], **kwargs: object) -> list[tuple]:
             if kwargs.get("workload") != Workload.ONLINE:
-                saw_legacy_progress = manager.return_value.update_clickhouse_query_progresses.called
-                return []
-            return [(legacy_id, 2, 3, 4, 5, 6, "example-query")]
+                native_finished.set()
+                return [(native_id, 2, 3, 4, 5, 6, "native-query")]
+            return [(legacy_id, 2, 3, 4, 5, 6, "legacy-query")]
+
+        def publish(_progress: object) -> None:
+            nonlocal published_legacy
+            self.assertTrue(native_finished.wait(1))
+            published_legacy = True
 
         with (
             patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
-            patch("posthog.tasks.poll_query_performance.default_client") as client,
+            patch("posthog.tasks.poll_query_performance.default_client"),
+            patch(
+                "posthog.tasks.poll_query_performance.perf_counter", side_effect=lambda: 10 if published_legacy else 0
+            ),
         ):
+            manager.return_value.update_clickhouse_query_progresses.side_effect = publish
             poll_query_performance()
-        self.assertTrue(saw_legacy_progress)
-        self.assertLessEqual(client.call_args.kwargs["connect_timeout"], 1)
-        self.assertLessEqual(client.call_args.kwargs["send_receive_timeout"], 2)
+        self.assertEqual(manager.call_count, 2)
+        self.assertEqual({call.args[0] for call in manager.call_args_list}, {legacy_id[3:-8], native_id[3:-8]})
 
-    @parameterized.expand([(None,), ("legacy",), ("native",)])
+    @parameterized.expand([(None,), ("legacy",), ("native",), ("settings",)])
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_progress_includes_native_queries_and_survives_one_unavailable_cluster(self, failed: str | None) -> None:
         legacy_id = "44_550e8400-e29b-41d4-a716-446655440001_example"
@@ -167,15 +174,23 @@ class TestPollQueryPerformance(SimpleTestCase):
             patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
             patch("posthog.tasks.poll_query_performance.default_client") as client,
         ):
-            poll_query_performance()
+            if failed == "settings":
+                with patch(
+                    "posthog.tasks.poll_query_performance.get_new_events_cluster_host",
+                    side_effect=RuntimeError("settings unavailable"),
+                ):
+                    poll_query_performance()
+            else:
+                poll_query_performance()
         self.assertEqual(manager.call_count, 1 if failed else 2)
         query_ids = {call.args[0] for call in manager.call_args_list}
         if failed != "legacy":
             self.assertIn("550e8400-e29b-41d4-a716-446655440001", query_ids)
-        if failed != "native":
+        if failed not in ("native", "settings"):
             self.assertIn("550e8400-e29b-41d4-a716-446655440002", query_ids)
-        self.assertEqual(client.call_args.kwargs["connect_timeout"], 1)
-        self.assertEqual(client.call_args.kwargs["send_receive_timeout"], 2)
+        if failed != "settings":
+            self.assertEqual(client.call_args.kwargs["connect_timeout"], 1)
+            self.assertEqual(client.call_args.kwargs["send_receive_timeout"], 2)
 
     def test_query_manager_from_initial_query_id_succeeds(self) -> None:
         self.assertIsNotNone(query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef"))

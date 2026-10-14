@@ -2088,10 +2088,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 for source in modifier_sources
             )
         )
+        pin_schema = bool(self.modifiers.useNewEventsSchema or explicit_schema_choice)
+        if not pin_schema:
+            try:
+                pin_schema = bool(get_new_events_cluster_host())
+            except Exception:
+                logger.exception("Failed to resolve native events host while enqueueing legacy query")
         if (
             "modifiers" in modifier_source
             and self.modifiers.useNewEventsSchema is not None
-            and (self.modifiers.useNewEventsSchema or get_new_events_cluster_host() or explicit_schema_choice)
+            and pin_schema
             and self._should_pin_events_schema_for_async()
         ):
             for source in modifier_sources:
@@ -2108,6 +2114,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ),
             }
 
+        if self._modifiers_override_provided:
+            # Old workers execute the normal payload; new workers also restore constructor precedence.
+            for source in modifier_sources:
+                if "modifiers" in source:
+                    source["modifiers"] = self.modifiers.model_dump()
+                    break
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
@@ -2115,6 +2128,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=query_json,
+            runner_state={"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
+            if self._modifiers_override_provided
+            else None,
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
