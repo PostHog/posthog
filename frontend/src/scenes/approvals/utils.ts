@@ -3,7 +3,23 @@ export const ApprovalActionKey = {
     FEATURE_FLAG_ENABLE: 'feature_flag.enable',
     FEATURE_FLAG_DISABLE: 'feature_flag.disable',
     FEATURE_FLAG_UPDATE: 'feature_flag.update',
+    EXPERIMENT_LAUNCH: 'experiment.launch',
+    EXPERIMENT_PAUSE: 'experiment.pause',
+    EXPERIMENT_UPDATE: 'experiment.update',
 } as const
+
+// Actions whose policy can limit approval to some changes. Saving any other action drops its conditions.
+export const CONDITIONAL_APPROVAL_ACTIONS: ReadonlySet<string> = new Set([
+    ApprovalActionKey.FEATURE_FLAG_UPDATE,
+    ApprovalActionKey.EXPERIMENT_UPDATE,
+])
+
+// Experiment actions govern an experiment's flag only once the organization scopes policies by flag owner.
+export const EXPERIMENT_APPROVAL_ACTIONS: ReadonlySet<string> = new Set([
+    ApprovalActionKey.EXPERIMENT_LAUNCH,
+    ApprovalActionKey.EXPERIMENT_PAUSE,
+    ApprovalActionKey.EXPERIMENT_UPDATE,
+])
 
 export type ApprovalActionKeyType = (typeof ApprovalActionKey)[keyof typeof ApprovalActionKey]
 
@@ -30,6 +46,18 @@ export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
         label: 'Update feature flag',
         description: "change this feature flag's release conditions or rollout",
         contextDescriptions: { experiment: 'update this experiment' },
+    },
+    [ApprovalActionKey.EXPERIMENT_LAUNCH]: {
+        label: 'Launch experiment',
+        description: 'launch this experiment',
+    },
+    [ApprovalActionKey.EXPERIMENT_PAUSE]: {
+        label: 'Pause experiment',
+        description: 'pause this experiment',
+    },
+    [ApprovalActionKey.EXPERIMENT_UPDATE]: {
+        label: 'Update experiment',
+        description: "change this experiment's variant split or release conditions",
     },
 }
 

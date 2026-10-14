@@ -15,12 +15,19 @@ import {
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { APPROVAL_ACTIONS, ApprovalActionKey, getApprovalActionLabel } from 'scenes/approvals/utils'
+import {
+    APPROVAL_ACTIONS,
+    ApprovalActionKey,
+    CONDITIONAL_APPROVAL_ACTIONS,
+    EXPERIMENT_APPROVAL_ACTIONS,
+    getApprovalActionLabel,
+} from 'scenes/approvals/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
@@ -185,7 +192,9 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const { loadAllMembers } = useActions(membersLogic)
     const { loadRoles } = useActions(rolesLogic)
 
+    const scopedByFlagOwner = useFeatureFlag('APPROVALS_SCOPE_BY_FLAG_OWNER')
     const [actionKey, setActionKey] = useState(policy?.action_key || 'feature_flag.enable')
+    const supportsConditions = CONDITIONAL_APPROVAL_ACTIONS.has(actionKey)
     const [quorum, setQuorum] = useState(policy?.approver_config?.quorum || 1)
     const [allowSelfApprove, setAllowSelfApprove] = useState(policy?.allow_self_approve || false)
     const [approverUserIds, setApproverUserIds] = useState<number[]>(policy?.approver_config?.users || [])
@@ -241,7 +250,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
 
         // Build conditions from rules (for now, just take the first rule)
         let conditions: Record<string, unknown> = {}
-        if (actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && rules.length > 0) {
+        if (supportsConditions && rules.length > 0) {
             const rule = rules[0]
             if (rule.type !== 'any_change' && rule.value === undefined) {
                 lemonToast.error('Please specify a threshold value')
@@ -322,18 +331,25 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                         value={actionKey}
                         onChange={(value) => {
                             setActionKey(value)
-                            if (value !== ApprovalActionKey.FEATURE_FLAG_UPDATE) {
+                            if (!CONDITIONAL_APPROVAL_ACTIONS.has(value)) {
                                 setRules([])
                             }
                         }}
-                        options={Object.entries(APPROVAL_ACTIONS).map(([value, action]) => ({
-                            label: action.label,
-                            value,
-                        }))}
+                        options={Object.entries(APPROVAL_ACTIONS)
+                            .filter(
+                                ([value]) =>
+                                    scopedByFlagOwner ||
+                                    value === policy?.action_key ||
+                                    !EXPERIMENT_APPROVAL_ACTIONS.has(value)
+                            )
+                            .map(([value, action]) => ({
+                                label: action.label,
+                                value,
+                            }))}
                     />
                 </div>
 
-                {actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && (
+                {supportsConditions && (
                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
                             <label className="block text-sm font-medium">Require approval when</label>
@@ -373,9 +389,9 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                         )}
 
                         <p className="text-xs text-secondary">
-                            With no conditions, any change to a flag's rollout needs approval. So does any change to its
-                            release conditions, unless an experiment, survey, product tour or early access feature
-                            manages the flag.
+                            {actionKey === ApprovalActionKey.EXPERIMENT_UPDATE
+                                ? "With no conditions, any change to an experiment's rollout or release conditions needs approval."
+                                : "With no conditions, any change to a flag's rollout needs approval. So does any change to its release conditions, unless an experiment, survey, product tour or early access feature manages the flag."}
                         </p>
                     </div>
                 )}
