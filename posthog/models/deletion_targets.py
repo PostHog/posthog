@@ -115,6 +115,11 @@ class DeletionTarget:
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
+    # The events storage table that holds a copy of each row here, with the same uuid, while ingestion
+    # still writes the event there. None where rows have no such copy. The copy must sit on the same
+    # shard as the row, because the check for rows without a copy reads both tables shard-locally.
+    # A deferred event removal with a HogQL predicate deletes rows here through the uuids of their copies.
+    copied_from: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
@@ -209,16 +214,19 @@ EVENTS_JSON = DeletionTarget(
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
 # events-shaped table. Property removal rewrites its event properties and its person properties. A
-# HogQL predicate does not compile against the table, so a request that carries one never sweeps it.
-# Immediate event removal with a predicate leaves the matching rows to the TTL. Deferred event
-# removal and property removal with a predicate refuse while the table holds matching rows.
-# docs/internal/clickhouse-deletion-coverage.md explains these limits.
+# HogQL predicate does not compile against the table, so a request that carries one never runs it
+# there. Immediate event removal with a predicate leaves the matching rows to the TTL. Deferred event
+# removal with a predicate deletes the rows through the uuids of their events copies, and refuses
+# while the table holds a matching row with no copy. Property removal with a predicate refuses while
+# the table holds matching rows. docs/internal/clickhouse-deletion-coverage.md explains these limits.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
+    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard.
+    copied_from=EVENTS_DATA_TABLE(),
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
