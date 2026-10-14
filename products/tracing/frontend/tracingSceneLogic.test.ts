@@ -52,6 +52,13 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.selectedTraceId).toBe(expected)
     })
 
+    it('rewrites a lowercase trace id in the URL without adding a back step', () => {
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt({ trace: '4bf92f3577b34da6a3ce929d0e0e4736' })
+        expect(router.values.searchParams.trace).toBe('4BF92F3577B34DA6A3CE929D0E0E4736')
+        expect(router.values.lastMethod).toBe('REPLACE')
+    })
+
     it('migrates legacy compare=true links to the custom time comparison', () => {
         const filtersLogic = mountAt({ compare: 'true' })
         expect(filtersLogic.values.comparison).toEqual({
