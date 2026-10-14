@@ -31,6 +31,15 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('sends the insight id with an insight query, so a guest runs the saved query', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        await client.insights({ projectId: '1' }).query({ query: { kind: 'TrendsQuery', series: [] }, insightId: 42 })
+        expect(JSON.parse(mockFetch.mock.calls[0]![1].body)).toEqual(expect.objectContaining({ insight_id: 42 }))
+        vi.unstubAllGlobals()
+    })
+
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
             apiToken: 'test-token',

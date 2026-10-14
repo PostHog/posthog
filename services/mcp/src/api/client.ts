@@ -1370,12 +1370,19 @@ export class ApiClient {
                 }
             },
 
-            query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
+            query: async ({
+                query,
+                insightId,
+            }: {
+                query: Record<string, any>
+                /** The saved insight this query renders. For a guest, the server runs the insight's saved query. */
+                insightId?: number
+            }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
                 return this.fetchJson<QueryEndpointResponse>(url, {
                     method: 'POST',
-                    body: JSON.stringify({ query }),
+                    body: JSON.stringify({ query, ...(insightId ? { insight_id: insightId } : {}) }),
                 })
             },
 
