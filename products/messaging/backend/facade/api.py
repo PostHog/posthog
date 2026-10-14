@@ -4,6 +4,7 @@ from uuid import UUID
 
 from products.messaging.backend.facade.contracts import (
     EmailTemplateContent,
+    EmailTemplateSummary,
     UnlayerNotConfiguredError,
     UnlayerRenderError,
 )
@@ -16,6 +17,7 @@ from products.messaging.backend.unlayer import render_design_html as render_unla
 
 __all__ = [
     "EmailTemplateContent",
+    "EmailTemplateSummary",
     "UnlayerNotConfiguredError",
     "UnlayerRenderError",
     "apply_design_operations",
@@ -57,8 +59,8 @@ def get_template_email_content(team_id: int, template_id: UUID) -> dict | None:
     return message_templates.get_email_content(team_id, template_id)
 
 
-def list_email_templates(team_id: int, *, limit: int) -> list[EmailTemplateContent]:
-    return message_templates.list_email_contents(team_id, limit=limit)
+def list_email_templates(team_id: int, *, limit: int) -> list[EmailTemplateSummary]:
+    return message_templates.list_email_summaries(team_id, limit=limit)
 
 
 def find_template_ids_containing(text: str, *, team_ids: list[int] | None, template_id: str | None) -> list[UUID]:

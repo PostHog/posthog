@@ -86,7 +86,8 @@ describe('workflowDataSuggestionsLogic', () => {
 
         expect(hogFlowsCreate).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ name: 'Welcome new users', status: 'draft' })
+            expect.objectContaining({ name: 'Welcome new users', status: 'draft' }),
+            expect.objectContaining({ signal: expect.anything() })
         )
         expect(router.values.location.pathname).toContain('workflow-1')
         expect(logic.values.buildingKey).toBeNull()

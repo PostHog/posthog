@@ -20,6 +20,7 @@ from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.utils import get_instance_region
 
+from products.messaging.backend.facade.api import EmailTemplateContent, EmailTemplateSummary, get_template_email_content
 from products.workflows.backend.facade.contracts import (
     BuiltSuggestion,
     DataSuggestion,
@@ -33,6 +34,7 @@ from products.workflows.backend.services.data_suggestions.event_volume import we
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
     IdeaContext,
+    PlannedWorkflow,
     StepsContext,
     WorkflowIdea,
     plan_steps,
@@ -261,7 +263,7 @@ def _plan_and_build(
             allowed_events=frozenset({suggestion.trigger_event, *events}),
             step_template_ids=frozenset(template.template_id for template in step_templates),
             channels=channels,
-            email_templates={str(template.id): template for template in email_templates},
+            email_templates=_chosen_template_bodies(team, plan, email_templates),
             sender=team_context.email_sender(team),
             slack_integration_id=slack_integration_id,
             once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
@@ -273,6 +275,21 @@ def _plan_and_build(
     if len(json.dumps(built.workflow)) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE:
         return _BUILD_FAILED
     return BuiltSuggestion(status="ready", workflow=built.workflow, uses_saved_template=built.uses_saved_template)
+
+
+def _chosen_template_bodies(
+    team: Team, plan: PlannedWorkflow, summaries: tuple[EmailTemplateSummary, ...]
+) -> dict[str, EmailTemplateContent]:
+    # Saved designs can be large, so only the bodies of the templates the plan picked are loaded.
+    chosen = {step.email_template_id for step in plan.steps if step.email_template_id}
+    bodies: dict[str, EmailTemplateContent] = {}
+    for summary in summaries:
+        if str(summary.id) not in chosen:
+            continue
+        email = get_template_email_content(team.id, summary.id)
+        if email is not None:
+            bodies[str(summary.id)] = EmailTemplateContent(id=summary.id, name=summary.name, email=email)
+    return bodies
 
 
 def _unavailable_reason(team: Team) -> DataSuggestionsResult | None:
@@ -394,6 +411,12 @@ def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestio
     try:
         return _suggest(team=team, user=user, analytics_client=analytics_client)
     except _GENERATION_ERRORS:
+        return _UNAVAILABLE
+    except Exception as error:
+        # Any other failure, like a database error, is cached as unavailable too, so the next visit does not repeat
+        # the counts and the classification straight away.
+        logger.exception("workflows.data_suggestions.generation_failed", team_id=team.id)
+        capture_exception(error, {"team_id": team.id})
         return _UNAVAILABLE
 
 

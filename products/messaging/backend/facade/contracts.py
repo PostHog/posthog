@@ -16,6 +16,13 @@ class UnlayerRenderError(UnlayerError):
 
 
 @dataclass(frozen=True)
+class EmailTemplateSummary:
+    id: UUID
+    name: str
+    subject: str
+
+
+@dataclass(frozen=True)
 class EmailTemplateContent:
     id: UUID
     name: str

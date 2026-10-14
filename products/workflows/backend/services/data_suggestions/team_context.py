@@ -6,7 +6,7 @@ from django.db.models.functions import Coalesce
 from posthog.models import EventDefinition, Team
 from posthog.models.integration import Integration
 
-from products.messaging.backend.facade.api import EmailTemplateContent, list_email_templates
+from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.data_suggestions.builder import EmailSender
@@ -79,5 +79,5 @@ def email_sender(team: Team) -> EmailSender | None:
     return verified[0] if len(verified) == 1 else None
 
 
-def email_templates(team: Team) -> tuple[EmailTemplateContent, ...]:
+def email_templates(team: Team) -> tuple[EmailTemplateSummary, ...]:
     return tuple(list_email_templates(team.id, limit=_TEMPLATES_LIMIT))

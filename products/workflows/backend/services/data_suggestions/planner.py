@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.messaging.backend.facade.api import EmailTemplateContent
+from products.messaging.backend.facade.api import EmailTemplateSummary
 from products.workflows.backend.facade.contracts import LifecycleStage, OutlineKind
 from products.workflows.backend.services.data_suggestions.llm import invoke_structured
 from products.workflows.backend.services.hog_flow_templates import StepTemplate
@@ -115,7 +115,7 @@ class IdeaContext:
 @frozen
 class StepsContext:
     idea: WorkflowIdea
-    email_templates: tuple[EmailTemplateContent, ...]
+    email_templates: tuple[EmailTemplateSummary, ...]
     step_templates: tuple[StepTemplate, ...]
     events: tuple[str, ...]
     channels: frozenset[Channel]
@@ -256,7 +256,7 @@ def plan_steps(
         human += "\n\n" + as_untrusted_data(
             "saved_email_templates",
             [
-                f"id={template.id} name={template.name} subject={template.email.get('subject', '')}"
+                f"id={template.id} name={template.name} subject={template.subject}"
                 for template in context.email_templates
             ],
             source="email templates this team saved in PostHog",
