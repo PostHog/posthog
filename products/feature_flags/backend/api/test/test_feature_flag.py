@@ -14361,6 +14361,49 @@ class TestFeatureFlagHistoricalBatch(APIBaseTest):
         assert mock_query.call_count == expected_scans
         assert mock_flags.call_count == 3
 
+    @parameterized.expand([2, 200])
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_shares_read_only_nested_snapshot(self, count, mock_build, mock_post):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="batch-test",
+            filters={"groups": [{"properties": [{"key": "profile", "type": "person", "operator": "is_set"}]}]},
+        )
+        ids = [f"user-{i}" for i in range(count)]
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=ids)
+        nested = [{"key": f"property-{i}", "value": "x" * 256} for i in range(128)]
+        snapshot = {"profile": nested, "unreferenced": "hidden"}
+        before = json.dumps(snapshot)
+        mock_build.return_value = snapshot
+
+        def respond(*args, **kwargs):
+            response = MagicMock()
+            response.json.return_value = {
+                "flags": {flag.key: {"enabled": True, "variant": kwargs["json"]["distinct_id"], "conditions": []}}
+            }
+            return response
+
+        mock_post.side_effect = respond
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ids, "timestamp": now().isoformat(), "groups": {"company": "acme"}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        rows = response.data["results"]
+        assert [row["result"]["result"] for row in rows] == ids
+        assert all(row["result"]["person_properties"]["profile"] is nested for row in rows)
+        assert all("unreferenced" not in row["result"]["person_properties"] for row in rows)
+        assert mock_post.call_count == count
+        payloads = [call.kwargs["json"] for call in mock_post.call_args_list]
+        assert all(payload["person_properties"] is snapshot for payload in payloads)
+        assert all(payload["groups"] is payloads[0]["groups"] for payload in payloads)
+        assert payloads[0]["groups"] == {"company": "acme"}
+        assert json.dumps(snapshot) == before
+
     @parameterized.expand(
         [
             ("feature_flag_read", ["feature_flag:read"], 403),

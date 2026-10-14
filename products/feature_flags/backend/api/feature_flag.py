@@ -3418,6 +3418,8 @@ class FeatureFlagHistoricalBatchResponseSerializer(serializers.Serializer):
 
 @frozen
 class PreparedFlagTestEvaluation:
+    """Request-scoped inputs shared read-only by per-identity evaluations."""
+
     team_token: str
     distinct_ids: list[str]
     timestamp: datetime | None
@@ -5690,9 +5692,7 @@ class FeatureFlagViewSet(
         def evaluate(distinct_id: str) -> dict[str, Any]:
             if time.monotonic() >= deadline:
                 return {"distinct_id": distinct_id, "result": None, "error": "Batch evaluation time limit reached."}
-            response = self._evaluate_test_evaluation(
-                feature_flag, copy.deepcopy(prepared), distinct_id, None, copy.deepcopy(groups)
-            )
+            response = self._evaluate_test_evaluation(feature_flag, prepared, distinct_id, None, groups)
             return {
                 "distinct_id": distinct_id,
                 "result": response.data if response.status_code == status.HTTP_200_OK else None,
