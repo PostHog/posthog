@@ -1,4 +1,5 @@
 from .agent_memory import AgentMemory
+from .agent_operation import AgentOperation, AgentOperationReply
 from .assistant import (
     AgentArtifact,
     Conversation,
@@ -11,6 +12,8 @@ from .assistant import (
 __all__ = [
     "AgentArtifact",
     "AgentMemory",
+    "AgentOperation",
+    "AgentOperationReply",
     "Conversation",
     "ConversationCheckpoint",
     "ConversationCheckpointBlob",

@@ -9,7 +9,7 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
-import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
+import { clientCapabilitiesSupportUiApps, parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { trackAuthFailure } from './analytics'
@@ -26,6 +26,7 @@ const InitializeParamsSchema = z.object({
         })
         .optional(),
     protocolVersion: z.string().optional(),
+    capabilities: z.unknown().optional(),
 })
 
 const JsonRpcMessageSchema = z.object({
@@ -33,7 +34,7 @@ const JsonRpcMessageSchema = z.object({
     params: z.unknown().optional(),
 })
 
-function parseClientInfo(bodyText: string): ClientInfo {
+export function parseClientInfo(bodyText: string): ClientInfo {
     try {
         const parsed = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]
@@ -55,6 +56,7 @@ function parseClientInfo(bodyText: string): ClientInfo {
                     clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
                     clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
                     protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
+                    supportsUiApps: clientCapabilitiesSupportUiApps(params.data.capabilities),
                 }
             }
             if (!metaFallback) {
@@ -64,6 +66,7 @@ function parseClientInfo(bodyText: string): ClientInfo {
                         clientName: sanitizeHeaderValue(meta.clientName),
                         clientVersion: sanitizeHeaderValue(meta.clientVersion),
                         protocolVersion: sanitizeHeaderValue(meta.protocolVersion),
+                        supportsUiApps: meta.supportsUiApps,
                     }
                 }
             }

@@ -23,6 +23,8 @@ export type RequestProperties = {
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
+    // From the `io.modelcontextprotocol/ui` client capability. Undefined when the client sent no capabilities.
+    mcpClientSupportsUiApps?: boolean | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
     transport?: Transport | undefined
@@ -49,6 +51,7 @@ export type ClientInfo = {
     clientName?: string | undefined
     clientVersion?: string | undefined
     protocolVersion?: string | undefined
+    supportsUiApps?: boolean | undefined
 }
 
 function header(request: Request, name: string): string | undefined {
@@ -116,6 +119,7 @@ export function parseRequestProperties(
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient: vendorClient,
+        mcpClientSupportsUiApps: clientInfo.supportsUiApps,
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),

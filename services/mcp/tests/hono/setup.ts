@@ -17,6 +17,9 @@ vi.mock('cloudflare:workers', () => ({
 vi.mock('@shared/guidelines.md', () => ({
     default: '# Guidelines\nTest guidelines content.',
 }))
+vi.mock('@shared/agent-guidelines.md', () => ({
+    default: '# PostHog Agent\nTest agent guidelines content.',
+}))
 vi.mock('@shared/parser_recipe_examples.yaml', () => ({
     default: 'rules: []\n',
 }))

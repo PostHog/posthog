@@ -16,6 +16,11 @@ const PROMPTS = [
         dest: 'shared/guidelines.md',
     },
     {
+        // Instructions for the `/agent` endpoint (PostHog Agent).
+        src: 'products/posthog_ai/mcp/agent-guidelines.md',
+        dest: 'shared/agent-guidelines.md',
+    },
+    {
         // Parser recipe DSL reference served by `llma-parser-recipe-reference`;
         // the Python MaxTool reads the same file, keeping one source of truth.
         src: 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml',

@@ -11,6 +11,7 @@ const SESSION_CONTEXT_KEYS = [
     'mcpProtocolVersion',
     'mcpConsumer',
     'mcpVendorClient',
+    'mcpClientSupportsUiApps',
 ] as const
 
 type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
