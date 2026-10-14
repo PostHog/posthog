@@ -828,37 +828,33 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        databaseTableListLogic.actions.loadDatabaseSuccess({
-            tables: {
-                example_campaigns: {
-                    id: tableId,
-                    name: 'example_campaigns',
-                    type: 'data_warehouse',
-                    url_pattern: 'https://example.s3.amazonaws.com/campaigns',
-                    ...(type === 'managed'
-                        ? {
-                              schema: {
-                                  id: sourceId,
-                                  name: 'example_campaigns',
-                                  should_sync: true,
-                                  incremental: false,
-                                  status: ExternalDataSchemaStatus.Completed,
-                              },
-                              source: {
-                                  id: 'example-source',
-                                  source_type: 'BigQuery',
-                                  status: 'Completed',
-                                  prefix: '',
-                              },
-                          }
-                        : {}),
-                    fields: {
-                        cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
-                    },
-                } satisfies DatabaseSchemaDataWarehouseTable,
+        const table: DatabaseSchemaDataWarehouseTable = {
+            id: tableId,
+            name: 'example_campaigns',
+            type: 'data_warehouse',
+            url_pattern: 'https://example.s3.amazonaws.com/campaigns',
+            ...(type === 'managed'
+                ? {
+                      schema: {
+                          id: sourceId,
+                          name: 'example_campaigns',
+                          should_sync: true,
+                          incremental: false,
+                          status: ExternalDataSchemaStatus.Completed,
+                      },
+                      source: {
+                          id: 'example-source',
+                          source_type: 'BigQuery',
+                          status: 'Completed',
+                          prefix: '',
+                      },
+                  }
+                : {}),
+            fields: {
+                cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
             },
-            joins: [],
-        })
+        }
+        databaseTableListLogic.actions.loadDatabaseSuccess({ tables: { example_campaigns: table }, joins: [] })
 
         for (const sourceMap of [{}, { campaign: 'campaign' }] as SourceMap[]) {
             await expectLogic(logic, () =>
@@ -895,6 +891,17 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.allAvailableSourcesWithStatus).toEqual([
             expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
         ])
+        expect(logic.values.hasSyncedMarketingSources).toBe(true)
+        if (type === 'managed') {
+            for (const status of [ExternalDataSchemaStatus.Running, ExternalDataSchemaStatus.Failed, undefined]) {
+                databaseTableListLogic.actions.loadDatabaseSuccess({
+                    tables: { example_campaigns: { ...table, schema: { ...table.schema!, status } } },
+                    joins: [],
+                })
+                expect(logic.values.validExternalTables).toHaveLength(1)
+                expect(logic.values.hasSyncedMarketingSources).toBe(false)
+            }
+        }
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {

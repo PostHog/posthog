@@ -609,6 +609,7 @@ const estimate = {
     credits_per_observation: 1,
     estimated_credits_per_month: 92,
     other_enabled_scanners_monthly_credits: 5108,
+    free_only_monthly_credits_left: 2500,
     sampling_rate: 0.05,
 }
 
@@ -1920,7 +1921,7 @@ export const StartupProgramCap: StoryObj = {
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
     },
 }
 
@@ -1958,7 +1959,7 @@ const goalDraft: DraftScannerResponseApi = {
 export const ScannerEditorGoalOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
     },
     decorators: [
         (StoryFn) => {
@@ -1986,7 +1987,7 @@ export const ScannerEditorGoalOverview: StoryObj = {
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
     },
     decorators: [
         mswDecorator({
@@ -2070,7 +2071,7 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
 export const ScannerEditorGoalOverviewLoading: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.LemonSkeleton' },
     },
     decorators: [
@@ -2085,6 +2086,141 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
             logic.mount()
             // Hold the draft loader open so the overview renders its skeleton instead of a result.
             logic.actions.draftScannerFromGoal('find out where people give up in billing', 5000)
+            return <StoryFn />
+        },
+    ],
+}
+
+// Free-only scanners stop when the org's free credits run out, so these quotas sit on either side of that.
+const freeCreditsLeftQuota: VisionQuotaApi = { ...quota, credits_used: 600, credits_settled: 600, remaining: 9400 }
+const freeCreditsUsedQuota: VisionQuotaApi = { ...quota, credits_used: 2600, credits_settled: 2600, remaining: 7400 }
+
+const freeOnlyScanner: ReplayScannerApi = {
+    ...summarizerScanner,
+    id: '00000000-0000-0000-0000-00000000000e',
+    name: 'Free checkout summaries',
+    free_only: true,
+    credit_limit: null,
+    credits_used_against_limit: 600,
+    limit_reached: false,
+}
+
+const freeOnlyLimitReachedScanner: ReplayScannerApi = {
+    ...freeOnlyScanner,
+    credits_used_against_limit: 2600,
+    limit_reached: true,
+}
+
+// Large enough that the free credits left, not the estimate, bound the forecast.
+const largeEstimate = { ...estimate, estimated_observations_per_month: 3000, estimated_credits_per_month: 3000 }
+
+// The headroom is the free credits left as a monthly rate over the 20 days to June 1.
+const freeOnlyEditorDecorator = (
+    quotaResponse: VisionQuotaApi,
+    freeHeadroom: number
+): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/:id/': freeOnlyScanner,
+            '/api/projects/:team_id/vision/quota/': quotaResponse,
+        },
+        post: {
+            '/api/projects/:team_id/vision/scanners/estimate/': {
+                ...largeEstimate,
+                free_only_monthly_credits_left: freeHeadroom,
+            },
+        },
+    })
+
+// The list shows a free-only scanner that ran out as stopped, with the free-credits reason on hover.
+export const ScannersListFreeCreditsUsed: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((scanner) =>
+                        scanner.id === summarizerScanner.id
+                            ? { ...freeOnlyLimitReachedScanner, id: scanner.id }
+                            : scanner
+                    ),
+                },
+                '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota,
+            },
+        }),
+    ],
+}
+
+// The status strip explains the free-credits stop and how to keep scanning.
+export const ScannerOverviewFreeCreditsUsed: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats),
+        mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
+    ],
+}
+
+// Plenty of free credits left: the forecast still caps this scanner at what they cover.
+export const ScannerEditorBudgetFreeOnly: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(freeOnlyScanner.id) },
+    decorators: [freeOnlyEditorDecorator(freeCreditsLeftQuota, 2850)],
+}
+
+// 100 free credits left: the forecast shrinks to what they cover instead of warning about the org limit.
+export const ScannerEditorBudgetFreeOnlyNearlyUsed: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(freeOnlyScanner.id) },
+    decorators: [freeOnlyEditorDecorator(quota, 150)],
+}
+
+// The goal flow with "Set a budget" picked instead of the free default.
+export const ScannerEditorGoalFlowBudget: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTemplate('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setGoalSpendMode('budget')
+            return <StoryFn />
+        },
+    ],
+}
+
+// No free credits left this period, so "Free" is disabled and the budget input shows.
+export const ScannerEditorGoalFlowFreeCreditsUsed: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTemplate('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+    },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } })],
+}
+
+// A free draft whose estimate is more than the monthly free credits cover.
+export const ScannerEditorGoalOverviewFreeOnly: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+    },
+    decorators: [
+        mswDecorator({ post: { '/api/projects/:team_id/vision/scanners/estimate/': largeEstimate } }),
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.setScannerValues({
+                name: goalDraft.name,
+                description: goalDraft.description,
+                scanner_type: goalDraft.scanner_type as ScannerType,
+                scanner_config: goalDraft.scanner_config as ScannerConfig,
+                query: goalDraft.query as RecordingsQuery,
+                sampling_mode: goalDraft.sampling_mode as SamplingMode,
+                sampling_rate: 0.0001,
+                free_only: true,
+                credit_limit: null,
+            })
             return <StoryFn />
         },
     ],

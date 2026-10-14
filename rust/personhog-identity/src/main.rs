@@ -337,6 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let merge_entrance = MergeEntrance::new(
         storage.clone(),
         property_writer.clone(),
+        property_writer.clone(),
         MergeOpExecutor::new(
             engine.clone(),
             MergeDriver::new(
