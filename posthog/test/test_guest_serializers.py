@@ -6,7 +6,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.guest_access import guest_effective_resource_access
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.facade.contracts import Resource, ResourceIds
@@ -74,6 +74,23 @@ class TestGuestSerializers(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.user.refresh_from_db()
         assert self.user.current_team_id == self.other_team.id
+
+    def test_guest_page_moves_them_off_a_project_without_a_rule(self) -> None:
+        User.objects.filter(pk=self.user.pk).update(current_team=self.other_team)
+        response = self.client.get("/")
+        assert response.status_code == status.HTTP_200_OK
+        assert b"Other project" not in response.content
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.team.id
+
+    def test_guest_without_a_current_project_lands_on_their_project(self) -> None:
+        AccessControl.objects.filter(organization_member=self.organization_membership).update(
+            team=self.other_team, resource_id=str(self.other_team.id)
+        )
+        User.objects.filter(pk=self.user.pk).update(current_team=None)
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["team"]["id"] == self.other_team.id
 
     def test_guest_app_access_shows_only_granted_types(self) -> None:
         def openfga_list(resource: Resource, *_args: object) -> ResourceIds:

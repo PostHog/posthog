@@ -590,8 +590,9 @@ def _build_template_context(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.guest_access import guest_effective_resource_access, guest_state
+        from posthog.guest_access import guest_effective_resource_access, guest_project_ids, guest_state
         from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.team import Team
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -630,6 +631,15 @@ def _build_template_context(
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
             team = user.team
+            if team and guest_state(request, user.organization).is_guest:
+                granted_team_ids = guest_project_ids(team.organization_id, user)
+                if team.pk not in granted_team_ids:
+                    # A stale current project would render a project the guest has no rule for.
+                    user.current_team = user.team = Team.objects.filter(pk__in=granted_team_ids).order_by("id").first()
+                    user.save(update_fields=["current_team"])
+                    user_permissions = UserPermissions(user=user, team=user.team)
+                    user_access_control = UserAccessControl(user=user, team=user.team)
+                    team = user.team
             if team and not user_access_control.has_project_access:
                 user.current_team = None
                 user.team = None
