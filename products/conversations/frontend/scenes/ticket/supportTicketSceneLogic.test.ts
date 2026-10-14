@@ -66,6 +66,7 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsTicketsRetrieve: jest.fn(),
 }))
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -79,6 +80,7 @@ import {
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsRetrieve,
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
@@ -1201,6 +1203,7 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
 
     const commentsListMock = api.comments.list as jest.Mock
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketRetrieveMock = conversationsTicketsRetrieve as jest.Mock
 
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
     const citedAiComment = (): CommentType =>
@@ -1217,7 +1220,7 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
         logic = supportTicketSceneLogic({ id: 42 })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
-        ticketGetMock.mockClear()
+        ticketRetrieveMock.mockReset().mockResolvedValue(loadedTicket())
     })
 
     afterEach(() => {
@@ -1228,7 +1231,7 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
     it('loads the sources of an AI draft that arrives while the ticket is open, keeping unsaved edits', async () => {
         logic.actions.setStatus('pending')
         commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
-        ticketGetMock.mockResolvedValue({
+        ticketRetrieveMock.mockResolvedValue({
             ...loadedTicket(),
             status: 'resolved',
             ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
@@ -1245,12 +1248,12 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
         commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
         logic.actions.loadMessages()
         await expectLogic(logic).toFinishAllListeners()
-        ticketGetMock.mockClear()
+        ticketRetrieveMock.mockClear()
 
         logic.actions.loadMessages()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(ticketGetMock).not.toHaveBeenCalled()
+        expect(ticketRetrieveMock).not.toHaveBeenCalled()
     })
 })
 

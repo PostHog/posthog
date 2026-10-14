@@ -62,6 +62,7 @@ import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsRetrieve,
 } from 'products/conversations/frontend/generated/api'
 import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
@@ -1359,7 +1360,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             try {
-                const ticket = await api.conversationsTickets.get(ticketId)
+                const ticket = (await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)) as Ticket
                 breakpoint()
                 if (values.ticket?.id === ticketId) {
                     // Only ai_triage changes: setTicket would reset the unsaved status, priority and tag edits.
