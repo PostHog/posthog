@@ -196,10 +196,11 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub lifecycle_gc_batch_limit: i64,
 
-    /// Write the publish outbox, one pointer per completed merge or delete
-    /// op, for the separate personhog-publisher deployment to drain. Off,
-    /// identity writes nothing there and never names the outbox table in a
-    /// completion. An outbox nobody drains holds every pointed op past GC
+    /// Write the publish outbox, one row per create or attach mapping and
+    /// one pointer per completed merge or delete op, for the separate
+    /// personhog-publisher deployment to drain. Off, identity writes nothing
+    /// there and never names the outbox table in a mapping or completion
+    /// statement. An outbox nobody drains holds every pointed op past GC
     /// retention, so turn this on only where a publisher runs against the
     /// same table set.
     #[envconfig(default = "false")]
@@ -263,9 +264,9 @@ impl IdentityTablesConfig {
 }
 
 /// Whether identity writes the publish outbox (`LIFECYCLE_OUTBOX_ENABLED`):
-/// one pointer per completed merge or delete op. Carried by every writer so
-/// the choice is made where the writer is built, never defaulted at the
-/// write site.
+/// one row per create or attach mapping and one pointer per completed merge
+/// or delete op. Carried by every writer so the choice is made where the
+/// writer is built, never defaulted at the write site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutboxWrites {
     Enabled,

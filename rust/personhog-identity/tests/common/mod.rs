@@ -11,7 +11,7 @@ use rand::Rng;
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
-use personhog_identity::config::IdentityTables;
+use personhog_identity::config::{IdentityTables, OutboxWrites};
 use personhog_identity::pools::IdentityPools;
 use personhog_identity::publish::messages::DistinctIdRow;
 use personhog_identity::publish::sink::{PublishBatch, PublishError, PublishSink};
@@ -61,7 +61,11 @@ impl TestContext {
             .await
             .expect("Failed to connect to test database");
         let pools = IdentityPools::shared(pool.clone());
-        let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), tables.clone()));
+        let storage = Arc::new(PostgresIdentityStorage::new(
+            pools.clone(),
+            tables.clone(),
+            OutboxWrites::Disabled,
+        ));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,
@@ -206,6 +210,14 @@ impl TestContext {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Storage that writes the publish outbox, for tests that assert on the
+    /// rows a create or attach leaves there; `storage` never writes it.
+    /// Take [`hold_drain_lock`](Self::hold_drain_lock) before the first
+    /// write through it.
+    pub fn storage_with(&self, outbox_writes: OutboxWrites) -> PostgresIdentityStorage {
+        PostgresIdentityStorage::new(self.pools.clone(), self.tables.clone(), outbox_writes)
     }
 
     /// A transaction-level advisory lock that every test writing outbox
