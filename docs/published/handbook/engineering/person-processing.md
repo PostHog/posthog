@@ -441,6 +441,16 @@ This is set through the `HogQLQueryModifiers` class.
 
 If this setting is overridden, you can access PoE properties regardless of the PoE mode by using `poe.properties.X`
 
+#### Opt-in person filters in PREWHERE
+
+`HogQLQueryModifiers.personIdFilterPrewhere` defaults to unset. Set it to `true` to try an earlier events filter for a direct `person_id = 'uuid'` or `person_id IN ('uuid', ...)` condition, with up to 100 literal person IDs, in either person override mode.
+
+For supported queries, the compiler adds a `PREWHERE` that keeps events whose stored person ID matches or whose distinct ID has a matching raw override. The original resolved person filter still decides which events to return. Raw override candidates include historical and deleted versions, and have no distinct ID limit. The candidate lookup uses local `IN` so it reads from the same replica as the override join.
+
+The first version supports a single events table, optionally aliased, and copies direct timestamp bounds into `PREWHERE`. It skips joins, nested queries, CTEs, existing `PREWHERE`, array joins, and stateful functions such as block row numbering. It only extracts person conditions that are required by the top-level `WHERE`, so a person condition inside `OR` does not qualify.
+
+This adds a scan of the raw overrides table and builds a candidate set. Measure result equality, memory, bytes read, and server duration on representative queries before enabling it for a caller. Large candidate sets or queries that already read few events can cost more than they save.
+
 ---
 
 ## Debugging tips

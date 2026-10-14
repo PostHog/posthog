@@ -529,6 +529,8 @@ export interface HogQLQueryModifiers {
     sessionPropertyPreAggregation?: boolean
     /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
     personIdPushdown?: boolean
+    /** Opt in to filtering events by stored person IDs and raw override candidates before reading other columns. The resolved person_id filter remains authoritative. */
+    personIdFilterPrewhere?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean

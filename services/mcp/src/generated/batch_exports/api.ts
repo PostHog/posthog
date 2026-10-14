@@ -623,6 +623,12 @@ export const BatchExportsCreateBody = () => zod
                         .describe(
                             'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
                         ),
+                    personIdFilterPrewhere: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Opt in to filtering events by stored person IDs and raw override candidates before reading other columns. The resolved person_id filter remains authoritative.'
+                        ),
                     personIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1337,6 +1343,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .describe(
                             'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
                         ),
+                    personIdFilterPrewhere: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Opt in to filtering events by stored person IDs and raw override candidates before reading other columns. The resolved person_id filter remains authoritative.'
+                        ),
                     personIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1782,6 +1794,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .describe(
                             'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
                         ),
+                    personIdFilterPrewhere: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Opt in to filtering events by stored person IDs and raw override candidates before reading other columns. The resolved person_id filter remains authoritative.'
+                        ),
                     personIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2071,6 +2089,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe(
                         'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                    ),
+                personIdFilterPrewhere: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Opt in to filtering events by stored person IDs and raw override candidates before reading other columns. The resolved person_id filter remains authoritative.'
                     ),
                 personIdPushdown: zod
                     .union([zod.boolean(), zod.null()])
