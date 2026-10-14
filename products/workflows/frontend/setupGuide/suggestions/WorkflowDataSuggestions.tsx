@@ -41,7 +41,9 @@ export function WorkflowDataSuggestions(): JSX.Element | null {
                     ))}
                 </>
             ) : (
-                cards.map((card) => <WorkflowSuggestionCard key={card.key} card={card} surface="empty_state" />)
+                cards.map((card, index) => (
+                    <WorkflowSuggestionCard key={card.key} card={card} surface="empty_state" primary={index === 0} />
+                ))
             )}
         </div>
     )
