@@ -9,7 +9,9 @@ import { queryClient as appQueryClient } from '@/api/queryClient'
 import { type ProjectScope, scopeKey } from '@/api/reports'
 import { missingScope } from '@/api/scopeErrors'
 import { addSessionEndTask } from '@/auth/authStore'
+import type { Freshness } from '@/model/views'
 
+import { staleTimeFor } from './freshness'
 import { viewsQueue } from './refreshQueue'
 
 /** Query keys. Every key carries the host and project, so a project switch never shows another project's data. */
@@ -60,7 +62,12 @@ export function setSnapshot<T>(client: QueryClient, queryKey: QueryKey, value: T
  * row or a tile sends nothing: the screen's refresh rules decide every request.
  */
 export function useSnapshot<T>(queryKey: QueryKey | null): T | undefined {
-    const result = useQuery<T>({ queryKey: queryKey ?? ['views', 'none', 'idle'], queryFn: skipToken })
+    const result = useQuery<T>({
+        queryKey: queryKey ?? ['views', 'none', 'idle'],
+        queryFn: skipToken,
+        // The same rule as the refresh passes, so `isStale` agrees with them.
+        staleTime: (query) => staleTimeFor(query.state.data as Freshness | undefined, query.state.dataUpdatedAt),
+    })
     return queryKey ? result.data : undefined
 }
 
