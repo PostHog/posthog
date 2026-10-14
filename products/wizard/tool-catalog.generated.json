@@ -103,6 +103,37 @@
             }
         },
         {
+            "kind": "Adapty",
+            "label": "Adapty",
+            "warehouse_source_type": "Adapty",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^ADAPTY_", "^EXPO_PUBLIC_ADAPTY_"],
+                "script_hosts": [],
+                "packages": {
+                    "npm": [
+                        "react-native-adapty",
+                        "@adapty/capacitor",
+                        "@adapty/core",
+                        "adapty",
+                        "@adapty/react-native-ui"
+                    ],
+                    "cocoapods": ["Adapty", "AdaptyUI"],
+                    "maven": [
+                        "io.adapty:android-sdk",
+                        "io.adapty:android-ui",
+                        "io.adapty:android-ui-video",
+                        "io.adapty:adapty-kmp",
+                        "io.adapty:adapty-kmp-ui"
+                    ],
+                    "pub": ["adapty_flutter", "adapty_ui_flutter"],
+                    "swiftpm": ["github.com/adaptyteam/adaptysdk-ios"]
+                }
+            }
+        },
+        {
             "kind": "Adjust",
             "label": "Adjust",
             "warehouse_source_type": "Adjust",
@@ -1033,6 +1064,32 @@
                 "env_key_patterns": ["^(APP_STORE_CONNECT|APPSTORECONNECT)_"],
                 "script_hosts": [],
                 "packages": {}
+            }
+        },
+        {
+            "kind": "Appcues",
+            "label": "Appcues",
+            "warehouse_source_type": "Appcues",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": ["product_tours", "surveys"],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^APPCUES_", "^(NEXT_PUBLIC|VITE|REACT_APP)_APPCUES_"],
+                "script_hosts": ["fast.appcues.com", "fast.eu.appcues.com"],
+                "packages": {
+                    "npm": [
+                        "@appcues/web-sdk",
+                        "@appcues/react-native",
+                        "@appcues/capacitor",
+                        "@appcues/segment-react-native",
+                        "@appcues/expo-config",
+                        "appcues-loader"
+                    ],
+                    "cocoapods": ["Appcues"],
+                    "maven": ["com.appcues:appcues", "com.appcues:segment-appcues"],
+                    "pub": ["appcues_flutter"],
+                    "swiftpm": ["github.com/appcues/appcues-ios-sdk", "github.com/appcues/segment-appcues-ios"]
+                }
             }
         },
         {
@@ -3879,6 +3936,45 @@
             }
         },
         {
+            "kind": "Clevertap",
+            "label": "CleverTap",
+            "warehouse_source_type": "Clevertap",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": ["workflows"],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^CLEVER_?TAP_", "^(NEXT_PUBLIC|VITE|REACT_APP|EXPO_PUBLIC)_CLEVER_?TAP_"],
+                "script_hosts": ["d2r1yp2w7bby2u.cloudfront.net", "static.clevertap.com"],
+                "packages": {
+                    "npm": [
+                        "clevertap-react-native",
+                        "clevertap-web-sdk",
+                        "@types/clevertap-web-sdk",
+                        "clevertap-cordova",
+                        "@awesome-cordova-plugins/clevertap",
+                        "@clevertap/clevertap-expo-plugin",
+                        "clevertap",
+                        "clevertap-react"
+                    ],
+                    "cocoapods": [
+                        "CleverTap-iOS-SDK",
+                        "CTNotificationContent",
+                        "CTNotificationService",
+                        "CleverTap-Geofence-SDK",
+                        "CleverTapLocation"
+                    ],
+                    "maven": [
+                        "com.clevertap.android:clevertap-android-sdk",
+                        "com.clevertap.android:push-templates",
+                        "com.clevertap.android:clevertap-hms-sdk",
+                        "com.clevertap.android:clevertap-geofence-sdk"
+                    ],
+                    "pub": ["clevertap_plugin"],
+                    "swiftpm": ["github.com/clevertap/clevertap-ios-sdk"]
+                }
+            }
+        },
+        {
             "kind": "ClickHouse",
             "label": "ClickHouse",
             "warehouse_source_type": "ClickHouse",
@@ -4999,6 +5095,35 @@
                 "env_key_patterns": ["^(CRATES_IO|CRATESIO)_", "^CARGO_REGISTRY_TOKEN$"],
                 "script_hosts": [],
                 "packages": {}
+            }
+        },
+        {
+            "kind": "Crisp",
+            "label": "Crisp",
+            "warehouse_source_type": "Crisp",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": ["conversations"],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^CRISP_", "^(NEXT_PUBLIC|VITE|REACT_APP|NUXT_PUBLIC|EXPO_PUBLIC)_CRISP_"],
+                "script_hosts": ["client.crisp.chat"],
+                "packages": {
+                    "npm": [
+                        "crisp-sdk-web",
+                        "crisp-api",
+                        "@capgo/capacitor-crisp",
+                        "crisp-sdk-react-native",
+                        "react-native-crisp-chat-sdk"
+                    ],
+                    "pypi": ["crisp-api"],
+                    "cocoapods": ["Crisp"],
+                    "composer": ["crispchat/php-crisp-api"],
+                    "go": ["github.com/crisp-im/go-crisp-api/crisp"],
+                    "maven": ["im.crisp:crisp-sdk"],
+                    "pub": ["crisp_chat"],
+                    "rubygems": ["crisp-api"],
+                    "swiftpm": ["github.com/crisp-im/crisp-sdk-ios"]
+                }
             }
         },
         {
@@ -7764,6 +7889,29 @@
             }
         },
         {
+            "kind": "Ghost",
+            "label": "Ghost (Ghost Foundation)",
+            "warehouse_source_type": "Ghost",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^(NEXT_PUBLIC_|VITE_|PUBLIC_|GATSBY_)?GHOST_(ADMIN_|CONTENT_)?API_"],
+                "script_hosts": [],
+                "packages": {
+                    "npm": [
+                        "@tryghost/content-api",
+                        "@tryghost/admin-api",
+                        "@tryghost/helpers",
+                        "ghost",
+                        "@ts-ghost/content-api",
+                        "@ts-ghost/admin-api",
+                        "gatsby-source-ghost"
+                    ]
+                }
+            }
+        },
+        {
             "kind": "Giphy",
             "label": "Giphy",
             "warehouse_source_type": "Giphy",
@@ -9844,6 +9992,19 @@
             }
         },
         {
+            "kind": "Kajabi",
+            "label": "Kajabi",
+            "warehouse_source_type": "Kajabi",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^KAJABI_"],
+                "script_hosts": [],
+                "packages": {}
+            }
+        },
+        {
             "kind": "Kalshi",
             "label": "Kalshi",
             "warehouse_source_type": "Kalshi",
@@ -9964,6 +10125,32 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["kisi-client"]
+                }
+            }
+        },
+        {
+            "kind": "Klarna",
+            "label": "Klarna",
+            "warehouse_source_type": "Klarna",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^KLARNA_", "^(NEXT_PUBLIC|VITE|REACT_APP)_KLARNA_"],
+                "script_hosts": ["js.klarna.com", "x.klarnacdn.net"],
+                "packages": {
+                    "npm": [
+                        "react-native-klarna-inapp-sdk",
+                        "@klarna/react-native-klarna-network-core",
+                        "@klarna/react-native-klarna-network-payment",
+                        "@klarna/react-native-klarna-network-messaging"
+                    ],
+                    "cocoapods": ["KlarnaMobileSDK"],
+                    "composer": ["klarna/checkout", "klarna/kco_rest"],
+                    "maven": ["com.klarna.mobile:sdk", "com.klarna.mobile:sdk-basic"],
+                    "pub": ["klarna_mobile_sdk_flutter"],
+                    "rubygems": ["klarna-checkout"],
+                    "swiftpm": ["github.com/klarna/klarna-mobile-sdk-spm", "github.com/klarna/klarna-mobile-sdk-ios"]
                 }
             }
         },
@@ -10906,6 +11093,30 @@
                         "io.logz.sender:logzio-java-sender",
                         "io.logz.sender:logzio-sender"
                     ]
+                }
+            }
+        },
+        {
+            "kind": "Lokalise",
+            "label": "Lokalise",
+            "warehouse_source_type": "Lokalise",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^LOKALISE_"],
+                "script_hosts": [],
+                "packages": {
+                    "npm": ["@lokalise/node-api", "lokalise-file-exchange"],
+                    "pypi": ["python-lokalise-api"],
+                    "cocoapods": ["Lokalise"],
+                    "composer": ["lokalise/php-lokalise-api"],
+                    "go": ["github.com/lokalise/go-lokalise-api"],
+                    "hex": ["elixir_lokalise_api"],
+                    "maven": ["com.lokalise.android:ota-sdk"],
+                    "pub": ["lokalise_flutter_sdk"],
+                    "rubygems": ["ruby-lokalise-api", "lokalise_rails", "lokalise_manager"],
+                    "swiftpm": ["github.com/lokalise/lokalise-ios-framework"]
                 }
             }
         },
@@ -12773,6 +12984,46 @@
                         "github.com/1Password/onepassword-operator",
                         "github.com/1Password/vault-plugin-secrets-onepassword"
                     ]
+                }
+            }
+        },
+        {
+            "kind": "OneSignal",
+            "label": "OneSignal",
+            "warehouse_source_type": "OneSignal",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": ["workflows"],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^ONE_?SIGNAL_", "^(NEXT_PUBLIC|VITE|REACT_APP|EXPO_PUBLIC)_ONE_?SIGNAL_"],
+                "script_hosts": ["cdn.onesignal.com"],
+                "packages": {
+                    "npm": [
+                        "@onesignal/node-onesignal",
+                        "react-native-onesignal",
+                        "react-onesignal",
+                        "onesignal-expo-plugin",
+                        "onesignal-cordova-plugin",
+                        "onesignal-node",
+                        "@onesignal/capacitor-plugin",
+                        "@onesignal/onesignal-vue3",
+                        "onesignal-ngx",
+                        "onesignal-vue",
+                        "@awesome-cordova-plugins/onesignal"
+                    ],
+                    "pypi": ["onesignal-python-api", "onesignal-sdk"],
+                    "cargo": ["onesignal-rust-api"],
+                    "cocoapods": ["OneSignalXCFramework", "OneSignal"],
+                    "composer": [
+                        "berkayk/onesignal-laravel",
+                        "norkunas/onesignal-php-api",
+                        "onesignal/onesignal-php-api"
+                    ],
+                    "go": ["github.com/onesignal/onesignal-go-api"],
+                    "maven": ["com.onesignal:OneSignal", "com.onesignal:onesignal-java-client"],
+                    "pub": ["onesignal_flutter"],
+                    "rubygems": ["onesignal", "onesignal-ruby"],
+                    "swiftpm": ["github.com/onesignal/onesignal-xcframework", "github.com/onesignal/onesignal-ios-sdk"]
                 }
             }
         },
@@ -15494,6 +15745,47 @@
             }
         },
         {
+            "kind": "Sanity",
+            "label": "Sanity",
+            "warehouse_source_type": "Sanity",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": [
+                    "^SANITY_",
+                    "^(NEXT_PUBLIC|VITE|PUBLIC|NUXT_PUBLIC|GATSBY|REACT_APP|EXPO_PUBLIC)_SANITY_"
+                ],
+                "script_hosts": [],
+                "packages": {
+                    "npm": [
+                        "sanity",
+                        "@sanity/client",
+                        "next-sanity",
+                        "@sanity/image-url",
+                        "groq",
+                        "@sanity/cli",
+                        "@sanity/sdk",
+                        "@sanity/sdk-react",
+                        "@sanity/vision",
+                        "@sanity/visual-editing",
+                        "@sanity/preview-kit",
+                        "@sanity/astro",
+                        "@sanity/react-loader",
+                        "sanity-codegen",
+                        "hydrogen-sanity",
+                        "gatsby-source-sanity",
+                        "@nuxtjs/sanity",
+                        "picosanity"
+                    ],
+                    "composer": ["sanity/sanity-php"],
+                    "go": ["github.com/sanity-io/client-go"],
+                    "pub": ["sanity_client"],
+                    "rubygems": ["sanity-ruby"]
+                }
+            }
+        },
+        {
             "kind": "SavvyCal",
             "label": "SavvyCal",
             "warehouse_source_type": "SavvyCal",
@@ -18043,6 +18335,35 @@
             }
         },
         {
+            "kind": "Superwall",
+            "label": "Superwall",
+            "warehouse_source_type": "Superwall",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^SUPERWALL_", "^EXPO_PUBLIC_SUPERWALL_"],
+                "script_hosts": [],
+                "packages": {
+                    "npm": [
+                        "expo-superwall",
+                        "@superwall/react-native-superwall",
+                        "@superwall/paywalls-js",
+                        "@superwall/paywalls-react",
+                        "@superwall/server",
+                        "@superwall/cli",
+                        "superwall",
+                        "superwall-api",
+                        "@capawesome/capacitor-superwall"
+                    ],
+                    "cocoapods": ["SuperwallKit"],
+                    "maven": ["com.superwall.sdk:superwall-android", "com.superwall.sdk:superwall-compose"],
+                    "pub": ["superwallkit_flutter"],
+                    "swiftpm": ["github.com/superwall/superwall-ios", "github.com/superwall-me/superwall-ios"]
+                }
+            }
+        },
+        {
             "kind": "SurveyMonkey",
             "label": "SurveyMonkey",
             "warehouse_source_type": "SurveyMonkey",
@@ -18782,6 +19103,22 @@
             }
         },
         {
+            "kind": "TripleWhale",
+            "label": "Triple Whale",
+            "warehouse_source_type": "TripleWhale",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^(TRIPLE_WHALE|TRIPLEWHALE)_"],
+                "script_hosts": [],
+                "packages": {
+                    "npm": ["@triplewhale/react-native-triple-pixel"],
+                    "swiftpm": ["github.com/triple-whale/triple-pixel-sdk-spm"]
+                }
+            }
+        },
+        {
             "kind": "TrunkIo",
             "label": "Trunk.io (Trunk Technologies, Inc.)",
             "warehouse_source_type": "TrunkIo",
@@ -19136,6 +19473,38 @@
                 "env_key_patterns": ["^(UK_COMPANIES_HOUSE|UKCOMPANIESHOUSE)_"],
                 "script_hosts": [],
                 "packages": {}
+            }
+        },
+        {
+            "kind": "Umami",
+            "label": "Umami",
+            "warehouse_source_type": "Umami",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": ["web_analytics"],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^UMAMI_", "^(NEXT_PUBLIC|VITE|PUBLIC|NUXT_PUBLIC|NUXT|GATSBY|REACT_APP)_UMAMI_"],
+                "script_hosts": ["cloud.umami.is"],
+                "packages": {
+                    "npm": [
+                        "@umami/node",
+                        "@umami/api-client",
+                        "@types/umami-browser",
+                        "@types/umami",
+                        "@lukulent/svelte-umami",
+                        "nuxt-umami",
+                        "umami",
+                        "@dipakparmar/docusaurus-plugin-umami",
+                        "@yeskunall/astro-umami",
+                        "@danielgtmn/umami-react",
+                        "@jaseeey/vue-umami-plugin",
+                        "ngx-umami",
+                        "next-umami",
+                        "@vuepress/plugin-umami-analytics"
+                    ],
+                    "pypi": ["umami-analytics"],
+                    "rubygems": ["umami-ruby"]
+                }
             }
         },
         {
@@ -20067,6 +20436,32 @@
             }
         },
         {
+            "kind": "Yotpo",
+            "label": "Yotpo",
+            "warehouse_source_type": "Yotpo",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": ["^YOTPO_", "^(NEXT_PUBLIC|VITE|PUBLIC|REACT_APP)_YOTPO_"],
+                "script_hosts": ["cdn-widgetsrepository.yotpo.com", "staticw2.yotpo.com"],
+                "packages": {
+                    "npm": ["@frontend-sdk/yotpo"],
+                    "composer": [
+                        "yotpo/module-review",
+                        "yotpo/module-yotpo-core",
+                        "yotpo/module-yotpo-reviews",
+                        "yotpo/module-yotpo-messaging",
+                        "yotpo/module-yotpo-combined",
+                        "yotpo/magento2-module-yotpo-loyalty",
+                        "yotpo/magento2-module-yotpo-core",
+                        "yotpo/yotpo"
+                    ],
+                    "rubygems": ["yotpo"]
+                }
+            }
+        },
+        {
             "kind": "YouSign",
             "label": "Yousign",
             "warehouse_source_type": "YouSign",
@@ -20077,6 +20472,30 @@
                 "env_key_patterns": ["^(YOU_SIGN|YOUSIGN)_"],
                 "script_hosts": ["cdn.yousign.tech"],
                 "packages": {}
+            }
+        },
+        {
+            "kind": "YoutubeData",
+            "label": "YouTube (Google)",
+            "warehouse_source_type": "YoutubeData",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": [
+                    "^YOUTUBE_(DATA_)?API_KEY$",
+                    "^(NEXT_PUBLIC|VITE|REACT_APP)_YOUTUBE_(DATA_)?API_KEY$"
+                ],
+                "script_hosts": [],
+                "packages": {
+                    "npm": ["@googleapis/youtube", "simple-youtube-api", "youtube-api"],
+                    "pypi": ["python-youtube", "youtube-data-api"],
+                    "cargo": ["google-youtube3"],
+                    "composer": ["alaouy/youtube", "madcoda/php-youtube-api"],
+                    "maven": ["com.google.apis:google-api-services-youtube"],
+                    "pub": ["youtube_api"],
+                    "rubygems": ["yt", "google-apis-youtube_v3"]
+                }
             }
         },
         {
