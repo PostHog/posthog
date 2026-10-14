@@ -365,7 +365,10 @@ describe('marketingAnalyticsLogic', () => {
                     marketing_analytics_config: { conversion_goals: [goal] },
                 })
             ).toFinishAllListeners()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+            })
             logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
             search.actions.setMetrics('conversions')
@@ -410,11 +413,34 @@ describe('marketingAnalyticsLogic', () => {
                     })
                 ).toFinishAllListeners()
                 expect(search.values.query.includePostHogConversions).toBe(true)
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
+                })
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                expect(search.values.displayMetrics).toBe('conversions')
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+                })
+                expect(search.values.query.includePostHogConversions).toBe(true)
                 logic.actions.setAdPerformanceConversionGoals(false)
                 expect(search.values.query.includePostHogConversions).toBe(false)
                 logic.actions.setAdPerformanceConversionGoals(true)
             }
             search.actions.setBreakdown('page')
+            expect(search.values.query.includePostHogConversions).toBe(true)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
+            })
+            expect(logic.values.includeConversionGoals).toBe(true)
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            expect(search.values.displayMetrics).toBe('traffic')
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            })
             expect(search.values.query.includePostHogConversions).toBe(true)
             search.actions.selectRow({
                 page: 'https://example.com/pricing',
@@ -514,6 +540,7 @@ describe('marketingAnalyticsLogic', () => {
             logic.actions.setTileColumnSelection(MarketingAnalyticsColumnsSchemaNames.ReportedConversion)
             for (const precomputed of [false, true]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
@@ -555,6 +582,7 @@ describe('marketingAnalyticsLogic', () => {
                     legacyState === 'other-tab' ? MarketingAnalyticsTab.DASHBOARD : MarketingAnalyticsTab.AD_PERFORMANCE
                 )
                 featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: legacyState !== 'flag-off',
                 })
                 expect(logic.values.includeConversionGoals).toBe(true)
@@ -574,7 +602,10 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+        })
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
         expect(logic.values.includeConversionGoals).toBe(false)
         expect(logic.values.adPerformanceConversionGoals).toBe(true)
@@ -923,6 +954,7 @@ describe('marketingAnalyticsLogic', () => {
     it('carries dashboard view, breakdown and filters in the URL', async () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
         })
         logic = marketingAnalyticsLogic()

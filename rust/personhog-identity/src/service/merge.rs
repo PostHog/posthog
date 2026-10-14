@@ -196,6 +196,14 @@ impl MergeEntrance {
                 Some(person) if person.id == target_person.id => {
                     inline_results.insert(did.clone(), OUTCOME_NOOP_SAME_PERSON.to_string());
                 }
+                // The same Postgres pre-filter the claim step applies. Postgres
+                // lags the leader and is_identified only ever flips to true, so
+                // this can under-drop but never over-drop; a source it lets
+                // through meets the authoritative check on the sealed state.
+                Some(person) if person.is_identified && !request.allow_identified_sources => {
+                    inline_results
+                        .insert(did.clone(), OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string());
+                }
                 Some(_) => saga_sources.push(MergeSourceEntry {
                     distinct_id: did.clone(),
                     event_uuid: source.event_uuid.clone(),
@@ -255,12 +263,14 @@ impl MergeEntrance {
             // is not a dedupe of idempotent work (an attached source
             // re-answers noop_same_person). The event's properties still
             // reach the survivor.
-            // An identify that actually joined identities makes the
-            // survivor identified; a call whose every pair was skipped
-            // proves nothing.
-            let flip_identified = inline_results
-                .values()
-                .any(|o| o == OUTCOME_ATTACHED || o == OUTCOME_NOOP_SAME_PERSON);
+            // Ingestion marks the target identified for every legal pair
+            // before it looks at the source, so an identified-source skip
+            // flips the target too; only illegal pairs prove nothing.
+            let flip_identified = inline_results.values().any(|o| {
+                o == OUTCOME_ATTACHED
+                    || o == OUTCOME_NOOP_SAME_PERSON
+                    || o == OUTCOME_SKIPPED_ALREADY_IDENTIFIED
+            });
             let start = Instant::now();
             let pushed = self
                 .push_event_properties(&request, &target_person, flip_identified, target_was_born)

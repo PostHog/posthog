@@ -25,6 +25,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.ph_client import feature_enabled_or_false
 
 from .attribution_base import ConversionGoal
 from .conversion_goal_conditions import conversion_goal_match_expr
@@ -127,12 +128,24 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
         )
 
-    @property
+    @cached_property
     def include_posthog_conversions(self) -> bool:
-        return bool(self.query.includePostHogConversions and not self.query.keyword and not self.query.page)
+        return bool(
+            self.query.includePostHogConversions
+            and not self.query.keyword
+            and not self.query.page
+            and feature_enabled_or_false(
+                "marketing-analytics-search-conversions",
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+            )
+        )
 
     def get_cache_key_variant(self) -> str:
         variant = super().get_cache_key_variant()
+        if self.query.includePostHogConversions:
+            variant += f"_posthog_conversions_{int(self.include_posthog_conversions)}"
         if (
             self.include_posthog_conversions
             and MarketingAnalyticsConfig.from_team(self.team).live_session_resolution_enabled

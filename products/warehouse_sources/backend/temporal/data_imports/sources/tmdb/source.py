@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
+    codebase_detection = detect(env=("^(TM_DB|TMDB)_",))
+
     supported_versions = ("3",)
     default_version = "3"
     api_docs_url = "https://developer.themoviedb.org/reference/intro/getting-started"

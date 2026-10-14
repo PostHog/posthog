@@ -54,6 +54,7 @@ from posthog.api.team import (
     heatmaps_screenshot_secret_for_reader,
     live_events_token_for_request,
     merge_conversations_settings_locked,
+    merge_modifiers,
     report_conversations_settings_changes,
     strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
@@ -1369,11 +1370,8 @@ class ProjectBackwardCompatSerializer(
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
-            validated_data["modifiers"] = {
-                **(team.modifiers or {}),
-                **validated_data["modifiers"],
-            }
+        if "modifiers" in validated_data:
+            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], team.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber

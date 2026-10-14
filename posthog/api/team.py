@@ -1468,6 +1468,17 @@ class ConversationsSettingsField(serializers.JSONField):
     pass
 
 
+def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
+    # Django admin can store a scalar or list here. Treat it as empty rather than raising.
+    stored = existing if isinstance(existing, dict) else {}
+    if requested is not None:
+        return {**stored, **requested}
+    # PostHog staff set useNewEventsSchema per project, so a client that clears its modifiers keeps it.
+    if "useNewEventsSchema" in stored:
+        return {"useNewEventsSchema": stored["useNewEventsSchema"]}
+    return None
+
+
 def live_events_token_for_request(team: Team, request: request.Request | None) -> str | None:
     if request is None or not request.user.is_authenticated:
         return None
@@ -2456,11 +2467,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
-            validated_data["modifiers"] = {
-                **(instance.modifiers or {}),
-                **validated_data["modifiers"],
-            }
+        if "modifiers" in validated_data:
+            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], instance.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber

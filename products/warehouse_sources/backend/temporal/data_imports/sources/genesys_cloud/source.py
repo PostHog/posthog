@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +44,31 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GenesysCloudSource(ResumableSource[GenesysCloudSourceConfig, GenesysCloudResumeConfig]):
+    codebase_detection = detect(
+        env=("^(GENESYS_CLOUD|GENESYSCLOUD)_",),
+        script_hosts=("apps.mypurecloud.com", "apps.mypurecloud.ie"),
+        npm=("purecloud-platform-client-v2",),
+        pypi=("purecloudplatformclientv2",),
+        cocoapods=("GenesysCloudMessengerTransport",),
+        go=("github.com/mypurecloud/platform-client-sdk-go",),
+        maven=(
+            "com.mypurecloud:platform-client-v2",
+            "cloud.genesys:messenger-transport-mobile-sdk",
+            "com.mypurecloud:purecloud-guest-chat-client",
+        ),
+        rubygems=("purecloudplatformclientv2", "purecloud"),
+        swiftpm=(
+            "github.com/mypurecloud/mm-genesyscloudmessenger-spm-dev",
+            "github.com/mypurecloud/mm-genesyscloudmessengertransport-spm",
+            "github.com/mypurecloud/mm-genesyscloudmessengertransport-spm-dev",
+            "github.com/mypurecloud/mobile-messenger-genesyscloud-spm",
+            "github.com/mypurecloud/mobile-messenger-genesyscloud-spm-dev",
+            "github.com/mypurecloud/mobile-messenger-genesyscloudcore-spm",
+            "github.com/mypurecloud/mobile-messenger-genesyscloudcore-spm-dev",
+            "github.com/mypurecloud/mobile-messenger-genesyscloudmessenger-spm",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

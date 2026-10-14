@@ -210,6 +210,7 @@ export namespace Schemas {
         materializationMode: MaterializationMode | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -4225,6 +4226,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExecutionTarget = "default" | "managed_trino";
     export type HogQLFilters = Partial<{
         breakdownFilter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -4383,6 +4385,7 @@ export namespace Schemas {
     };
     export type HogQLQuery = {
         connectionId?: (string | null) | undefined;
+        executionTarget?: (ExecutionTarget | null) | undefined;
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
@@ -8968,16 +8971,6 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
-    /**
-     * * `duckdb` - duckdb
-     * * `postgres` - postgres
-     * * `mysql` - mysql
-     * * `snowflake` - snowflake
-     * * `redshift` - redshift
-     * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck
-     * * `trino` - trino
-     */
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -19672,6 +19665,7 @@ export namespace Schemas {
     }>;
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -19699,6 +19693,7 @@ export namespace Schemas {
      */
     export type TaskOriginProductEnum =
         | "onboarding"
+        | "account_audit"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -22812,6 +22807,7 @@ export namespace Endpoints {
                 created_by: number;
                 exclude_origin_product:
                     | "onboarding"
+                    | "account_audit"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"

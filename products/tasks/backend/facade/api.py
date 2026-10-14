@@ -5859,6 +5859,7 @@ def relay_task_run_message(
             delete_progress=True,
             message_id=message_id,
             trace_id=trace_id,
+            offer_reply_suggestions=True,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
@@ -5927,6 +5928,9 @@ def _resolve_cloud_pr_authorship_mode(
         resolve_user_github_integration_for_task,
         user_github_integration_is_usable,
     )
+
+    if task.origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+        return None, None
 
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
@@ -7627,6 +7631,12 @@ def create_task(
         if github_user_integration is not None:
             validated_data["github_user_integration"] = github_user_integration.integration
 
+    if validated_data["origin_product"] == Task.OriginProduct.ACCOUNT_AUDIT:
+        validated_data["repository"] = None
+        validated_data["repositories"] = []
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
+
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
         validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
@@ -7737,7 +7747,11 @@ def update_task(
         # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
         # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
         # attached, so an attachable one would credential a run the create path left credential-less.
-        if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if task.origin_product in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.ACCOUNT_AUDIT,
+        ):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)

@@ -152,7 +152,12 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
                     </LemonBanner>
                 </div>
             ) : hasPoints ? (
-                <MetricsPanel series={series} fallbackName={fallbackName} display={props.query.display} />
+                <MetricsPanel
+                    series={series}
+                    fallbackName={fallbackName}
+                    display={props.query.display}
+                    query={props.query}
+                />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
                     No data for this metric in the selected range.

@@ -71,8 +71,20 @@ def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | No
     if spec is None:
         return AlertDestinationGroupKey(template_id, None)
     data = spec.read(inputs or {})
-    config = {key: value for key, value in data.items() if key != "type"}
+    config = {key: _hashable(value) for key, value in data.items() if key != "type"}
     return AlertDestinationGroupKey(template_id, tuple(sorted(config.items())) if config else None)
+
+
+class _FrozenMapping(tuple):
+    """A dict value, such as added webhook headers, held as sorted pairs so a group key stays hashable."""
+
+
+def _hashable(value: Any) -> Any:
+    return _FrozenMapping(sorted(value.items())) if isinstance(value, dict) else value
+
+
+def _thawed(value: Any) -> Any:
+    return dict(value) if isinstance(value, _FrozenMapping) else value
 
 
 def group_alert_destination_rows(rows: Collection[AlertDestinationRow]) -> dict[AlertDestinationGroupKey, set[UUID]]:
@@ -113,7 +125,9 @@ def list_alert_destination_groups(
         spec = SPEC_BY_TEMPLATE_ID.get(key.template_id)
         if spec is None:
             continue
-        data = cast(AlertDestinationData, {"type": spec.type, **dict(key.config or ())})
+        data = cast(
+            AlertDestinationData, {"type": spec.type, **{name: _thawed(value) for name, value in key.config or ()}}
+        )
         groups.append(
             AlertDestinationGroup(
                 hog_function_ids=tuple(sorted(ids)),

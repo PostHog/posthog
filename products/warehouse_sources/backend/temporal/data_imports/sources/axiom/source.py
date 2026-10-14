@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,33 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
+    codebase_detection = detect(
+        env=("^AXIOM_", "^NEXT_PUBLIC_AXIOM_"),
+        npm=(
+            "@axiomhq/js",
+            "@axiomhq/winston",
+            "@axiomhq/pino",
+            "next-axiom",
+            "@axiomhq/nextjs",
+            "@axiomhq/logging",
+            "@axiomhq/react",
+            "@axiomhq/ai",
+        ),
+        pypi=("axiom-py",),
+        cargo=("axiom-rs", "tracing-axiom"),
+        go=(
+            "github.com/axiomhq/axiom-go",
+            "github.com/axiomhq/axiom-fs",
+            "github.com/axiomhq/axiom-grafana",
+            "github.com/axiomhq/axiom-honeycomb-proxy",
+            "github.com/axiomhq/axiom-hostmetrics",
+            "github.com/axiomhq/axiom-lambda-extension",
+            "github.com/axiomhq/axiom-loki-multiplexer",
+            "github.com/axiomhq/axiom-segment-webhook",
+            "github.com/axiomhq/axiom-syslog-proxy",
+        ),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION

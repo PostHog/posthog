@@ -30,7 +30,7 @@ async def _fake_prepare(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAppU
     return SlackAppUnfurlChartsPrepared(
         distinct_id="user-1",
         assets=[
-            SlackUnfurlChartAsset(insight_id=asset_id, asset_id=asset_id)
+            SlackUnfurlChartAsset(render_key=f"insight:{asset_id}", asset_id=asset_id)
             for asset_id in (_RENDERED_ASSET_ID, _FAILING_ASSET_ID)
         ],
     )

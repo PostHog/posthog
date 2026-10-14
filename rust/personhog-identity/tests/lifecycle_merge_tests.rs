@@ -2604,7 +2604,7 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
-    // Establishment birthed the target, so the abort delivery stamps its
+    // Establishment birthed the target, so the inline delivery stamps its
     // creating event.
     let born_properties: serde_json::Value = if survivor.properties.is_empty() {
         serde_json::json!({})
@@ -2619,8 +2619,8 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
     assert_eq!(h.pdi_state("elig-ident-source").await.0, source);
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
-    // The refused pair aborts the saga, so the abort delivery flips the
-    // newborn through the leader.
+    // The refused pair never reaches the saga, so the inline delivery
+    // flips the newborn through the leader.
     assert_eq!(
         h.leader.calls(),
         vec![LeaderCall::PropertyPush {
@@ -3039,7 +3039,7 @@ async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
 }
 
 #[tokio::test]
-async fn an_identified_source_abort_still_delivers_the_events_writes() {
+async fn an_identified_source_settles_inline_and_still_delivers_the_events_writes() {
     let h = MergeHarness::new().await;
     let service = h.service();
     let target = h
@@ -3063,14 +3063,14 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     let response = service
         .merge_persons(Request::new(request.clone()))
         .await
-        .expect("an aborted op still answers OK")
+        .expect("a skipped pair still answers OK")
         .into_inner();
 
-    // The skip is an answer, not an error. The saga never folds, so the
-    // event's $set and the identified flip are delivered through the
-    // ordinary write surface instead, and the answer carries the person
-    // they landed on — the same person ingestion continues the event with
-    // when it refuses a merge.
+    // The skip is an answer, not an error. No saga folds, so the event's
+    // $set and the identified flip are delivered through the ordinary
+    // write surface instead, and the answer carries the person they landed
+    // on — the same person ingestion continues the event with when it
+    // refuses a merge.
     assert_eq!(
         rpc_outcomes(&response),
         vec![(
@@ -3088,10 +3088,17 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     );
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
+    // The pre-filter settles the pair at the entrance: no op row, no
+    // claim, no fence.
+    let op_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .expect("count op rows");
+    assert_eq!(op_rows, 0);
 
-    // The abort is recorded: a retry reproduces the answer instead of
-    // re-running classification, and re-drives the delivery (the same
-    // at-least-once semantics as the inline branch).
+    // Nothing is recorded, so a retry re-classifies and delivers again:
+    // the same at-least-once semantics as every other inline answer.
     let retry = service
         .merge_persons(Request::new(request))
         .await
@@ -3122,7 +3129,9 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
         .ctx
         .insert_person_with_distinct_id("rpc-abort-fail-source")
         .await;
-    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+    // Only the leader's sealed state carries the flip, so the entrance's
+    // pre-filter lets the pair through and the saga aborts at seal time.
+    h.leader.set_sealed_identified(source, true);
     h.leader.fail_next(
         Rpc::PropertyPush,
         target,
@@ -3162,8 +3171,14 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
+    let pushes: Vec<LeaderCall> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, LeaderCall::PropertyPush { .. }))
+        .collect();
     assert_eq!(
-        h.leader.calls(),
+        pushes,
         vec![LeaderCall::PropertyPush {
             person_id: target,
             is_identified: Some(true),

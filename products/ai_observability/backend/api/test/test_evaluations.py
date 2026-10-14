@@ -273,63 +273,14 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 class TestEvaluationConfigsApi(APIBaseTest):
     @parameterized.expand(
-        [("numeric", {"min": 0, "max": 10}), ("categorical", {"options": [{"key": "resolved", "label": "Resolved"}]})]
-    )
-    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
-    def test_creation_requires_feature_flag(
-        self, output_type: str, output_config: dict, _mock_numeric_flag: Mock
-    ) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/",
-            {
-                "name": "Gated score",
-                "evaluation_type": "hog",
-                "evaluation_config": {"source": "return 0;"},
-                "output_type": output_type,
-                "output_config": output_config,
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{output_type.capitalize()} evaluations are not enabled", str(response.data))
-
-    @parameterized.expand(
-        [("numeric", {"min": 0, "max": 10}), ("categorical", {"options": [{"key": "resolved", "label": "Resolved"}]})]
-    )
-    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
-    def test_existing_evaluation_remains_editable_when_flag_is_off(
-        self, output_type: str, output_config: dict, _mock_numeric_flag: Mock
-    ) -> None:
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Existing score",
-            evaluation_type="hog",
-            evaluation_config={"source": "return 0;"},
-            output_type=output_type,
-            output_config=output_config,
-        )
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
-            {"name": "Renamed score"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        evaluation.refresh_from_db()
-        self.assertEqual(evaluation.name, "Renamed score")
-
-    @parameterized.expand(
         [
             (output_type, enabled, frequency)
             for output_type in ("numeric", "categorical")
             for enabled, frequency in [(True, "scheduled"), (False, "scheduled"), (True, "every_n")]
         ]
     )
-    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=True)
     def test_passing_rule_controls_report_creation_and_scheduling(
-        self, output_type: str, enabled: bool, frequency: str, _mock_numeric_flag: Mock
+        self, output_type: str, enabled: bool, frequency: str
     ) -> None:
         output_config = (
             {"min": 0, "max": 10}

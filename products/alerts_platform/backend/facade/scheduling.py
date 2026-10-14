@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
 from typing import Any, Final, cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import pytz
 from dateutil.relativedelta import relativedelta
@@ -53,6 +53,30 @@ def compute_shard_offset_seconds(
     return shard_index * schedule_interval_seconds
 
 
+# uuid5 keeps sequential team IDs from filling the slots in a pattern. Production logs alerting
+# keys on this namespace too, so changing it moves every logs alert to a new slot.
+_TEAM_SHARD_NAMESPACE = UUID("4f2c9a1e-5b7d-4e8a-9c3f-6d1b2a7e8f90")
+
+
+def compute_team_shard_offset_seconds(
+    team_id: int,
+    check_interval_minutes: int,
+    *,
+    group: str | None = None,
+    schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS,
+) -> int:
+    """One slot for all of a team's alerts in `group` on a cadence, for a source that answers them
+    with one query per slot. A per-alert offset splits them across slots, and each slot then runs
+    its own query. Different groups spread across slots, so one slot does not collect every
+    query the team needs."""
+    key = str(team_id) if group is None else f"{team_id}:{group}"
+    return compute_shard_offset_seconds(
+        uuid5(_TEAM_SHARD_NAMESPACE, key),
+        check_interval_minutes,
+        schedule_interval_seconds=schedule_interval_seconds,
+    )
+
+
 def advance_next_check_at(
     current_next_check_at: datetime | None,
     check_interval_minutes: int,
@@ -67,7 +91,7 @@ def advance_next_check_at(
     it. Snapping to the cadence grid aligns every alert sharing a cadence onto
     the same canonical grid regardless of when it was created.
 
-    `shard_offset_seconds` shifts the canonical grid per-alert to spread load
+    `shard_offset_seconds` shifts the canonical grid per alert or per team to spread load
     across cron fires. Existing drifted alerts heal lazily on their next run.
     """
     if check_interval_minutes <= 0:
