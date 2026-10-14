@@ -4,16 +4,14 @@ import { Field, Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-import {
-    DESTINATION_OPTIONS,
-    NewNotificationDialogLogicProps,
-    newNotificationDialogLogic,
-} from './newNotificationDialogLogic'
+import { GitHubPublicRepositoryWarning } from './GitHubPublicRepositoryWarning'
+import { NewNotificationDialogLogicProps, newNotificationDialogLogic } from './newNotificationDialogLogic'
 
 export interface NewNotificationDialogProps {
     /** The sub-template ID that defines the filters, name, and message templates */
@@ -36,6 +34,7 @@ export function NewNotificationDialog({
     const logic = newNotificationDialogLogic(logicProps)
 
     const {
+        destinationOptions,
         isOpen,
         notificationForm,
         isNotificationFormSubmitting,
@@ -43,6 +42,7 @@ export function NewNotificationDialog({
         selectedSlackIntegration,
     } = useValues(logic)
     const { closeDialog, setNotificationFormValue } = useActions(logic)
+    const { githubIntegrationId } = notificationForm
 
     return (
         <LemonModal
@@ -82,7 +82,7 @@ export function NewNotificationDialog({
                                     onChange(val)
                                     setNotificationFormValue('webhookUrl', '')
                                 }}
-                                options={DESTINATION_OPTIONS.map((d) => ({
+                                options={destinationOptions.map((d) => ({
                                     value: d.value,
                                     label: d.label,
                                     icon: <img src={d.iconUrl} alt="" className="h-5 w-5 object-contain" />,
@@ -116,6 +116,40 @@ export function NewNotificationDialog({
                                         />
                                     )}
                                 </Field>
+                            )}
+                        </>
+                    )}
+
+                    {notificationForm.destination === 'github' && (
+                        <>
+                            <Field name="githubIntegrationId" label="GitHub installation">
+                                {({ value, onChange }) => (
+                                    <IntegrationChoice
+                                        integration="github"
+                                        value={value ?? undefined}
+                                        onChange={(val) => {
+                                            onChange(val)
+                                            setNotificationFormValue('githubRepository', null)
+                                        }}
+                                    />
+                                )}
+                            </Field>
+                            {githubIntegrationId !== null && (
+                                <Field name="githubRepository" label="Repository">
+                                    {({ value, onChange }) => (
+                                        <GitHubRepositoryPicker
+                                            integrationId={githubIntegrationId}
+                                            value={value ?? ''}
+                                            onChange={onChange}
+                                        />
+                                    )}
+                                </Field>
+                            )}
+                            {githubIntegrationId !== null && notificationForm.githubRepository && (
+                                <GitHubPublicRepositoryWarning
+                                    integrationId={githubIntegrationId}
+                                    repository={notificationForm.githubRepository}
+                                />
                             )}
                         </>
                     )}
