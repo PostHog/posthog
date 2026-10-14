@@ -143,6 +143,12 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 HandbackRefusal.FIRING,
             ),
             ("broken_is_never_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {"state": "broken"}, None),
+            (
+                "disabled_while_a_check_runs",
+                {"enabled": False, "next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
+                {},
+                None,
+            ),
             ("check_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {}, HandbackRefusal.CHECK_DUE),
             (
                 "calendar_schedule",
@@ -177,6 +183,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert (handback if isinstance(handback, HandbackRefusal) else None) == refusal
         self.configuration.refresh_from_db()
         assert self.configuration.owner == ("platform" if refusal else "source")
+        if refusal is None:
+            # A check that started before the handback finds the row no longer due and records nothing.
+            assert self.configuration.next_check_at is not None and self.configuration.next_check_at > self.cutoff
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)

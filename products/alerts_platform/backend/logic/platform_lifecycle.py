@@ -429,15 +429,19 @@ def give_back_ownership(
         if configurations.filter(pk=configuration.pk, enabled=True).filter(due_q(at)).exclude(suppressed()).exists():
             return HandbackRefusal.CHECK_DUE
 
-        configuration.owner = PlatformAlertOwner.SOURCE
-        configuration.owner_changed_at = at
-        configuration.save(update_fields=["owner", "owner_changed_at"])
-        return PlatformHandback(
+        handback = PlatformHandback(
             state=PlatformAlertState(alert.state) if alert is not None else PlatformAlertState.NOT_FIRING,
             last_notified_at=alert.last_notified_at if alert is not None else None,
             consecutive_failures=configuration.consecutive_failures,
             next_check_at=configuration.next_check_at,
         )
+        configuration.owner = PlatformAlertOwner.SOURCE
+        configuration.owner_changed_at = at
+        # A check can still be running for a copy that is disabled or not due, and it records only
+        # rows still due, so this keeps it from recording and delivering after the handback.
+        configuration.next_check_at = max(configuration.next_check_at or at, at + _HANDOVER_FENCE)
+        configuration.save(update_fields=["owner", "owner_changed_at", "next_check_at"])
+        return handback
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
