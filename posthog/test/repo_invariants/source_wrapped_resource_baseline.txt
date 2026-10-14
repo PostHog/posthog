@@ -30,7 +30,6 @@ hugging_face/hugging_face.py::_repo_pages
 imperva/imperva.py::imperva_source.items
 intercom/intercom.py::intercom_source.iter_resource
 invoiceninja/invoiceninja.py::invoiceninja_source.items
-knock/knock.py::_objects_items
 lago/lago.py::lago_source.items
 leadfeeder/leadfeeder.py::_unified_account_ids
 metabase/metabase.py::get_rows

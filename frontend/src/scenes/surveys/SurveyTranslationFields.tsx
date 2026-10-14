@@ -6,7 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SurveyQuestion } from '~/types'
 
-import { defaultSurveyAppearance, INTRO_SCREEN_DEFAULT_BUTTON_TEXT } from './constants'
+import { BACK_BUTTON_DEFAULT_TEXT, defaultSurveyAppearance, INTRO_SCREEN_DEFAULT_BUTTON_TEXT } from './constants'
 import { isChoiceQuestion, isLinkQuestion, isRatingQuestion } from './questionTypeGuards'
 import { surveyLogic } from './surveyLogic'
 
@@ -249,6 +249,21 @@ export function SurveyTranslationFields({ activeLanguage }: { activeLanguage: st
                     </section>
                 )
             })}
+
+            {appearance.allowGoBack ? (
+                <section className="space-y-3">
+                    <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">Back button</h4>
+                    <GuidedTranslationInput
+                        label="Button text"
+                        value={translations[activeLanguage]?.backButtonText || ''}
+                        source={appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT}
+                        aiGenerated={isGeneratedSurveyField('backButtonText')}
+                        onChange={(backButtonText) =>
+                            updateSurveyTranslation({ backButtonText: backButtonText || undefined })
+                        }
+                    />
+                </section>
+            ) : null}
 
             {appearance.displayThankYouMessage ? (
                 <section className="space-y-3">

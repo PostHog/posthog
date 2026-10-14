@@ -2141,6 +2141,8 @@ export interface GeneratedSurveyRootTranslationApi {
     introScreenDescription?: string
     /** Translated intro screen button text. */
     introScreenButtonText?: string
+    /** Translated back button text. */
+    backButtonText?: string
 }
 
 /**

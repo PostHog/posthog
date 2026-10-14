@@ -1319,6 +1319,33 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_insight URL parameter', () => {
+        it.each([
+            [undefined, 'managed_trino', 'managed_trino'],
+            ['managed_trino', 'posthog', undefined],
+            ['managed_trino', undefined, 'managed_trino'],
+        ] as const)('restores saved target %s with URL override %s', async (savedTarget, urlTarget, expectedTarget) => {
+            const savedQuery = MOCK_INSIGHT_QUERY
+            const query: DataVisualizationNode = {
+                ...savedQuery,
+                source: { ...savedQuery.source, executionTarget: savedTarget },
+            }
+            const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValueOnce({ ...MOCK_INSIGHT, query })
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                router.actions.push(
+                    urls.sqlEditor(),
+                    { open_insight: MOCK_INSIGHT_SHORT_ID },
+                    { q: savedQuery.source.query, ...(urlTarget ? { engine: urlTarget } : {}) }
+                )
+                await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                expect(logic.values.sourceQuery.source.executionTarget).toEqual(expectedTarget)
+                expect(router.values.hashParams.engine).toEqual(urlTarget ?? expectedTarget)
+            } finally {
+                getInsight.mockRestore()
+            }
+        })
+
         it.each([MOCK_INSIGHT_SHORT_ID, MOCK_DATA_TABLE_INSIGHT_SHORT_ID])(
             'sets the editing insight and file tree reference when opening %s',
             async (shortId) => {
@@ -2641,6 +2668,39 @@ describe('sqlEditorLogic', () => {
 
             expect(router.values.hashParams.q).toEqual('SELECT 2')
             expect(router.values.hashParams.c).toEqual('conn-123')
+        })
+
+        it('switches hosted execution without rewriting the query and persists the target in the URL', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT event FROM events', c: 'conn-123', raw: '1' })
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            const query = logic.values.queryInput
+            logic.actions.setLastRunQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, query: query ?? '' },
+            })
+            expect(logic.values.isSourceQueryLastRun).toEqual(true)
+            logic.actions.setExecutionTarget('managed_trino')
+            expect(logic.values.isSourceQueryLastRun).toEqual(false)
+            expect(logic.values.sourceQuery.source).toMatchObject({ query, executionTarget: 'managed_trino' })
+            expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(router.values.hashParams.engine).toEqual('managed_trino')
+            expect(router.values.hashParams.c).toBeUndefined()
+            await runDebouncedAction(() => logic.actions.setQueryInput('SELECT count() FROM events'))
+            expect(router.values.hashParams.engine).toEqual('managed_trino')
+            logic.actions.setExecutionTarget(undefined)
+            expect(logic.values.sourceQuery.source.query).toEqual('SELECT count() FROM events')
+            expect(router.values.hashParams.engine).toBeUndefined()
+        })
+
+        it('restores the hosted target from the URL', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', engine: 'managed_trino' })
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
         })
 
         it('reads send raw query from hash and keeps it in URL sync', async () => {
