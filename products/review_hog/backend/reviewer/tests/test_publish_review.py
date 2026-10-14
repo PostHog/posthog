@@ -526,6 +526,50 @@ class TestPublishReviewGate:
 
     @parameterized.expand(
         [
+            ("keeps_nothing_stays_silent", IssuePriority.CONSIDER, False),
+            ("posts_findings_with_the_note", IssuePriority.SHOULD_FIX, True),
+        ]
+    )
+    @patch(_POST)
+    @patch(_LOAD_FINDINGS)
+    @patch(_REPORT)
+    def test_standard_turn_notes_the_finding_budget_only_when_it_posts(
+        self,
+        _name: str,
+        priority: IssuePriority,
+        expected_posted: bool,
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
+    ) -> None:
+        # Past the budget an automatic turn only looks for must-fix findings, so a turn that keeps nothing
+        # must not post a review just to say so.
+        self._wire_report(mock_report_cls, "old")
+        mock_load.return_value = [(_finding(priority=priority), _verdict())]
+
+        outcome = publish_review(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            team_id=1,
+            report_id="rep",
+            run_index=1,
+            pr_files=[],
+            token="t",
+            head_sha="sha",
+            published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode="flash",
+            budget_note="Budget note.",
+        )
+
+        assert outcome.posted is expected_posted
+        if expected_posted:
+            assert "Budget note." in mock_post.call_args.args[3]
+        else:
+            mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
             # The validator wins: an upgraded consider crosses the publish bar; a downgraded should_fix
             # drops below it — gating reads the effective priority, not the reviewer's frozen one.
             ("upgrade_consider_publishes", IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, True),

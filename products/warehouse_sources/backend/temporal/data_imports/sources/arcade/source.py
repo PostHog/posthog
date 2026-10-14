@@ -91,7 +91,7 @@ class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
             caption=(
                 "Requires an Arcade Enterprise workspace. Create an API key in Settings > Advanced. "
                 "Enable insights access for engagement data. Enable User provisioning for teams and users. "
-                "All tables use full refresh. Flow engagement includes totals from your start date through each sync."
+                "All tables use full refresh. Engagement tables include totals from your start date through each sync."
             ),
             fields=cast(
                 list[FieldType],

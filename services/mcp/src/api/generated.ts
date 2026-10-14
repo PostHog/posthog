@@ -57328,7 +57328,7 @@ export namespace Schemas {
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
       points: MetricsQueryPoint[];
-      /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+      /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
       unit?: string | null;
     }
 
@@ -96625,6 +96625,7 @@ export namespace Schemas {
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
      * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit
      */
     export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
 
@@ -96636,6 +96637,7 @@ export namespace Schemas {
       DedupAnchor: 'dedup_anchor',
       DedupSibling: 'dedup_sibling',
       Cap: 'cap',
+      Budget: 'budget',
     } as const;
 
     export interface ReviewDroppedFinding {
@@ -96667,7 +96669,8 @@ export namespace Schemas {
        * * `dedup_comment` - Already in a PR comment
        * * `dedup_anchor` - Same spot as another finding
        * * `dedup_sibling` - Repeat of a finding
-       * * `cap` - Over the limit */
+       * * `cap` - Over the limit
+       * * `budget` - Over the pull request limit */
       disposition: ReviewDropDispositionEnum;
       /**
          * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
@@ -115589,6 +115592,11 @@ export namespace Schemas {
          * @nullable
          */
       clause?: string | null;
+      /**
+         * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+         * @nullable
+         */
+      unit?: string | null;
     }
 
     export interface _MetricAnomalyReport {
@@ -130853,6 +130861,11 @@ export namespace Schemas {
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
+     * @minLength 1
+     */
+    created_by?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
      * @minLength 1
