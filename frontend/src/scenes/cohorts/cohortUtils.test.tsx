@@ -4,6 +4,7 @@ import {
     cleanBehavioralTypeCriteria,
     cleanCriteria,
     cohortBroadcastDisabledReason,
+    createCohortFormData,
     criteriaToHumanSentence,
     determineFilterType,
     validateGroup,
@@ -264,5 +265,36 @@ describe('cohortBroadcastDisabledReason', () => {
         ['a deleted cohort', cohort([], { deleted: true }), 'Restore the cohort first'],
     ])('for %s', (_, input, expected) => {
         expect(cohortBroadcastDisabledReason(input)).toEqual(expected)
+    })
+})
+
+describe('createCohortFormData', () => {
+    const cohort = (overrides: Partial<CohortType> = {}): CohortType => ({
+        id: 1,
+        groups: [],
+        filters: {
+            properties: {
+                type: FilterLogicalOperator.Or,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            { type: BehavioralFilterKey.Person, key: 'email', value: BehavioralEventType.HaveProperty },
+                        ],
+                    },
+                ],
+            },
+            filterTestAccounts: true,
+        },
+        ...overrides,
+    })
+
+    it.each([
+        ['a dynamic cohort', cohort(), {}, true],
+        ['a static cohort built from criteria', cohort({ is_static: true }), { preserveStaticFilters: true }, true],
+        ['a static cohort without criteria', cohort({ is_static: true }), {}, undefined],
+    ])('serializes filterTestAccounts for %s', (_, input, options, expected) => {
+        const filters = JSON.parse(createCohortFormData(input, options).get('filters') as string)
+        expect(filters.filterTestAccounts).toEqual(expected)
     })
 })
