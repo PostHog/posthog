@@ -78,29 +78,30 @@ from products.exports.backend.models.subscription import (
     unsubscribe_using_token,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext, context_ref
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
-    PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
-    PromptRejectedError,
-    get_ai_query_plan_status as derive_ai_query_plan_status,
-    sanitize_prompt,
-)
-from products.exports.backend.temporal.subscriptions.types import (
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.api import (
+    AI_PROMPT_MAX_LENGTH,
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_FAILURE_TYPE,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
+    MAX_INSIGHTS,
+    TEAMS_WEBHOOK_URL_ERROR,
+    TEAMS_WEBHOOK_URL_MASKED_ERROR,
+    ai_query_plan_status,
+    sanitize_prompt,
+    validate_re_enable,
+)
+from products.subscriptions.backend.facade.contracts import (
     ProcessSubscriptionWorkflowInputs,
+    PromptRejectedError,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
-from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.tasks.subscriptions.auto_disable import validate_re_enable
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -676,7 +677,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def get_ai_query_plan_status(self, subscription: Subscription) -> Optional[str]:
         if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
             return None
-        return derive_ai_query_plan_status(subscription.ai_query_plan).value
+        return ai_query_plan_status(subscription.ai_query_plan)
 
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):

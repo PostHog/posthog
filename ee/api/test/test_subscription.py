@@ -36,22 +36,22 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import AI_QUERY_PLAN_VERSION
-from products.exports.backend.temporal.subscriptions.types import (
+from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.api import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_FAILURE_TYPE,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
-    ProcessSubscriptionWorkflowInputs,
-    SubscriptionTriggerType,
+    MAX_INSIGHTS,
+    TEAMS_WEBHOOK_URL_ERROR,
+    TEAMS_WEBHOOK_URL_MASKED_ERROR,
 )
-from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
+from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
 
 from ee.api.test.base import APILicensedTest
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
