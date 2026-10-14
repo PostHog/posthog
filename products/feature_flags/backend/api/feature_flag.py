@@ -9,11 +9,12 @@ import logging
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from contextvars import copy_context
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn, Optional, cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -67,6 +68,7 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
 )
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
@@ -3428,6 +3430,39 @@ class PreparedFlagTestEvaluation:
 HISTORICAL_BATCH_EVALUATION_BUDGET_SECONDS = 15
 HISTORICAL_BATCH_CONCURRENCY = 6
 
+# One admitted batch bounds a team's total fan-out, including session-authenticated callers.
+# 120s gives headroom over the default 5s person lookup, 30s scan, 15s admission budget
+# and two 3s flag-service attempts. A dead worker's slot eventually expires.
+_historical_test_batch_limiter = RateLimit(
+    max_concurrency=1,
+    limit_name="historical_flag_test_per_team",
+    get_task_name=lambda **kwargs: "flags:historical-test:per-team",
+    get_task_key=lambda **kwargs: f"flags:historical-test:per-team:{kwargs['team_id']}",
+    get_task_id=lambda **kwargs: kwargs["task_id"],
+    ttl=120,
+    apply_clickhouse_kill_switch=False,
+    allow_team_bypass=False,
+)
+
+
+@contextmanager
+def _historical_test_batch_slot(team_id: int) -> Iterator[bool]:
+    slot: ConcurrencySlot | None = None
+    try:
+        slot = _historical_test_batch_limiter.use(team_id=team_id, task_id=str(uuid4()))
+    except ConcurrencyLimitExceeded:
+        pass
+    except Exception:
+        logger.warning("Historical flag test admission unavailable", exc_info=True)
+    try:
+        yield slot is not None
+    finally:
+        if slot is not None:
+            try:
+                _historical_test_batch_limiter.release(slot)
+            except Exception:
+                logger.warning("Historical flag test slot release failed", exc_info=True)
+
 
 class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
     """Feature flag state at a given version plus reconstruction metadata."""
@@ -5631,15 +5666,25 @@ class FeatureFlagViewSet(
     )
     def test_evaluation_batch(self, request: request.Request, **kwargs: Any) -> Response:
         feature_flag = self.get_object()
-        distinct_ids = request.validated_data["distinct_ids"]
+        with _historical_test_batch_slot(self.team_id) as admitted:
+            if not admitted:
+                return Response(
+                    {"error": "Historical testing is busy. Please retry shortly."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={"Retry-After": "1"},
+                )
+            return self._run_historical_test_batch(feature_flag, request.validated_data)
+
+    def _run_historical_test_batch(self, feature_flag: FeatureFlag, data: dict[str, Any]) -> Response:
+        distinct_ids = data["distinct_ids"]
         prepared = self._prepare_test_evaluation(
-            feature_flag, distinct_ids[0], None, request.validated_data["timestamp"], batch_distinct_ids=distinct_ids
+            feature_flag, distinct_ids[0], None, data["timestamp"], batch_distinct_ids=distinct_ids
         )
         if isinstance(prepared, Response):
             return prepared
 
         deadline = time.monotonic() + HISTORICAL_BATCH_EVALUATION_BUDGET_SECONDS
-        groups = request.validated_data["groups"]
+        groups = data["groups"]
 
         def evaluate(distinct_id: str) -> dict[str, Any]:
             if time.monotonic() >= deadline:

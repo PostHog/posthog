@@ -40,6 +40,8 @@ export interface PerDistinctIdEvaluation {
 
 const EMPTY_FORM: TestFormData = { distinct_id: '', timestamp: '', groups: '' }
 
+const HISTORICAL_EVALUATION_BATCH_SIZE = 1000
+
 // Caps how many merged distinct IDs are evaluated concurrently. test_evaluation is
 // ClickHouse-backed and throttle-gated, so a person with many merged IDs shouldn't
 // turn one button click into an unbounded burst of concurrent requests.
@@ -451,20 +453,42 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     // Parse groups/timestamp once up front, not once per distinct ID.
                     const baseData = buildEvaluationRequest(formData, '')
                     if (baseData.timestamp) {
-                        const response = await featureFlagsTestEvaluationBatchCreate(
-                            String(values.currentProjectId),
-                            flagId,
-                            {
-                                distinct_ids: distinctIds,
-                                timestamp: baseData.timestamp,
-                                groups: baseData.groups ?? {},
+                        const ids = [...new Set(distinctIds)]
+                        const rows: PerDistinctIdEvaluation[] = []
+                        for (let offset = 0; offset < ids.length; offset += HISTORICAL_EVALUATION_BATCH_SIZE) {
+                            try {
+                                const response = await featureFlagsTestEvaluationBatchCreate(
+                                    String(values.currentProjectId),
+                                    flagId,
+                                    {
+                                        distinct_ids: ids.slice(offset, offset + HISTORICAL_EVALUATION_BATCH_SIZE),
+                                        timestamp: baseData.timestamp,
+                                        groups: baseData.groups,
+                                    }
+                                )
+                                rows.push(
+                                    ...response.results.map(({ distinct_id, result, error }) => ({
+                                        distinctId: distinct_id,
+                                        result,
+                                        error,
+                                    }))
+                                )
+                            } catch (error) {
+                                if (rows.length === 0) {
+                                    throw error
+                                }
+                                // Keep completed results, but don't repeat a failed shared lookup for later batches.
+                                rows.push(
+                                    ...ids.slice(offset).map((distinctId) => ({
+                                        distinctId,
+                                        result: null,
+                                        error: evaluationErrorMessage('', error),
+                                    }))
+                                )
+                                break
                             }
-                        )
-                        return response.results.map(({ distinct_id, result, error }) => ({
-                            distinctId: distinct_id,
-                            result,
-                            error,
-                        }))
+                        }
+                        return rows
                     }
 
                     return await Promise.all(

@@ -4,7 +4,10 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { FeatureFlagTestEvaluationResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    FeatureFlagHistoricalBatchRequestApi,
+    FeatureFlagTestEvaluationResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
@@ -535,6 +538,57 @@ describe('featureFlagTestingLogic', () => {
             }
         })
     })
+
+    it.each([false, true])(
+        'sequentially batches oversized historical identity lists (failure: %s)',
+        async (failSecondBatch) => {
+            const ids = Array.from({ length: 2001 }, (_, i) => `user-${i}`)
+            const requests: string[][] = []
+            let active = 0
+            let peakActive = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation_batch': async ({ request }) => {
+                        const body = (await request.json()) as FeatureFlagHistoricalBatchRequestApi
+                        active++
+                        peakActive = Math.max(peakActive, active)
+                        requests.push(body.distinct_ids)
+                        await new Promise((resolve) => setTimeout(resolve, 1))
+                        active--
+                        if (failSecondBatch && requests.length === 2) {
+                            return [500, { error: 'Failed to build person properties at specified timestamp.' }]
+                        }
+                        return [
+                            200,
+                            {
+                                results: body.distinct_ids.map((id: string) => ({
+                                    distinct_id: id,
+                                    result: { result: id },
+                                    error: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.testAllDistinctIds({
+                    flagId: 1,
+                    distinctIds: ids,
+                    formData: { distinct_id: ids[0], timestamp: '2026-01-01T00:00:00.000Z', groups: '' },
+                })
+            }).toDispatchActions(['testAllDistinctIdsSuccess'])
+            expect(requests.map((ids) => ids.length)).toEqual(failSecondBatch ? [1000, 1000] : [1000, 1000, 1])
+            expect(peakActive).toBe(1)
+            expect(logic.values.allEvaluations?.map((row) => row.distinctId)).toEqual(ids)
+            expect(logic.values.allEvaluations?.[0].result?.result).toBe(ids[0])
+            expect(logic.values.allEvaluations?.[2000].error).toBe(
+                failSecondBatch
+                    ? 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+                    : null
+            )
+        }
+    )
 
     describe('API error messages', () => {
         // The failing responses fail the evaluation loader on purpose; kea-loaders would log each

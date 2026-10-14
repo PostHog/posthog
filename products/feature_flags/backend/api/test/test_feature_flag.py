@@ -14382,6 +14382,60 @@ class TestFeatureFlagHistoricalBatch(APIBaseTest):
         assert mock_build.call_count == (1 if expected_status == 200 else 0)
         assert mock_flags.call_count == (1 if expected_status == 200 else 0)
 
+    @parameterized.expand([("success", False, False), ("history_failure", True, False), ("other_team", False, True)])
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_limits_overlapping_requests_and_releases_slot(
+        self, _name, fail_history, other_team, mock_build, mock_flags
+    ):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=["alpha"])
+        mock_flags.return_value = {"flags": {flag.key: {"enabled": True, "conditions": []}}}
+        url = f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/"
+        payload = {"distinct_ids": ["alpha"], "timestamp": now().isoformat()}
+        nested_url = url
+        if other_team:
+            team = Team.objects.create(organization=self.organization)
+            other_flag = FeatureFlag.objects.create(team=team, key=flag.key)
+            with mute_selected_signals():
+                create_person(team=team, distinct_ids=["alpha"])
+            nested_url = f"/api/projects/{team.pk}/feature_flags/{other_flag.id}/test_evaluation_batch/"
+        payload["timestamp"] = now().isoformat()
+        nested_responses: list[Response | None] = []
+
+        def prepare(**kwargs):
+            if not nested_responses:
+                nested_responses.append(None)
+                nested_responses[0] = self.client.post(nested_url, payload, format="json")
+            if fail_history:
+                raise RuntimeError("History unavailable")
+            return {}
+
+        mock_build.side_effect = prepare
+        with patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True):
+            response = self.client.post(url, payload, format="json")
+        assert response.status_code == (500 if fail_history else 200), response.content
+        assert nested_responses[0] is not None
+        assert nested_responses[0].status_code == (200 if other_team else 429), nested_responses[0].content
+        assert mock_build.call_count == (2 if other_team else 1)
+        mock_build.side_effect = None
+        mock_build.return_value = {}
+        assert self.client.post(url, payload, format="json").status_code == 200
+
+    @patch("posthog.clickhouse.client.limit.RateLimit.use", side_effect=RuntimeError("Redis unavailable"))
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    def test_historical_batch_fails_closed_when_admission_unavailable(self, mock_build, _mock_limit):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ["alpha"], "timestamp": now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == 429, response.content
+        mock_build.assert_not_called()
+
     @parameterized.expand([("history_failure", ["alpha", "beta"], 500), ("different_person", ["alpha", "other"], 400)])
     @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
