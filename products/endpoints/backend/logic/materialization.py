@@ -9,7 +9,7 @@ query transforms live in ``products.endpoints.backend.materialization_transforms
 import dataclasses
 from typing import cast
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
@@ -250,6 +250,10 @@ class EndpointMaterializationService:
                     endpoint_name=endpoint.name,
                     version=version.version,
                 )
+            except DatabaseError:
+                # An infrastructure fault, not a lineage problem the author can fix: let it surface
+                # as a server error so the status="error" metric sees it.
+                raise
             except Exception as e:
                 logger.exception(
                     "Failed to sync endpoint node to DAG",

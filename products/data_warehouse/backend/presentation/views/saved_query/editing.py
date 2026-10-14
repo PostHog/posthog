@@ -59,6 +59,15 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+GENERIC_LINEAGE_SYNC_ERROR = (
+    "Could not build this view's lineage. Check the query's tables and columns, then save again."
+)
+
+
+def _lineage_sync_error_detail(error: Exception) -> str:
+    # The marker is served verbatim by the node API, so only a message written for the user may reach it.
+    return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
+
 
 def _as_uuid(value: object) -> uuid.UUID | None:
     # Clients echo the revision back in whatever UUID form their stack produces, so parse both
@@ -402,7 +411,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, str(e))
+                modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
             if sync_frequency is not None:
                 if sync_frequency != "never":
                     assert_user_can_read_query(
@@ -598,7 +607,7 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(
-                        view.team_id, view.id, str(e), dag_id=dag.id if dag else None
+                        view.team_id, view.id, _lineage_sync_error_detail(e), dag_id=dag.id if dag else None
                     )
 
         self._report_view_action(

@@ -114,6 +114,10 @@ def backfill_team(saved_queries: list[DataWarehouseSavedQuery], dag: DAG) -> Tea
         }
         for saved_query, error in adoptable.items():
             adopt_saved_query_without_edges(saved_query.team_id, saved_query.id, str(error), dag_id=dag.id)
+        # A child that only failed because its parent had no node can sync now that the parent has one.
+        resynced, _ = sync_until_stuck(list(adoptable), dag, database)
+        synced.extend(resynced)
+        adoptable = {saved_query: error for saved_query, error in adoptable.items() if saved_query not in resynced}
         materializing_node_ids = Node.objects.filter(
             dag=dag, saved_query__in=[*synced, *adoptable], type__in=MATERIALIZING_TYPES
         ).values_list("id", flat=True)
