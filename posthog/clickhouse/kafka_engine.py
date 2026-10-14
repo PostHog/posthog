@@ -70,17 +70,7 @@ CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_prea
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
-KAFKA_NAMED_COLLECTION_ENGINE = "Kafka({named_collection_name}, kafka_topic_list = '{topic}', kafka_group_name = '{group}', kafka_format = '{serialization}')"
-
-KAFKA_PROTO_ENGINE = """
-    Kafka () SETTINGS
-    kafka_broker_list = '{kafka_host}',
-    kafka_topic_list = '{topic}',
-    kafka_group_name = '{group}',
-    kafka_format = 'Protobuf',
-    kafka_schema = '{proto_schema}',
-    kafka_skip_broken_messages = {skip_broken_messages}
-    """
+KAFKA_NAMED_COLLECTION_ENGINE = "Kafka({named_collection_name}, kafka_topic_list = '{topic}', kafka_group_name = '{group}', kafka_format = '{serialization}'{schema_clause})"
 
 GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
@@ -120,7 +110,10 @@ def kafka_engine(
     serialization="JSONEachRow",
     use_named_collection: bool = True,
     named_collection: str | None = None,
+    schema: str | None = None,
 ) -> str:
+    # Schema-bearing formats such as ProtobufSingle name their message as
+    # 'path/file.proto:Message', resolved under the server's format_schema_path.
     if use_named_collection:
         assert kafka_host is None, "Can't set kafka_host when using named collection"
         # Use explicit named_collection if provided, otherwise default to MSK
@@ -130,10 +123,13 @@ def kafka_engine(
             topic=topic,
             group=group,
             serialization=serialization,
+            schema_clause=f", kafka_schema = '{schema}'" if schema else "",
         )
 
     if kafka_host is None:
         raise ValueError("kafka_host is required when use_named_collection=False")
+    if schema is not None:
+        raise ValueError("schema requires use_named_collection=True")
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
 
 

@@ -58,6 +58,8 @@ services:
             - zookeeper
         volumes:
             - ./posthog/posthog/idl:/idl
+            # Kafka engine tables with kafka_schema read the repo protos from here.
+            - ./posthog/proto/personhog:/var/lib/clickhouse/format_schemas/personhog
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml

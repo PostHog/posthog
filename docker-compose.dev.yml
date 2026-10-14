@@ -528,6 +528,8 @@ services:
             - '9009:9009'
         volumes:
             - ./posthog/idl:/idl
+            # Kafka engine tables with kafka_schema read the repo protos from here.
+            - ./proto/personhog:/var/lib/clickhouse/format_schemas/personhog
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
