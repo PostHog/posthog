@@ -384,13 +384,16 @@ class TestSelectRepartitionTarget:
     def test_md5_repartition_leaves_room_for_growth(self):
         budget = 500_000_000
         schema = _schema(partition_mode="md5", partition_count=64, partitioning_keys=["id"])
-        target, _reason = select_repartition_target(schema, {str(i): budget + 1 for i in range(64)}, budget)
+        over_budget: dict[str | None, int] = {str(i): budget + 1 for i in range(64)}
+        target, _reason = select_repartition_target(schema, over_budget, budget)
         assert target is not None and target.partition_count is not None
         count = target.partition_count
 
         # Buckets land up to 5% uneven, then the table grows 1% a day for two weeks.
         mean_bucket = 64 * (budget + 1) / count
-        grown = {str(i): int(mean_bucket * (1.05 if i == 0 else 0.98) * 1.01**14) for i in range(count)}
+        grown: dict[str | None, int] = {
+            str(i): int(mean_bucket * (1.05 if i == 0 else 0.98) * 1.01**14) for i in range(count)
+        }
         schema.partition_count = count
         assert select_repartition_target(schema, grown, budget) == (None, "within_budget")
 
