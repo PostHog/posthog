@@ -33,7 +33,8 @@ import { SuggestionCard, cardFromSuggestion } from './suggestionCards'
 
 // A background run or build usually takes 10 to 30 seconds. Past the deadline it counts as failed.
 const POLL_INTERVAL_MS = 2000
-const POLL_DEADLINE_MS = 3 * 60 * 1000
+// Covers the worst case of the run's stages one after another: counts, Jev and one Claude call.
+const POLL_DEADLINE_MS = 5 * 60 * 1000
 const SAVE_REQUEST_TIMEOUT_MS = 30 * 1000
 // A stalled request would otherwise keep the skeletons up past the deadline.
 const POLL_REQUEST_TIMEOUT_MS = 10_000
@@ -212,7 +213,8 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                             signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS),
                         })
                     } catch {
-                        return null
+                        // One failed read keeps the last answer, so polling goes on until the deadline.
+                        return values.aiResult
                     }
                 },
             },
