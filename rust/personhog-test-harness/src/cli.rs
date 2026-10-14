@@ -379,6 +379,40 @@ pub struct GateArgs {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub merge_identified_sources: bool,
 
+    /// Publish through the outbox: the spawned identity writes an outbox
+    /// row for every create, attach, merge and delete, `--publishers`
+    /// copies of `personhog-publisher` drain it to two per-run topics, and
+    /// once the outbox is empty the gate asserts that the latest row per
+    /// distinct id on Kafka equals the Postgres mapping, that the merge
+    /// events name exactly the merged sources, and that every mapping is
+    /// tombstoned after the delete leg. Implies --create-via-identity.
+    #[arg(long, default_value_t = false)]
+    pub publish: bool,
+
+    /// Publisher replicas with --publish. Two contend on the claim's
+    /// `SKIP LOCKED`.
+    #[arg(long, default_value_t = 2)]
+    pub publishers: u32,
+
+    /// Distinct id rows one publish pass produces at most
+    /// (LIFECYCLE_PUBLISH_MAX_ROWS_PER_PASS). Small, so a wide merge drains
+    /// across several passes and the pointer cursor is exercised.
+    #[arg(long, default_value_t = 100)]
+    pub publish_rows_per_pass: i64,
+
+    /// Crash-restart (SIGKILL + respawn) one publisher this long into the
+    /// traffic phase. Its in-flight claim rolls back, and whatever it had
+    /// already produced is republished. Requires --publish.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub publisher_crash_after: Option<Duration>,
+
+    /// Crash-restart (SIGKILL + respawn) the identity service this long
+    /// into the traffic phase. In-flight merges lose their response and
+    /// settle from the op record; the sweeper re-drives abandoned sagas.
+    /// Requires the identity path.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub identity_crash_after: Option<Duration>,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]

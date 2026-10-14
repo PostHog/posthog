@@ -14,8 +14,10 @@ The docker-compose dev dependencies must be running: Postgres (`posthog_persons`
 For `gate` without `--external-router-url`, build the service binaries first:
 
 ```bash
-cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
+cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 ```
+
+The identity crate also builds `personhog-publisher`, which `--publish` spawns.
 
 ## `gate` — the e2e correctness gate
 
@@ -110,6 +112,32 @@ target/debug/personhog-test-harness gate --leaders 3 --partitions 8 \
   --kill-after 5s --scale-up-after 8s
 ```
 
+### Publishing to Kafka
+
+`--publish` adds the plane that feeds ClickHouse and the cohort processor: the spawned identity writes an outbox row for every create, attach, merge and delete, `--publishers` replicas of `personhog-publisher` (default 2, so the claim's `SKIP LOCKED` is contended) drain it to two per-run topics (`personhog_test_harness_<run_id>_distinct_ids` and `_merge_events`, deleted on teardown), and the gate reads the topics back once the outbox is empty.
+It implies `--create-via-identity`. The publishers claim every team's rows, so the gate refuses to start while another team has pending outbox rows in the database; clear them or use a dedicated database.
+
+- Distinct ids: after the Postgres quiesce, the highest-version row per distinct id on the topic must equal the Postgres mapping (person uuid, `is_deleted`, version), and no distinct id may be on the topic that Postgres does not hold. Rows repeated at the same version are fine: a replay after a crash is the publisher's contract, and the consumers absorb it. Two different rows at one version are a violation, because a ReplacingMergeTree would keep either.
+- Merge events: the set of (old, new) person uuid pairs on the topic must equal the merged sources the merge lane journaled, each event carrying `schema_version` 1, a positive `merged_at_ms` and the key `<team_id>:<old uuid>` the cohort processor places it by. A source whose merge op never settled is excused either way; those are violations already. The event count is printed next to the pair count, so a replay shows in the output without failing the gate.
+- Deletes: after the delete leg, Postgres must hold every mapping as a tombstone under the same uuid, and the topic must match those rows exactly, version included.
+- The outbox must drain within 60 s after the Postgres quiesce, and again after the delete leg. A row the publisher cannot read stays pending with its `last_error` and is listed when the drain misses its deadline; a row parked by hand (`given_up_at`) is a violation, because only an operator sets it.
+
+`--publish-rows-per-pass` (default 100) keeps `LIFECYCLE_PUBLISH_MAX_ROWS_PER_PASS` small, so a wide merge drains across several passes and the pointer cursor is exercised.
+`--publisher-crash-after` crash-restarts one publisher mid-traffic (its in-flight claim rolls back, and whatever it had produced republishes); `--identity-crash-after` crash-restarts the identity service, which the merge lane and the delete leg must survive.
+
+```bash
+# Creates, wide merges drained in chunks, deletes, all read back from Kafka
+target/debug/personhog-test-harness gate --publish --pg-target-table posthog_person \
+  --persons 100 --duration 10s --merge-concurrency 2 --merge-rate 2 \
+  --merge-wide-persons 2 --merge-wide-distinct-ids 500
+
+# Through a leader kill, an identity crash and a publisher crash
+target/debug/personhog-test-harness gate --publish --pg-target-table posthog_person \
+  --leaders 3 --partitions 8 --persons 200 --duration 15s \
+  --merge-concurrency 4 --merge-rate 5 --merge-sources 2 \
+  --kill-after 5s --identity-crash-after 7s --publisher-crash-after 9s
+```
+
 ### Chaos disruptions
 
 Disruptions fire mid-traffic, scheduled relative to the start of the traffic phase (spawned stack only).
@@ -144,6 +172,10 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 15s --restart-af
 # and writer pause/resume (controlled lag injection)
 target/debug/personhog-test-harness gate --duration 15s --writer-crash-after 5s
 target/debug/personhog-test-harness gate --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
+
+# Identity crash-restart while the merge lane runs: in-flight merges lose
+# their response and settle from the op record; the delete leg must still work
+target/debug/personhog-test-harness gate --merge-concurrency 2 --duration 15s --identity-crash-after 5s
 
 # Kill the coordinator: the kill resolves the live election holder from etcd
 # (the traffic router never campaigns, so it can never be the target),
