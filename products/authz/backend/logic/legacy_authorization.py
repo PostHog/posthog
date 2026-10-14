@@ -161,7 +161,7 @@ class LegacyAuthorization:
 
         if not access.has_project_access:
             return build(frozenset(), excluded=False)
-        if access.is_organization_admin or not access.access_controls_supported:
+        if access.is_organization_admin:
             return build(frozenset(), excluded=True)
         scope = cast(APIScopeObject, resource.type.value)
         with_rule = access.object_ids_with_rules(scope)
