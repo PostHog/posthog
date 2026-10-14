@@ -182,7 +182,8 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                 !dayjs(draft_updated_at).isSame(preview.draft_updated_at)
             ) {
                 lemonToast.warning('The draft changed while the preview loaded. Review it and publish again.')
-                actions.loadHogFunction()
+                // Applies the read already in hand, so no reload leaves the form open to edits it would reset.
+                actions.loadHogFunctionSuccess(latest as unknown as HogFunctionType)
                 return
             }
             const changedFields = preview.changed_fields ?? []
