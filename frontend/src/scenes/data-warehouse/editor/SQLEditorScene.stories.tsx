@@ -1530,7 +1530,11 @@ export const BINamedHierarchy: Story = {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await userEvent.click(await canvas.findByText('120', { exact: true }))
-        await userEvent.click(await within(document.body).findByRole('button', { name: 'Drill to State' }))
+        await userEvent.click(
+            await within(document.body).findByRole('button', {
+                name: 'Geography: filters this worksheet to the selection',
+            })
+        )
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await waitFor(() => expect(canvas.getByText('Example state', { exact: true })).toBeVisible())
         await stabilizeQueryElapsedTime()
