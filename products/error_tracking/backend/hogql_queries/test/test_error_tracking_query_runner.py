@@ -772,52 +772,40 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand(
         [
-            (f"{order_by}_{shape}_{direction.lower()}", order_by, primary, legacy_shape, direction, tiebreakers)
-            for order_by, primary, tiebreakers in (
-                ("severity", "indexOf(['low', 'medium', 'high', 'critical'], severity)", ["last_seen", "id"]),
-                ("occurrences", "occurrences", ["last_seen", "id"]),
-                ("users", "users", ["last_seen", "id"]),
-                ("sessions", "sessions", ["last_seen", "id"]),
-                ("first_seen", "first_seen", ["last_seen", "id"]),
-                ("last_seen", "last_seen", ["id"]),
-            )
-            for shape, legacy_shape in (("optimized_shape", False), ("legacy_shape", True))
-            for direction in ("DESC", "ASC")
+            ("severity", ["indexOf(['low', 'medium', 'high', 'critical'], severity)", "last_seen", "id"]),
+            ("occurrences", ["occurrences", "last_seen", "id"]),
+            ("users", ["users", "last_seen", "id"]),
+            ("sessions", ["sessions", "last_seen", "id"]),
+            ("first_seen", ["first_seen", "last_seen", "id"]),
+            ("last_seen", ["last_seen", "id"]),
         ]
     )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_ordering_is_total(
-        self,
-        _name: str,
-        order_by: str,
-        primary: str,
-        legacy_shape: bool,
-        direction: str,
-        tiebreakers: list[str],
-    ):
+    def test_ordering_is_total(self, order_by: str, expected_keys: list[str]):
         # Rows share sort values, and the paginator pages with LIMIT/OFFSET, so rows repeat and drop
         # between pages unless the tiebreakers make the order total in both shapes and directions.
-        filter_group = self._severity_is_set_filter() if legacy_shape else None
-
-        builder = ErrorTrackingQueryBuilder(
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(date_from="-7d"),
-                filterGroup=filter_group,
-                orderBy=order_by,  # pyright: ignore[reportArgumentType]
-                orderDirection=direction,  # pyright: ignore[reportArgumentType]
-                volumeResolution=1,
-            ),
-            team=self.team,
-            date_from=datetime(2022, 1, 3, tzinfo=UTC),
-            date_to=datetime(2022, 1, 10, tzinfo=UTC),
-        )
-        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
-
-        self.assertEqual(
-            [(order.expr.to_hogql(), order.order) for order in builder.build_query().order_by or []],
-            [(primary, direction), *((key, "DESC") for key in tiebreakers)],
-        )
+        primary, *tiebreakers = expected_keys
+        for legacy_shape in (False, True):
+            for direction in ("DESC", "ASC"):
+                builder = ErrorTrackingQueryBuilder(
+                    query=ErrorTrackingQuery(
+                        kind="ErrorTrackingQuery",
+                        dateRange=DateRange(date_from="-7d"),
+                        filterGroup=self._severity_is_set_filter() if legacy_shape else None,
+                        orderBy=order_by,  # pyright: ignore[reportArgumentType]
+                        orderDirection=direction,  # pyright: ignore[reportArgumentType]
+                        volumeResolution=1,
+                    ),
+                    team=self.team,
+                    date_from=datetime(2022, 1, 3, tzinfo=UTC),
+                    date_to=datetime(2022, 1, 10, tzinfo=UTC),
+                )
+                self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+                self.assertEqual(
+                    [(order.expr.to_hogql(), order.order) for order in builder.build_query().order_by or []],
+                    [(primary, direction), *((key, "DESC") for key in tiebreakers)],
+                    f"legacy_shape={legacy_shape} direction={direction}",
+                )
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_status(self):
