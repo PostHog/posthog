@@ -347,14 +347,31 @@ class TestSyncSavedQueryToDag(BaseTest):
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
 
-    def test_sync_references_parent_in_managed_dag(self):
+    @parameterized.expand(
+        [
+            ("view", False, False),
+            ("view_with_stale_default_copy", False, True),
+            ("matview_with_stale_default_copy", True, True),
+        ]
+    )
+    def test_sync_references_parent_in_managed_dag(self, _name: str, materialized: bool, stale_copy: bool):
         managed_dag = DAG.get_or_create_revenue_analytics(self.team)
         upstream_query = DataWarehouseSavedQuery.objects.create(
             name="upstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
         )
+        if materialized:
+            upstream_query.table = DataWarehouseTable.objects.create(
+                team=self.team, name="upstream_view", format="Parquet", columns={"event": "String"}
+            )
+            upstream_query.is_materialized = True
+            upstream_query.save(update_fields=["table", "is_materialized"])
         sync_saved_query_to_dag(upstream_query, dag=managed_dag, allow_managed=True)
+        default_dag = DAG.get_or_create_default(self.team)
+        if stale_copy:
+            Node.objects.create(team=self.team, dag=default_dag, saved_query=upstream_query, type=NodeType.MAT_VIEW)
 
         downstream_query = DataWarehouseSavedQuery.objects.create(
             name="downstream_view",
@@ -363,8 +380,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
         downstream_node = sync_saved_query_to_dag(downstream_query)
 
-        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
-        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view")
+        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view", saved_query__isnull=True)
         self.assertEqual(reference.type, NodeType.TABLE)
         self.assertIsNone(reference.saved_query)
         self.assertTrue(Edge.objects.filter(source=reference, target=downstream_node).exists())

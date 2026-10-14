@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -173,3 +174,54 @@ def test_every_event_carries_the_run_metadata(
 
 def test_the_two_run_kinds_label_themselves_differently() -> None:
     assert _SandboxedEvalRun.trace_namespace != _OneShotEvalRun.trace_namespace
+
+
+def test_repeated_case_scores_link_to_their_own_trial_traces() -> None:
+    class _TrialScorer(Scorer):
+        def _name(self) -> str:
+            return "stub"
+
+        def _run_eval_sync(self, output: Any, expected: Any = None, **kwargs: Any) -> Score:
+            return Score(name="stub", score=1.0)
+
+    client = _CapturingClient()
+    scorer_traces: dict[tuple[str, str], str] = {}
+    scorer = TracedScorer(
+        _TrialScorer(),
+        cast(TracedClients, None),
+        {"experiment_id": "exp-1", "experiment_name": "ns/my-suite", "run_metadata": RUN_METADATA},
+        scorer_traces,
+        posthog_client=cast(Posthog, client),
+        agent_trace_id_lookup={"trial-1": "agent-1", "trial-2": "agent-2"},
+    )
+    results = []
+    for index in (1, 2):
+        trial_id = f"trial-{index}"
+        metadata = {"trial_id": trial_id, "trace_id": f"agent-{index}"}
+        asyncio.run(scorer.eval_async({}, input={"name": "same-case"}, metadata=metadata))
+        scorer_traces[(trial_id, "judge")] = f"judge-{index}"
+        results.append(
+            CaseResult(
+                input={"name": "same-case"},
+                output={},
+                scores={"stub": 1.0, "judge": 0.5},
+                metadata=metadata,
+            )
+        )
+    emit_evaluation_events(
+        cast(Posthog, client),
+        "exp-1",
+        "my-suite",
+        list(reversed(results)),
+        namespace="ns",
+        run_metadata=RUN_METADATA,
+        scorer_traces=scorer_traces,
+    )
+    assert [call["properties"]["$ai_trace_id"] for call in client.calls] == [
+        "agent-1",
+        "agent-2",
+        "agent-2",
+        "judge-2",
+        "agent-1",
+        "judge-1",
+    ]

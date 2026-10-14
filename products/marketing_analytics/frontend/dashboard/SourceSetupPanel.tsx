@@ -81,21 +81,34 @@ export function SourceSetupPanel({
                           : 'Spend and ad performance will appear after the first sync finishes. You can connect other platforms while you wait.'
                       : `We found campaign tracking from ${suggestions.length} ${suggestions.length === 1 ? 'platform' : 'platforms'} in your latest event scan.`
 
+    const rescanButton =
+        !busy && onRetry ? (
+            <LemonButton
+                type="secondary"
+                onClick={onRetry}
+                loading={rescanLoading}
+                disabledReason={rescanDisabledReason}
+                data-attr="marketing-onboarding-rescan"
+            >
+                {state === 'error' ? 'Try again' : 'Scan again'}
+            </LemonButton>
+        ) : null
+
     return (
         <LemonCard
             hoverEffect={false}
             className={
-                compact ? 'w-full mt-6 !p-0 overflow-hidden' : 'max-w-3xl w-full mx-auto mt-6 !p-0 overflow-hidden'
+                compact ? 'w-full mt-6 p-0 overflow-hidden' : 'max-w-3xl w-full mx-auto mt-6 p-0 overflow-hidden'
             }
         >
             <div className={compact ? 'p-4 space-y-3' : 'p-6 space-y-5'}>
-                {(state === 'scanning' || state === 'suggestions') && (
+                {!compact && (state === 'scanning' || state === 'suggestions') && (
                     <LemonTag type="muted">7-day event scan</LemonTag>
                 )}
                 <div className="flex items-start gap-4" role={busy ? 'status' : undefined}>
                     {busy ? <Spinner className="mt-1 shrink-0" /> : null}
                     <div className="min-w-0 flex-1">
-                        <h3 className="text-xl mb-2">{title}</h3>
+                        <h3 className={compact ? 'text-base mb-1' : 'mb-2'}>{title}</h3>
                         <p className="text-secondary mb-0 max-w-xl">{description}</p>
                     </div>
                     {!busy && <HedgehogMoney className={compact ? 'w-12 shrink-0' : 'w-20 shrink-0'} />}
@@ -220,17 +233,7 @@ export function SourceSetupPanel({
                         Restore suggestions
                     </LemonButton>
                 )}
-                {!busy && onRetry && (
-                    <LemonButton
-                        type="secondary"
-                        onClick={onRetry}
-                        loading={rescanLoading}
-                        disabledReason={rescanDisabledReason}
-                        data-attr="marketing-onboarding-rescan"
-                    >
-                        {state === 'error' ? 'Try again' : 'Scan again'}
-                    </LemonButton>
-                )}
+                {!compact && rescanButton}
                 {!busy && rescanDisabledReason && <p className="text-secondary text-xs mb-0">{rescanDisabledReason}</p>}
                 {!busy && !compact && state !== 'error' && state !== 'waiting' && (
                     <div className="flex items-start gap-2 text-secondary text-sm">
@@ -245,9 +248,10 @@ export function SourceSetupPanel({
                     </div>
                 )}
             </div>
-            {footer && (
+            {(footer || (compact && rescanButton)) && (
                 <div className="border-t p-4 flex flex-wrap items-center justify-between gap-3 bg-bg-light">
                     {footer}
+                    {compact && rescanButton}
                 </div>
             )}
         </LemonCard>

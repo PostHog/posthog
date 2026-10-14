@@ -1416,6 +1416,13 @@ export interface eventUsageLogicActions {
         kind: string
         surface: IntegrationConnectSurface
     }
+    reportIntegrationScopeShortfallShown: (
+        kind: string,
+        missingScopes: string[]
+    ) => {
+        kind: string
+        missingScopes: string[]
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -1829,6 +1836,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             responseAgeMs?: number
         ) => ({ surface, discoveryId, installationId, responseAgeMs }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
+        reportIntegrationScopeShortfallShown: (kind: string, missingScopes: string[]) => ({ kind, missingScopes }),
         // insights
         reportDataTableColumnsUpdated: (context_type: string) => ({ context_type }),
         // insight filters
@@ -2362,6 +2370,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('integration_connect_rejected', {
                 integration_kind: kind,
                 error,
+            })
+        },
+        // A provider can grant fewer scopes than PostHog asked for, e.g. when a workspace admin has to
+        // approve the app. The connect still succeeds, so this is the only record of the shortfall.
+        reportIntegrationScopeShortfallShown: ({ kind, missingScopes }) => {
+            posthog.capture('integration_scope_shortfall_shown', {
+                integration_kind: kind,
+                missing_scopes: missingScopes,
+                missing_scope_count: missingScopes.length,
             })
         },
         reportTimeToSeeData: async ({ payload }) => {
