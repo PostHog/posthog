@@ -149,6 +149,8 @@ UPPROMOTE_ENDPOINTS: dict[str, UpPromoteEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "program_id"},
             parent_params={"per_page": UPPROMOTE_PAGE_SIZE},
+            # A program deleted between the parent page and its child request must not fail the sync.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
 }

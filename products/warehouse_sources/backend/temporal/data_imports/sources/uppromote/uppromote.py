@@ -230,6 +230,8 @@ def _fanout_source(
         items=lambda: child,
         primary_keys=config.primary_keys,
         sort_mode="asc",
+        # The fan-out saves no checkpoint, so every retry restarts the full refresh.
+        supports_resume=False,
     )
 
 
