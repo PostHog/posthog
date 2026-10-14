@@ -25,7 +25,6 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
-import { ReportDetailLegacy } from './ReportDetailLegacy'
 import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
@@ -180,7 +179,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
             [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
         },
@@ -291,7 +289,6 @@ export const ReportWithFollowUpMetric: Story = {
     parameters: {
         mockDate: '2026-08-29',
         featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
             [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
         },
@@ -323,7 +320,6 @@ export const ReportWithFollowUpMetricHidden: Story = {
     parameters: {
         mockDate: '2026-08-29',
         featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
             [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
         },
@@ -332,9 +328,7 @@ export const ReportWithFollowUpMetricHidden: Story = {
 
 export const ReportFollowUpPending: Story = {
     parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-        },
+        featureFlags: {},
     },
     render: () => (
         <Frame>
@@ -521,26 +515,6 @@ export const PullRequestInlineReview: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />
-        </Frame>
-    ),
-}
-
-// The detail pages with the redesign flag off: summary on the left, evidence on the right, and the
-// "Files changed" tab for a report with a PR.
-export const ReportLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    render: () => (
-        <Frame>
-            <ReportDetailLegacy report={reportTabReports[0]} tab="reports" />
-        </Frame>
-    ),
-}
-
-export const PullRequestLegacy: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
-    render: () => (
-        <Frame>
-            <ReportDetailLegacy report={pullRequestReports[0]} tab="pulls" />
         </Frame>
     ),
 }

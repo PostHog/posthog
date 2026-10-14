@@ -27,7 +27,7 @@ export function ReportFeedbackFooter({
     align = 'start',
 }: {
     report: SignalReport
-    /** `end` pins the row to the right edge, for the redesign's summary column. */
+    /** `end` pins the row to the right edge, for the summary column. */
     align?: 'start' | 'end'
 }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })

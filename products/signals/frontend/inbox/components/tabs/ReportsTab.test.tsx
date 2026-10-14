@@ -18,10 +18,10 @@ import { ReportsTab } from './ReportsTab'
 
 jest.mock('posthog-js')
 // The filters, scope, and bulk bar each pull in their own endpoints; these tests are about what the
-// flat list renders and reports as a whole. The card mock keeps a row identifiable without the full
-// card DOM.
-jest.mock('../cards/ReportCard', () => ({
-    ReportCard: ({ report, sectionKey }: { report: SignalReport; sectionKey: InboxReportSectionKey }) => (
+// flat list renders and reports as a whole. The row mock keeps a row and its state identifiable
+// without the full card DOM.
+jest.mock('../cards/ReportContextMenu', () => ({
+    ReportContextMenu: ({ report, sectionKey }: { report: SignalReport; sectionKey: InboxReportSectionKey }) => (
         <div data-attr={`report-card-${report.id}`} data-section={sectionKey} />
     ),
 }))
