@@ -30,9 +30,17 @@ function Tooltip<Payload>({ onOpenChangeComplete, ...props }: TooltipPrimitive.R
     )
 }
 
-function TooltipTrigger<Payload>({ ...props }: TooltipPrimitive.Trigger.Props<Payload>): React.ReactElement {
-    return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
+// React 18 drops a ref passed to a plain function component. When another trigger renders this one
+// through `render`, that ref is the popup anchor, so without forwardRef the popup never positions.
+// The cast restores the `Payload` generic, because forwardRef cannot carry a generic signature.
+const TooltipTrigger = React.forwardRef(function TooltipTrigger(
+    props: TooltipPrimitive.Trigger.Props,
+    ref: React.ForwardedRef<HTMLButtonElement>
+): React.ReactElement {
+    return <TooltipPrimitive.Trigger ref={ref} data-slot="tooltip-trigger" {...props} />
+}) as <Payload>(
+    props: TooltipPrimitive.Trigger.Props<Payload> & React.RefAttributes<HTMLButtonElement>
+) => React.ReactElement
 
 function TooltipContent({
     className,
