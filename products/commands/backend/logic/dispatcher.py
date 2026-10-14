@@ -111,11 +111,7 @@ class CommandDispatcher:
             self._channel.reply(command.message)
             return command.outcome
 
-        context = self._command_context(command.spec, admission.team_ids, github)
-        if isinstance(context, Answer):
-            self._channel.reply(context.message)
-            return context.outcome
-        return self._run(command, context)
+        return self._run(command, admission.team_ids, github)
 
     def _runnable_command(self, spec: CommandSpec[Any] | None) -> Invocation[Any] | Answer:
         """The command to run, or the answer to a request that needs no PostHog account: help, and
@@ -171,9 +167,14 @@ class CommandDispatcher:
                 )
         return CommandContext(request=request, pull_request=pull_request, members=members)
 
-    def _run(self, command: Invocation[Any], context: CommandContext) -> DispatchOutcome:
+    def _run(self, command: Invocation[Any], team_ids: tuple[int, ...], github: CommandGitHub) -> DispatchOutcome:
+        """Builds the context and runs the handler. A failure in either answers the requester."""
         verb = command.spec.declaration.verb
         try:
+            context = self._command_context(command.spec, team_ids, github)
+            if isinstance(context, Answer):
+                self._channel.reply(context.message)
+                return context.outcome
             outcome = command.run(context)
         except GitHubRateLimitError:
             self._channel.reply(

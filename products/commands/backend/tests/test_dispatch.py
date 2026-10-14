@@ -421,17 +421,31 @@ class TestDispatchCommentCommand(BaseTest):
             assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
             assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
 
-    def test_stamp_answers_before_identity_when_stamphog_does_not_review_the_repository(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_set_up", [], "refused", "Stamphog is not set up for this repository."),
+            # A target lookup that fails must still answer, or the commenter sees only the eyes reaction.
+            (
+                "lookup_failed",
+                ConnectionError("database is down"),
+                "failed",
+                "Something went wrong while running `stamp`.",
+            ),
+        ]
+    )
+    def test_stamp_target_answers_before_identity(
+        self, _name: str, reviewing: list[int] | Exception, expected_outcome: str, expected_reply: str
+    ) -> None:
         github = FakeGitHub()
-        self.stamphog_reviewing.side_effect = None
-        self.stamphog_reviewing.return_value = []
+        self.stamphog_reviewing.side_effect = reviewing if isinstance(reviewing, Exception) else None
+        self.stamphog_reviewing.return_value = reviewing
 
         with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
             outcome = dispatch_comment_command(self._request(), github=github)
 
-        assert outcome == "refused"
+        assert outcome == expected_outcome
         request_review.assert_not_called()
-        assert github.replies[-1].endswith("Stamphog is not set up for this repository.")
+        assert expected_reply in github.replies[-1]
 
     @parameterized.expand(
         [("environment_of_a_denied_project",), ("unverified_email_domain",), ("organization_pending_deletion",)]
