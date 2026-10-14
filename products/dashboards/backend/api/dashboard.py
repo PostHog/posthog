@@ -2065,6 +2065,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
             )
+        self._check_delivered_dashboard_filters_access(
+            cast(User, self.context["request"].user), instance, self.initial_data
+        )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
@@ -2116,9 +2119,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         request_filters = initial_data.get("filters")
         if request_filters is not None:
             instance.filters = self._validated_filters(request_filters)
-            self._check_delivered_dashboard_filters_access(
-                cast(User, self.context["request"].user), instance, instance.filters
-            )
 
         request_variables = initial_data.get("variables")
         # An empty dict is a real value here: it clears the last remaining variable override.
@@ -2215,12 +2215,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
-    def _check_delivered_dashboard_filters_access(user: User, dashboard: Dashboard, filters: dict) -> None:
+    def _check_delivered_dashboard_filters_access(user: User, dashboard: Dashboard, request_data: Any) -> None:
         """Dashboard filters and tile overrides apply to every tile at render time, on the public
         link and in a subscription delivery, so a filter the editor cannot run must not reach a
-        dashboard delivered either way."""
-        properties = filters.get("properties")
-        if not isinstance(properties, list):
+        dashboard delivered either way. The check reads the whole request once, before any write,
+        so a rejected request changes nothing."""
+        filter_sets = [request_data.get("filters")]
+        tiles = request_data.get("tiles")
+        if isinstance(tiles, list):
+            filter_sets += [tile.get("filters_overrides") for tile in tiles if isinstance(tile, dict)]
+        properties = [
+            property_filter
+            for filters in filter_sets
+            if isinstance(filters, dict) and isinstance(filters.get("properties"), list)
+            for property_filter in filters["properties"]
+            if isinstance(property_filter, dict)
+        ]
+        if not properties:
             return
         if is_publicly_shared(dashboard):
             exposure = "publicly shared"
@@ -2414,10 +2425,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data, existing.layouts)
         if not tile_defaults:
             return None, False
-        if tile_defaults.get("filters_overrides"):
-            DashboardSerializer._check_delivered_dashboard_filters_access(
-                user, instance, tile_defaults["filters_overrides"]
-            )
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
         # `deleted` is raw request input; coerce it exactly as the ORM will on save, so a value

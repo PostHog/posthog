@@ -2646,13 +2646,16 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             else {"tiles": [{"id": tile.id, "filters_overrides": filters}]}
         )
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", payload)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {**payload, "name": "Renamed"}
+        )
 
         assert response.status_code == expected, response.content
         dashboard.refresh_from_db()
         tile.refresh_from_db()
         if expected == status.HTTP_400_BAD_REQUEST:
             assert "denied_warehouse_table" in str(response.json())
+            assert dashboard.name != "Renamed"
             assert dashboard.filters == {}
             assert not tile.filters_overrides
         else:
