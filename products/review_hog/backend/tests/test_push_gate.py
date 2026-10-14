@@ -1,12 +1,24 @@
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.llm.system_one import NoulAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
+from posthog.redis import TEST_clear_clients
+from posthog.token_bucket import BucketUnavailable, TEST_reset_scripts
 
-from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, PushGate, PushGateDecision, apply_draft_rule
+from products.review_hog.backend.reviewer.push_gate import (
+    PUSH_GATE_MODEL,
+    PushGate,
+    PushGateDecision,
+    apply_draft_rule,
+    apply_throttle,
+)
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _MODULE = "products.review_hog.backend.reviewer.push_gate"
@@ -322,3 +334,57 @@ def test_push_gate_skips_a_draft_push_and_keeps_the_system_one_answer(
         decision.model,
         decision.own_code_lines,
     ) == expected
+
+
+@pytest.fixture
+def empty_redis() -> Iterator[None]:
+    TEST_clear_clients()
+    TEST_reset_scripts()
+    yield
+    TEST_clear_clients()
+    TEST_reset_scripts()
+
+
+def test_push_gate_throttles_the_third_push_in_half_an_hour(empty_redis: None) -> None:
+    reviewed = PushGateDecision(skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.9)
+    draft = PushGateDecision(skip=True, would_skip=True, reason="draft")
+    pushes = [
+        # A push that an earlier rule skips takes no token.
+        (0, "pr-a", "a1", draft),
+        (0, "pr-a", "a2", reviewed),
+        (1, "pr-a", "a3", reviewed),
+        # A retried turn at a head that paid already runs without a second token.
+        (2, "pr-a", "a3", reviewed),
+        (2, "pr-b", "b1", reviewed),
+        (3, "pr-a", "a4", reviewed),
+        # A retry after a denial asks the bucket again.
+        (4, "pr-a", "a4", reviewed),
+        # One token comes back 30 minutes after the first one went.
+        (31, "pr-a", "a5", reviewed),
+        (32, "pr-a", "a6", reviewed),
+    ]
+    start = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
+    outcomes = []
+    with time_machine.travel(start, tick=False) as clock:
+        for minutes, report_id, head_sha, decision in pushes:
+            clock.move_to(start + timedelta(minutes=minutes))
+            result = apply_throttle(decision, report_id=report_id, head_sha=head_sha)
+            outcomes.append((result.skip, result.reason, result.probability))
+
+    assert outcomes == [
+        (True, "draft", None),
+        (False, "system_one_above_threshold", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (True, "throttled", 0.9),
+        (True, "throttled", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (True, "throttled", 0.9),
+    ]
+
+
+def test_push_gate_reviews_the_push_when_redis_is_down(empty_redis: None) -> None:
+    reviewed = PushGateDecision(skip=False, would_skip=False, reason="system_one_above_threshold")
+    with patch(f"{_MODULE}.consume", return_value=BucketUnavailable(error="down")):
+        assert apply_throttle(reviewed, report_id="pr-a", head_sha="a1") == reviewed
