@@ -31,6 +31,8 @@ from posthog.temporal.ai.slack_app.activities import (
     post_posthog_code_no_repos_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
+    post_slack_unfurl_charts_activity,
+    prepare_slack_unfurl_charts_activity,
     process_slack_app_fork_thread_activity,
     request_untagged_followup_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
@@ -79,6 +81,8 @@ SLACK_APP_ACTIVITIES = [
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     run_posthog_slack_inbox_onboarding_activity,
+    prepare_slack_unfurl_charts_activity,
+    post_slack_unfurl_charts_activity,
 ]
 
 __all__ = [
@@ -127,4 +131,6 @@ __all__ = [
     "resolve_posthog_code_slack_command_user_activity",
     "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding_activity",
+    "post_slack_unfurl_charts_activity",
+    "prepare_slack_unfurl_charts_activity",
 ]
