@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -46,24 +46,38 @@ export function RepositoryMyCell({
         const note = myChoiceNote(entry)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
-                <LemonSelect<MyChoiceValue>
-                    size="small"
-                    aria-label={`My choice for ${name}`}
-                    value={value}
-                    options={withYouIcons(myChoiceOptions(entry))}
-                    onChange={(picked) => setMyChoice(entry, picked)}
-                    disabledReason={busyReason}
-                    data-attr="review-hog-my-choice"
-                />
-                {note && <span className="text-xs text-secondary">{note}</span>}
+                <span className="flex items-center gap-2">
+                    {/* The dot answers "do my PRs here get a review" at a glance, so a column scan finds the off rows. */}
+                    <Tooltip
+                        title={
+                            entry.my_result.flash
+                                ? 'Your pull requests here get automatic reviews'
+                                : 'Your pull requests here get no automatic review'
+                        }
+                    >
+                        <span
+                            className={`inline-block size-2 shrink-0 rounded-full ${entry.my_result.flash ? 'bg-success' : 'bg-border-bold'}`}
+                        />
+                    </Tooltip>
+                    <LemonSelect<MyChoiceValue>
+                        size="small"
+                        aria-label={`My choice for ${name}`}
+                        value={value}
+                        options={withYouIcons(myChoiceOptions(entry))}
+                        onChange={(picked) => setMyChoice(entry, picked)}
+                        disabledReason={busyReason}
+                        data-attr="review-hog-my-choice"
+                    />
+                </span>
+                {note && <span className="pl-4 text-xs text-secondary">{note}</span>}
             </div>
         )
     }
 
     return (
-        <div className={`flex min-w-0 flex-col justify-center gap-1 px-4 py-2.5 ${className ?? ''}`}>
+        <div className={`flex min-w-0 flex-col gap-1 px-4 py-2.5 ${className ?? ''}`}>
             <span className="text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:hidden">
-                My choice
+                Mine
             </span>
             {content}
             {hasChoice && !entry.in_project && (

@@ -52,7 +52,20 @@ function RepositoryRows(): JSX.Element {
         <>
             {overview.results.map((entry) => (
                 <Fragment key={entry.full_name}>
-                    <RepositoryProjectCell entry={entry} className={`${PANE_LEFT} ${PANE_ROW}`} />
+                    <div
+                        className={`flex min-w-0 items-start px-4 pt-2.5 @min-[48rem]:pb-2.5 ${PANE_LEFT} ${PANE_ROW}`}
+                    >
+                        <span
+                            className={`min-h-7 min-w-0 truncate font-mono text-sm leading-7 font-semibold ${entry.in_project ? '' : 'text-secondary'}`}
+                            title={entry.full_name}
+                        >
+                            {entry.full_name}
+                        </span>
+                    </div>
+                    <RepositoryProjectCell
+                        entry={entry}
+                        className={`${PANE_LEFT} pt-0 @min-[48rem]:border-t @min-[48rem]:border-primary @min-[48rem]:pt-2.5`}
+                    />
                     {/* Narrow, the two cells form one block, so only the wide layout draws a line between them. */}
                     <RepositoryMyCell
                         entry={entry}
@@ -95,7 +108,18 @@ export function RepositoriesPanes(): JSX.Element {
                 </div>
                 <ProjectRuleCell className={`${PANE_LEFT} ${PANE_ROW}`} />
                 <MyDefaultCell className={`${PANE_RIGHT} ${PANE_ROW}`} />
+            </div>
+            <div className="mt-4 grid grid-cols-1 overflow-hidden rounded border border-primary @min-[48rem]:grid-cols-[minmax(0,0.8fr)_minmax(0,1.15fr)_minmax(0,1fr)] [&>*:first-child]:border-t-0">
                 <RepositoryListToolbar />
+                {/* The same column names as the Deep settings tables. */}
+                {['Repository', 'Project', 'Mine'].map((column) => (
+                    <div
+                        key={column}
+                        className={`hidden px-4 py-1.5 text-xxs font-semibold tracking-wide text-secondary uppercase @min-[48rem]:block ${column === 'Mine' ? PANE_RIGHT : PANE_LEFT} ${PANE_ROW}`}
+                    >
+                        {column}
+                    </div>
+                ))}
                 <RepositoryRows />
                 <RepositoryListPager />
             </div>
