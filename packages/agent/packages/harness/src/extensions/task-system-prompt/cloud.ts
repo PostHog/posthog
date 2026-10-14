@@ -9,6 +9,7 @@ import {
   buildTaskSummaryInstructions,
   TASK_SUMMARY_TOOL_NAME,
 } from "./task-summary";
+import { buildWorkspacePersistenceInstructions } from "./workspace-persistence";
 
 export type SlackArtifactDelivery = "none" | "message" | "canvas_file";
 
@@ -291,7 +292,8 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
+${buildWorkspacePersistenceInstructions()}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
 ${buildTaskSummaryInstructions()}`;
 
     // The shared block above is shaped for a run that ends with work landed. A

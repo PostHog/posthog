@@ -1,5 +1,6 @@
 import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import { buildTaskSummaryInstructions } from "./task-summary";
+import { buildWorkspacePersistenceInstructions } from "./workspace-persistence";
 
 export interface TaskPromptCapabilities {
   structuredInput?: boolean;
@@ -151,7 +152,10 @@ export function buildTaskSystemPrompt(
   );
 
   if (context.environment === "cloud") {
-    sections.push(buildTaskSummaryInstructions());
+    sections.push(
+      buildWorkspacePersistenceInstructions(),
+      buildTaskSummaryInstructions(),
+    );
   }
 
   if (context.channelMode) {
