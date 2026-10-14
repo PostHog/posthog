@@ -177,6 +177,19 @@ def create_living_artifact(
     return artifact
 
 
+def _stored_version_matches_hash(artifact: TaskArtifact, version: int) -> bool:
+    resolved = resolve_living_artifact_version(artifact, version)
+    if resolved is None:
+        return False
+    if not resolved.storage_path:
+        return True
+    digest = resolved.record.get("content_sha256")
+    if not isinstance(digest, str):
+        return False
+    stored = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
+    return stored is not None and hashlib.sha256(stored).hexdigest() == digest
+
+
 def _source_runs_scripts(content: ArtifactContent) -> bool:
     if content.source_artifact is None:
         return True
@@ -222,6 +235,8 @@ def edit_living_artifact(
         artifact_type=artifact.artifact_type,
         content=content_payload,
     )
+    base_version_number = int(artifact.current_version or 0)
+    base_bytes_unchanged = written_with_open_network and _stored_version_matches_hash(artifact, base_version_number)
     existing_content = selected_adapter.open(artifact)
     next_content = selected_adapter.apply_edit(existing_content, content_payload.body)
     commit = selected_adapter.commit(
@@ -245,6 +260,8 @@ def edit_living_artifact(
             {
                 **commit.version,
                 ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network
+                and base_bytes_unchanged
+                and locked.current_version == base_version_number
                 and base_version is not None
                 and base_version.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
                 and _source_runs_scripts(content_payload),

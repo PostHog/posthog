@@ -4149,6 +4149,9 @@ def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storag
     )
 
 
+ARTIFACT_SCRIPT_HASH_BUDGET_BYTES = 64 * 1024 * 1024
+
+
 def _earlier_versions_run_scripts(manifest: list[dict], name: str) -> bool:
     return all(isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str) for e in manifest if e.get("name") == name)
 
@@ -4201,6 +4204,7 @@ def upload_task_run_artifacts(
         return None
 
     uploaded: list[dict] = []
+    hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
     for artifact in artifacts:
         artifact_id = str(artifact.get("id") or uuid_module.uuid4().hex)
         safe_name, storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
@@ -4214,8 +4218,14 @@ def upload_task_run_artifacts(
         script_sha256 = hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None
         if script_sha256 is not None and is_html_artifact(safe_name, content_type or ""):
             previous = _latest_version([*(run.artifacts or []), *uploaded], safe_name)
-            if previous is not None and not _stored_bytes_match_script_record(previous):
+            previous_size = previous.get("size") if previous is not None else 0
+            hash_cost = previous_size if isinstance(previous_size, int) else hash_budget + 1
+            if hash_cost > hash_budget:
                 script_sha256 = None
+            else:
+                hash_budget -= hash_cost
+                if previous is not None and not _stored_bytes_match_script_record(previous):
+                    script_sha256 = None
 
         object_storage.write(storage_path, content_bytes, extras or None)
         _tag_artifact_object(run, storage_path)
@@ -4456,6 +4466,7 @@ def finalize_task_run_artifact_uploads(
     artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
     finalized_entries: list[dict] = []
     new_entries: list[dict] = []
+    hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
     new_storage_paths: list[str] = []
 
     for artifact in artifacts:
@@ -4494,7 +4505,13 @@ def finalize_task_run_artifact_uploads(
         )
         if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
             previous = base_entry or _latest_version(manifest, safe_name)
-            base_runs_scripts = previous is None or _stored_bytes_match_script_record(previous)
+            previous_size = previous.get("size") if previous is not None else 0
+            hash_cost = content_length + (previous_size if isinstance(previous_size, int) else hash_budget + 1)
+            if hash_cost > hash_budget:
+                base_runs_scripts = False
+            else:
+                hash_budget -= hash_cost
+                base_runs_scripts = previous is None or _stored_bytes_match_script_record(previous)
         if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
             uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
             script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None

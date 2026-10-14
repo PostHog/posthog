@@ -10391,6 +10391,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_read_bytes.return_value = b"<script>location.replace('https://attacker.example/')</script>"
         self.assertNotIn("allow-scripts", served_csp())
 
+        if writer == "living":
+            edited = self.client.post(
+                f"{runs_path}/living_artifacts/{saved.json()['id']}/edit/",
+                {
+                    "content_base64": base64.b64encode(b"<p>Fixed a typo</p>").decode("ascii"),
+                    "content_type": "text/html",
+                },
+                format="json",
+            )
+            self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.content)
+            preview = self.client.get(f"{runs_path}/artifacts/{saved.json()['id']}/preview/?version=2")
+            self.assertEqual(preview.status_code, status.HTTP_200_OK)
+            self.assertFalse(preview.json()["scripts_available"])
+
     @parameterized.expand(
         [
             ("edit_of_an_open_file", "upload_edit", "match", True),
@@ -10401,6 +10415,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("inline_upload_over_a_restricted_file", "inline_upload", None, False),
             ("inline_upload_over_an_open_file_replaced_after_save", "inline_upload", "stale", False),
             ("edit_of_an_open_file_replaced_after_save", "upload_edit", "stale", False),
+            ("edit_over_the_hash_budget", "upload_edit_over_budget", "match", False),
             ("living_copy_of_an_open_file", "living_copy", "match", True),
             ("living_copy_of_a_restricted_file", "living_copy", None, False),
             ("living_copy_of_an_open_file_replaced_after_save", "living_copy", "stale", False),
@@ -10441,6 +10456,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "content_type": "text/html",
                 "storage_path": f"{run.get_artifact_s3_prefix()}/{base_id[:8]}_report.html",
                 "uploaded_at": "2026-09-28T18:00:00Z",
+                "size": len(html),
                 **(
                     {"script_sha256": hashlib.sha256(html if base_record == "match" else b"<p>Saved</p>").hexdigest()}
                     if base_record
@@ -10461,24 +10477,26 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 format="json",
             )
             api_path = f"{runs_path}/artifacts/{saved.json()['artifacts'][-1]['id']}/preview/"
-        elif writer in ("upload_edit", "upload_edit_without_base"):
+        elif writer in ("upload_edit", "upload_edit_without_base", "upload_edit_over_budget"):
             edit_id = uuid.uuid4().hex
-            saved = self.client.post(
-                f"{runs_path}/artifacts/finalize_upload/",
-                {
-                    "artifacts": [
-                        {
-                            "id": edit_id,
-                            "name": "report.html",
-                            "type": "output",
-                            "storage_path": f"{run.get_artifact_s3_prefix()}/{edit_id[:8]}_report.html",
-                            "content_type": "text/html",
-                            **({"base_artifact_id": base_id} if writer == "upload_edit" else {}),
-                        }
-                    ]
-                },
-                format="json",
-            )
+            budget = 1 if writer == "upload_edit_over_budget" else tasks_facade.ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
+            with patch.object(tasks_facade, "ARTIFACT_SCRIPT_HASH_BUDGET_BYTES", budget):
+                saved = self.client.post(
+                    f"{runs_path}/artifacts/finalize_upload/",
+                    {
+                        "artifacts": [
+                            {
+                                "id": edit_id,
+                                "name": "report.html",
+                                "type": "output",
+                                "storage_path": f"{run.get_artifact_s3_prefix()}/{edit_id[:8]}_report.html",
+                                "content_type": "text/html",
+                                **({"base_artifact_id": base_id} if writer == "upload_edit" else {}),
+                            }
+                        ]
+                    },
+                    format="json",
+                )
             api_path = f"{runs_path}/artifacts/{edit_id}/preview/"
         else:
             integration = Integration.objects.create(
