@@ -97,6 +97,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
@@ -2015,9 +2016,11 @@ class FeatureFlagSerializer(
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
         # this team or its organization denies the write, because a v2 change that needs
         # approval has nowhere to go. Existence only, so PolicyEngine's precedence is irrelevant.
+        # Before rollout the experiment policies are unenforced copies, so they deny nothing.
+        action_keys = FLAG_WRITE_APPROVAL_ACTIONS if scope_by_owner_enabled(team.organization) else V2_APPROVAL_ACTIONS
         if (
             ApprovalPolicy.objects.enabled()
-            .filter(organization_id=team.organization_id, action_key__in=FLAG_WRITE_APPROVAL_ACTIONS)
+            .filter(organization_id=team.organization_id, action_key__in=action_keys)
             .filter(Q(team=team) | Q(team__isnull=True))
             .exists()
         ):
