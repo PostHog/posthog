@@ -1691,7 +1691,7 @@ class FeatureFlagSerializer(
         # this key. Skip the uniqueness read entirely in that case, so another flag in another team or
         # a lagging read replica can't produce a false "key already exists" error on an edit that never
         # touched the key. Genuine collisions on write are still caught by the "unique key for team" DB
-        # access_filter inside update()'s locked transaction.
+        # constraint inside update()'s locked transaction.
         if instance is None or value != instance.key:
             unique_qs = FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
             if instance is not None:
@@ -2179,7 +2179,7 @@ class FeatureFlagSerializer(
             else:
                 merged["aggregation_group_type_index"] = None
 
-        # Check Early Access Feature access_filter: no condition set can use group
+        # Check Early Access Feature constraint: no condition set can use group
         # aggregation if the flag is linked to an Early Access Feature.
         has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in well_formed_groups)
         if (
@@ -2447,7 +2447,7 @@ class FeatureFlagSerializer(
             has_cycle(dep_flag_key, [current_flag_key])
 
     def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
-        # The (team, key) unique access_filter spans soft-deleted rows, so we must
+        # The (team, key) unique constraint spans soft-deleted rows, so we must
         # clear any tombstone holding `key`. Hard-delete first; if an FK blocks
         # it (Experiment uses RESTRICT, EarlyAccessFeature uses PROTECT), rename
         # the tombstone instead — same scheme as the soft-delete update path.
@@ -2500,9 +2500,9 @@ class FeatureFlagSerializer(
             )
 
     def _reraise_duplicate_key_violation(self, exc: IntegrityError) -> NoReturn:
-        # The "unique key for team" DB access_filter is the authoritative guard on key
+        # The "unique key for team" DB constraint is the authoritative guard on key
         # uniqueness. A concurrent create or rename can slip a duplicate in between the
-        # unlocked validate_key read and the write; translate that access_filter violation
+        # unlocked validate_key read and the write; translate that constraint violation
         # into the same clean field error instead of surfacing a 500.
         if "unique key for team" in str(exc):
             raise serializers.ValidationError(
@@ -2710,7 +2710,7 @@ class FeatureFlagSerializer(
                 old_key = locked_instance.key
 
                 # Clear any soft-deleted tombstone on `new_key` so the (team, key)
-                # unique access_filter doesn't block the rename. Mirrors create().
+                # unique constraint doesn't block the rename. Mirrors create().
                 new_key = validated_data.get("key")
                 if new_key and new_key != old_key and validated_data.get("deleted", locked_instance.deleted) is False:
                     self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=locked_instance.pk)
