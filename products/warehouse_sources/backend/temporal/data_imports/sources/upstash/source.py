@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UpstashSource(SimpleSource[UpstashSourceConfig]):
+    codebase_detection = detect(
+        env=("^UPSTASH_", "^QSTASH_"),
+        npm=(
+            "@upstash/redis",
+            "@upstash/ratelimit",
+            "@upstash/qstash",
+            "@upstash/vector",
+            "@upstash/workflow",
+            "@upstash/search",
+        ),
+        pypi=("upstash-redis", "upstash-ratelimit", "qstash", "upstash-vector", "upstash-workflow"),
+        go=("github.com/upstash/vector-go", "github.com/upstash/qstash-go"),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://upstash.com/docs/devops/developer-api/introduction"
@@ -48,7 +63,7 @@ class UpstashSource(SimpleSource[UpstashSourceConfig]):
             name=ExternalDataSourceType.UPSTASH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Upstash",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Upstash account email and a management API key to pull your Upstash Redis databases, usage stats, teams, and vector indexes into the PostHog Data warehouse.
 
 Create a management API key in the [Upstash console](https://console.upstash.com/account/api) under **Account > Management API**. The Developer API is only available to native Upstash accounts (not Vercel or Fly.io marketplace accounts).""",

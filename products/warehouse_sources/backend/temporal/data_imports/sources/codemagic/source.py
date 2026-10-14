@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -13,8 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.
     validate_credentials as validate_codemagic_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -35,8 +38,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodemagicSource(ResumableSource[CodemagicSourceConfig, CodemagicResumeConfig]):
+    codebase_detection = detect(env=("^CODEMAGIC_", "^CM_API_TOKEN$"), pypi=("codemagic-cli-tools",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.codemagic.io/rest-api/codemagic-rest-api/"
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -106,7 +113,7 @@ Supported tables:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_codemagic_credentials(config.api_token)
+        return validate_codemagic_credentials(config.api_token, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CodemagicResumeConfig]:
         return ResumableSourceManager[CodemagicResumeConfig](inputs, CodemagicResumeConfig)
@@ -123,4 +130,5 @@ Supported tables:
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

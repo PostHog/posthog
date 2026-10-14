@@ -36,11 +36,11 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False on these hot-table FKs so CreateModel takes no lock on
     # posthog_team / posthog_user (see HotTableAlterPolicy / safe-django-migrations).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     deleted = models.BooleanField(default=False)
 

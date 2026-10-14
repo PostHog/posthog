@@ -30,10 +30,13 @@ from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
+    CIDataFreshness,
     CIEngine,
     CIFailureLogs,
     CISignalsConfig,
     CITestRunner,
+    CITimingContext,
+    CITimingKind,
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
@@ -41,6 +44,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
     GitHubSource,
     GitHubTeamRoster,
+    JobLogInsights,
     MasterFailureGroup,
     MergedPullRequest,
     PRCostSummary,
@@ -67,6 +71,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -422,6 +427,59 @@ def list_workflow_jobs(
     )
 
 
+def get_job_log_insights(
+    *,
+    team: Team,
+    repo: str,
+    run_id: int,
+    job_id: int,
+    ci_engine: CIEngine | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> JobLogInsights:
+    return logic.build_job_log_insights(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        run_id=run_id,
+        job_id=job_id,
+        ci_engine=ci_engine,
+    )
+
+
+def get_ci_data_freshness(
+    *,
+    team: Team,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIDataFreshness:
+    return logic.build_ci_data_freshness(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
+def get_ci_timing_context(
+    *,
+    team: Team,
+    repo: str,
+    ci_engine: CIEngine,
+    run_id: int,
+    run_attempt: int,
+    kind: CITimingKind,
+    job_ids: "Sequence[int]" = (),
+    step_number: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CITimingContext:
+    return logic.build_ci_timing_context(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
+        ci_engine=ci_engine,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        kind=kind,
+        job_ids=job_ids,
+        step_number=step_number,
+    )
+
+
 def get_ci_cards(
     *,
     team: Team,
@@ -548,10 +606,11 @@ def list_team_ci_health(
     limit: int | None = None,
     owner_team: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
     return logic.build_team_ci_health(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         min_failed_prs=min_failed_prs,
@@ -568,10 +627,11 @@ def get_team_ci_activity(
     date_to: str | None = None,
     test_limit: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIActivity:
     return logic.build_team_ci_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         owner_team=owner_team,
         date_from=date_from,
         date_to=date_to,
@@ -586,10 +646,11 @@ def get_team_merge_trend(
     date_from: str | None = None,
     date_to: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamMergeTrend:
     return logic.build_team_merge_trend(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         owner_team=owner_team,
         date_from=date_from,
         date_to=date_to,

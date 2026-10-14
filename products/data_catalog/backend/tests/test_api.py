@@ -18,6 +18,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH
 from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metrics import (
     BULK_SKIP_ALREADY_APPROVED,
@@ -64,9 +65,12 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["approved_at"] is None
 
     def test_overlong_description_rejected(self) -> None:
-        response = self.client.post(self.url, {"name": "mrr", "description": "x" * 1_001}, format="json")
+        response = self.client.post(
+            self.url, {"name": "mrr", "description": "x" * (MAX_DESCRIPTION_LENGTH + 1)}, format="json"
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "description"
+        assert response.json()["detail"] == DESCRIPTION_TOO_LONG_MESSAGE
 
     def test_create_is_upsert_on_name(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
@@ -142,15 +146,35 @@ class TestMetricAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["definition_kind"] == "MarkdownDefinition"
 
-    def test_list_is_team_scoped(self) -> None:
+    @parameterized.expand(
+        [
+            ("unfiltered", "", ["mine", "unrelated"], "description"),
+            ("search", "activation revenue", ["mine"], "description"),
+            ("natural_language", "what is our activation", ["mine"], "description"),
+            ("stop_words", "what is our", [], "description"),
+            ("display_name", "what is activation", ["mine"], "display_name"),
+            ("definition", "what is activation", ["mine"], "definition"),
+            ("query", "what is count", ["mine"], "query"),
+        ]
+    )
+    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str], match_field: str) -> None:
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        self.client.post(self.url, {"name": "mine", "description": "d"}, format="json")
-        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", description="d")
+        fields: dict[str, object] = {"description": "retention"}
+        if match_field == "definition":
+            fields["definition"] = {"kind": "MarkdownDefinition", "markdown": "Overview\nactivation"}
+        elif match_field == "query":
+            fields["definition"] = {"kind": "HogQLQuery", "query": "SELECT\ncount() FROM events"}
+        else:
+            fields[match_field] = "activation"
+        created = self.client.post(self.url, {"name": "mine", **fields}, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", **fields)
 
-        names = [row["name"] for row in self.client.get(self.url).json()["results"]]
-        assert names == ["mine"]
+        self.client.post(self.url, {"name": "unrelated", "description": "retention"}, format="json")
+        names = [row["name"] for row in self.client.get(self.url, {"search": search}).json()["results"]]
+        assert sorted(names) == expected
 
     @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
     def test_metrics_referencing_denied_tables_are_hidden(self, create_database: MagicMock) -> None:

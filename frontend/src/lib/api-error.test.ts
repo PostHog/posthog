@@ -8,6 +8,54 @@ import {
 } from './api-error'
 
 describe('api-error', () => {
+    describe('capacity retry deadlines', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            { status: 503, seconds: 0, expected: 0 },
+            { status: 503, seconds: 5, expected: 5 },
+            { status: 503, seconds: 45, expected: 45 },
+            { status: 500, seconds: 45, expected: null },
+        ])(
+            'anchors a numeric capacity hint to receipt time only for 503 (status=$status, seconds=$seconds)',
+            ({ status, seconds, expected }) => {
+                jest.useFakeTimers()
+                const receivedAt = Date.now()
+                const error = new ApiError('', status, new Headers({ 'Retry-After': String(seconds) }))
+
+                jest.advanceTimersByTime(1000)
+
+                expect(error.retryAfterSeconds).toBe(expected)
+                expect(error.retryAfterTimestamp).toBe(expected === null ? null : receivedAt + expected * 1000)
+            }
+        )
+
+        it('ignores HTTP-date capacity hints even with a server Date header', () => {
+            const error = new ApiError(
+                '',
+                503,
+                new Headers({
+                    Date: 'Mon, 05 Oct 2026 12:00:00 GMT',
+                    'Retry-After': 'Mon, 05 Oct 2026 12:00:45 GMT',
+                })
+            )
+
+            expect(error.retryAfterTimestamp).toBeNull()
+            expect(error.retryAfterSeconds).toBeNull()
+        })
+
+        it.each([undefined, '', '-1', '1.5', '1e3', 'unknown', 'Infinity', '9'.repeat(400)])(
+            'ignores an invalid Retry-After header: %s',
+            (retryAfter) => {
+                const headers = new Headers(retryAfter === undefined ? {} : { 'Retry-After': retryAfter })
+                const error = new ApiError('', 503, headers)
+                expect(error.retryAfterTimestamp).toBeNull()
+                expect(error.retryAfterSeconds).toBeNull()
+            }
+        )
+    })
     describe('ApiError.fromResponse', () => {
         it.each([
             ['error', { error: 'error message' }, 'error message'],

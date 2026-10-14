@@ -46,17 +46,17 @@ class TestOAuthApplicationAdmin(BaseTest):
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        assert app.provisioning.can_use_github_grants is False
+        assert app.provisioning.can_issue_deep_links is False
 
-        form = self._provisioning_form(app, provisioning_can_use_github_grants="on")
+        form = self._provisioning_form(app, provisioning_can_issue_deep_links="on")
         assert form.is_valid(), form.errors
         form.save()
 
         app.refresh_from_db()
         granted = app.provisioning
-        assert granted.can_use_github_grants is True
+        assert granted.can_issue_deep_links is True
         # Unticked boxes stay off rather than picking up a default.
-        assert granted.can_start_wizard_runs is False
+        assert granted.skip_existing_user_consent is False
 
     def _rate_limit_app(self) -> OAuthApplication:
         return OAuthApplication.objects.create(

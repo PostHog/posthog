@@ -16,7 +16,7 @@ from rest_framework.settings import api_settings
 from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
-from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
+from ..facade.enums import CheckSeverity, CheckType, CreatedSource, DataQualityScheduleInterval, SubjectType
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
@@ -324,7 +324,9 @@ class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
     SCHEDULE_FIELDS = ("interval", "enabled")
 
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the subject run."
+        choices=DataQualityScheduleInterval.choices,
+        required=False,
+        help_text="How often all enabled checks on the subject run.",
     )
     enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
 
@@ -336,7 +338,7 @@ class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
 class DataQualityCheckScheduleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Schedule identifier.")
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), read_only=True, help_text="How often the checks run."
+        choices=DataQualityScheduleInterval.choices, read_only=True, help_text="How often the checks run."
     )
     enabled = serializers.BooleanField(read_only=True, help_text="Whether the schedule runs automatically.")
     next_run_at = serializers.DateTimeField(

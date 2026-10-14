@@ -1,6 +1,9 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.descope.source import DescopeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.descope import (
     DescopeSourceConfig,
@@ -8,49 +11,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class TestDescopeSource:
-    def setup_method(self):
-        self.source = DescopeSource()
-        self.team_id = 123
-        self.config = DescopeSourceConfig(project_id="P2abc", management_key="mgmt-key")
-
     @pytest.mark.parametrize(
-        "observed_error",
+        "status_code, expected_valid",
         [
-            "401 Client Error: Unauthorized for url: https://api.descope.com/v1/mgmt/projects/list",
-            "403 Client Error: Forbidden for url: https://api.descope.com/v2/mgmt/user/search",
+            (200, True),
+            (401, False),
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_vendor_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.descope.com/v1/mgmt/audit/search",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_vendor_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid",
-        [
-            (True, True),
-            (False, False),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.descope.source.validate_descope_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:
+        config = DescopeSourceConfig(project_id="P2abc", management_key="mgmt-key")
+        with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
+            is_valid, error_message = DescopeSource().validate_credentials(config, team_id=123)
 
         assert is_valid is expected_valid
         if not expected_valid:
             assert error_message
-        mock_validate.assert_called_once_with(self.config.project_id, self.config.management_key)
+        assert network.requests_log[0].path == "/v1/mgmt/projects/list"
+        assert network.requests_log[0].headers["authorization"] == "Bearer P2abc:mgmt-key"

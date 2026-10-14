@@ -6,7 +6,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, [''] AS prop, arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(lessOrEquals(length(x.4), 1), equals(x.4, x_before.4), equals(x.4, x_after.4), equals(x.3, x_before.3), equals(x.3, x_after.3), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, af_tuple.5 AS steps_bitfield, aggregation_target AS aggregation_target
         FROM
-          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.properties.`$session_id` AS `$session_id`, e.properties.`$window_id` AS `$window_id`, if(and(equals(e.event, 'user signed up'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key)))), 'val'), 0)), 1, 0) AS step_0, if(and(equals(e.event, 'paid'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^key)), if(isNull(nullIf(toString(e.properties.key), '')), NULL, if(and(in(ascii(toString(e.properties.key)), tuple(91, 123)), in(ascii(toJSONString(e.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.key), '[]'), '{}'), toString(e.properties.key)))), 'val'), 0)), 1, 0) AS step_1
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.properties.`$session_id` AS `$session_id`, e.properties.`$window_id` AS `$window_id`, if(and(equals(e.event, 'user signed up'), ifNull(equals(CAST(e.properties.key, 'Nullable(String)'), 'val'), 0)), 1, 0) AS step_0, if(and(equals(e.event, 'paid'), ifNull(equals(CAST(e.properties.key, 'Nullable(String)'), 'val'), 0)), 1, 0) AS step_1
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -59,7 +59,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties[new_events_schema.1]
@@ -105,7 +106,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), if(isNull(nullIf(toString(e.person_properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$browser`), '[]'), '{}'), toString(e.person_properties.`$browser`)))), 'Positive'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), equals(e.person_properties.`$browser`, 'Positive')), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -134,7 +135,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties[new_events_schema.2]
@@ -180,7 +182,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), if(isNull(nullIf(toString(e.person_properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$browser`), '[]'), '{}'), toString(e.person_properties.`$browser`)))), 'Positive'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), equals(e.person_properties.`$browser`, 'Positive')), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -209,7 +211,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties[new_events_schema.3]
@@ -255,7 +258,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), if(isNull(nullIf(toString(e.person_properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$browser`), '[]'), '{}'), toString(e.person_properties.`$browser`)))), 'Negative'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), equals(e.person_properties.`$browser`, 'Negative')), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -284,7 +287,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties[new_events_schema.4]
@@ -330,7 +334,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^`$browser`)), if(isNull(nullIf(toString(e.person_properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$browser`), '[]'), '{}'), toString(e.person_properties.`$browser`)))), 'Negative'), 0)), or(equals(step_0, 1), equals(step_1, 1))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), equals(e.person_properties.`$browser`, 'Negative')), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -359,7 +363,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties[new_events_schema]
@@ -443,7 +448,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups[new_events_schema]
@@ -484,13 +490,15 @@
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        filtered_events AS
     (SELECT events.event AS event,
-            JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
-                                                                                                                                                                 and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
-                                                                                                                                                      and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')) AS properties,
+            concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                   and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                        and not (kv.2 = '""'
+                                                                                                                                 and kv.1 in ('$browser', '$browser_language', '$browser_version', '$config_defaults', '$device_type', '$geoip_city_name', '$geoip_continent_code', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$geoip_subdivision_1_name', '$geoip_time_zone', '$group_0', '$group_1', '$group_2', '$group_3', '$group_4', '$lib', '$lib_version', '$os', '$os_version', '$session_id', '$timezone', '$window_id'))
+                                                                                                                        and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}') AS properties,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
             events.properties.`$group_1` AS `$group_1`,
-            accurateCastOrNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_issue_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_issue_id`)), if(isNull(nullIf(toString(events.properties.`$exception_issue_id`), '')), NULL, if(and(in(ascii(toString(events.properties.`$exception_issue_id`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$exception_issue_id`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$exception_issue_id`), '[]'), '{}'), toString(events.properties.`$exception_issue_id`)))), 'UUID') AS event_issue_id,
+            accurateCastOrNull(if(notEquals(toJSONString(events.properties.^`$exception_issue_id`), '{}'), toJSONString(events.properties.^`$exception_issue_id`), if(isNull(nullIf(toString(events.properties.`$exception_issue_id`), '')), NULL, if(and(in(ascii(toString(events.properties.`$exception_issue_id`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$exception_issue_id`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$exception_issue_id`), '[]'), '{}'), toString(events.properties.`$exception_issue_id`)))), 'UUID') AS event_issue_id,
             events__fingerprint_issue_state.issue_id AS issue_id,
             events__fingerprint_issue_state.issue_id AS issue_id_v2,
             events__fingerprint_issue_state.issue_name AS issue_name,
@@ -512,7 +520,7 @@
         FROM error_tracking_fingerprint_issue_state
         WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
         GROUP BY fp_hash
-        HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(and(in(ascii(toString(events.properties.`$exception_fingerprint`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$exception_fingerprint`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`))))), events__fingerprint_issue_state.fp_hash)
+        HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(toJSONString(events.properties.^`$exception_fingerprint`), '{}'), toJSONString(events.properties.^`$exception_fingerprint`), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(and(in(ascii(toString(events.properties.`$exception_fingerprint`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$exception_fingerprint`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`))))), events__fingerprint_issue_state.fp_hash)
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -548,7 +556,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.1]
@@ -618,7 +627,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.2]
@@ -688,7 +698,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.3]
@@ -758,7 +769,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.4]
@@ -828,7 +840,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.5]
@@ -883,7 +896,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.6]
@@ -953,7 +967,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema.7]
@@ -1023,7 +1038,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups[new_events_schema]
@@ -1073,7 +1089,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups[new_events_schema.1]
@@ -1147,7 +1164,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups[new_events_schema.2]
@@ -1221,7 +1239,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups[new_events_schema.3]
@@ -1295,7 +1314,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups[new_events_schema.4]
@@ -1369,7 +1389,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups[new_events_schema.5]
@@ -1445,7 +1466,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups[new_events_schema]
@@ -1521,7 +1543,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events[new_events_schema.1]
@@ -1595,7 +1618,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events[new_events_schema.2]
@@ -1669,7 +1693,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events[new_events_schema.3]
@@ -1743,7 +1768,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events[new_events_schema.4]
@@ -1817,7 +1843,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events[new_events_schema.5]
@@ -1893,7 +1920,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events[new_events_schema]
@@ -1969,6 +1997,7 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---

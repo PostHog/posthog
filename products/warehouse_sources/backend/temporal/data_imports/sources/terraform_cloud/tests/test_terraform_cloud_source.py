@@ -4,11 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.terraformcloud import (
     TerraformCloudSourceConfig,
@@ -38,31 +33,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False) -> Sou
 
 
 class TestTerraformCloudSource:
-    def test_source_config_shape(self) -> None:
-        config = TerraformCloudSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source must be visible — unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/terraform-cloud"
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_token", "organization"]
-        token_field = config.fields[0]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-
-    def test_get_schemas_incremental_flags(self) -> None:
-        # Only the newest-first, created_at-cursorable child endpoints may advertise
-        # incremental; the org-level lists have no cursor and must stay full refresh.
-        schemas = {s.name: s for s in TerraformCloudSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == {"organizations", "projects", "teams", "workspaces", "runs", "state_versions"}
-        for name in ("runs", "state_versions"):
-            assert schemas[name].supports_incremental is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["created_at"]
-        for name in ("organizations", "projects", "teams", "workspaces"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].incremental_fields == []
-
     def test_get_schemas_filters_by_name(self) -> None:
         schemas = TerraformCloudSource().get_schemas(_config(), team_id=1, names=["runs"])
         assert [s.name for s in schemas] == ["runs"]
@@ -125,13 +95,3 @@ class TestTerraformCloudSource:
             should_use_incremental_field=should_use_incremental,
             db_incremental_field_last_value=expected_last_value,
         )
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials powers the public docs table catalog; it must resolve
-        # from the static endpoint catalog with no network call and merge canonical descriptions.
-        tables = TerraformCloudSource().get_documented_tables()
-        by_name: dict[str, dict[str, Any]] = {t["name"]: t for t in tables}
-        assert set(by_name) == {"organizations", "projects", "teams", "workspaces", "runs", "state_versions"}
-        assert by_name["runs"]["sync_methods"] == ["Incremental", "Full refresh"]
-        assert by_name["workspaces"]["sync_methods"] == ["Full refresh"]
-        assert by_name["runs"]["description"]

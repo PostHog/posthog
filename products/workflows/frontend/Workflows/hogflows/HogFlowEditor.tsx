@@ -23,7 +23,7 @@ import { workflowLogic } from '../workflowLogic'
 import { HogFlowBranchSelectionProvider } from './HogFlowBranchSelection'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
-import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
+import { LOW_DETAIL_ZOOM, MAX_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowTreeEditor } from './tree/HogFlowTreeEditor'
@@ -89,6 +89,7 @@ function HogFlowGraphEditor(): JSX.Element {
                     className="grow"
                     fitView
                     minZoom={MIN_ZOOM}
+                    maxZoom={MAX_ZOOM}
                     // Only dispatched when the detail tier flips, so panning and zooming don't put a
                     // Redux action on every animation frame.
                     onMove={(_, viewport) => {

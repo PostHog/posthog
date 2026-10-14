@@ -210,7 +210,12 @@ def _search_payload(outcome: RepositorySearchOutcome) -> dict[str, Any]:
             for hit in outcome.hits
         ],
         "repositories": [
-            {"repo": state.repo, "tree_truncated": state.tree_truncated, "cache_status": state.cache_status}
+            {
+                "repo": state.repo,
+                "tree_truncated": state.tree_truncated,
+                "cache_status": state.cache_status,
+                "description": state.description,
+            }
             for state in outcome.repositories
         ],
     }

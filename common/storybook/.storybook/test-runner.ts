@@ -526,6 +526,30 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
     await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
+/** A resize wipes a quill chart canvas before its repaint, and the body-size check cannot see a chart resizing inside a fixed-height card. */
+async function waitForChartCanvasesPainted(page: Page): Promise<void> {
+    await page
+        .waitForFunction(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    let settledFrames = 0
+                    const check = (): void => {
+                        const pending = document.querySelector('canvas[data-hog-charts-paint="pending"]')
+                        settledFrames = pending ? 0 : settledFrames + 1
+                        if (settledFrames >= 5) {
+                            resolve(true)
+                            return
+                        }
+                        requestAnimationFrame(check)
+                    }
+                    requestAnimationFrame(check)
+                }),
+            undefined,
+            { timeout: 3000 }
+        )
+        .catch(() => {})
+}
+
 async function takeSnapshotWithTheme(
     page: Page,
     context: TestContext,
@@ -669,6 +693,8 @@ async function takeSnapshotWithTheme(
     // final wait for any remaining renders
     await page.waitForTimeout(1000)
 
+    await waitForChartCanvasesPainted(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
 }
@@ -762,6 +788,8 @@ async function expectStoryToMatchComponentSnapshot(
             }
         })
     })
+    // Widening the root for a popover can resize a chart again.
+    await waitForChartCanvasesPainted(page)
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
         omitBackground: true,

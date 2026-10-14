@@ -14,10 +14,11 @@ STARTDATE = datetime(year=2000, month=1, day=1)
 # Vendor API version labels. HubSpot moved to date-based versioning ("YYYY-MM"); the legacy
 # "v3" pin keeps the historical /crm/v3/ (objects, properties) + /crm/v4/ (association
 # batch-read) URL split. Under a date version the version segment moves to *after* the API
-# resource name, so /crm/v3/objects/... becomes /crm/objects/2026-03/... and
-# /crm/v4/associations/... becomes /crm/associations/2026-03/... .
+# resource name, so for 2026-09, /crm/v3/objects/... becomes /crm/objects/2026-09/... and
+# /crm/v4/associations/... becomes /crm/associations/2026-09/... .
 HUBSPOT_API_VERSION_V3 = "v3"
 HUBSPOT_API_VERSION_2026_03 = "2026-03"
+HUBSPOT_API_VERSION_2026_09 = "2026-09"
 
 # Matches the leading "/crm/<v3|v4>/<resource>" of a CRM path, capturing the resource name
 # (objects, properties, associations, pipelines, owners) so the version can be re-inserted after

@@ -56,7 +56,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
-            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
+            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error-tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
             ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),

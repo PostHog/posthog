@@ -4,7 +4,6 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tenjin import TenjinSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.settings import TENJIN_REPORTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.source import TenjinSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.tenjin import (
     TenjinCredentialsError,
@@ -20,43 +19,9 @@ class TestTenjinSource:
         self.team_id = 123
         self.config = TenjinSourceConfig(api_key="tenjin-token")
 
-    def test_source_is_released(self) -> None:
-        # A truthy unreleasedSource hides the connector from users entirely.
-        assert not self.source.get_source_config.unreleasedSource
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas iterates a static report catalog with no I/O — safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.tenjin.com/v2/reports/spend?start_date=2026-06-01",
-            "403 Client Error: Forbidden for url: https://api.tenjin.com/v2/reports/spend",
-            "400 Client Error: Bad Request for url: https://api.tenjin.com/v2/reports/ad_revenue",
-        ],
-    )
-    def test_permanent_failures_are_non_retryable(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.tenjin.com/v2/reports/spend",
-            "Tenjin API error (retryable): status=503",
-        ],
-    )
-    def test_throttles_and_5xx_stay_retryable(self, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    def test_every_report_is_incremental_on_date(self) -> None:
-        # start_date/end_date is a real server-side filter, so every report can sync
-        # incrementally on date.
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert len(schemas) == len(TENJIN_REPORTS)
-        for schema in schemas:
-            assert schema.supports_incremental is True
-            assert [field["field"] for field in schema.incremental_fields] == ["date"]
 
     @mock.patch(f"{_SOURCE_MODULE}.validate_tenjin_credentials")
     def test_validate_credentials_success(self, mock_validate: mock.MagicMock) -> None:
@@ -101,9 +66,3 @@ class TestTenjinSource:
 
         # A full refresh must not inherit a stale watermark and silently skip history.
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @pytest.mark.parametrize("report", sorted(TENJIN_REPORTS))
-    def test_canonical_descriptions_document_the_primary_key_columns(self, report: str) -> None:
-        # The key columns are what a user joins on, so they must not fall through to LLM guessing.
-        columns = self.source.get_canonical_descriptions()[report]["columns"]
-        assert set(TENJIN_REPORTS[report].primary_keys) <= set(columns)

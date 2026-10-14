@@ -734,6 +734,32 @@ describe('mapOtelAttributes', () => {
         })
     })
 
+    describe('gen_ai.conversation.id as the session id fallback', () => {
+        it.each([
+            ['uses the conversation id', { 'gen_ai.conversation.id': 'conversation-1' }, 'conversation-1'],
+            [
+                'keeps an explicit session id',
+                { 'gen_ai.conversation.id': 'conversation-1', $ai_session_id: 'explicit' },
+                'explicit',
+            ],
+            [
+                'keeps a session id a middleware resolves from its own attributes',
+                {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    'ai.telemetry.metadata.$ai_session_id': 'from-metadata',
+                    'gen_ai.conversation.id': 'conversation-1',
+                },
+                'from-metadata',
+            ],
+            ['ignores an empty conversation id', { 'gen_ai.conversation.id': '' }, undefined],
+        ])('%s', (_label, properties, expected) => {
+            const event = createEvent('$ai_generation', properties)
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_session_id).toBe(expected)
+            expect(event.properties!['gen_ai.conversation.id']).toBe(properties['gen_ai.conversation.id'])
+        })
+    })
+
     describe('$groups normalization', () => {
         it('parses a JSON-string $groups into an object', () => {
             const event = createEvent('$ai_generation', {

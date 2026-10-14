@@ -503,6 +503,16 @@ def test_scrub_body_redacts_webhook_signing_secret():
     assert out["webhooks"][0]["secret"] == "REDACTED"
 
 
+def test_scrub_body_redacts_preauthenticated_download_urls():
+    out = _scrub_body(
+        '{"@microsoft.graph.downloadUrl": "https://download.example/file", '
+        '"content.downloadUrl": "https://download.example/content"}'
+    )
+    assert isinstance(out, dict)
+    assert out["@microsoft.graph.downloadUrl"] == "REDACTED"
+    assert out["content.downloadUrl"] == "REDACTED"
+
+
 def test_scrub_body_passes_through_non_json_string():
     out = _scrub_body("just a string")
     assert isinstance(out, str)

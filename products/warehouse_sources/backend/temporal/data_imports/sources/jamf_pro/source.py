@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -52,6 +53,8 @@ def _credentials_from_config(config: JamfProSourceConfig) -> JamfProCredentials:
 
 @SourceRegistry.register
 class JamfProSource(ResumableSource[JamfProSourceConfig, JamfProResumeConfig]):
+    codebase_detection = detect(env=("^(JAMF_PRO|JAMFPRO)_",), pypi=("jamf-pro-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -73,7 +76,7 @@ class JamfProSource(ResumableSource[JamfProSourceConfig, JamfProResumeConfig]):
             keywords=["jamf", "mdm", "apple", "device management"],
             caption="""Enter your Jamf Pro instance URL and credentials to pull your device inventory into the PostHog Data warehouse.
 
-The recommended way to connect is an API client: in Jamf Pro go to **Settings > System > API roles and clients**, create an API role with **read** privileges for the objects you want to sync (Computers, Mobile Devices, Buildings, Departments, Categories, Sites, Smart Computer Groups, Static Computer Groups, Scripts, Packages), then create an API client with that role and enable it.
+The recommended way to connect is an API client: in Jamf Pro go to **Settings > System > API roles and clients**, create an API role with **read** privileges for the objects you want to sync (Computers, Mobile Devices, Buildings, Departments, Categories, Sites, Smart Computer Groups, Static Computer Groups, Smart Mobile Device Groups, Static Mobile Device Groups, Scripts, Packages, Users, Patch Management Software Titles, Patch Policies), plus **View MDM command information in Jamf Pro API** for MDM commands, then create an API client with that role and enable it.
 
 Alternatively, connect with a Jamf Pro user account that has read access to those objects.
 """,
@@ -180,8 +183,9 @@ Alternatively, connect with a Jamf Pro user account that has read access to thos
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                # Inventory records mutate in place (report_date advances on every check-in), so
-                # append mode would duplicate devices — merge is the only incremental mode.
+                # Incremental records mutate in place (report_date advances on every check-in, command
+                # and update states change), so append mode would duplicate rows — merge is the only
+                # incremental mode.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )

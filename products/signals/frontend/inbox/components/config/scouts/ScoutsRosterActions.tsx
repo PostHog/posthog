@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -18,10 +16,8 @@ import { ScoutNewButton } from './ScoutNewButton'
 /** Actions for the roster, lifted into the scene header so they sit in one predictable place. */
 export function ScoutsRosterActions(): JSX.Element {
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const suggestionsEnabled = !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
     // Every trial endpoint requires skill editor access, so the page is empty without it.
     const trialsDisabledReason = useScoutCreateDisabledReason()
     return (
@@ -38,7 +34,7 @@ export function ScoutsRosterActions(): JSX.Element {
                 </LemonButton>
             )}
             <AskAboutScoutsMenu />
-            {suggestionsEnabled ? <ShowSuggestionsButton /> : null}
+            <ShowSuggestionsButton />
             <ScoutNewButton surface="fleet_list" size="small" onCreated={() => loadScoutConfigs()} />
         </>
     )

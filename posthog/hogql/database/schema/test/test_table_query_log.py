@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 
 
-@override_settings(SCOUT_LIVE_TRIALS_ENABLED=False, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
+@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
 class TestPrivateQueryLogVisibility(SimpleTestCase):
     @parameterized.expand(
         [

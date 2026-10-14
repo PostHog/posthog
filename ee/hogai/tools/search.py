@@ -14,7 +14,7 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.business_knowledge.backend.logic import async_search_knowledge_for_team, has_ready_sources
+from products.business_knowledge.backend.logic import RetrievalTrace, async_search_knowledge_for_team, has_ready_sources
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
@@ -184,7 +184,7 @@ class SearchTool(MaxTool):
         return response, None
 
     async def _search_business_knowledge(self, query: str) -> str:
-        results = await async_search_knowledge_for_team(self._team, query)
+        results = await async_search_knowledge_for_team(self._team, query, trace=RetrievalTrace(surface="posthog_ai"))
         try:
             await database_sync_to_async(posthoganalytics.capture)(
                 distinct_id=str(self._team.uuid),

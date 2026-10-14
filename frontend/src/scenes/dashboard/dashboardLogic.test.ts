@@ -13,6 +13,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -328,6 +329,13 @@ describe('dashboardLogic', () => {
     })
 
     describe('malformed dashboard id', () => {
+        it('mounts and reports not found when id props are omitted during a scene transition', async () => {
+            const invalidLogic = dashboardLogic.build()
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
@@ -655,6 +663,56 @@ describe('dashboardLogic', () => {
                 logic.actions.setInterval(null)
             }).toFinishAllListeners()
 
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+            expect(logic.values.dashboardSettingsChanges).toEqual([])
+        })
+
+        it('saves a compare filter override through the draft/save round-trip', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareFilter({ compare: true, compare_to: '-1m' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
+                expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } })
+            )
+            expect(logic.values.effectiveEditBarFilters.compareFilter).toEqual({ compare: true, compare_to: '-1m' })
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...logic.values.dashboard!,
+                persisted_filters: logic.values.effectiveEditBarFilters,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                filters: expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } }),
+                variables: {},
+            })
+            expect(logic.values.dashboard?.persisted_filters).toEqual(
+                expect.objectContaining({ compareFilter: { compare: true, compare_to: '-1m' } })
+            )
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+        })
+
+        it('clears the unsaved state when the compare filter returns to inherit', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareFilter({ compare: false })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareFilter(null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveEditBarFilters.compareFilter).toBeNull()
             expect(logic.values.dashboardSettingsState).toBe('saved')
             expect(logic.values.dashboardSettingsChanges).toEqual([])
         })
@@ -1068,6 +1126,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInterval('week')
                 logic.actions.setFilterTestAccounts(true)
+                logic.actions.setMetricFilters([{ key: 'service.name', op: 'eq', value: 'checkout' }])
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
@@ -1077,6 +1136,7 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
+                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
             expect(logic.values.urlFilters).toEqual(
@@ -1086,6 +1146,7 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
+                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
 
@@ -1226,6 +1287,8 @@ describe('dashboardLogic', () => {
             )
             const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
             expect(payload).not.toHaveProperty('tiles')
+            expect(logic.values.dashboard!.tiles[0].layouts?.sm?.x).toBe(modifiedLayouts.sm[0].x)
+            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(firstTile.layouts)
             expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
@@ -2093,6 +2156,215 @@ describe('dashboardLogic', () => {
             )
         })
 
+        describe('add tile modal with an unsaved layout', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                logic.actions.updateLayouts({
+                    ...logic.values.layouts,
+                    sm: logic.values.layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                })
+            }
+
+            it.each([
+                ['image', 'showImageTileModal', () => logic.actions.openImageTileModal()],
+                ['button', 'showButtonTileModal', () => logic.actions.openButtonTileModal()],
+                ['text', 'showTextTileModal', () => logic.actions.openTextTileModal()],
+            ] as const)('keeps draft layout after cancelling %s', async (_type, visibleKey, open) => {
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                    moveFirstTile()
+                    const draftLayouts = logic.values.layouts
+
+                    open()
+                    expect(logic.values[visibleKey]).toBe(true)
+                    logic.actions.closeTileModal()
+
+                    expect(logic.values[visibleKey]).toBe(false)
+                    expect(logic.values.dashboardEditing?.layout).toBe(true)
+                    expect(logic.values.layouts).toEqual(draftLayouts)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                    expect(confirmSpy).not.toHaveBeenCalled()
+                } finally {
+                    confirmSpy.mockRestore()
+                }
+            })
+
+            it('keeps the draft layout when adding an image', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                moveFirstTile()
+                const draftLayout = logic.values.dashboard!.tiles[0].layouts
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: [
+                        ...dashboards[5].tiles,
+                        {
+                            id: 999,
+                            text: { body: '![Example](https://example.com/example.png)' },
+                            layouts: {},
+                            color: null,
+                        } as DashboardTile,
+                    ],
+                }
+
+                dashboardsModel.actions.updateDashboardSuccess(savedDashboard)
+
+                expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayout)
+                expect(logic.values.dashboard!.tiles).toHaveLength(savedDashboard.tiles.length)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                expect(logic.values.dashboardEditing?.layout).toBe(true)
+            })
+
+            it('keeps a layout draft unsaved when a client-built widget update echoes it', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                moveFirstTile()
+                const draftTile = logic.values.dashboard!.tiles[0]
+                const savedLayouts = logic.values.dashboardLayouts[draftTile.id]
+                const addedTile = { ...WIDGET_TILE, id: 999 }
+                const updatedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: [...logic.values.dashboard!.tiles, addedTile],
+                }
+
+                dashboardsModel.actions.updateDashboardSuccess(updatedDashboard)
+
+                expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
+                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
+                expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
+
+            it('uses the server layout for tiles without draft changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const firstTile = logic.values.dashboard!.tiles[1]
+                const currentLayout = logic.values.layouts.sm!.find((layout) => layout.i === String(firstTile.id))!
+                const serverLayouts = {
+                    sm: { ...currentLayout, x: currentLayout.x + 2 },
+                } as DashboardTile['layouts']
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: logic.values.dashboard!.tiles.map((tile) =>
+                        tile.id === firstTile.id ? { ...tile, layouts: serverLayouts } : tile
+                    ),
+                }
+
+                await expectLogic(logic, () =>
+                    dashboardsModel.actions.updateDashboardSuccess(savedDashboard, { layoutsPersisted: true })
+                )
+                    .toDispatchActions(['applyDashboardUpdate'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
+                expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(serverLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
+            it('preserves only the changed tile draft when another tile receives a server layout update', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                moveFirstTile()
+                const draftTile = logic.values.dashboard!.tiles[0]
+                const unchangedTile = logic.values.dashboard!.tiles[1]
+                const currentLayout = logic.values.layouts.sm!.find((layout) => layout.i === String(unchangedTile.id))!
+                const serverLayouts = {
+                    sm: { ...currentLayout, x: currentLayout.x + 2 },
+                } as DashboardTile['layouts']
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: logic.values.dashboard!.tiles.map((tile) =>
+                        tile.id === unchangedTile.id
+                            ? { ...tile, layouts: serverLayouts }
+                            : tile.id === draftTile.id
+                              ? dashboards[5].tiles.find((savedTile) => savedTile.id === draftTile.id)!
+                              : tile
+                    ),
+                }
+
+                await expectLogic(logic, () =>
+                    dashboardsModel.actions.updateDashboardSuccess(savedDashboard, { layoutsPersisted: true })
+                )
+                    .toDispatchActions(['applyDashboardUpdate'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
+                expect(logic.values.dashboard!.tiles[1].layouts).toEqual(serverLayouts)
+                expect(logic.values.dashboardLayouts[unchangedTile.id]).toEqual(serverLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
+
+            it('uses the returned saved layout as the snapshot when the same tile has a draft', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                moveFirstTile()
+                const draftTile = logic.values.dashboard!.tiles[0]
+                const savedLayouts = {
+                    sm: { ...draftTile.layouts!.sm!, x: draftTile.layouts!.sm!.x + 1 },
+                } as DashboardTile['layouts']
+                const savedDashboard = {
+                    ...logic.values.dashboard!,
+                    tiles: logic.values.dashboard!.tiles.map((tile) =>
+                        tile.id === draftTile.id ? { ...tile, layouts: savedLayouts } : tile
+                    ),
+                }
+
+                await expectLogic(logic, () =>
+                    dashboardsModel.actions.updateDashboardSuccess(savedDashboard, { layoutsPersisted: true })
+                )
+                    .toDispatchActions(['applyDashboardUpdate'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftTile.layouts)
+                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(savedLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
+
+            it('clears the layout draft when the server persists the same geometry', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                moveFirstTile()
+                const draftTile = logic.values.dashboard!.tiles[0]
+                const savedDashboard = { ...logic.values.dashboard! }
+
+                await expectLogic(logic, () =>
+                    dashboardsModel.actions.updateDashboardSuccess(savedDashboard, { layoutsPersisted: true })
+                )
+                    .toDispatchActions(['applyDashboardUpdate'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.dashboardLayouts[draftTile.id]).toEqual(draftTile.layouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
+            it('still asks before navigating away from unsaved layout changes', async () => {
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                try {
+                    router.actions.push(urls.dashboard(5))
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                    moveFirstTile()
+
+                    router.actions.push(urls.dashboard(6))
+
+                    expect(confirmSpy).toHaveBeenCalledWith(
+                        'Leave dashboard?\nChanges you made to the layout will be discarded.'
+                    )
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+                } finally {
+                    confirmSpy.mockRestore()
+                }
+            })
+        })
+
         describe('colors modal cancel', () => {
             beforeEach(() => {
                 dashboardInsightColorsModalLogic.mount()
@@ -2300,6 +2572,62 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
+            {
+                trigger: 'a request succeeds again',
+                recover: () => apiStatusLogic.actions.setInternetConnectionIssue(false),
+            },
+            {
+                trigger: 'the browser goes back online',
+                recover: () => window.dispatchEvent(new Event('online')),
+            },
+        ])('keeps the error state during a retry and retries when $trigger', async ({ recover }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, recover)
+                .toDispatchActions(['retryDashboardLoad', 'loadDashboard'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: true })
+                .toDispatchActions(['loadDashboardFailure'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: false })
+
+            await expectLogic(logic, () => {
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+            }).toNotHaveDispatchedActions(['retryDashboardLoad'])
+        })
+
+        it.each(
+            ['request', 'online'].flatMap((trigger) => [true, false].map((initialLoad) => ({ trigger, initialLoad })))
+        )(
+            'retries once when $trigger signals recovery during a failed load (initial=$initialLoad)',
+            async ({ trigger, initialLoad }) => {
+                if (!initialLoad) {
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+
+                await expectLogic(logic, () => {
+                    if (!initialLoad) {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }
+                    if (trigger === 'online') {
+                        window.dispatchEvent(new Event('online'))
+                        apiStatusLogic.actions.setInternetConnectionIssue(true)
+                    } else {
+                        apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    }
+                })
+                    .toDispatchActions([
+                        'loadDashboardFailure',
+                        'retryDashboardLoad',
+                        'loadDashboard',
+                        'loadDashboardFailure',
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['retryDashboardLoad'])
+            }
+        )
+
+        it.each([
             { id: 14, accessDenied: false },
             { id: 15, accessDenied: true },
             { id: 16, accessDenied: false },
@@ -2395,7 +2723,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' }, true)
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(false)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
@@ -2538,6 +2866,111 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(logic.values.dashboard).not.toBeNull()
+        })
+
+        it.each(['request', 'online'].flatMap((trigger) => [false, true].map((metadata) => ({ trigger, metadata }))))(
+            'keeps an auto-retrying stream on $trigger recovery but replaces an ended one (metadata=$metadata)',
+            async ({ trigger, metadata }) => {
+                const globals = globalThis as { EventSource?: unknown }
+                const originalEventSource = globals.EventSource
+                globals.EventSource = class {}
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.dashboardNotFound()
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                        [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                    })
+                    const disposeStream = jest.fn()
+                    const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(disposeStream)
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                    }).toFinishAllListeners()
+                    const recover = (): void => {
+                        if (trigger === 'online') {
+                            window.dispatchEvent(new Event('online'))
+                        } else {
+                            apiStatusLogic.actions.setInternetConnectionIssue(false)
+                        }
+                    }
+                    if (metadata) {
+                        streamTilesSpy.mock.calls[0][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: TEXT_TILE })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 99 } })
+                    }
+                    const onError = streamTilesSpy.mock.calls[0][4]
+                    await expectLogic(logic, () =>
+                        onError(new TypeError('Failed to fetch'), true)
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(!metadata)
+
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(1)
+                    expect(disposeStream).not.toHaveBeenCalled()
+
+                    await expectLogic(logic, () =>
+                        onError(new SyntaxError('Unreadable dashboard message'))
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(2)
+                    expect(disposeStream).toHaveBeenCalledTimes(1)
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                    }
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: TEXT_TILE })
+                    }).toFinishAllListeners()
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                        expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    }
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 6 } })
+                        streamTilesSpy.mock.calls[1][3]()
+                    }).toFinishAllListeners()
+                    expect(logic.values.dashboard?.id).toBe(5)
+                    expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 6])
+                    expect(logic.values.dashboardFailedToLoad).toBe(false)
+                } finally {
+                    globals.EventSource = originalEventSource
+                }
+            }
+        )
+
+        it('keeps the stream that recovered while a connection retry waited', async () => {
+            const globals = globalThis as { EventSource?: unknown }
+            const originalEventSource = globals.EventSource
+            globals.EventSource = class {}
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.dashboardNotFound()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                    [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                })
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+                expect(logic.values.dashboardFailedToLoad).toBe(true)
+                const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(jest.fn())
+
+                await expectLogic(logic, () => {
+                    apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+                })
+                    .toDispatchActions([
+                        'retryDashboardLoad',
+                        'loadDashboardStreaming',
+                        'loadDashboardStreamingSuccess',
+                    ])
+                    .toFinishAllListeners()
+
+                expect(streamTilesSpy).not.toHaveBeenCalled()
+                expect(logic.values.dashboard).not.toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+            } finally {
+                globals.EventSource = originalEventSource
+            }
         })
     })
 
@@ -3718,6 +4151,29 @@ describe('dashboardLogic', () => {
             ])
         })
 
+        it('preserves sync warnings when a bare PATCH returns them null', async () => {
+            const warning = {
+                type: 'warehouse_sync' as const,
+                message: 'Last sync of `invoices` (from Stripe) failed.',
+                schema_name: 'invoices',
+                source_id: 'source-1',
+                source_type: 'Stripe',
+                status: 'Failed',
+                table_name: 'stripe_invoices',
+            }
+            insightsModel.actions.renameInsightSuccess({ ...insight800(), warnings: [warning] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                warnings: null,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.insightTiles[0].insight!.warnings).toEqual([warning])
+        })
+
         it('replaces cached chart data when a full refresh returns non-null result', async () => {
             const newResult = [{ data: 'fresh' }]
             const newLastRefresh = '2024-01-01T00:00:00Z'
@@ -4360,6 +4816,43 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 5, [addedTile.id], expect.anything())
+        })
+
+        it('addWidgetTiles keeps an existing tile movement unsaved', async () => {
+            const addedTile = {
+                id: 99,
+                widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
+                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+                color: null,
+            } as unknown as DashboardTile
+            jest.spyOn(api, 'create').mockResolvedValueOnce({ tiles: [addedTile] })
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const savedLayouts = logic.values.dashboardLayouts[firstTile.id]
+            logic.actions.updateLayouts({
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                ),
+            })
+            const draftLayouts = logic.values.dashboard!.tiles[0].layouts
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.addWidgetTiles({
+                    dashboardId: 5,
+                    widgets: [{ widgetType: 'error_tracking_list', config: { limit: 5 } }],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayouts)
+            expect(logic.values.dashboardLayouts[firstTile.id]).toEqual(savedLayouts)
+            expect(logic.values.dashboardLayouts[addedTile.id]).toEqual(addedTile.layouts)
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
         })
 
         it('updateWidgetTile persists config and metadata in one patch', async () => {

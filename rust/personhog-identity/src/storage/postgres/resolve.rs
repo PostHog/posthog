@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use common_sqlx_macros::mirrored_query_as;
+use personhog_common::query_tag;
 use uuid::Uuid;
 
 use crate::config::IdentityTables;
@@ -82,4 +83,39 @@ pub(super) async fn resolve_distinct_ids(
         );
     }
     Ok(resolved)
+}
+
+pub(super) async fn resolve_person_ids(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    keys: &[(i64, String)],
+) -> StorageResult<HashMap<(i64, String), i64>> {
+    if keys.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
+    let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
+
+    let sql = format!(
+        r#"
+        SELECT k.team_id, k.distinct_id, pdi.person_id
+        FROM unnest($1::int[], $2::text[]) AS k(team_id, distinct_id)
+        JOIN {pdi_table} pdi
+          ON pdi.team_id = k.team_id AND pdi.distinct_id = k.distinct_id
+         AND pdi.is_deleted = false
+        "#,
+        pdi_table = tables.person_distinct_id,
+    );
+    let mut conn = pools.acquire(Lane::Fast).await?;
+    let rows: Vec<(i32, String, i64)> = sqlx::query_as(&query_tag!("resolve_person_ids", sql))
+        .bind(&team_ids)
+        .bind(&distinct_ids)
+        .fetch_all(&mut *conn)
+        .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(team_id, distinct_id, person_id)| ((i64::from(team_id), distinct_id), person_id))
+        .collect())
 }

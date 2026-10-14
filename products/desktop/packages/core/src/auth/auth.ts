@@ -25,6 +25,7 @@ import {
 import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH,
   AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
@@ -142,6 +143,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     @inject(AUTH_FETCH_EXTRA_ORIGINS)
     @optional()
     private readonly extraFetchOrigins: readonly string[] | undefined = [],
+    @inject(AUTH_FETCH)
+    @optional()
+    private readonly fetchImpl: FetchLike = (input, init) => fetch(input, init),
   ) {
     super();
   }
@@ -187,7 +191,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return JSON.stringify([apiHost, session.accountKey]);
     }
     const response = await this.authenticatedFetch(
-      fetch,
+      this.fetchImpl,
       `${apiHost}/api/users/@me/`,
       {
         redirect: "error",
@@ -518,7 +522,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private async patchCurrentOrganization(orgId: string): Promise<void> {
     const { apiHost } = await this.getValidAccessToken();
     const response = await this.authenticatedFetch(
-      fetch,
+      this.fetchImpl,
       `${apiHost}/api/users/@me/`,
       {
         method: "PATCH",
@@ -1017,7 +1021,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       teamIds.map(async (teamId) => {
         try {
           const res = await this.executeAuthenticatedFetch(
-            fetch,
+            this.fetchImpl,
             `${apiHost}/api/projects/${teamId}/`,
             {},
             accessToken,
@@ -1125,7 +1129,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const apiHost = getCloudUrlFromRegion(cloudRegion);
     try {
       const res = await this.executeAuthenticatedFetch(
-        fetch,
+        this.fetchImpl,
         `${apiHost}/api/organizations/${orgId}/`,
         {},
         accessToken,
@@ -1297,7 +1301,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }> {
     try {
       const response = await this.executeAuthenticatedFetch(
-        fetch,
+        this.fetchImpl,
         `${getCloudUrlFromRegion(cloudRegion)}/api/users/@me/`,
         {},
         accessToken,
@@ -1454,7 +1458,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     try {
       const response = await this.executeAuthenticatedFetch(
-        fetch,
+        this.fetchImpl,
         url,
         {},
         session.accessToken,

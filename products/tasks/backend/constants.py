@@ -43,6 +43,7 @@ REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
 AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
+PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
@@ -55,6 +56,9 @@ TASK_ANALYSIS_ACTIVITIES_STATE_KEY = "task_analysis_activities"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
+# error_message so a normal completion never reads as a failure.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
 AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"

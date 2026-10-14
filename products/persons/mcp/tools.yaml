@@ -1,26 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product persons
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product persons
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Persons
 feature: persons
 url_prefix: /persons
 ui_apps: {}
 tools:
-    persons-activity-retrieve:
-        operation: persons_activity_retrieve
-        enabled: false
-    persons-all-activity-retrieve:
-        operation: persons_all_activity_retrieve
-        enabled: false
-    persons-batch-by-distinct-ids-create:
-        operation: persons_batch_by_distinct_ids_create
-        enabled: false
-    persons-batch-by-uuids-create:
-        operation: persons_batch_by_uuids_create
-        enabled: false
     persons-bulk-delete:
         operation: persons_bulk_delete_create
         enabled: true
@@ -52,12 +38,6 @@ tools:
             Get all cohorts that a specific person belongs to. Requires the person_id query parameter.
         exclude_params:
             - format
-    persons-deletion-status-list:
-        operation: persons_deletion_status_list
-        enabled: false
-    persons-emails-list:
-        operation: persons_emails_list
-        enabled: false
     persons-list:
         operation: persons_list
         enabled: true
@@ -93,15 +73,6 @@ tools:
                 - properties.$geoip_country_code
                 - created_at
                 - last_seen_at
-    persons-partial-update:
-        operation: persons_partial_update
-        enabled: false
-    persons-properties-at-time-retrieve:
-        operation: persons_properties_at_time_retrieve
-        enabled: false
-    persons-properties-timeline-retrieve:
-        operation: persons_properties_timeline_retrieve
-        enabled: false
     persons-property-delete:
         operation: persons_delete_property_create
         enabled: true
@@ -134,12 +105,6 @@ tools:
             Returns 202 Accepted.
         exclude_params:
             - format
-    persons-push-notifications-list:
-        operation: persons_push_notifications_list
-        enabled: false
-    persons-reset-person-distinct-id-create:
-        operation: persons_reset_person_distinct_id_create
-        enabled: false
     persons-retrieve:
         operation: persons_retrieve
         enabled: true
@@ -164,12 +129,6 @@ tools:
                 - distinct_ids
                 - created_at
                 - last_seen_at
-    persons-split-create:
-        operation: persons_split_create
-        enabled: false
-    persons-update:
-        operation: persons_update
-        enabled: false
     persons-values-retrieve:
         operation: persons_values_retrieve
         enabled: true

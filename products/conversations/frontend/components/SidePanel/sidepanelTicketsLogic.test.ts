@@ -570,11 +570,91 @@ describe('sidepanelTicketsLogic', () => {
 
     // TicketsList renders filteredTickets, so a broken selector would show the wrong chats
     // (or none) once someone picks a status.
+    // Unread tickets sort first, then most recent activity, regardless of creation order.
     it.each([
-        ['all', ['t-open', 't-resolved']],
+        ['all', ['t-unread', 't-resolved', 't-open']],
+        ['active', ['t-unread', 't-open']],
+        ['unread', ['t-unread']],
         ['open', ['t-open']],
         ['resolved', ['t-resolved']],
-    ] as const)('filters the ticket list to status %s', async (status, expectedIds) => {
+    ] as const)('filters the ticket list to %s', async (filter, expectedIds) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            {
+                id: 't-unread',
+                status: 'pending',
+                message_count: 2,
+                unread_count: 1,
+                created_at: '2026-07-12T00:00:00Z',
+            },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter(filter)
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
+    })
+
+    // The fixtures above carry no last_message_at, so ordering there falls back to created_at and
+    // cannot tell the two apart. Surfacing a reply on an older thread is what this list is for.
+    it('orders by the latest message, not the creation time', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            {
+                id: 't-new-thread-quiet-since',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-14T00:00:00Z',
+                last_message_at: '2026-07-14T00:00:00Z',
+            },
+            {
+                id: 't-old-thread-fresh-reply',
+                status: 'open',
+                message_count: 2,
+                created_at: '2026-07-12T00:00:00Z',
+                last_message_at: '2026-07-15T00:00:00Z',
+            },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter('all')
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual([
+            't-old-thread-fresh-reply',
+            't-new-thread-quiet-since',
+        ])
+    })
+
+    it('counts tickets per filter for the dropdown labels', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, unread_count: 2, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            { id: 't-hold', status: 'on_hold', message_count: 1, created_at: '2026-07-12T00:00:00Z' },
+        ] as ConversationTicket[])
+
+        expect(logic.values.ticketFilterCounts).toEqual({
+            unread: 1,
+            active: 2,
+            all: 3,
+            new: 0,
+            open: 1,
+            pending: 0,
+            on_hold: 1,
+            resolved: 1,
+        })
+    })
+
+    // A long ticket history shouldn't bury the reply you're waiting on: with nothing chosen the
+    // list shows unread tickets when there are any, otherwise active ones, until the user picks.
+    it('defaults the filter to unread, then active, until the user chooses', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -583,8 +663,51 @@ describe('sidepanelTicketsLogic', () => {
             { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
             { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
         ] as ConversationTicket[])
-        logic.actions.setStatusFilter(status)
+        expect(logic.values.effectiveStatusFilter).toBe('active')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-open'])
 
-        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, unread_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+        ] as ConversationTicket[])
+        expect(logic.values.effectiveStatusFilter).toBe('unread')
+
+        logic.actions.setStatusFilter('all')
+        expect(logic.values.effectiveStatusFilter).toBe('all')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-open', 't-resolved'])
+    })
+
+    // The full-screen scene renders the list next to the open thread. Opening a ticket marks it
+    // read, which under the unread filter would remove the row the user just clicked.
+    it('keeps the open ticket at the top of the list while it is being read', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const unreadTicket = {
+            id: 't-reading',
+            status: 'open',
+            message_count: 2,
+            unread_count: 1,
+            created_at: '2026-07-12T00:00:00Z',
+        } as ConversationTicket
+        const otherUnread = {
+            id: 't-other',
+            status: 'open',
+            message_count: 1,
+            unread_count: 1,
+            created_at: '2026-07-14T00:00:00Z',
+        } as ConversationTicket
+        logic.actions.setTickets([unreadTicket, otherUnread])
+        expect(logic.values.effectiveStatusFilter).toBe('unread')
+
+        logic.actions.setCurrentTicket(unreadTicket)
+        logic.actions.setView('ticket')
+        // Reading the thread clears its unread count on the next poll
+        logic.actions.setTickets([{ ...unreadTicket, unread_count: 0 }, otherUnread])
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-other', 't-reading'])
+
+        logic.actions.setView('list')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-other'])
     })
 })

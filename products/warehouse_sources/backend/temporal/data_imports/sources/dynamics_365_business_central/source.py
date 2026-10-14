@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class Dynamics365BusinessCentralSource(
     ResumableSource[Dynamics365BusinessCentralSourceConfig, Dynamics365BusinessCentralResumeConfig]
 ):
+    codebase_detection = detect(env=("^(DYNAMICS365_BUSINESS_CENTRAL|DYNAMICS365BUSINESSCENTRAL)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Business Central versions its API in the request path (`/api/v2.0/`); v2.0 is the standard API
     # this source calls.

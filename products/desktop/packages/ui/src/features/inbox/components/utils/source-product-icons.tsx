@@ -10,6 +10,7 @@ import {
   KanbanIcon,
   LifebuoyIcon,
   LightbulbIcon,
+  ListBulletsIcon,
   MagnifyingGlassIcon,
   MegaphoneIcon,
   ShieldIcon,
@@ -57,6 +58,11 @@ export function hasKnownSourceProduct(
 }
 
 const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
+  logs: {
+    Icon: ListBulletsIcon,
+    color: "var(--pink-9)",
+    label: "Logs",
+  },
   replay_vision: {
     Icon: VideoIcon,
     color: "var(--amber-9)",

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -43,7 +43,9 @@ jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic',
 })
 
 jest.mock('./dashboards/templates/DashboardTemplateChooser', () => ({
-    DashboardTemplateChooser: () => <div data-attr="dashboard-template-chooser" />,
+    DashboardTemplateChooser: ({ redirectAfterCreation }: { redirectAfterCreation?: boolean }) => (
+        <div data-attr="dashboard-template-chooser" data-redirect-after-creation={String(redirectAfterCreation)} />
+    ),
 }))
 
 jest.mock('./DashboardTemplateVariables', () => ({
@@ -109,11 +111,13 @@ const Z_INDEX_CLASS = 'z-[calc(var(--z-popover)-1)]'
 
 describe('NewDashboardModal', () => {
     let newDashboardValues: Record<string, unknown>
+    let createDashboardFromTemplate: jest.Mock
 
     beforeEach(() => {
         jest.clearAllMocks()
         mockedUseValues.mockReset()
         mockedUseActions.mockReset()
+        createDashboardFromTemplate = jest.fn()
 
         newDashboardValues = {
             newDashboardModalVisible: true,
@@ -169,7 +173,7 @@ describe('NewDashboardModal', () => {
                 return {
                     hideNewDashboardModal: jest.fn(),
                     clearActiveDashboardTemplate: jest.fn(),
-                    createDashboardFromTemplate: jest.fn(),
+                    createDashboardFromTemplate,
                 }
             }
 
@@ -218,5 +222,28 @@ describe('NewDashboardModal', () => {
         render(<NewDashboardModal />)
         expectDialogStacking()
         expect(document.querySelector('[data-attr="dashboard-template-chooser"]')).toBeInTheDocument()
+    })
+
+    it('keeps the user on the current page when creating a Home dashboard from a template', () => {
+        render(<NewDashboardModal redirectAfterCreation={false} />)
+
+        fireEvent.click(screen.getByText('Create'))
+
+        expect(createDashboardFromTemplate).toHaveBeenCalledWith(newDashboardValues.activeDashboardTemplate, [], false)
+    })
+
+    it('passes the Home redirect behavior to the template chooser', () => {
+        newDashboardValues = {
+            newDashboardModalVisible: true,
+            activeDashboardTemplate: null,
+            variableSelectModalVisible: false,
+        }
+
+        render(<NewDashboardModal redirectAfterCreation={false} />)
+
+        expect(document.querySelector('[data-attr="dashboard-template-chooser"]')).toHaveAttribute(
+            'data-redirect-after-creation',
+            'false'
+        )
     })
 })

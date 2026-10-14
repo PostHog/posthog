@@ -3,25 +3,13 @@ from typing import NoReturn
 
 from rest_framework import serializers
 
+from products.workflows.backend.facade.content import deep_merge
+
 # Surgical, id-addressed edits to a workflow graph (actions + edges). The caller sends a small,
 # ordered list of operations instead of re-transmitting the whole graph; these are applied to the
 # stored actions/edges and the result is validated + saved by the serializer. Pure functions here —
 # no DB, no validation of config (that's HogFlowSerializer's job) and no structural validation
 # (that's validate_graph) — so they're cheap to unit-test exhaustively.
-
-
-def _deep_merge(target: dict, patch: dict) -> dict:
-    """Recursively merge `patch` into `target`. A null leaf deletes the key; a dict merges into a
-    dict; anything else replaces. Lets a caller change config.inputs.subject without resending the
-    rest of config."""
-    for key, value in patch.items():
-        if value is None:
-            target.pop(key, None)
-        elif isinstance(value, dict) and isinstance(target.get(key), dict):
-            _deep_merge(target[key], value)
-        else:
-            target[key] = value
-    return target
 
 
 def _edges_match(a: dict, b: dict) -> bool:
@@ -54,7 +42,7 @@ def apply_graph_operations(
             action = actions_by_id.get(op["id"])
             if action is None:
                 _fail(f"update_action: action '{op['id']}' not found")
-            _deep_merge(action, op["patch"])
+            deep_merge(action, op["patch"])
 
         elif kind == "add_action":
             new_action = op["action"]

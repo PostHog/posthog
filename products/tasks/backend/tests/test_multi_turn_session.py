@@ -17,6 +17,8 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.facade import agents as agents_facade
+from products.tasks.backend.facade.api import _public_task_run_state
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     AgentTurnFailed,
@@ -1435,7 +1437,19 @@ class TestMultiTurnSessionStartCleanup:
     inactivity timeout."""
 
     @pytest.mark.asyncio
-    async def test_cleans_up_when_initial_poll_fails(self):
+    @pytest.mark.parametrize(
+        "poll_error,expected_failure_error_type",
+        [
+            (RuntimeError("storage explode"), None),
+            (
+                TurnPollTimeout(
+                    "storage explode", stage="silent", elapsed=1, stale_seconds=1, total_lines=0, turn_relevant_lines=0
+                ),
+                "poll_timeout",
+            ),
+        ],
+    )
+    async def test_cleans_up_when_initial_poll_fails(self, poll_error, expected_failure_error_type):
         fake_task = MagicMock()
         fake_task.id = "task-id"
         fake_run = MagicMock()
@@ -1456,8 +1470,11 @@ class TestMultiTurnSessionStartCleanup:
             ),
             patch(
                 "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
-                new=AsyncMock(side_effect=RuntimeError("storage explode")),
+                new=AsyncMock(side_effect=poll_error),
             ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.record_run_failure_cause"
+            ) as record_cause,
             pytest.raises(RuntimeError, match="storage explode"),
         ):
             await MultiTurnSession.start(
@@ -1468,6 +1485,11 @@ class TestMultiTurnSessionStartCleanup:
 
         # session.end() must have signalled the workflow exactly once on the cleanup path.
         mock_handle.signal.assert_called_once()
+        assert mock_handle.signal.call_args.kwargs["args"] == ["failed", "storage explode"]
+        if expected_failure_error_type is None:
+            record_cause.assert_not_called()
+        else:
+            record_cause.assert_called_once_with("run-id", expected_failure_error_type)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1623,6 +1645,49 @@ class TestCreateTaskAndTriggerForwardsContext:
             assert dispatched_states == []
         else:
             assert dispatched_states[0]["private_ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_session_files_reach_the_run_as_attachments_of_the_first_prompt(self) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+        files = [SessionFile(name="main.prompt.md", content="Review the PR."), SessionFile(name="perf.md", content="Ü")]
+
+        with (
+            patch("posthog.storage.object_storage.write") as write,
+            patch("posthog.storage.object_storage.tag"),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+        ):
+            _, run = await _create_task_and_trigger(
+                "prompt", context, files=files, before_task_dispatch=lambda run_id: {"private_ready": True}
+            )
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=run.id)
+        manifest = {entry["id"]: entry for entry in persisted.artifacts}
+        assert persisted.state["private_ready"] is True
+        assert persisted.state["pending_user_message"] == "prompt"
+        assert persisted.state["pending_user_message_id"]
+        assert [manifest[artifact_id]["name"] for artifact_id in persisted.state["pending_user_artifact_ids"]] == [
+            "main.prompt.md",
+            "perf.md",
+        ]
+        written = {call.args[0]: call.args[1] for call in write.call_args_list}
+        assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
+
+    @pytest.mark.asyncio
+    async def test_codex_options_reach_the_state_the_agent_server_reads(self) -> None:
+        # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(
+            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True
+        )
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            task_run = await agents_facade.create_task_and_trigger("prompt", context)
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+        public_state = _public_task_run_state(persisted.state)
+        assert public_state["codex_max_subagents"] == 9
+        assert public_state["codex_shared_prompt_cache"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

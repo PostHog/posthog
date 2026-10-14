@@ -16,7 +16,7 @@ import { getAllEventNames } from './utils'
 
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { querySource, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, hasDataWarehouseEntity } = useValues(insightVizDataLogic(insightProps))
     const { actions: allActions } = useValues(
         actionsModel({
             shouldLoad:
@@ -41,7 +41,7 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
             setQuery={updateQuerySource}
             eventNames={getAllEventNames(querySource as ProductAnalyticsInsightQueryNode, allActions)}
             taxonomicGroupTypes={taxonomicGroupTypes}
-            hasDataWarehouseSeries={hasDataWarehouseSeries}
+            hasDataWarehouseSeries={hasDataWarehouseEntity}
         />
     )
 }

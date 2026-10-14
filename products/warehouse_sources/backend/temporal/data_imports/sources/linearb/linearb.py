@@ -129,7 +129,11 @@ def _iter_list_rows(
             params[config.page_size_param] = page_size
             params["offset"] = offset
 
-        response = _request(session, "GET", url, headers, logger, params=params)
+        if config.method == "POST":
+            body = {**(config.request_body or {}), **params}
+            response = _request(session, "POST", url, headers, logger, json_body=body)
+        else:
+            response = _request(session, "GET", url, headers, logger, params=params)
         payload = response.json()
         items = payload.get(config.data_selector, []) if config.data_selector else payload
         if not items:
@@ -216,7 +220,7 @@ def get_rows(
     # redirect target; LinearB's API never legitimately redirects.
     session = make_tracked_session(allow_redirects=False)
 
-    if config.method == "POST":
+    if endpoint == "measurements":
         yield from _iter_measurements_rows(session, headers, logger)
         return
 

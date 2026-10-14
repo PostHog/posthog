@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, cast, get_args
 
 from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
+from .retries import DEFAULT_INFRA_RETRIES
 
 # Bare model ids, no "anthropic/"/"openai/" prefix: the LLM gateway checks the model against a
 # bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and the agent
@@ -60,6 +61,8 @@ class HarnessOptions:
     sandbox_flags_set: tuple[str, ...]
     """Sandbox-only flags the user passed explicitly, so a run without sandboxed
     suites can reject them instead of silently ignoring them."""
+
+    infrastructure_retries: int = DEFAULT_INFRA_RETRIES
 
 
 def _default_case_timeout() -> int:
@@ -168,6 +171,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run every case this many times (Braintrust trials), to measure variance on stochastic agents.",
     )
     parser.add_argument(
+        "--infra-retries",
+        type=int,
+        default=DEFAULT_INFRA_RETRIES,
+        help="Retries for temporary case setup failures and support-service readiness timeouts. Use 0 to disable.",
+    )
+    parser.add_argument(
         "--fail-under",
         type=float,
         default=None,
@@ -220,6 +229,8 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         parser.error(f"--agent-model {agent_model} is an OpenAI model; pass --agent-runtime codex to serve it")
     if args.fail_under is not None and not (0 < args.fail_under <= 1):
         parser.error("--fail-under must be greater than 0 and at most 1")
+    if args.infra_retries < 0:
+        parser.error("--infra-retries must be at least 0")
 
     default_slots = (
         DockerProviderStrategy.default_max_sandboxes
@@ -246,4 +257,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         trials=args.trials,
         fail_under=args.fail_under,
         sandbox_flags_set=sandbox_flags_set,
+        infrastructure_retries=args.infra_retries,
     )

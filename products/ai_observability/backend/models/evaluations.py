@@ -72,6 +72,13 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 fields=["team", "directory", "-created_at", "id"],
                 name="llma_eval_team_dir_created_idx",
             ),
+            # Deleting a directory makes Django run the SET_NULL update with a filter on directory_id only,
+            # and the index above cannot serve that filter because it leads with team_id.
+            models.Index(
+                fields=["directory"],
+                name="llma_eval_directory_idx",
+                condition=models.Q(directory__isnull=False),
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -232,7 +239,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
 
     def save(self, *args, **kwargs):
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 

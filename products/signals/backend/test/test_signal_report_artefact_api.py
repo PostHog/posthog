@@ -1055,6 +1055,95 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
         assert self._reviewer_filter_matches(report, alice)
 
+    # --- DELETE reviewers/me (step off a report) ---
+
+    def _leave_reviewers_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/reviewers/me/"
+
+    @parameterized.expand(
+        [
+            ("stored_by_uuid", True, False),
+            ("stored_by_login", False, True),
+            ("stored_by_both", True, True),
+        ]
+    )
+    def test_leave_reviewers_removes_the_caller_however_they_are_stored(self, _name, by_uuid, by_login):
+        _attach_github_login(self.user, "CallerCase")
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        caller_entry: dict = {}
+        if by_uuid:
+            caller_entry["user_uuid"] = str(self.user.uuid)
+        if by_login:
+            caller_entry["github_login"] = "callercase"
+        self._create_artefact(report, content=[caller_entry, {"user_uuid": str(teammate.uuid)}])
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+        assert not self._reviewer_filter_matches(report, self.user)
+
+    def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
+        _attach_github_login(self.user, "CallerCase")
+        teammate = self._create_org_member("teammate@example.com", github_login=None)
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            content=[
+                {"user_uuid": str(teammate.uuid), "github_login": "callercase"},
+                {"user_uuid": str(self.user.uuid)},
+            ],
+        )
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+
+    def test_leave_reviewers_does_not_reevaluate_autostart(self):
+        # Auto-start runs the task as the user the row is attributed to, so this would start a
+        # billable run as the person who just stepped off.
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(teammate.uuid)}])
+
+        with patch.object(SignalReportArtefact, "_schedule_autostart_reevaluation") as scheduled:
+            response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+            assert response.status_code == status.HTTP_204_NO_CONTENT
+            assert scheduled.call_count == 0
+
+            # The add path still re-evaluates, which is what makes the removal's silence meaningful.
+            put = self.client.put(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                data=json.dumps({"content": [{"user_uuid": str(teammate.uuid)}]}),
+                content_type="application/json",
+            )
+            assert put.status_code == status.HTTP_200_OK
+            assert scheduled.call_count == 1
+
+    def test_leave_reviewers_keeps_a_reviewer_who_left_the_organization(self):
+        former = self._create_org_member("former@example.com", github_login="former")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(former.uuid)}])
+        OrganizationMembership.objects.filter(user=former, organization=self.organization).delete()
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(former.uuid)]
+
+    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(teammate.uuid)}])
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._reviewers_count(report) == 1
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
         report = self._create_report()

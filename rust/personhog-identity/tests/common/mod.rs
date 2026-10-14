@@ -229,6 +229,17 @@ impl TestContext {
 pub struct UnusedLeader;
 
 #[async_trait::async_trait]
+impl personhog_identity::leader::PersonStateReader for UnusedLeader {
+    async fn is_identified(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+    ) -> Result<Option<bool>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
+
+#[async_trait::async_trait]
 impl personhog_identity::leader::PropertyWriter for UnusedLeader {
     async fn update_person_properties(
         &self,
@@ -290,6 +301,14 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
     ) -> personhog_identity::storage::StorageResult<
         std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
     > {
+        panic!("not exercised by this test")
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        _keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
         panic!("not exercised by this test")
     }
 
@@ -370,6 +389,14 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
             .unwrap()
             .extend(keys.iter().cloned());
         self.inner.resolve_distinct_ids(keys).await
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
+        self.inner.resolve_person_ids(keys).await
     }
 
     async fn get_distinct_ids_for_persons(

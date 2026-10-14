@@ -472,6 +472,27 @@ match filter.value {
 
 Evaluated results are cached in `FlagEvaluationState.flag_evaluation_results` for subsequent dependent flags. Flags with missing or cyclic dependencies evaluate to `false` with reason `MissingDependency`.
 
+A failed flag records no result, so a dependent would otherwise read its `flag_evaluates_to` condition as a non-match.
+Instead, when a flag fails earlier in the request, for example because the persons database fetch failed, the dependent compares two answers: the answer it would give if the failed flag matched, and the answer from its other conditions.
+A filter on the failed flag passes, and the other filters and the rollout of its condition still apply, so that condition can still be a definite non-match.
+A condition is also a definite non-match when no single value of the failed flag satisfies all its filters on that flag, for example `true` together with `false`.
+If that condition matches, its variant is the first answer.
+With `early_exit`, the condition can instead stop on its rollout, and then the first answer is no match.
+The dependent returns `failed: true` with the `dependency_failed` reason when the two answers differ, and its normal value when they agree.
+An SDK can then tell the error apart from a configured `false`.
+The two answers agree, for example, when an earlier condition matches, or when a later condition matches with the same variant.
+The check is conservative.
+Two conditions on the same failed flag can fail a dependent even when every value of that flag gives the same answer.
+The failure reaches transitive dependents stage by stage.
+The check runs only after a flag has failed in the request.
+An unsupported non-v1 flag is the exception: it fails, but its dependents read it as false, as described above.
+The batch evaluation endpoint adds a person to the cohort when the target is enabled, and it never reads the variant.
+So it compares the two answers by match only for the target, and for each dependency that only `true` or `false` filters read.
+A failed flag that could change only the variant of one of these flags does not fail it.
+A dependency that an evaluated flag filters on by variant keeps the variant comparison.
+The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every dependency that failed on its own reports a transient code.
+An unsupported non-v1 dependency does not count, because its dependents read it as false.
+
 ### Partial flag evaluation
 
 When `flag_keys` is provided in the request, the dependency graph is filtered to include only the requested flags and their transitive dependencies. This avoids evaluating unrelated flags.
@@ -561,9 +582,17 @@ Both property sources record whether their fetch ran, and a filter whose source 
 
 - `person_property_state` distinguishes `Pending` (prep has not run) from `Skipped` (request overrides cover every key the batch needs) and `Fetched`.
 - The key set of `group_properties` carries the same distinction per group type. A missing index means the fetch never ran; a present index is authoritative, so an empty map there means the group has no stored properties.
-- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a failed lookup says nothing about any group, and a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that one.
+- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that group.
 
-One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies only after the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before.
+One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies when the request carries no usable group key and no group property override, or when the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before. A request without group context therefore gets the same answer under a loaded, stale, or failed mapping.
+
+A failed lookup says nothing about any group in the request, so a condition that aggregates by a group or filters on a group property cannot be evaluated when the request sends group context.
+The matcher cannot tell which group type the condition's index names, so a key or override for any group type counts.
+The matcher skips that condition and evaluates the others.
+A later condition that matches still decides the flag, although the skipped condition could have picked a different variant.
+With `early_exit`, a skipped condition below 100% rollout could instead stop on its rollout with no match, so a later match then returns `failed: true` too.
+When no condition matches, the flag returns `failed: true` with the lookup's own error code, such as `timeout:persons_db_deadline` or `database_unavailable`, instead of `false`.
+Client SDKs then keep their cached value.
 
 Self-hosted upgrades across this change can see different `/flags` and `/decide` responses without any change to the request or the flag. A negative group filter that previously matched because of a fetch miss now stops matching. A condition that combines person and group filters now loads the group types referenced only by those filters, so the group's stored properties decide the filter where an empty map used to.
 

@@ -56,6 +56,15 @@ def accessible_experiment_ids(
     return set(queryset.values_list("id", flat=True))
 
 
+def launched_experiment_ids(team_id: int, experiment_ids: Collection[int]) -> set[int]:
+    """The ids in ``experiment_ids`` of live experiments in the team that have launched."""
+    return set(
+        Experiment.objects.filter(
+            team_id=team_id, id__in=experiment_ids, deleted=False, start_date__isnull=False
+        ).values_list("id", flat=True)
+    )
+
+
 def _live_experiment(team: Team, experiment_id: int) -> Experiment | None:
     return Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
 
