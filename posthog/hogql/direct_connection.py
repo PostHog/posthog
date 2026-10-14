@@ -9,6 +9,7 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql.database.database import Database
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.constants import AvailableFeature
 from posthog.ph_client import feature_enabled_or_false
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
@@ -121,6 +122,15 @@ def get_direct_connection_source(
     # sources have no restricted catalog to bypass; the whole external database is the intended
     # surface.
     if require_pure_direct and source.access_method != ExternalDataSourceAccessMethod.DIRECT:
+        return None
+
+    # Legacy shares have no publisher identity to recheck, so require a validated publish decision.
+    if (
+        isinstance(user, SharedLinkUser)
+        and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
+        and team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        and not user.sharing_configuration.direct_connection_access_validated
+    ):
         return None
 
     if (

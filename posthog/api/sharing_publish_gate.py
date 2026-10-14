@@ -63,17 +63,23 @@ def check_can_add_insight_to_shared_dashboard(
         )
 
 
-def blocked_access_for_publisher(user: User, team: Team, config: SharingConfiguration) -> list[str]:
+def blocked_access_for_publisher(
+    user: User, team: Team, config: SharingConfiguration, *, direct_connections_only: bool = False
+) -> list[str]:
     """
     Tables and runner-level resources that stop the publisher from running the shared
     artifact's queries. Each query is compiled (resolved, not executed) as the publisher,
     the same resolution the read path uses. Non-access compile errors don't gate.
     Empty list = safe to publish.
     """
-    return blocked_access_for_user(user, team, _queries_exposed_by(config))
+    return blocked_access_for_user(
+        user, team, _queries_exposed_by(config), direct_connections_only=direct_connections_only
+    )
 
 
-def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
+def blocked_access_for_user(
+    user: User, team: Team, queries: list[dict[str, Any]], *, direct_connections_only: bool = False
+) -> list[str]:
     """Tables (and runner-level resources) the user can't access among everything the given
     queries read - the compile core shared by the publish gate and the save-time block on
     already-shared artifacts."""
@@ -94,6 +100,8 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
             # get_query_runner unwraps container nodes (DataTableNode, InsightVizNode, ...) itself.
             runner = get_query_runner_or_none(query, team, user=user)
             if runner is None:
+                continue
+            if direct_connections_only and not (isinstance(runner.query, HogQLQuery) and runner.query.connectionId):
                 continue
             # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
             runner.validate_query_runner_access(user)

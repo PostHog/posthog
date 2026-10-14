@@ -17,6 +17,9 @@ from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
+DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING = "_direct_connection_access_validated"
+PUBLIC_SETTINGS_IS_NULL_SETTING = "_public_settings_is_null"
+
 
 def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)
@@ -68,6 +71,20 @@ class SharingConfiguration(models.Model):
     settings = models.JSONField(null=True, blank=True, help_text="JSON settings for storing configuration options")
 
     password_required = models.BooleanField(default=False)
+
+    @property
+    def direct_connection_access_validated(self) -> bool:
+        return (self.settings or {}).get(DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING) is True
+
+    @property
+    def public_settings(self) -> dict[str, Any] | None:
+        if self.settings is None or self.settings.get(PUBLIC_SETTINGS_IS_NULL_SETTING) is True:
+            return None
+        return {
+            key: value
+            for key, value in self.settings.items()
+            if key not in {DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING, PUBLIC_SETTINGS_IS_NULL_SETTING}
+        }
 
     @classmethod
     def shareable_resource_fields(cls) -> frozenset[str]:

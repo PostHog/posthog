@@ -101,6 +101,8 @@ class TestGetDirectConnectionSource(APIBaseTest):
     @parameterized.expand(
         [
             ("shared_link", "none", True),
+            ("shared_link_legacy", "none", False),
+            ("shared_link_without_access_control", "none", True),
             ("synthetic", "none", True),
             ("member_denied", "none", False),
             ("member_allowed", "viewer", True),
@@ -123,7 +125,16 @@ class TestGetDirectConnectionSource(APIBaseTest):
         )
         user: User | SyntheticUser | SharedLinkUser = self.user
         if principal == "shared_link":
+            user = SharedLinkUser(
+                SharingConfiguration(
+                    team=self.team, enabled=True, settings={"_direct_connection_access_validated": True}
+                )
+            )
+        elif principal in {"shared_link_legacy", "shared_link_without_access_control"}:
             user = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+            if principal == "shared_link_without_access_control":
+                self.organization.available_product_features = []
+                self.organization.save()
         elif principal == "synthetic":
             user = SyntheticUser(self.team, distinct_id="test-service-token")
 
@@ -143,7 +154,9 @@ class TestGetDirectConnectionSource(APIBaseTest):
         elif source_state == "deleted":
             source.deleted = True
             source.save()
-        user = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+        user = SharedLinkUser(
+            SharingConfiguration(team=self.team, enabled=True, settings={"_direct_connection_access_validated": True})
+        )
 
         resolved = get_direct_connection_source(
             self.team,
@@ -195,6 +208,10 @@ class TestGetDirectConnectionSource(APIBaseTest):
         self.assertEqual(resolved is not None, expected_access)
         if resolved is not None:
             self.assertEqual(resolved.id, managed_source.id)
+            legacy_viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+            self.assertEqual(
+                get_direct_connection_source(self.team, str(managed_source.id), user=legacy_viewer), managed_source
+            )
 
     def test_ready_reader_resolution_is_available(self) -> None:
         source = self._create_managed_source()

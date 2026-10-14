@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from functools import wraps
+from typing import Any
 from urllib.parse import quote
 
 import time_machine
@@ -2119,13 +2120,17 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("public_hogql", False, False),
-            ("public_raw", False, True),
-            ("password_hogql", True, False),
-            ("password_raw", True, True),
+            ("public_hogql", False, False, True),
+            ("public_raw", False, True, True),
+            ("password_hogql", True, False, True),
+            ("password_raw", True, True, True),
+            ("legacy_public_hogql", False, False, False),
+            ("legacy_public_raw", False, True, False),
+            ("legacy_password_hogql", True, False, False),
+            ("legacy_password_raw", True, True, False),
         ]
     )
-    def test_shared_dashboard_direct_connection(self, _name: str, password_required: bool, raw: bool):
+    def test_shared_dashboard_direct_connection(self, _name: str, password_required: bool, raw: bool, validated: bool):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -2155,9 +2160,13 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
         config = SharingConfiguration.objects.create(
-            team=self.team, dashboard=dashboard, enabled=True, password_required=password_required
+            team=self.team,
+            dashboard=dashboard,
+            enabled=True,
+            password_required=password_required,
+            settings={"_direct_connection_access_validated": True} if validated else None,
         )
-        headers = {}
+        headers: dict[str, Any] = {}
         if password_required:
             password, _ = SharePassword.create_password(config, created_by=self.user)
             headers["HTTP_AUTHORIZATION"] = f"Bearer {config.generate_password_protected_token(password)}"
@@ -2170,9 +2179,13 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         tile = response.json()["dashboard"]["tiles"][0]["insight"]
-        assert not tile.get("result_error"), tile
-        assert tile["result"] == [[1]]
-        execute.assert_called_once()
+        if validated:
+            assert not tile.get("result_error"), tile
+            assert tile["result"] == [[1]]
+            execute.assert_called_once()
+        else:
+            assert not tile.get("result"), tile
+            execute.assert_not_called()
 
     def test_shared_notebook_inline_warehouse_query_executes(self):
         from products.notebooks.backend.models import Notebook
@@ -2237,12 +2250,15 @@ class TestSharingPublishGate(APIBaseTest):
     def _deny_warehouse(self) -> None:
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
-    def _enable_sharing(self, kind: str):
+    def _enable_sharing(self, kind: str, already_enabled: bool = False):
+        target: Dashboard | Insight | Notebook
         if kind == "insight":
+            target = self.insight
             url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing"
         elif kind == "dashboard":
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            target = dashboard
             url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
         else:
             notebook = Notebook.objects.create(
@@ -2264,8 +2280,14 @@ class TestSharingPublishGate(APIBaseTest):
                     ],
                 },
             )
+            target = notebook
             url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
-        return self.client.patch(url, {"enabled": True})
+        if already_enabled:
+            SharingConfiguration.objects.create(team=self.team, enabled=True, **{kind: target})
+        return self.client.patch(
+            url,
+            {"enabled": True, "settings": {"_direct_connection_access_validated": True} if already_enabled else None},
+        )
 
     @parameterized.expand([("insight",), ("dashboard",), ("notebook",)])
     def test_denied_publisher_cannot_enable_sharing(self, kind: str):
@@ -2286,16 +2308,20 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("hogql_denied_source", False, "source", False),
-            ("raw_denied_source", True, "source", False),
-            ("hogql_denied_table", False, "table", False),
-            ("raw_denied_table", True, "table", False),
-            ("hogql_allowed", False, None, True),
-            ("raw_allowed", True, None, True),
+            (f"{'legacy' if already_enabled else 'new'}_{name}", raw, denied_resource, allowed, already_enabled)
+            for name, raw, denied_resource, allowed in [
+                ("hogql_denied_source", False, "source", False),
+                ("raw_denied_source", True, "source", False),
+                ("hogql_denied_table", False, "table", False),
+                ("raw_denied_table", True, "table", False),
+                ("hogql_allowed", False, None, True),
+                ("raw_allowed", True, None, True),
+            ]
+            for already_enabled in [False, True]
         ]
     )
     def test_direct_connection_access_gates_publishing(
-        self, _name: str, raw: bool, denied_resource: str | None, allowed: bool
+        self, _name: str, raw: bool, denied_resource: str | None, allowed: bool, already_enabled: bool
     ):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -2329,15 +2355,32 @@ class TestSharingPublishGate(APIBaseTest):
         }
         self.insight.save()
 
-        response = self._enable_sharing("dashboard")
+        response = self._enable_sharing("dashboard", already_enabled)
 
         if allowed:
             assert response.status_code == status.HTTP_200_OK, response.content
             assert response.json()["enabled"] is True
+            assert "_direct_connection_access_validated" not in (response.json().get("settings") or {})
+            config = SharingConfiguration.objects.get(team=self.team, dashboard__isnull=False, enabled=True)
+            assert config.direct_connection_access_validated
+            if already_enabled:
+                dashboard = config.dashboard
+                assert dashboard is not None
+                cleared = self.client.patch(
+                    f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"settings": None}
+                )
+                assert cleared.status_code == status.HTTP_200_OK, cleared.content
+                assert cleared.json()["settings"] is None
+                config.refresh_from_db()
+                assert config.direct_connection_access_validated
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
             assert "Can't enable sharing" in str(response.json())
-            assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+            if already_enabled:
+                config = SharingConfiguration.objects.get(team=self.team, dashboard__isnull=False, enabled=True)
+                assert not config.direct_connection_access_validated
+            else:
+                assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
 
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
