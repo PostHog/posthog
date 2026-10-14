@@ -339,7 +339,7 @@ class TestSlackMcpOffer:
         ):
             return client.get(f"/complete/slack-link/?code=abc&state={state}")
 
-    def test_consent_screen_names_both_grants_and_defaults_to_both(
+    def test_consent_screen_names_both_grants_and_offers_each_choice_as_a_link(
         self, logged_in_client, workspace_integration, offer_available
     ):
         client, _ = logged_in_client
