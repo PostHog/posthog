@@ -90,6 +90,7 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.guest_access import guest_team_ids
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
@@ -663,7 +664,9 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_team(self, value: str) -> Team:
         try:
             team = Team.objects.get(pk=value)
-            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+            user = self.context["request"].user
+            guest_teams = guest_team_ids(user, team.organization_id)
+            if user.teams.filter(pk=team.pk).exists() and (guest_teams is None or team.pk in guest_teams):
                 return team
         except Team.DoesNotExist:
             pass
@@ -747,7 +750,11 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            if not current_team:
+                guest_teams = guest_team_ids(instance, current_organization.id)
+                teams = current_organization.teams.all()
+                current_team = (teams if guest_teams is None else teams.filter(pk__in=guest_teams)).first()
+            validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization

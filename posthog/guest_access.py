@@ -122,6 +122,14 @@ def guest_project_ids(organization_id: UUID, user: User) -> frozenset[int]:
     return member_project_ids(organization_id=organization_id, user_id=user.pk)
 
 
+def guest_team_ids(user: User, organization_id: UUID) -> frozenset[int] | None:
+    """Return the projects a guest may open in the organization, or None when the user is not a guest there."""
+    is_guest = OrganizationMembership.objects.filter(
+        user=user, organization_id=organization_id, level=OrganizationMembership.Level.GUEST
+    ).exists()
+    return guest_project_ids(organization_id, user) if is_guest else None
+
+
 @frozen
 class QueryReferences:
     cohort_ids: frozenset[int]

@@ -60,6 +60,21 @@ class TestGuestSerializers(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.other_team.id}/")
         assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND), response.json()
 
+    def test_guest_cannot_switch_to_a_project_without_a_rule(self) -> None:
+        response = self.client.patch("/api/users/@me/", {"set_current_team": self.other_team.id})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.team.id
+
+    def test_guest_org_switch_lands_on_their_project(self) -> None:
+        AccessControl.objects.filter(organization_member=self.organization_membership).update(
+            team=self.other_team, resource_id=str(self.other_team.id)
+        )
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.organization.id)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.other_team.id
+
     def test_guest_app_access_shows_only_granted_types(self) -> None:
         def openfga_list(resource: Resource, *_args: object) -> ResourceIds:
             granted = {ResourceType.DASHBOARD: frozenset({"1"})}
