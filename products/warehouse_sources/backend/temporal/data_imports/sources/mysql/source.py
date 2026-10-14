@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLS_CONFIGURATION_ERRORS,
     TLSConfigurationError,
     ca_certificate_field,
     client_certificate_fields,
@@ -57,6 +59,7 @@ _MYSQL_IMPLEMENTATION = MySQLImplementation()
 # get_non_retryable_errors — which the sync path also consults for retry
 # classification — so connection-error retry behaviour is unchanged.
 _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
+    *CERTIFICATE_ERRORS.items(),
     (
         "Name or service not known",
         "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
@@ -241,6 +244,9 @@ class MySQLSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # pymysql wraps a TLS failure in the generic 2003 error below, so these must come first.
+            **CERTIFICATE_ERRORS,
+            **TLS_CONFIGURATION_ERRORS,
             # pymysql collapses every connect-level failure (wrong host/port, closed firewall,
             # unreachable host, a connect timeout that outlasts the in-process retry budget) into
             # error 2003, "Can't connect to MySQL server on '<host>' (<os detail>)". Non-retryable

@@ -45,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
     CERTIFICATE_ERRORS,
-    CLIENT_CERTIFICATE_INCOMPLETE_ERROR,
+    TLS_CONFIGURATION_ERRORS,
     TLSConfigurationError,
     ca_certificate_field,
     client_certificate_fields,
@@ -1025,7 +1025,7 @@ class PostgresSource(
                 "you rather than an IP address, then re-enable the sync."
             ),
             **CERTIFICATE_ERRORS,
-            CLIENT_CERTIFICATE_INCOMPLETE_ERROR: None,
+            **TLS_CONFIGURATION_ERRORS,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
@@ -1527,6 +1527,7 @@ class PostgresSource(
         require_ssl: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
+        tls = tls_options(config)
 
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
@@ -1539,7 +1540,7 @@ class PostgresSource(
                 names=names,
                 require_ssl=require_ssl,
                 team_id=team_id,
-                tls=tls_options(config),
+                tls=tls,
             )
             # Foreign keys are advisory metadata (they pre-populate relationship hints in the
             # table picker). The discovery query joins three `information_schema` views, which
@@ -1557,7 +1558,7 @@ class PostgresSource(
                     names=names,
                     require_ssl=require_ssl,
                     team_id=team_id,
-                    tls=tls_options(config),
+                    tls=tls,
                 )
             except Exception as e:
                 structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
@@ -1574,7 +1575,7 @@ class PostgresSource(
                     names=names,
                     require_ssl=require_ssl,
                     team_id=team_id,
-                    tls=tls_options(config),
+                    tls=tls,
                 )
             else:
                 row_counts = {}
@@ -1609,7 +1610,7 @@ class PostgresSource(
                     database=config.database,
                     require_ssl=require_ssl,
                     team_id=team_id,
-                    tls=tls_options(config),
+                    tls=tls,
                 ) as conn:
                     # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
                     # quirk on `pg_catalog` (rare) only disables CDC advertising for this

@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -3007,6 +3008,15 @@ class TestMySQLSourceValidateCredentials:
                     2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
                 ),
                 "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            # pymysql wraps the TLS failure in the generic 2003 error, so it must not get the firewall advice.
+            (
+                pymysql.err.OperationalError(
+                    2003,
+                    "Can't connect to MySQL server on 'db.example.com' ([SSL: CERTIFICATE_VERIFY_FAILED] "
+                    "certificate verify failed: unable to get local issuer certificate (_ssl.c:1032))",
+                ),
+                CERTIFICATE_ERRORS["certificate verify failed"],
             ),
             # Server error 1049: the host/port/credentials are fine but the named database
             # doesn't exist. Previously fell through to capture as an unexpected error.

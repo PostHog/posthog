@@ -3458,9 +3458,9 @@ class TestInvalidSSLNegotiationResponse:
             "SSL error: tlsv13 alert certificate required",
         ],
     )
-    def test_invalid_negotiation_is_not_wrapped_as_ssl_required(self, message):
-        # require_ssl=True, but the message is a wrong-port/non-Postgres signal — it must surface
-        # raw (so get_non_retryable_errors can give an accurate message), not as the misleading
+    def test_ssl_mentioning_errors_are_not_wrapped_as_ssl_required(self, message):
+        # require_ssl=True, and the message mentions SSL, but the server does speak TLS here. It must
+        # surface raw so get_non_retryable_errors can give an accurate message, not the misleading
         # SSLRequiredError "enable SSL on your server".
         connect_mock = mock.MagicMock(side_effect=psycopg.OperationalError(message))
         with patch(

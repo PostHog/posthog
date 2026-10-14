@@ -1305,8 +1305,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         page is its own transaction (see `_keyset_get_rows`).
         """
         tls = tls_options(config)
-        # Verification implies TLS, so a user who asks us to check the certificate gets the
-        # encrypted connection that check needs, whatever `using_ssl` says.
+        # Any TLS option implies TLS, so a user who sets one gets the encrypted connection it needs,
+        # whatever `using_ssl` says.
         use_tls = config.using_ssl or tls.is_set
 
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port), tls_files(tls) as files:

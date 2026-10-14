@@ -20,38 +20,62 @@ _TUNNEL = SimpleNamespace(enabled=True)
 class TestLibpqTLSKwargs(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_tls_fields", {}, None, False),
-            ("blank_fields", {"verify_server_certificate": False, "ca_certificate": "  "}, None, False),
-            ("verify", {"verify_server_certificate": True}, "verify-full", False),
-            ("verify_through_tunnel", {"verify_server_certificate": True, "ssh_tunnel": _TUNNEL}, "verify-ca", False),
-            ("ca_alone_turns_verification_on", {"ca_certificate": "CA PEM"}, "verify-full", False),
-            ("client_certificate_alone", {"client_certificate": "CERT PEM", "client_key": "KEY PEM"}, None, True),
-            ("cleared_certificate_ignores_the_stored_key", {"client_key": "KEY PEM"}, None, False),
+            ("no_tls_fields", {}, None, None, None),
+            ("blank_fields", {"verify_server_certificate": False, "ca_certificate": "  "}, None, None, None),
+            ("verify", {"verify_server_certificate": True}, "verify-full", "system", None),
+            (
+                "verify_through_tunnel",
+                {"verify_server_certificate": True, "ssh_tunnel": _TUNNEL},
+                "verify-ca",
+                "system",
+                None,
+            ),
+            ("ca_alone_turns_verification_on", {"ca_certificate": "CA PEM"}, "verify-full", "CA PEM", None),
+            (
+                "client_certificate_alone",
+                {"client_certificate": "CERT PEM", "client_key": "KEY PEM"},
+                None,
+                None,
+                ("CERT PEM", "KEY PEM"),
+            ),
+            ("cleared_certificate_ignores_the_stored_key", {"client_key": "KEY PEM"}, None, None, None),
         ]
     )
     def test_overrides(
-        self, _name: str, fields: dict[str, object], expected_sslmode: str | None, expects_client_certificate: bool
+        self,
+        _name: str,
+        fields: dict[str, object],
+        expected_sslmode: str | None,
+        expected_root: str | None,
+        expected_client: tuple[str, str] | None,
     ) -> None:
         with libpq_tls_kwargs(tls_options(SimpleNamespace(**fields))) as kwargs:
-            assert kwargs.get("sslmode") == expected_sslmode
-            assert ("sslcert" in kwargs) is expects_client_certificate
-            if expected_sslmode is None:
-                assert "sslrootcert" not in kwargs
-            elif "CA PEM" in str(fields.get("ca_certificate")):
-                assert Path(kwargs["sslrootcert"]).read_text() == "CA PEM"
-            else:
-                assert kwargs["sslrootcert"] == system_ca_bundle()
-            if expects_client_certificate:
-                assert Path(kwargs["sslcert"]).read_text() == "CERT PEM"
-                assert Path(kwargs["sslkey"]).read_text() == "KEY PEM"
-                assert stat.S_IMODE(os.stat(kwargs["sslkey"]).st_mode) == 0o600
-            written = [value for key, value in kwargs.items() if key != "sslmode" and value != system_ca_bundle()]
+            written = [Path(value) for key, value in kwargs.items() if key != "sslmode" and value != system_ca_bundle()]
+            root = kwargs.get("sslrootcert")
+            actual_root = "system" if root == system_ca_bundle() else root and Path(root).read_text()
+            actual_client = (
+                (Path(kwargs["sslcert"]).read_text(), Path(kwargs["sslkey"]).read_text())
+                if "sslcert" in kwargs
+                else None
+            )
+            assert (kwargs.get("sslmode"), actual_root, actual_client) == (
+                expected_sslmode,
+                expected_root,
+                expected_client,
+            )
+            assert all(stat.S_IMODE(os.stat(path).st_mode) == 0o600 for path in written if path.name == "client.key")
 
-        assert not any(Path(path).exists() for path in written)
+        assert not any(path.exists() for path in written)
 
-    def test_certificate_without_key_is_refused(self) -> None:
+    @parameterized.expand(
+        [
+            ("certificate_without_key", {"client_certificate": "CERT PEM"}),
+            (
+                "encrypted_key",
+                {"client_certificate": "CERT PEM", "client_key": "-----BEGIN ENCRYPTED PRIVATE KEY-----"},
+            ),
+        ]
+    )
+    def test_unusable_client_certificate_is_refused(self, _name: str, fields: dict[str, str]) -> None:
         with self.assertRaises(TLSConfigurationError):
-            tls_options(SimpleNamespace(client_certificate="CERT PEM"))
-
-    def test_system_ca_bundle_exists_on_this_host(self) -> None:
-        assert Path(system_ca_bundle()).is_file()
+            tls_options(SimpleNamespace(**fields))

@@ -20,6 +20,14 @@ CLIENT_CERTIFICATE_INCOMPLETE_ERROR = (
     "A client certificate needs its private key. Add the key, or clear the certificate."
 )
 
+ENCRYPTED_CLIENT_KEY_ERROR = "The client key has a passphrase. Remove the passphrase and paste the key again."
+
+# The user has to change the source to clear either one, so a sync stops on them.
+TLS_CONFIGURATION_ERRORS: dict[str, str | None] = {
+    CLIENT_CERTIFICATE_INCOMPLETE_ERROR: None,
+    ENCRYPTED_CLIENT_KEY_ERROR: None,
+}
+
 _CLIENT_CERTIFICATE_REJECTED_ERROR = (
     "Your database rejected the client certificate, or requires one. Add a client certificate and key that "
     "your database trusts."
@@ -29,8 +37,9 @@ _CLIENT_CERTIFICATE_REJECTED_ERROR = (
 # on every attempt until the user changes the source.
 CERTIFICATE_ERRORS: dict[str, str] = {
     "certificate verify failed": (
-        "PostHog could not verify your database's TLS certificate. Check that the certificate authority "
-        "you added signed it, or turn off certificate verification."
+        "PostHog could not verify your database's TLS certificate. Either an authority PostHog trusts did not "
+        "sign it, or it does not match the host. Add the authority that signed it, check the host, or turn "
+        "off certificate verification."
     ),
     "does not match host name": (
         "Your database's TLS certificate does not match the host you entered. Use the hostname the "
@@ -63,6 +72,10 @@ class TLSOptions:
     def __post_init__(self) -> None:
         if self.client_certificate and not self.client_key:
             raise TLSConfigurationError(CLIENT_CERTIFICATE_INCOMPLETE_ERROR)
+        # OpenSSL prompts on the terminal for the passphrase of an encrypted key, which can block
+        # a worker. Both PEM forms of an encrypted key carry this word.
+        if self.client_key and "ENCRYPTED" in self.client_key:
+            raise TLSConfigurationError(ENCRYPTED_CLIENT_KEY_ERROR)
 
     @property
     def is_set(self) -> bool:
@@ -100,7 +113,7 @@ _CA_BUNDLE_PATHS = ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem")
 
 @cache
 def system_ca_bundle() -> str:
-    """Return the CA bundle path of this host, whatever `DEBUG` says."""
+    """Return the first CA bundle that exists on this host."""
     defaults = ssl.get_default_verify_paths()
     for path in (*_CA_BUNDLE_PATHS, defaults.cafile, defaults.openssl_cafile):
         if path and Path(path).is_file():
@@ -115,6 +128,9 @@ def tls_files(options: TLSOptions) -> Iterator[TLSFiles]:
     The database clients take certificate paths, not contents. The directory is private to this
     process user, which libpq requires for the private key.
     """
+    if not (options.ca_certificate or options.client_certificate):
+        yield TLSFiles(ca_certificate=None, client_certificate=None, client_key=None)
+        return
     with tempfile.TemporaryDirectory(prefix="source-tls-") as directory:
 
         def write(name: str, pem: str | None) -> str | None:
