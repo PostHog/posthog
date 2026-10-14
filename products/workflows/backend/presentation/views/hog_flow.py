@@ -5290,25 +5290,15 @@ class HogFlowViewSet(
     @extend_schema(responses={200: HogFlowInFlightSerializer})
     @action(detail=True, methods=["GET"], url_path="in_flight", filter_backends=[], pagination_class=None)
     def in_flight(self, request: Request, *args, **kwargs):
-        # Best-effort like the publish preview: an unreachable counting service yields nulls, not an error.
         instance = self.get_object()
         cache_key = f"hog_flow_in_flight:{self.team_id}:{instance.id}"
         counts = cache.get(cache_key)
         if counts is None:
             counts = self._get_in_flight_counts(instance)
-            # Overview visits share one queue scan per workflow; a failed count is not cached.
             if counts is not None:
                 cache.set(cache_key, counts, IN_FLIGHT_CACHE_SECONDS)
-        counts = counts or {}
-        return Response(
-            HogFlowInFlightSerializer(
-                {
-                    "count": counts.get("count"),
-                    "by_action": counts.get("by_action"),
-                    "position_unknown": counts.get("position_unknown"),
-                }
-            ).data
-        )
+        # An unreachable counting service yields nulls, not an error. A failed count is not cached.
+        return Response(HogFlowInFlightSerializer(counts or dict.fromkeys(HogFlowInFlightSerializer().fields)).data)
 
     @extend_schema(responses={200: HogFlowRevisionBasicSerializer(many=True)})
     # filter_backends=[]: don't inherit the viewset's HogFlow filterset — its fields would be
