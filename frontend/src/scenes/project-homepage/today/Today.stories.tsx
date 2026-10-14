@@ -860,7 +860,7 @@ export const ReportInANarrowWindow: Story = {
 
 export const ChatsPane: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
     },
 }
 
@@ -937,7 +937,7 @@ async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: st
 // Right-clicking a session row opens the same actions as its hover card.
 export const ChatsPaneChatContextMenu: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
         rightClick(row)
         await within(document.body).findByText('Open in new tab')
@@ -1095,7 +1095,7 @@ export const ReportHoverCardResolved: Story = {
 // The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
 export const ChatsPaneWithListItemDetails: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todayListAppearanceLogic.actions.setFields(['repository', 'activity'])
     },
@@ -1103,7 +1103,7 @@ export const ChatsPaneWithListItemDetails: Story = {
 
 export const ListItemAppearanceDialog: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todayListAppearanceLogic.actions.setFields(['space', 'branch'])
         todayListAppearanceLogic.actions.openAppearanceDialog()
