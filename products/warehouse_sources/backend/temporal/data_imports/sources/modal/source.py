@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ModalSource(ResumableSource[ModalSourceConfig, ModalResumeConfig]):
+    codebase_detection = detect(
+        env=("^MODAL_TOKEN_ID$", "^MODAL_TOKEN_SECRET$"),
+        npm=("modal",),
+        pypi=("modal",),
+        go=("github.com/modal-labs/modal-client/go", "github.com/modal-labs/libmodal/modal-go"),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://modal.com/docs/sdk/py/latest/Workspace#billingreport"
 
