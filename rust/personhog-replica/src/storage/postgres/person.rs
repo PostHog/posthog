@@ -982,8 +982,9 @@ impl PersonLookup for PostgresStorage {
         // is constant (not per-distinct_id), so the lock window stays short; the
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
-        // A held mark or row means a merge, delete or split in flight: fail fast, rolled back, under the
-        // router's deadline instead of committing after the caller gave up and retried.
+        // A held mark or row means a merge, delete or split in flight: fail fast and roll back instead of
+        // waiting out the statement timeout. The bound is per wait, so a split can still outlast the
+        // router's deadline when several waits add up.
         sqlx::query("SET LOCAL lock_timeout = '2s'")
             .execute(&mut *tx)
             .await?;
@@ -1086,12 +1087,13 @@ impl PersonLookup for PostgresStorage {
         // re-split, or a tombstone left by a merge or delete of the person
         // that once owned the distinct id. No ON CONFLICT — the partitioned
         // table has a unique index, not a unique constraint, so ON CONFLICT
-        // inference doesn't work.
+        // inference doesn't work. Lock in id order, as the tombstone RPC does, so the two cannot deadlock.
         let existing_persons = sqlx::query!(
             r#"
             SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
             FROM posthog_person
             WHERE team_id = $1 AND uuid = ANY($2)
+            ORDER BY id
             FOR UPDATE
             "#,
             team_id as i32,
