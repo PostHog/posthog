@@ -1153,10 +1153,13 @@ class TestKnownFreeformTags:
                     exported_asset_id=asset.id,
                     file_uri="gemini://files/x",
                     mime_type="video/mp4",
+                    via_gateway=True,
                 ),
             )
 
         assert mock_run_mission.await_args is not None
+        # The upload's route reaches the mission, so the scan reads the file where the upload stored it.
+        assert mock_run_mission.await_args.kwargs["via_gateway"] is True
         passed_scanner = mock_run_mission.await_args.kwargs["scanner"]
         assert passed_scanner.known_freeform_tags == ["search_error"]
         assert "'search_error'" in passed_scanner.core_steps()[0].instruction
@@ -2813,6 +2816,29 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("via_gateway", [True, False])
+async def test_apply_scanner_workflow_hands_the_upload_route_to_the_scan(via_gateway: bool) -> None:
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x", via_gateway=via_gateway
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-1", team_id=99), mocks)
+
+    scan_input = next(arg for fn, arg in mocks.activity_calls if fn is call_scanner_provider_activity)
+    assert scan_input.via_gateway is via_gateway
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     new_observation_id = uuid.uuid4()
     fetch_error = ApplicationError("no events", non_retryable=True)
@@ -3740,6 +3766,8 @@ class TestUploadThroughTheGateway:
         # The cleanup key reads the stored file once, to prove it reaches the same project.
         raw_client.return_value.files.get.assert_called_once_with(name="files/abc")
         assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
+        # The scan reads the file through the gateway because the upload stored it there.
+        assert uploaded.via_gateway is True
         gateway.aclose.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -3791,6 +3819,7 @@ class TestUploadThroughTheGateway:
         # The gateway removes the file cleanup cannot see, and the scan goes on with a direct upload.
         gateway.files.delete.assert_called_once_with(name="files/abc")
         assert uploaded.gemini_file_name == "files/direct"
+        assert uploaded.via_gateway is False
         assert [c.args[0] for c in track.await_args_list] == ["files/abc", "files/direct"]
         detail = log.exception.call_args.kwargs["detail"]
         assert "REPLAY_VISION_GEMINI_API_KEY" in detail and "REPLAY_VISION_AI_GATEWAY_API_KEY" in detail
@@ -3902,12 +3931,13 @@ class TestUploadThroughTheGateway:
             raw_client.return_value.files.upload.return_value = types.File(
                 name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"
             )
-            await ActivityEnvironment().run(
+            uploaded = await ActivityEnvironment().run(
                 upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
             )
 
         raw_client.assert_called_once_with(api_key="replay-vision-google-key")
         gateway_cls.assert_not_called()
+        assert uploaded.via_gateway is False
         # Direct mode uploads with the cleanup key itself, so it never runs the project check.
         raw_client.return_value.files.get.assert_not_called()
 

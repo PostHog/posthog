@@ -1,6 +1,7 @@
 import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,7 +31,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalsResponse,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
-from products.replay_vision.backend.temporal.types import ScannerSnapshot
+from products.replay_vision.backend.temporal.types import CallScannerProviderInputs, ScannerSnapshot, UploadedVideo
 from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
@@ -124,7 +125,7 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
     attempts = AsyncMock(side_effect=RuntimeError("mission failed") if fails == "mission" else None, return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.replay_gemini_client", return_value=gateway),
+        patch(f"{module}.replay_gateway_client", return_value=gateway),
         patch(f"{module}.genai.AsyncClient") as direct_cls,
         patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
         patch(f"{module}._maybe_create_video_cache", new=create_cache),
@@ -141,6 +142,7 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
             team_id=42,
             llm_inputs=MagicMock(),
             trace_id="trace-1",
+            via_gateway=True,
         )
 
     # The cache and the generations both run on Replay Vision's own key, through the gateway.
@@ -150,6 +152,81 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
     direct_cls.assert_not_called()
     direct_cache_cls.assert_not_called()
     gateway.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_direct_upload_is_scanned_direct_even_with_the_flag_on() -> None:
+    # The upload fell back to direct on another pod; this pod still has the gateway on for the team.
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    scanner.assemble.return_value = (MagicMock(), [])
+    create_cache = AsyncMock(return_value=None)
+    attempts = AsyncMock(return_value={})
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch("products.replay_vision.backend.gemini_client.replay_gateway_enabled", return_value=True),
+        patch(f"{module}.replay_gateway_client") as gateway_client,
+        patch(f"{module}.genai.AsyncClient") as direct_cls,
+        patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
+        patch(f"{module}.gemini_api_key", return_value="direct-key"),
+        patch(f"{module}._maybe_create_video_cache", new=create_cache),
+        patch(f"{module}._run_mission_attempts", new=attempts),
+        patch(f"{module}.build_events_index", return_value={}),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=_gateway_scan_snapshot(),
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+            via_gateway=False,
+        )
+
+    gateway_client.assert_not_called()
+    assert create_cache.call_args.args[0] is direct_cache_cls.return_value
+    assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
+
+
+@pytest.mark.asyncio
+async def test_a_gateway_upload_fails_the_scan_when_this_worker_has_no_gateway() -> None:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch(f"{module}.replay_gateway_client", return_value=None),
+        patch(f"{module}.genai.AsyncClient") as direct_cls,
+        patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
+        patch(f"{module}.build_events_index", return_value={}),
+        pytest.raises(ScannerFailureError) as raised,
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=_gateway_scan_snapshot(),
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+            via_gateway=True,
+        )
+
+    assert raised.value.kind == FailureKind.INTERNAL_ERROR
+    assert "REPLAY_VISION_AI_GATEWAY_API_KEY" in str(raised.value)
+    direct_cls.assert_not_called()
+    direct_cache_cls.assert_not_called()
+
+
+def test_a_scan_payload_without_the_upload_route_reads_direct() -> None:
+    # Payloads queued before the route existed carry no field; those uploads all went direct.
+    payload = {"file_uri": "https://x/files/abc", "mime_type": "video/mp4", "gemini_file_name": "files/abc"}
+    assert UploadedVideo.model_validate(payload).via_gateway is False
+    scan = {"team_id": 1, "observation_id": str(uuid4()), "exported_asset_id": 2, **payload}
+    scan.pop("gemini_file_name")
+    assert CallScannerProviderInputs.model_validate(scan).via_gateway is False
 
 
 @pytest.mark.asyncio

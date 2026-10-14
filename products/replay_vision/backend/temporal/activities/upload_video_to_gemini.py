@@ -190,6 +190,7 @@ async def _store_video(
         file_uri=uploaded_file.uri,
         mime_type=uploaded_file.mime_type or mime_type,
         gemini_file_name=gemini_file_name,
+        via_gateway=gateway is not None,
     )
 
 
