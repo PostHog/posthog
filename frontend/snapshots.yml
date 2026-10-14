@@ -13058,6 +13058,10 @@ snapshots:
         hash: v1.k794b7964.c2e5b13de51e4f854f01f1622571fea8105a31e9e743f154541edbb84368268c.bH_EC24utFlfeSuas752E5qImWfbzGYC2Qfxjbsu39Y
     scenes-app-notebooks-nodes-support-tickets--empty--light:
         hash: v1.k794b7964.bb48248fff1b42c87fbd7e92699f179de03310472e6d7d01f36133199078f55c.fJtx2y4bV1uT4LVO00bb4EvWIV1s0YcZYf8FJD0KzLk
+    scenes-app-notebooks-nodes-support-tickets--with-tickets--dark:
+        hash: v1.k794b7964.d6c551c581824287879e157abaa61874713bb6389caaa015b1bac305a69c36cb.szC1MJRFAMY6z5Cr9uPHF3D39RLL7VUUFs3FiiemlsA
+    scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
+        hash: v1.k794b7964.10a73c98dea8faa9011e00a7f44278e12216eb077e68ffefb4f2799f0ab519ad.yCkGWzRUKGODRvA_V0WHSn9Pdm5FhPyEfJVEcilSpP8
     scenes-app-notebooks-run-all-banner--last-cell--dark:
         hash: v1.k794b7964.636c00625c3a849d8b3813e810c2d7aaf62d675049a772ff3d5543c27432ad8b.V2iZz-tdy7XiwDT6-yVJKOW3S3VyaMyoEn5toL5SeUI
     scenes-app-notebooks-run-all-banner--last-cell--light:
