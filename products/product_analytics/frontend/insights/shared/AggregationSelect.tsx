@@ -4,6 +4,7 @@ import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { UNIQUE_USERS, getHogQLValue, hogQLToFilterValue } from 'scenes/insights/filters/aggregationTarget'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -18,8 +19,6 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
-
-import { UNIQUE_USERS, getHogQLValue, hogQLToFilterValue } from './aggregationTarget'
 
 export const CUSTOM_DATA_WAREHOUSE_ITEMS = '__custom_data_warehouse_items__'
 

@@ -4,7 +4,6 @@ import timekeeper from 'timekeeper'
 
 import { FunnelLayout } from 'lib/constants'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -26,6 +25,8 @@ import {
     InsightModel,
     StepOrderValue,
 } from '~/types'
+
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import {
     funnelResult,

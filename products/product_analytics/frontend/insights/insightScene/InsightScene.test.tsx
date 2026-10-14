@@ -8,7 +8,9 @@ import { initKeaTests } from '~/test/init'
 
 import { InsightScene } from './InsightScene'
 
-jest.mock('scenes/insights/InsightAsScene', () => ({ InsightAsScene: () => null }))
+jest.mock('products/product_analytics/frontend/insights/insightScene/InsightAsScene', () => ({
+    InsightAsScene: () => null,
+}))
 jest.mock('products/posthog_ai/frontend/api/logics', () => ({ useAttachedContext: jest.fn() }))
 
 describe('InsightScene', () => {

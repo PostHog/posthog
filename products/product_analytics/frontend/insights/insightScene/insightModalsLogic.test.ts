@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,7 +12,6 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { insightLogic } from './insightLogic'
 import { insightModalsLogic } from './insightModalsLogic'
 
 const Insight42 = '42' as InsightShortId

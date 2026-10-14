@@ -10,9 +10,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightModalsLogic } from 'scenes/insights/insightModalsLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
@@ -31,10 +30,11 @@ import {
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
+import { InsightSaveButton } from 'products/product_analytics/frontend/insights/insightScene/InsightSaveButton'
 
-import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'
-import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
-import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
+import { InsightSceneMenuBar } from './sidePanel/InsightSceneMenuBar'
+import { InsightSidePanelContent } from './sidePanel/InsightSidePanelContent'
 
 function supportsMetadataGeneration(node: Record<string, any> | null): boolean {
     return isInsightQueryNode(node) || isActorsQuery(node) || isEventsQuery(node) || isGroupsQuery(node)

@@ -41,7 +41,7 @@ export const commonActionFilterProps = {
     ],
 }
 
-// Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/filters/AggregationSelect.tsx
+// Forked from https://github.com/PostHog/posthog/blob/master/products/product_analytics/frontend/insights/shared/AggregationSelect.tsx
 export function FunnelAggregationSelect({
     value,
     onChange,

@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { DebugCHQueries } from 'lib/components/Shortcuts/utils/DebugCHQueries'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
@@ -11,9 +12,8 @@ import { InsightShortId, InsightLogicProps, ItemMode } from '~/types'
 
 import { ReloadInsight } from 'products/product_analytics/frontend/insights/shared/ReloadInsight'
 
-import { insightDataLogic } from './insightDataLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
 import { InsightPageHeader } from './InsightPageHeader'
+import { InsightsNav } from './InsightsNav'
 
 export interface InsightSceneHeaderProps {
     insightLogicProps: InsightLogicProps

@@ -10,12 +10,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils/strings'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
+
+import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
 
 import { dateOptionPlurals, dateOptions, retentionOptionDescriptions, retentionOptions } from '../constants'
 import { MAX_BRACKETS, retentionLogic } from '../retentionLogic'

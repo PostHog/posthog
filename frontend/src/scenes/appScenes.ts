@@ -47,8 +47,9 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
-    [Scene.Insight]: () => import('./insights/InsightScene'),
-    [Scene.InsightQuickStart]: () => import('./insights/InsightQuickStart/InsightQuickStart'),
+    [Scene.Insight]: () => import('products/product_analytics/frontend/insights/insightScene/InsightScene'),
+    [Scene.InsightQuickStart]: () =>
+        import('products/product_analytics/frontend/insights/insightQuickStart/InsightQuickStart'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IntegrationsLanding]: () => import('./integrations/IntegrationsLandingScene'),
     [Scene.StripeConfirmInstall]: () => import('./StripeConfirmInstall/StripeConfirmInstall'),

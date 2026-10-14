@@ -4,9 +4,7 @@ import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +13,8 @@ import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { InsightAsScene } from 'products/product_analytics/frontend/insights/insightScene/InsightAsScene'
+import { InsightSkeleton } from 'products/product_analytics/frontend/insights/insightScene/InsightSkeleton'
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)

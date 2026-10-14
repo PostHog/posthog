@@ -13,7 +13,7 @@ import { GroupIntroductionFooter } from 'products/groups/frontend/components/Gro
  * @deprecated
  * Legacy funnel aggregation select for ExperimentView.
  * Frozen copy for legacy experiments - do not modify.
- * Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/filters/AggregationSelect.tsx
+ * Forked from https://github.com/PostHog/posthog/blob/master/products/product_analytics/frontend/insights/shared/AggregationSelect.tsx
  */
 export function LegacyFunnelAggregationSelect({
     value,

@@ -5,6 +5,9 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,12 +15,9 @@ import { InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, InsightShortId, InsightModel, ItemMode } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
-import { insightLogic } from './insightLogic'
 import { InsightPageHeader } from './InsightPageHeader'
-import { insightSceneLogic } from './insightSceneLogic'
 
-jest.mock('./SidePanel/InsightSidePanelContent', () => ({
+jest.mock('./sidePanel/InsightSidePanelContent', () => ({
     InsightSidePanelContent: () => null,
 }))
 const mockUseMaxTool = jest.fn().mockReturnValue({ openMax: jest.fn(), definition: null })

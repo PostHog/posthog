@@ -2,13 +2,12 @@ import { useValues } from 'kea'
 
 import { insightReadsFlagCalls } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightLogicProps, ItemMode } from '~/types'
-
-import { insightDataLogic } from './insightDataLogic'
-import { insightLogic } from './insightLogic'
 
 export function InsightFlagCalledBanner({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
