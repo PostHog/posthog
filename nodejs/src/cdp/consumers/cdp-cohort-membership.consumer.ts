@@ -13,6 +13,8 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult } from '../../types'
 import type { CdpConfig } from '../config'
 import { WARPSTREAM_INGESTION_PRODUCER } from '../outputs/producers'
+import { BACKFILL_ORIGIN } from '../services/cohort-membership/membership-backfill'
+import { membershipChangeMessage } from '../services/cohort-membership/membership-change-message'
 import {
     CohortMembershipSweeper,
     MembershipWatermarks,
@@ -45,6 +47,8 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
 function membershipClusterId(): string {
     return String(getKafkaConfigFromEnv('CONSUMER')['metadata.broker.list'] ?? 'kafka:9092')
 }
+
+const NODE_PUBLISHED_ORIGINS = new Set([SWEEP_ORIGIN, BACKFILL_ORIGIN])
 
 const offFormatVersions = new Counter({
     name: 'cdp_cohort_membership_off_format_versions',
@@ -493,24 +497,13 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         )
     }
 
-    /**
-     * Written to the topic this consumer reads, on the cluster it reads it from, keyed by person
-     * like the processor's own changes.
-     */
+    /** Written to the topic this consumer reads, on the cluster it reads it from. */
     private async publishSweptMembers(members: SweptMember[]): Promise<void> {
         await this.deps.cdpProducerRegistry.getProducer(WARPSTREAM_INGESTION_PRODUCER).queueMessages({
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
-            messages: members.map((member) => ({
-                key: member.personId,
-                value: JSON.stringify({
-                    team_id: member.teamId,
-                    cohort_id: member.cohortId,
-                    person_id: member.personId,
-                    status: 'left',
-                    last_updated: member.version,
-                    origin: SWEEP_ORIGIN,
-                }),
-            })),
+            messages: members.map((member) =>
+                membershipChangeMessage({ ...member, status: 'left', origin: SWEEP_ORIGIN })
+            ),
         })
     }
 
@@ -574,10 +567,11 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
     }
 
     private async handleBatch(messages: Message[]): Promise<void> {
-        // A sweep change describes a row the sweep already deleted here. Applying it would write
-        // the row back. Its offset still counts toward progress below.
+        // Sweep and backfill changes come from this table, not the processor. A sweep change names
+        // a row the sweep already deleted, and applying it would write the row back. A backfill
+        // change repeats a row that is already here. Their offsets still count toward progress.
         const cohortMembershipChanges = this._parseAndValidateBatch(messages).filter(
-            (change) => change.origin !== SWEEP_ORIGIN
+            (change) => !NODE_PUBLISHED_ORIGINS.has(change.origin ?? '')
         )
         const progress = this.config.COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED
             ? partitionProgressFromMessages(messages)

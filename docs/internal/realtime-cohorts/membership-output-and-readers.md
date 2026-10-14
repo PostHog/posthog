@@ -31,7 +31,7 @@ Two of them are read outside it.
   After a restart or a partition move, the new worker's stamps follow the wall clock, so a clock that went back can stamp a newer change below an older one.
 - `origin` and `run_id` are set only by backfill: `seed` for seed apply, `reconcile` for reconcile.
   Live changes carry neither.
-  The sweep, not the processor, writes a fourth kind, with `origin` `sweep` (see [Publishing deletes](#publishing-deletes)).
+  Node, not the processor, writes two more kinds: `sweep` (see [Publishing deletes](#publishing-deletes)) and `backfill` (see [Loading ClickHouse from Postgres](#loading-clickhouse-from-postgres)).
 
 The processor's output topic is configured by `COHORT_MEMBERSHIP_CHANGED_TOPIC`.
 Its compiled default is `cohort_membership_changed_shadow`, which only a parity diagnostic reads, so a deployment must point it at `cohort_membership_changed` for the table to fill.
@@ -90,7 +90,7 @@ So turn version writes on across the whole fleet before turning the sweep on, an
 
 With version writes on, for each batch the consumer:
 
-1. parses and validates every message, and drops `sweep` changes, which describe rows already deleted,
+1. parses and validates every message, and drops `sweep` and `backfill` changes, which come from this table,
 2. keeps one change per `(team, cohort, person)`: the highest version, with Kafka order breaking ties,
 3. runs one transaction that
    - upserts the rows, applying a change only if its version is at least the stored version,
@@ -190,6 +190,26 @@ With `COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES` on, each delete page also publish
 - The consumer skips `sweep` changes but counts their offsets, so the gate still sees them as applied.
   A pod without that skip writes the row back with `in_cohort = false`, which reads the same, and the next sweep deletes it without publishing again.
   Even so, turn the setting on only after every consumer pod runs a release that skips them.
+
+### Loading ClickHouse from Postgres
+
+The ClickHouse table only sees changes produced after it was created.
+A script publishes the members that are already in Postgres, so ClickHouse starts from the same state:
+
+```sh
+# In a cdp-cohort-membership-consumer pod, from /code
+node nodejs/dist/cdp/services/cohort-membership/scripts/backfill-membership-to-clickhouse.js [--team-id 2] [--batch-size 1000] [--pause-ms 100]
+```
+
+- It reads `in_cohort = true` rows in pages by `id`, and publishes each as `entered` with `origin` `backfill`.
+- Each change carries the row's version, so a later live change or sweep for that person outranks it.
+  A `-infinity` row gets `1970-01-01 00:00:00.000000`, the stamp ClickHouse gives a change without a version.
+- Rows with `in_cohort = false` are not published, because a missing row already reads as "not a member".
+- A rerun publishes the same rows again and changes nothing.
+- The consumer skips `backfill` changes.
+  Run the script only after every consumer pod has a release with that skip.
+  A pod without it rewrites each member row, and turns a `-infinity` version into the epoch.
+- The read shares a database with the flags service, so `--pause-ms` spaces the pages out.
 
 ### What the table converges to
 

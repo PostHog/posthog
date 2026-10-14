@@ -520,17 +520,19 @@ describe('CdpCohortMembershipConsumer', () => {
                     }
                 )
 
-            // A sweep change names a row the sweep already deleted, so it must not write the row
-            // back, but its offset still has to count or the gate would wait on it forever.
+            // Sweep and backfill changes come from the table itself, so they must not write rows,
+            // but their offsets still have to count or the gate would wait on them forever.
             await sweepConsumer['handleBatch']([
                 rowOnPartition(3, 10),
                 rowOnPartition(3, 11),
                 rowOnPartition(7, 5, 'sweep'),
+                rowOnPartition(9, 2, 'backfill'),
             ])
 
             expect(await readProgress()).toEqual([
                 { partition: 3, next_offset: '12' },
                 { partition: 7, next_offset: '6' },
+                { partition: 9, next_offset: '3' },
             ])
             const written = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -546,6 +548,7 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(await readProgress()).toEqual([
                 { partition: 3, next_offset: '12' },
                 { partition: 7, next_offset: '6' },
+                { partition: 9, next_offset: '3' },
             ])
         })
 
