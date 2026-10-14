@@ -1,6 +1,8 @@
 import uuid
 from collections.abc import AsyncIterator
 
+import pytest
+
 from django.conf import settings
 
 import pytest_asyncio
@@ -42,7 +44,7 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(environment: WorkflowEnvironment) -> None:
     recorded: list[SourceOutcomeInputs] = []
 
-    @activity.defn(name="plan_platform_insight_batch_activity")
+    @activity.defn(name="plan_platform_insight_round_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
         return list(ADMITTED)
 
@@ -108,16 +110,35 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     assert child.task_queue == settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE
 
 
-async def test_a_batch_refills_the_slots_its_finished_checks_free(environment: WorkflowEnvironment) -> None:
+@pytest.mark.parametrize(
+    "fail_second_plan, expected",
+    [
+        (
+            False,
+            [
+                "00000000-0000-0000-0000-000000000001",
+                "00000000-0000-0000-0000-000000000002",
+                "00000000-0000-0000-0000-000000000003",
+            ],
+        ),
+        # A later plan that fails stops admission, but the checks that already ran still record.
+        (True, ["00000000-0000-0000-0000-000000000001"]),
+    ],
+)
+async def test_a_batch_refills_the_slots_its_finished_checks_free(
+    environment: WorkflowEnvironment, fail_second_plan: bool, expected: list[str]
+) -> None:
     due = [f"00000000-0000-0000-0000-00000000000{n}" for n in range(1, 4)]
     plans: list[tuple[str, ...]] = []
     evaluated: list[str] = []
     recorded: list[SourceOutcomeInputs] = []
 
     # A pool of one slot: each round admits the first due check that this batch did not start.
-    @activity.defn(name="plan_platform_insight_batch_activity")
+    @activity.defn(name="plan_platform_insight_round_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
         plans.append(inputs.exclude)
+        if fail_second_plan and len(plans) == 2:
+            raise ApplicationError("redis unavailable", non_retryable=True)
         if set(inputs.exclude) - set(evaluated):
             return []
         return [configuration_id for configuration_id in due if configuration_id not in inputs.exclude][:1]
@@ -158,10 +179,9 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(environment: W
             task_queue=QUEUE,
         )
 
-    assert result == 3
-    assert sorted(evaluated) == due
-    assert [sorted(str(o.configuration_id) for o in batch.outcomes) for batch in recorded] == [due]
-    assert plans[-1] == tuple(due)
+    assert result == len(expected)
+    assert sorted(evaluated) == expected
+    assert [sorted(str(o.configuration_id) for o in batch.outcomes) for batch in recorded] == [expected]
 
 
 def test_the_binding_holds_the_whole_batch() -> None:

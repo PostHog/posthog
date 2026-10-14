@@ -10,6 +10,7 @@ another would put the last check minutes behind the first.
 
 import asyncio
 import datetime as dt
+from collections.abc import Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -90,6 +91,25 @@ def plan_platform_insight_batch_activity(inputs: InsightBatchPlanInputs) -> list
 
 @activity.defn
 @close_db_connections
+def plan_platform_insight_round_activity(inputs: InsightBatchPlanInputs) -> list[str]:
+    """`plan_platform_insight_batch_activity` with `exclude`, under its own name. A worker still on
+    the old code runs the old name and drops `exclude`, so the round path must not call that name."""
+    from products.alerts.backend.platform_source_cycle import plan_insight_batch  # noqa: PLC0415
+
+    key = inputs.evaluation.batch_key
+    return list(
+        plan_insight_batch(
+            key.team_id,
+            key.slot,
+            dt.datetime.fromisoformat(inputs.evaluation.cutoff),
+            expires_at=inputs.expires_at,
+            exclude=inputs.exclude,
+        )
+    )
+
+
+@activity.defn
+@close_db_connections
 def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
     """Sync, so the thread this blocks is a slot Temporal is accounting for."""
     from products.alerts.backend.platform_source_cycle import evaluate_insight_check  # noqa: PLC0415
@@ -121,7 +141,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if workflow.patched(_PATCH_READMISSION):
             settled = await self._evaluate_in_rounds(inputs, expires_at)
         else:
-            admitted = await self._plan(inputs, expires_at, exclude=())
+            admitted = await self._plan(
+                inputs, expires_at, exclude=(), activity_fn=plan_platform_insight_batch_activity
+            )
             settled = await asyncio.gather(
                 *(self._check(inputs, configuration_id, expires_at) for configuration_id in admitted),
                 return_exceptions=True,
@@ -156,9 +178,16 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         await start_deliveries(deliveries)
         return len(outcomes)
 
-    async def _plan(self, inputs: SourceEvaluationInputs, expires_at: float, *, exclude: tuple[str, ...]) -> list[str]:
+    async def _plan(
+        self,
+        inputs: SourceEvaluationInputs,
+        expires_at: float,
+        *,
+        exclude: tuple[str, ...],
+        activity_fn: Callable[[InsightBatchPlanInputs], list[str]],
+    ) -> list[str]:
         return await workflow.execute_activity(
-            plan_platform_insight_batch_activity,
+            activity_fn,
             InsightBatchPlanInputs(evaluation=inputs, expires_at=expires_at, exclude=exclude),
             start_to_close_timeout=PLAN_START_TO_CLOSE,
             schedule_to_close_timeout=PLAN_SCHEDULE_TO_CLOSE,
@@ -186,7 +215,17 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         started: dict[str, asyncio.Task[SourceBatchEvaluation | None]] = {}
         deadline = workflow.now() + ADMISSION_RUN_BUDGET
         while True:
-            for configuration_id in await self._plan(inputs, expires_at, exclude=tuple(started)):
+            try:
+                admitted = await self._plan(
+                    inputs, expires_at, exclude=tuple(started), activity_fn=plan_platform_insight_round_activity
+                )
+            except ActivityError:
+                if not started:
+                    raise
+                # The started checks still record. Their outcomes are lost if this failure ends the run.
+                workflow.logger.warning("Stopped admitting platform insight checks after a failed plan")
+                break
+            for configuration_id in admitted:
                 started[configuration_id] = asyncio.create_task(self._check(inputs, configuration_id, expires_at))
             running = [task for task in started.values() if not task.done()]
             if not running or workflow.now() >= deadline:
@@ -198,4 +237,8 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
-PLATFORM_EVALUATION_ACTIVITIES = [plan_platform_insight_batch_activity, evaluate_platform_insight_check_activity]
+PLATFORM_EVALUATION_ACTIVITIES = [
+    plan_platform_insight_batch_activity,
+    plan_platform_insight_round_activity,
+    evaluate_platform_insight_check_activity,
+]

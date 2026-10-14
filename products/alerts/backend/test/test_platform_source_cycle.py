@@ -28,7 +28,7 @@ from products.alerts.backend.platform_source_cycle import (
 )
 from products.alerts.backend.temporal.platform_evaluate import (
     InsightBatchPlanInputs,
-    plan_platform_insight_batch_activity,
+    plan_platform_insight_round_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -202,7 +202,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             evaluate_insight_check(self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test")
 
         # Through the activity the workflow calls, so a dropped `exclude` there fails here too.
-        replanned = plan_platform_insight_batch_activity(
+        replanned = plan_platform_insight_round_activity(
             InsightBatchPlanInputs(
                 evaluation=SourceEvaluationInputs(
                     source=SourceKind.INSIGHT,

@@ -38,7 +38,7 @@ from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -129,26 +129,31 @@ def plan_insight_batch(
     the same expiry, and a finished one stays due until the workflow records its outcome. Without
     `exclude`, a later round would admit either one again.
     """
-    started = set(exclude)
-    checks = [
-        check for check in due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff) if str(check.id) not in started
-    ]
-    if not checks:
+    # The pool admits at most its size per round, so more candidates than that only add reads.
+    candidates = due_check_ids(
+        team_id,
+        SourceKind.INSIGHT.value,
+        slot,
+        cutoff,
+        exclude=exclude,
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+    )
+    if not candidates:
         return ()
     admitted = admit_evaluation_slots(
-        [str(check.id) for check in checks],
+        list(candidates),
         limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
         expires_at=expires_at,
         key=INFLIGHT_KEY,
     )
     # Only on a batch's first round, because later rounds of a full pool would repeat it every few seconds.
-    if len(admitted) < len(checks) and not exclude:
+    if len(admitted) < len(candidates) and not exclude:
         logger.info(
             "Deferred platform insight checks over the pool limit",
             team_id=team_id,
             slot=slot,
             admitted=len(admitted),
-            deferred=len(checks) - len(admitted),
+            deferred=len(candidates) - len(admitted),
         )
     return tuple(admitted)
 
