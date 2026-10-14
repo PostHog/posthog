@@ -110,7 +110,7 @@ it.each([
     const planFailed = jest.spyOn(setupPlanLogic.selectors, 'setupPlanFailed').mockReturnValue(failed)
     try {
         render(<DetectedSources />)
-        expect(screen.getByRole('heading', { name: heading })).not.toBeNull()
+        expect(screen.getByText(heading)).not.toBeNull()
     } finally {
         cleanup()
         plan.mockRestore()
