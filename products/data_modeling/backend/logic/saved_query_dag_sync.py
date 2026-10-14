@@ -700,6 +700,15 @@ def move_node_out_of_managed_dag(saved_query: "DataWarehouseSavedQuery", dag: DA
         for dag_id in sorted({managed_dag.id, dag.id}, key=str):
             lock_dag(saved_query.team_id, dag_id)
             lock_dag_placements(saved_query.team_id, dag_id)
+        # A concurrent call may have moved the node between the read above and the locks. Acting on
+        # the stale row would take the existence check below for a legacy copy and delete the node.
+        node = (
+            Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query, dag=managed_dag)
+            .select_related("dag")
+            .first()
+        )
+        if node is None:
+            return None
         if DataModelingJob.objects.filter(
             team_id=saved_query.team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
         ).exists():

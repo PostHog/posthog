@@ -278,7 +278,16 @@ class Command(BaseCommand):
         if not kept_dags and target.name != DEFAULT_DAG_NAME:
             self._rename_to_default(target)
         proxies_left = self._replace_proxy_nodes(target)
-        v1_failed_sq_ids = self._finalize_target(target, temporal, bootstrap_tiers=bool(managed_dags))
+        try:
+            v1_failed_sq_ids = self._finalize_target(target, temporal, bootstrap_tiers=bool(managed_dags))
+        except Exception as error:
+            if not managed_dags or kept_dags:
+                raise
+            # The managed DAG is what makes a run create the first tier schedules, and it is gone now.
+            raise CommandError(
+                f"{error}; re-running will not create the target's first tier schedules because the "
+                f"managed DAG is gone, so run reconcile_freshness_schedules --team-id {team_id} to converge them"
+            ) from error
 
         self.stdout.write(f"\nDone: consolidated {len(consolidated_sq_ids)} saved query(ies) into {target.name}")
         if adopted_names:
@@ -602,12 +611,19 @@ class Command(BaseCommand):
         moved_sq_ids: list[str] = []
         for item in plan.moves:
             try:
-                if plan.dag.is_managed:
-                    move_node_out_of_managed_dag(item.saved_query, target)
-                node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
+                # Atomic, so a query whose dependencies fail to resolve leaves its node, edges and
+                # marker in the managed DAG and the re-run retries it instead of finding it moved.
+                with transaction.atomic():
+                    if plan.dag.is_managed:
+                        move_node_out_of_managed_dag(item.saved_query, target)
+                    node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
             except Exception as error:
                 adoptable = adopt_unresolvable and isinstance(error, ADOPTABLE_SYNC_ERRORS)
-                node = self._adopt_without_edges(item.saved_query, target, error) if adoptable else None
+                node = (
+                    self._adopt_without_edges(item.saved_query, target, error, from_managed_dag=plan.dag.is_managed)
+                    if adoptable
+                    else None
+                )
                 if node is None:
                     failed_moves.append(item.saved_query.name)
                     logger.exception(
@@ -659,7 +675,9 @@ class Command(BaseCommand):
         consolidated_sq_ids.update(drop.saved_query_id for drop in plan.drops)
         return None
 
-    def _adopt_without_edges(self, saved_query: DataWarehouseSavedQuery, target: DAG, error: Exception) -> Node | None:
+    def _adopt_without_edges(
+        self, saved_query: DataWarehouseSavedQuery, target: DAG, error: Exception, *, from_managed_dag: bool = False
+    ) -> Node | None:
         """Last-resort landing for a query whose SQL will not resolve: create its node in the
         target with no incoming edges so the consolidation can proceed and the source DAG can be
         deleted. The query keeps failing at materialization time exactly as it did in the source
@@ -672,6 +690,9 @@ class Command(BaseCommand):
             # unmarked node would make the re-run classify this query as DROP instead of
             # retrying the move, stranding it edge-less and invisible to the marker sweep.
             with transaction.atomic():
+                if from_managed_dag:
+                    # The failed move rolled back, so bring the managed node over to keep its state.
+                    move_node_out_of_managed_dag(saved_query, target)
                 node, _ = Node.objects.get_or_create(
                     team_id=saved_query.team_id,
                     saved_query=saved_query,

@@ -652,6 +652,22 @@ class TestConsolidateDags(BaseTest):
         mocks.v2_delete.assert_not_called()
         self.assertEqual(Node.objects.get(saved_query=managed_query).dag_id, managed_node.dag_id)
 
+    def test_a_managed_view_that_fails_to_resolve_stays_in_the_managed_dag_with_its_edges(self):
+        DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT * FROM nonexistent_table_xyz")
+        managed_node = self._node(managed, managed_query)
+        parent = Node.objects.create(team=self.team, dag=managed, name="events", type=NodeType.TABLE)
+        Edge.objects.create(team=self.team, dag=managed, source=parent, target=managed_node)
+
+        with _temporal_boundary():
+            with self.assertRaisesRegex(CommandError, "incomplete"):
+                self._run(apply=True)
+
+        self.assertTrue(DAG.objects.filter(id=managed.id).exists())
+        self.assertEqual(Node.objects.get(saved_query=managed_query).dag_id, managed.id)
+        self.assertTrue(Edge.objects.filter(dag=managed, source=parent, target=managed_node).exists())
+
     def test_folding_into_an_unscheduled_dag_seeds_targets_from_intervals(self):
         managed = DAG.get_or_create_revenue_analytics(self.team)
         managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1", interval=H12)

@@ -22,6 +22,13 @@ class DAGMismatchError(Exception):
 
 
 class DataModelingEdgeQuerySet(models.QuerySet):
+    def scheduling(self):
+        """The edges that order runs and carry cadence: a managed view's readers do not schedule it."""
+        return self.exclude(
+            source__saved_query__managed_viewset__isnull=False,
+            target__saved_query__managed_viewset__isnull=True,
+        )
+
     def update(self, **kwargs):
         for key in DISALLOWED_UPDATE_FIELDS:
             if key in kwargs:
@@ -43,14 +50,6 @@ class DataModelingEdgeQuerySet(models.QuerySet):
                     "Use individual save() calls instead."
                 )
         return super().bulk_update(objs, fields, *args, **kwargs)
-
-
-def scheduling_edges(edges: models.QuerySet["Edge"]) -> models.QuerySet["Edge"]:
-    """The edges that order runs and carry cadence: a managed view's readers do not schedule it."""
-    return edges.exclude(
-        source__saved_query__managed_viewset__isnull=False,
-        target__saved_query__managed_viewset__isnull=True,
-    )
 
 
 class DataModelingEdgeManager(models.Manager):
