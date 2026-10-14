@@ -364,8 +364,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except (logic.UrlFetchFailedError, logic.EmptyContentError):
-            raise exceptions.ValidationError({"url": "Could not fetch the URL."})
         except logic.SourceBusyError:
             raise _ConflictError("A refresh is already in progress for this source.")
         except logic.QuotaExceededError:
@@ -374,7 +372,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
-        return Response(KnowledgeSourceSerializer(instance=updated).data)
+        if not updated.refresh_claimed:
+            return Response(KnowledgeSourceSerializer(instance=updated.source).data)
+        self._start_background_refresh(updated.source)
+        fresh = logic.get_for_team(updated.source.id, self.team_id) or updated.source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data)
 
     @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
     @action(

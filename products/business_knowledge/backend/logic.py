@@ -211,6 +211,13 @@ SupersessionOutcome = Literal[
 
 
 @frozen
+class UrlSourceUpdate:
+    source: KnowledgeSource
+    # True when the update claimed the source PROCESSING. The caller must then start the refresh.
+    refresh_claimed: bool
+
+
+@frozen
 class KnowledgeSourceSupersession:
     outcome: SupersessionOutcome
     previous_ticket_number: int | None = None
@@ -218,6 +225,9 @@ class KnowledgeSourceSupersession:
     @property
     def applied(self) -> bool:
         return self.outcome == "applied"
+
+
+REFRESH_INTERRUPTED_ERROR = "The refresh was interrupted before it finished. Refresh the source to try again."
 
 
 class EmptyContentError(Exception):
@@ -1095,13 +1105,14 @@ def update_url_source(
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
     always_include: bool | None = None,
-) -> KnowledgeSource | None:
+) -> UrlSourceUpdate | None:
     """
-    Update a URL source's metadata and optionally re-crawl.
+    Update a URL source's metadata and optionally claim it for a re-crawl.
 
     - name-only: single UPDATE, no network.
-    - url/crawl_mode/crawl_config change: update the fields, then trigger a
-      full refresh so the content matches the new config.
+    - url/crawl_mode/crawl_config change: update the fields, then claim the
+      source PROCESSING. The caller starts the refresh in the background, so
+      the crawl never runs inside the web request.
     """
     try:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
@@ -1154,7 +1165,9 @@ def update_url_source(
 
     if needs_recrawl:
         try:
-            return refresh_source(source_id=source.id, team_id=team_id)
+            claimed = claim_refresh_source(source_id=source.id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return None
         except SourceBusyError:
             # Refresh never started — revert config so the source doesn't
             # end up with a new URL but old content and no error signal.
@@ -1162,8 +1175,9 @@ def update_url_source(
                 setattr(source, field, value)
             source.save(update_fields=[*list(old_values.keys()), "updated_at"])
             raise
+        return UrlSourceUpdate(source=claimed, refresh_claimed=True)
 
-    return get_for_team(source.id, team_id) or source
+    return UrlSourceUpdate(source=get_for_team(source.id, team_id) or source, refresh_claimed=False)
 
 
 @with_team_scope(canonical=True)
@@ -1605,25 +1619,34 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
             return _refresh_crawl_source(source=source, team_id=team_id)
         return _refresh_single_source(source=source, team_id=team_id)
     except QuotaExceededError:
-        with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
-            fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
-            fresh.last_refresh_at = timezone.now()
-            fresh.last_refresh_status = RefreshStatus.ERROR
-            fresh.last_refresh_error = "Quota exceeded"
-            if fresh.status == SourceStatus.ERROR:
-                fresh.error_message = "Quota exceeded"
-            fresh.save(
-                update_fields=[
-                    "status",
-                    "last_refresh_at",
-                    "last_refresh_status",
-                    "last_refresh_error",
-                    "error_message",
-                    "updated_at",
-                ]
-            )
+        _record_refresh_failure(source_id=source.id, team_id=team_id, error="Quota exceeded")
         raise
+    except RuntimeError:
+        # The thread pool refuses new fetches when the worker shuts down mid-crawl.
+        # Release the claim, or the source stays PROCESSING and every later refresh gets a 409.
+        _record_refresh_failure(source_id=source.id, team_id=team_id, error=REFRESH_INTERRUPTED_ERROR)
+        raise
+
+
+def _record_refresh_failure(*, source_id: UUID, team_id: int, error: str) -> None:
+    with transaction.atomic():
+        fresh = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+        fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
+        fresh.last_refresh_at = timezone.now()
+        fresh.last_refresh_status = RefreshStatus.ERROR
+        fresh.last_refresh_error = error
+        if fresh.status == SourceStatus.ERROR:
+            fresh.error_message = error
+        fresh.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "error_message",
+                "updated_at",
+            ]
+        )
 
 
 @with_team_scope(canonical=True)

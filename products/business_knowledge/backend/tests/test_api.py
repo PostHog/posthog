@@ -864,9 +864,9 @@ class TestCrawlSourceAutoScope(APIBaseTest):
         call_kwargs = mock_claim.call_args.kwargs
         assert call_kwargs["crawl_config"]["include_globs"] == []
 
-    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_refresh")
     @patch("products.business_knowledge.backend.api.views.logic.update_url_source")
-    def test_update_url_rederives_globs_when_not_sent(self, mock_update, _bg, _url, _ff) -> None:
+    def test_update_url_rederives_globs_when_not_sent(self, mock_update, mock_refresh, _url, _ff) -> None:
         source = KnowledgeSource.objects.unscoped().create(
             id="00000000-0000-0000-0000-000000000004",
             team=self.team,
@@ -882,7 +882,7 @@ class TestCrawlSourceAutoScope(APIBaseTest):
                 "max_depth": 2,
             },
         )
-        mock_update.return_value = source
+        mock_update.return_value = logic.UrlSourceUpdate(source=source, refresh_claimed=True)
         response = self.client.patch(
             f"{self.api_url}{source.id}/",
             {
@@ -894,3 +894,4 @@ class TestCrawlSourceAutoScope(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         call_kwargs = mock_update.call_args.kwargs
         assert call_kwargs["crawl_config"]["include_globs"] == ["/docs/new", "/docs/new/*"]
+        mock_refresh.assert_called_once_with(source)
