@@ -20,7 +20,6 @@ services:
             - capture
             - feature-flags
             - hypercache-server
-            - push-api
             - web
     db:
         extends:
@@ -218,21 +217,6 @@ services:
             - clickhouse
             - kafka
             - objectstorage
-
-    push-api:
-        extends:
-            file: docker-compose.base.yml
-            service: push-api
-        build:
-            context: .
-            dockerfile: Dockerfile.node
-        environment:
-            # The image runs with NODE_ENV=production, where push-api refuses to start without a key.
-            # This is Django's local default, which the web service here also uses.
-            SECRET_KEY: '<randomly generated secret key>'
-        depends_on:
-            - db
-            - capture
 
     migrate:
         extends:

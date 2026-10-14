@@ -91,11 +91,6 @@ services:
                         path /public/m/*
                     }
 
-                    @push-subscriptions {
-                        path /api/push_subscriptions
-                        path /api/push_subscriptions/
-                    }
-
                     @livestream {
                         path /livestream
                         path /livestream/
@@ -139,10 +134,6 @@ services:
 
                     handle @webhooks {
                         reverse_proxy plugins:6738
-                    }
-
-                    handle @push-subscriptions {
-                        reverse_proxy push-api:6750
                     }
 
                     @objectstorage {
@@ -696,15 +687,6 @@ services:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
-
-    push-api:
-        command: node nodejs/dist/index.js
-        restart: on-failure
-        environment:
-            PLUGIN_SERVER_MODE: 'push-api'
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CAPTURE_INTERNAL_URL: 'http://capture:3000/capture'
-            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 
     recording-api:
         command: node nodejs/dist/index.js
