@@ -7,7 +7,7 @@ describe('usableId', () => {
         ['an all-zero span id', '0'.repeat(16), null],
         ['a missing id', null, null],
         ['an empty id', '', null],
-        ['a path that would leave the trace route', '../../..', null],
+        ['a value with path characters', 'a/b', null],
         ['a value that is not hex', 'notatrace', null],
     ])('resolves %s', (_name, value, expected) => {
         expect(usableId(value)).toBe(expected)
