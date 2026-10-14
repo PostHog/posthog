@@ -18,6 +18,9 @@ from posthog.constants import AvailableFeature
 class TestRateLimit(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
+        team_bypass_patcher = patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
+        team_bypass_patcher.start()
+        self.addCleanup(team_bypass_patcher.stop)
         self.limit = RateLimit(
             max_concurrency=1,
             applicable=lambda *args, **kwargs: kwargs.get("is_api") if "is_api" in kwargs else args[0],
@@ -26,7 +29,6 @@ class TestRateLimit(SimpleTestCase):
             get_task_key=lambda *args, **kwargs: f"limit:rate-limit-test-task:{kwargs.get('team_id') or args[1]}",
             get_task_id=lambda *args, **kwargs: f"{kwargs.get('task_id') or args[2]}",
             ttl=10,
-            allow_team_bypass=False,
         )
         self.cancels: list[ConcurrencySlot | None] = []
 
@@ -44,6 +46,13 @@ class TestRateLimit(SimpleTestCase):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
         with self.assertRaises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
+
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True)
+    def test_team_bypass_uses_default(self, bypass: Mock) -> None:
+        self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
+
+        assert self.limit.use(is_api=True, team_id=8, task_id=18) is None
+        bypass.assert_called_once_with(8)
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     @patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.FULL)
@@ -202,7 +211,6 @@ class TestRateLimit(SimpleTestCase):
             ttl=10,
             retry=0.1,  # 100ms initial retry
             retry_timeout=0.5,  # 500ms total timeout
-            allow_team_bypass=False,
         )
 
         time_helper = TimeHelper()
@@ -243,7 +251,6 @@ class TestRateLimit(SimpleTestCase):
             ttl=10,
             retry=0.1,  # 100ms initial retry
             retry_timeout=0.5,  # 500ms total timeout
-            allow_team_bypass=False,
         )
 
         slot = retry_limit.use(task_id=1)  # consumes the slot
