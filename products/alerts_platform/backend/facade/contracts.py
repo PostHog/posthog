@@ -174,6 +174,29 @@ class PlatformOwnershipHandover:
     at: datetime
 
 
+class HandbackRefusal(StrEnum):
+    """Why the platform keeps an alert its source asked for back."""
+
+    NOT_OWNED = "not_owned"
+    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    FIRING = "firing"
+    # A platform check may be running and could record or notify after the handback.
+    CHECK_DUE = "check_due"
+    # The alert uses something its source cannot represent, such as a calendar schedule or grouping.
+    PLATFORM_ONLY = "platform_only"
+
+
+@frozen
+class PlatformHandback:
+    """What the platform hands back with an alert, or why it keeps it."""
+
+    refused: HandbackRefusal | None
+    state: PlatformAlertState | None = None
+    last_notified_at: datetime | None = None
+    consecutive_failures: int = 0
+    next_check_at: datetime | None = None
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 

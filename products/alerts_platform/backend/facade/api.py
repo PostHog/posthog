@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
 )
@@ -48,6 +49,13 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state."""
     return platform_lifecycle.take_ownership(handover)
+
+
+def give_back_ownership(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> PlatformHandback:
+    """Hands a copied alert back to its source, or says why the platform keeps it."""
+    return platform_lifecycle.give_back_ownership(
+        team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at
+    )
 
 
 def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:

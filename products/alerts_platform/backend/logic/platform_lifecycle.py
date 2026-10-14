@@ -7,6 +7,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
@@ -14,9 +15,11 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
+    HandbackRefusal,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformHandback,
     PlatformOwnershipHandover,
     source_condition,
 )
@@ -398,6 +401,43 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
         alert.last_notified_at = handover.last_notified_at
         alert.save(update_fields=["state", "last_notified_at"])
     return True
+
+
+def give_back_ownership(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> PlatformHandback:
+    """Hands a copied alert back to its source, with the state the source carries on from.
+
+    The caller holds the source's row lock and writes the source's owner and state in the same
+    transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
+    """
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=legacy_configuration_id)
+        )
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            return PlatformHandback(refused=HandbackRefusal.NOT_OWNED)
+        alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
+        if configuration.recurrence_unit is not None or any(alert.grouping_key for alert in alerts):
+            return PlatformHandback(refused=HandbackRefusal.PLATFORM_ONLY)
+        alert = next(iter(alerts), None)
+        if alert is not None and alert.state == PlatformAlertState.FIRING:
+            return PlatformHandback(refused=HandbackRefusal.FIRING)
+        # A check advances `next_check_at` when it records, so a later one under this lock means no
+        # platform check is between reading the alert and recording it.
+        if configuration.enabled and (configuration.next_check_at is None or configuration.next_check_at <= at):
+            return PlatformHandback(refused=HandbackRefusal.CHECK_DUE)
+
+        configuration.owner = PlatformAlertOwner.SOURCE
+        configuration.owner_changed_at = at
+        configuration.save(update_fields=["owner", "owner_changed_at"])
+        return PlatformHandback(
+            refused=None,
+            state=PlatformAlertState(alert.state) if alert is not None else PlatformAlertState.NOT_FIRING,
+            last_notified_at=alert.last_notified_at if alert is not None else None,
+            consecutive_failures=configuration.consecutive_failures,
+            next_check_at=configuration.next_check_at,
+        )
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:

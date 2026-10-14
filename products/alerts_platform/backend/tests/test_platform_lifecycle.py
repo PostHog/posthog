@@ -13,6 +13,7 @@ from posthog.models.scoping import team_scope
 from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
+    give_back_ownership,
     record_outcomes,
     take_ownership,
     upsert_configuration,
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     FiringEpisode,
+    HandbackRefusal,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
     PlatformOwnershipHandover,
@@ -130,6 +132,45 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert not taken
         self.configuration.refresh_from_db()
         assert (self.configuration.owner, self._alert().state) == ("source", "firing")
+
+    @parameterized.expand(
+        [
+            ("not_owned", {"owner": "source"}, {}, HandbackRefusal.NOT_OWNED),
+            ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),
+            ("check_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {}, HandbackRefusal.CHECK_DUE),
+            (
+                "calendar_schedule",
+                {"recurrence_unit": "daily", "anchor_time": "09:00"},
+                {},
+                HandbackRefusal.PLATFORM_ONLY,
+            ),
+            ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.PLATFORM_ONLY),
+        ]
+    )
+    def test_the_platform_keeps_an_alert_its_source_cannot_take_back(
+        self,
+        _name: str,
+        configuration_fields: dict[str, Any],
+        alert_fields: dict[str, Any],
+        refusal: HandbackRefusal,
+    ) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                **{
+                    "legacy_configuration_id": legacy_id,
+                    "owner": "platform",
+                    "next_check_at": self.cutoff + timedelta(minutes=5),
+                    **configuration_fields,
+                }
+            )
+            PlatformAlert.objects.create(team=self.team, configuration=self.configuration, **alert_fields)
+
+        handback = give_back_ownership(team_id=self.team.id, legacy_configuration_id=legacy_id, at=self.cutoff)
+
+        assert handback.refused == refusal
+        self.configuration.refresh_from_db()
+        assert self.configuration.owner == configuration_fields.get("owner", "platform")
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
