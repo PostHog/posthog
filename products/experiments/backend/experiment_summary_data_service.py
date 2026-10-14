@@ -29,6 +29,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE, ExperimentSummaryData
+from products.experiments.backend.hogql_queries.error_handling import classify_experiment_query_error
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -56,6 +57,14 @@ class ExposureQueryResult:
 
 
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
+
+
+def capture_query_error(error: BaseException, experiment_id: int) -> None:
+    # Metric configuration errors are the user's to fix. The runner already records them in the
+    # `experiment metric error` event, so keep them out of error tracking like the UI path does.
+    if isinstance(error, Exception) and classify_experiment_query_error(error) == "validation_error":
+        return
+    capture_exception(error, properties={"experiment_id": experiment_id})
 
 
 def parse_metric_dict(metric_dict: dict) -> ExperimentMetric | None:
@@ -256,7 +265,7 @@ class ExperimentSummaryDataService:
                     refresh_time = getattr(exposure_result, "last_refresh", None) if exposure_result else None
                     return ExposureQueryResult(exposures=exposures, refresh_time=refresh_time, pending=False)
                 except Exception as e:
-                    capture_exception(e, properties={"experiment_id": experiment_id})
+                    capture_query_error(e, experiment_id)
                     return ExposureQueryResult(exposures=None, refresh_time=None, pending=False)
 
             async with semaphore:
@@ -332,7 +341,7 @@ class ExperimentSummaryDataService:
             results: list[MaxExperimentMetricResult] = []
             for qr in query_results:
                 if isinstance(qr, BaseException):
-                    capture_exception(qr, properties={"experiment_id": experiment_id})
+                    capture_query_error(qr, experiment_id)
                     continue
                 if qr.pending:
                     pending_calculation = True
@@ -348,7 +357,7 @@ class ExperimentSummaryDataService:
         # Process exposure result
         exposures: dict[str, float] | None = None
         if isinstance(exposure_query_result, BaseException):
-            capture_exception(exposure_query_result, properties={"experiment_id": experiment_id})
+            capture_query_error(exposure_query_result, experiment_id)
         elif isinstance(exposure_query_result, ExposureQueryResult):
             if exposure_query_result.pending:
                 pending_calculation = True
