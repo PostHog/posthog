@@ -88,7 +88,7 @@ class ToolbarOAuthError(Exception):
         super().__init__(detail)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ToolbarOAuthState:
     nonce: str
     user_id: int
