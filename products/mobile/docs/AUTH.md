@@ -45,7 +45,7 @@ Self-hosted hosts must be https. Plain http is accepted only for loopback (`loca
 
 The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 
-`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read`
+`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read dashboard:read insight:read file_system_shortcut:write`
 
 | Scope | Used by |
 | --- | --- |
@@ -56,7 +56,26 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 | `task:read`, `task:write` | reports, hand-off, runs, notification routing |
 | `conversation:write` | chat |
 | `today:read` | `GET today/briefing/` and `GET today/reports/{id}/page/`. Without it both return 403 and the inbox always falls back to the signals report list. |
-| `query:read` | `POST query/` for the live report metrics and charts. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
+| `query:read` | `POST query/` for the live report metrics and charts, and in Views for web analytics, compare on an insight, and the people and recordings at a chart point. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
+| `dashboard:read` | Views: dashboard detail, the dashboard list, search, and the dashboards in Recent |
+| `insight:read` | Views: insight reads in every `refresh` mode, the insight list, search, and `POST insights/viewed/` |
+| `file_system_shortcut:write` | Views: pins, which are the web's starred items. It also grants `file_system_shortcut:read` for the pin list. |
+
+### Granted scopes and signing in again
+
+The token response's `scope` is stored with the tokens as `grantedScopes` (`src/auth/tokens.ts`).
+A refresh response without `scope` keeps the previous value, because a refresh never widens a grant.
+Sessions stored before the app recorded scopes, and personal API keys, have `grantedScopes: null`.
+
+The Views scopes arrived after the first release, so a user signed in before then has a grant without them.
+Nothing signs that user out: the inbox and chats keep working.
+`useViewsAccess()` in `src/features/views/useViewsAccess.ts` decides what Views shows:
+
+- `reauth` when the OAuth grant lacks a Views scope, or when a Views request answered 403 with "API key missing required scope". Views then asks the user to sign in again once.
+- `personal-key-missing-scopes` for the same cases with a personal API key, which needs the scopes added to the key.
+- `ok` otherwise. A `:write` scope counts as its `:read`.
+
+`missingScope(error)` in `src/api/scopeErrors.ts` reads the scope name from that 403, so a 403 for a dashboard the user cannot view stays a row error.
 
 ### Server-side ceiling
 
@@ -68,6 +87,9 @@ The production app rows are not visible from this repository, so check them in D
 - When the server does answer `invalid_scope` (on the authorize redirect or the token endpoint), the sign-in screen says "This app's OAuth registration is missing a permission. Ask an admin to update it."
 
 Either way the fix is the same: add the scope to the mobile OAuth application's `scopes` in Django admin (or set the ceiling to `@default`), then sign in again.
+
+The US and EU client ids are also used by the mobile apps in `products/desktop/apps/mobile` and `products/desktop/apps/mobilehog`, so a ceiling change applies to them too.
+On an application that is not first party, every entry in `scopes` is required for every client, so add a new scope to `optional_scopes` there instead.
 
 ## Token lifetimes
 
@@ -125,7 +147,7 @@ The link is also hidden while "Use a self-hosted instance" is selected.
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
   - Android emulator: run `adb reverse tcp:8010 tcp:8010` first, so `localhost` on the emulator reaches the Mac.
-- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`).
+- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`, and for Views `dashboard:read`, `insight:read`, `file_system_shortcut:write`).
   The key never refreshes; a 401 ends the session.
 - **Demo.** "Try the demo" needs no account.
 

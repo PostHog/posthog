@@ -1,0 +1,148 @@
+import type { BudgetFamily } from '@/api/budget'
+import { ApiError } from '@/api/client'
+
+import { type JobRequest, type ReadResult, RefreshQueue } from './refreshQueue'
+
+interface Deferred {
+    resolve: (result: ReadResult) => void
+    reject: (error: unknown) => void
+}
+
+describe('RefreshQueue', () => {
+    let now = 0
+    let calls: { key: string; mode: string }[] = []
+    let pending: Map<string, Deferred>
+    let spendable: Record<BudgetFamily, boolean>
+    let queue: RefreshQueue
+
+    function request(key: string, overrides: Partial<JobRequest> = {}): JobRequest {
+        return {
+            key,
+            family: 'insights',
+            group: 'list',
+            mode: 'blocking',
+            run: (mode) => {
+                calls.push({ key, mode })
+                return new Promise<ReadResult>((resolve, reject) => pending.set(key, { resolve, reject }))
+            },
+            ...overrides,
+        }
+    }
+
+    async function settle(key: string, result: ReadResult | Error): Promise<void> {
+        const deferred = pending.get(key)
+        pending.delete(key)
+        if (result instanceof Error) {
+            deferred?.reject(result)
+        } else {
+            deferred?.resolve(result)
+        }
+        for (let tick = 0; tick < 5; tick += 1) {
+            await Promise.resolve()
+        }
+    }
+
+    const OK: ReadResult = { status: 'ok', computed: true }
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+        now = 1_000_000
+        calls = []
+        pending = new Map()
+        spendable = { insights: true, dashboards: true, query: true }
+        queue = new RefreshQueue({ now: () => now, canSpend: (family) => spendable[family] })
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    test('runs two requests at a time and joins a second caller for the same key', async () => {
+        const first = queue.enqueue(request('a'))
+        const joined = queue.enqueue(request('a', { group: 'dashboard:1', mode: 'force_blocking' }))
+        void queue.enqueue(request('b'))
+        void queue.enqueue(request('c'))
+
+        expect(calls.map((call) => call.key)).toEqual(['a', 'b'])
+        await settle('a', OK)
+
+        expect(calls.map((call) => call.key)).toEqual(['a', 'b', 'c'])
+        expect(joined).toBe(first)
+        await expect(first).resolves.toMatchObject({ status: 'ok', computed: true })
+    })
+
+    test('skips an item asked for again within a minute of its last request', async () => {
+        const first = queue.enqueue(request('a'))
+        await settle('a', OK)
+        await first
+
+        now += 59_000
+        await expect(queue.enqueue(request('a'))).resolves.toMatchObject({ status: 'skipped' })
+        now += 1_000
+        void queue.enqueue(request('a'))
+
+        expect(calls).toHaveLength(2)
+    })
+
+    test('pauses only the family that answered 429 for its Retry-After', async () => {
+        const failed = queue.enqueue(request('a'))
+        await settle('a', new ApiError(429, {}, { get: () => '10' } as unknown as Headers))
+        await expect(failed).resolves.toMatchObject({ status: 'failed' })
+
+        void queue.enqueue(request('b'))
+        void queue.enqueue(request('d', { family: 'dashboards' }))
+        expect(calls.map((call) => call.key)).toEqual(['a', 'd'])
+
+        now += 10_000
+        jest.advanceTimersByTime(10_000)
+        expect(calls.map((call) => call.key)).toEqual(['a', 'd', 'b'])
+    })
+
+    test('retries a rate-limited read once after 5 s, then reports it failed', async () => {
+        const result = queue.enqueue(request('a'))
+        await settle('a', { status: 'rate_limited', computed: false })
+        expect(calls).toHaveLength(1)
+        expect(queue.isBusy('list')).toBe(true)
+
+        jest.advanceTimersByTime(5_000)
+        expect(calls).toHaveLength(2)
+        await settle('a', { status: 'rate_limited', computed: false })
+
+        await expect(result).resolves.toMatchObject({ status: 'failed' })
+        expect(queue.isBusy('list')).toBe(false)
+    })
+
+    test('sends nothing when the family budget is empty', async () => {
+        spendable.insights = false
+
+        await expect(queue.enqueue(request('a'))).resolves.toMatchObject({ status: 'capped', family: 'insights' })
+        expect(calls).toHaveLength(0)
+    })
+
+    test('drops and aborts what only the screen that left wanted', async () => {
+        let signal: AbortSignal | undefined
+        const running = queue.enqueue(
+            request('a', {
+                run: (_mode, abortSignal) => {
+                    signal = abortSignal
+                    return new Promise<ReadResult>((_resolve, reject) =>
+                        abortSignal.addEventListener('abort', () =>
+                            reject(Object.assign(new Error(), { name: 'AbortError' }))
+                        )
+                    )
+                },
+            })
+        )
+        void queue.enqueue(request('b'))
+        const queued = queue.enqueue(request('c'))
+        const shared = queue.enqueue(request('b', { group: 'insight:x' }))
+
+        queue.leave('list')
+
+        expect(signal?.aborted).toBe(true)
+        await expect(running).resolves.toMatchObject({ status: 'aborted' })
+        await expect(queued).resolves.toMatchObject({ status: 'aborted' })
+        await settle('b', OK)
+        await expect(shared).resolves.toMatchObject({ status: 'ok' })
+    })
+})

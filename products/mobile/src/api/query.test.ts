@@ -57,6 +57,17 @@ describe('query api', () => {
         ])
     })
 
+    test('returns a running status as it is when polling is off', async () => {
+        const running = { query_status: { id: 'q', complete: false } }
+        replies = [running]
+
+        await expect(runQuery({ kind: 'TrendsQuery' }, { refresh: 'force_blocking', poll: false })).resolves.toEqual(
+            running
+        )
+        expect(calls).toHaveLength(1)
+        expect(calls[0]?.body).toMatchObject({ refresh: 'force_blocking' })
+    })
+
     test.each<[string, unknown[], RunQueryOptions, string]>([
         [
             'a failed status',
