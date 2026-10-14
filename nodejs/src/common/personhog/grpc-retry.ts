@@ -11,6 +11,8 @@ const RETRYABLE_CODES = new Set([
     Code.Aborted,
     Code.Internal,
     Code.Unknown,
+    // No caller passes an abort signal, so Canceled is always a stream the peer reset, as a pod leaving does.
+    Code.Canceled,
 ])
 
 function isRetryable(error: unknown): error is ConnectError {
