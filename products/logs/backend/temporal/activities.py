@@ -1096,9 +1096,11 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
                 suppressed_by_quiet_hours=True,
             )
 
-        if current_alert.platform_owned:
-            # Decided and enqueued under the row lock a cutover also takes, so a cutover cannot land
-            # between the two. Counted as delivered, so state and cooldown move as they would have.
+        # Decided and enqueued under the row lock a cutover also takes, so a cutover cannot land
+        # between the two. Counted as delivered, so state and cooldown move as they would have. An
+        # owner change since the check read the alert also sends nothing: the row now carries the
+        # other stack's state, which this check never saw, and the save skips it too.
+        if current_alert.platform_owned or current_alert.owner_changed_at != evaluation.alert.owner_changed_at:
             return _DispatchedAlert(evaluation=evaluation, notification_failed=False, shadowed=True)
 
         produce_result = _dispatch_notification(
@@ -1358,9 +1360,17 @@ def _save_staged_per_alert(
     for d, update_fields, event in staged:
         try:
             with transaction.atomic():
-                if event is not None:
-                    event.save()
-                d.evaluation.alert.save(update_fields=update_fields)
+                # The bulk attempt's locks are gone, so an owner change can have landed since.
+                current_owner_changed_at = (
+                    LogsAlertConfiguration.objects.select_for_update()
+                    .filter(id=d.evaluation.alert.id)
+                    .values_list("owner_changed_at", flat=True)
+                    .first()
+                )
+                if current_owner_changed_at == d.evaluation.alert.owner_changed_at:
+                    if event is not None:
+                        event.save()
+                    d.evaluation.alert.save(update_fields=update_fields)
             saved.append(d)
         except Exception as e:
             logger.exception(

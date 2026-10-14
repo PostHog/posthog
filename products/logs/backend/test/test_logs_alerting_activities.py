@@ -289,15 +289,24 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         dispatched = [self._make_dispatched(a) for a in alerts]
         now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
 
-        # Should not raise.
-        _save_cohort_outcomes(dispatched, now)
+        from products.logs.backend.temporal import activities
 
-        # All three alerts should have been saved via per-alert fallback —
-        # advance_next_check_at writes a future next_check_at, so we can verify
-        # the fallback ran by checking each alert was persisted.
+        save_per_alert = activities._save_staged_per_alert
+
+        def cut_over_then_save(staged):
+            # A cutover after the bulk attempt released its locks carries the platform's state onto one row.
+            LogsAlertConfiguration.objects.filter(id=alerts[0].id).update(owner="platform", owner_changed_at=now)
+            return save_per_alert(staged)
+
+        # Should not raise.
+        with patch.object(activities, "_save_staged_per_alert", side_effect=cut_over_then_save):
+            _save_cohort_outcomes(dispatched, now)
+
+        # The other two were saved via per-alert fallback — advance_next_check_at writes a future
+        # next_check_at, so we can verify the fallback ran by checking each alert was persisted.
         for alert in alerts:
             alert.refresh_from_db()
-            assert alert.last_checked_at == now
+        assert [alert.last_checked_at for alert in alerts] == [None, now, now]
 
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_operational_error_propagates(self, mock_bulk_update):
@@ -772,6 +781,21 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert stats["checked"] == 1
         assert stats["fired"] == 1
         assert _produced_events(mock_produce) == expected_events
+
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
+    def test_a_check_read_before_a_handback_sends_nothing(self, mock_produce, mock_query_cls):
+        _mock_buckets(mock_query_cls, [50])
+        alert = self._make_alert(owner="platform", owner_changed_at=datetime(2024, 12, 20, tzinfo=UTC))
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        evaluation = _evaluate_single_alert(alert, now)
+        LogsAlertConfiguration.objects.filter(pk=alert.pk).update(owner="source", owner_changed_at=now)
+
+        dispatched = _dispatch_for_alert(evaluation, now)
+
+        assert dispatched.shadowed
+        assert _produced_events(mock_produce) == []
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
