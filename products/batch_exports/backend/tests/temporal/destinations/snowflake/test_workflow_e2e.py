@@ -52,7 +52,6 @@ async def _run_workflow(
     data_interval_end,
     interval: str,
     batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
     exclude_events=None,
     backfill_details=None,
     settings_overrides=None,
@@ -69,7 +68,6 @@ async def _run_workflow(
         batch_export_id=str(snowflake_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         backfill_details=backfill_details,
         integration_id=snowflake_batch_export.destination.integration_id,
@@ -127,7 +125,7 @@ async def _run_workflow(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         sort_key=sort_key,
         min_ingested_timestamp=min_ingested_timestamp,
     )
@@ -157,12 +155,11 @@ async def test_snowflake_export_workflow(
     if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
@@ -175,7 +172,6 @@ async def test_snowflake_export_workflow(
         data_interval_end=data_interval_end,
         interval=interval,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         min_ingested_timestamp=min_ingested_timestamp,
     )
@@ -205,12 +201,11 @@ async def test_snowflake_export_workflow_with_many_files(
     if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
@@ -223,7 +218,6 @@ async def test_snowflake_export_workflow_with_many_files(
         data_interval_end=data_interval_end,
         interval=interval,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
         min_ingested_timestamp=min_ingested_timestamp,

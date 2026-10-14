@@ -11,6 +11,7 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
   - `AutoresearchInferenceWorkflow` (`autoresearch-inference`) — `activity_run_inference` for one pipeline. The activity reads the current champion itself, so a retry after a mid-scoring promotion scores with the new one.
   - `AutoresearchValidationWorkflow` (`autoresearch-validation`) — `activity_run_validation` for one pipeline.
   - `activity_kickoff_training` — launches a training run for a pipeline that is due.
+  - `AutoresearchPropertyCleanupWorkflow` (`autoresearch-property-cleanup`) — `activity_remove_person_property` removes a pipeline's output person property from persons (`../inference/person_property.py`), then runs a reconcile pass an hour later for scores that were still ingesting during the first pass. The run row stays `running` until the reconcile pass ends, and a retry adds to the count on the row. When the activity runs out of retries, the workflow fails the run with `activity_fail_cleanup_run`. The facade starts it, not the coordinator, with one workflow id per cleanup request.
 
   Each workflow has a typed input/result dataclass pair (`InferenceWorkflowInput` / `InferenceWorkflowResult`, and so on). Activities are named with a `autoresearch-<workflow>.<activity>` convention.
 

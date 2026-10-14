@@ -375,15 +375,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
-                            // breakdown series at the moment. The per-breakdown
-                            // color customization (if any) wins over the inherited
-                            // y-axis color.
+                            // breakdown series at the moment. The y-axis color is not
+                            // copied, so each breakdown value gets its own palette color.
                             settings: getBISeriesSettings(query, {
                                 formatting: selectedYAxis.settings.formatting,
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
-                                    color: customColor ?? selectedYAxis.settings?.display?.color,
+                                    color: customColor,
                                 },
                             }),
                         }

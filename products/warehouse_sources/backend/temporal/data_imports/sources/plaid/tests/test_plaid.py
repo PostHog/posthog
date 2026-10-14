@@ -1,43 +1,34 @@
 from datetime import UTC, date, datetime
-from typing import Any
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plaid import PlaidSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid import (
     DEFAULT_START_DATE,
     PAGE_SIZE,
     PlaidResumeConfig,
     _base_url,
     _format_date,
-    get_rows,
-    plaid_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.settings import ENDPOINTS, PLAID_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.source import PlaidSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid"
 
 
-def _make_manager(resume_state: PlaidResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _response(body: dict[str, Any], status: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = status
-    resp.ok = status < 400
-    return resp
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep():
-    with mock.patch(f"{_MODULE}.time.sleep"):
-        yield
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        PlaidSource(),
+        PlaidSourceConfig(environment="production", client_id="cid", secret="sec", access_token="tok"),
+    )
 
 
 class TestBaseUrl:
@@ -69,102 +60,93 @@ class TestValidateCredentials:
             (401, False),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.post.return_value = _response({}, status=status_code)
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
+            assert validate_credentials("production", "cid", "sec", "tok") is expected
 
-        assert validate_credentials("production", "cid", "sec", "tok") is expected
+        assert network.requests_log[0].path == "/item/get"
+        assert network.requests_log[0].json() == {"client_id": "cid", "secret": "sec", "access_token": "tok"}
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.post.side_effect = Exception("boom")
-        assert validate_credentials("production", "cid", "sec", "tok") is False
+    def test_validate_credentials_swallows_exceptions(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("production", "cid", "sec", "tok") is False
+
+        assert {request.path for request in network.requests_log} == {"/item/get"}
 
 
 class TestGetRowsAccounts:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_accounts_single_fetch(self, mock_session):
-        mock_session.return_value.post.return_value = _response({"accounts": [{"account_id": "a1"}]})
+    def test_accounts_single_fetch(self) -> None:
+        result = _driver().run("accounts", [ScriptedResponse(json={"accounts": [{"account_id": "a1"}]})])
 
-        manager = _make_manager()
-        batches = list(get_rows("production", "cid", "sec", "tok", "accounts", mock.MagicMock(), manager))
-
-        assert batches == [[{"account_id": "a1"}]]
-        call = mock_session.return_value.post.call_args
-        assert call.args[0].endswith("/accounts/get")
+        assert result.raised is None
+        assert result.items == [[{"account_id": "a1"}]]
+        assert result.paths == ["/accounts/get"]
 
 
 class TestGetRowsTransactions:
     @mock.patch(f"{_MODULE}._today")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_via_offset_until_total(self, mock_session, mock_today):
+    def test_paginates_via_offset_until_total(self, mock_today: mock.MagicMock) -> None:
         mock_today.return_value = "2024-06-01"
         full_page = [{"transaction_id": str(i), "date": "2024-01-01"} for i in range(PAGE_SIZE)]
-        mock_session.return_value.post.side_effect = [
-            _response({"transactions": full_page, "total_transactions": PAGE_SIZE + 1}),
-            _response(
-                {
-                    "transactions": [{"transaction_id": "last", "date": "2024-01-02"}],
-                    "total_transactions": PAGE_SIZE + 1,
-                }
-            ),
-        ]
+        result = _driver().run(
+            "transactions",
+            [
+                ScriptedResponse(json={"transactions": full_page, "total_transactions": PAGE_SIZE + 1}),
+                ScriptedResponse(
+                    json={
+                        "transactions": [{"transaction_id": "last", "date": "2024-01-02"}],
+                        "total_transactions": PAGE_SIZE + 1,
+                    }
+                ),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("production", "cid", "sec", "tok", "transactions", mock.MagicMock(), manager))
-
-        assert len(batches) == 2
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].offset == PAGE_SIZE
-        bodies = [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list]
+        assert result.raised is None
+        assert len(result.items) == 2
+        assert result.saved_states == [PlaidResumeConfig(offset=PAGE_SIZE)]
+        bodies = [request.json() for request in result.requests]
         assert bodies[0]["options"] == {"count": PAGE_SIZE, "offset": 0}
         assert bodies[1]["options"] == {"count": PAGE_SIZE, "offset": PAGE_SIZE}
         assert bodies[0]["start_date"] == DEFAULT_START_DATE
         assert bodies[0]["end_date"] == "2024-06-01"
 
     @mock.patch(f"{_MODULE}._today")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_uses_watermark_as_start_date(self, mock_session, mock_today):
+    def test_incremental_uses_watermark_as_start_date(self, mock_today: mock.MagicMock) -> None:
         mock_today.return_value = "2024-06-01"
-        mock_session.return_value.post.return_value = _response({"transactions": [], "total_transactions": 0})
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "production",
-                "cid",
-                "sec",
-                "tok",
-                "transactions",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2024, 5, 1),
-            )
+        result = _driver().run(
+            "transactions",
+            [ScriptedResponse(json={"transactions": [], "total_transactions": 0})],
+            incremental_field="date",
+            db_incremental_field_last_value=date(2024, 5, 1),
         )
 
-        body = mock_session.return_value.post.call_args.kwargs["json"]
+        assert result.raised is None
+        body = result.requests[0].json()
         assert body["start_date"] == "2024-05-01"
 
     @mock.patch(f"{_MODULE}._today")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_offset(self, mock_session, mock_today):
+    def test_resumes_from_saved_offset(self, mock_today: mock.MagicMock) -> None:
         mock_today.return_value = "2024-06-01"
-        mock_session.return_value.post.return_value = _response({"transactions": [], "total_transactions": 0})
+        result = _driver().run(
+            "transactions",
+            [ScriptedResponse(json={"transactions": [], "total_transactions": 0})],
+            resume_state=PlaidResumeConfig(offset=1500),
+        )
 
-        manager = _make_manager(PlaidResumeConfig(offset=1500))
-        list(get_rows("production", "cid", "sec", "tok", "transactions", mock.MagicMock(), manager))
-
-        body = mock_session.return_value.post.call_args.kwargs["json"]
+        assert result.raised is None
+        body = result.requests[0].json()
         assert body["options"]["offset"] == 1500
 
 
 class TestPlaidSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = PLAID_ENDPOINTS[endpoint]
-        response = plaid_source("production", "cid", "sec", "tok", endpoint, mock.MagicMock(), _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json={endpoint: [], "total_transactions": 0})])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
         if endpoint == "transactions":

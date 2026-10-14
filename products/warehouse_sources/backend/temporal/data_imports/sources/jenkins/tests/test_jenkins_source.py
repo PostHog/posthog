@@ -5,6 +5,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
     JenkinsSourceConfig,
 )
@@ -67,13 +71,12 @@ class TestJenkinsSource:
         mock_validate.assert_called_once_with("https://jenkins.example.com", "ci-bot", "token", "builds")
 
     def test_validate_credentials_rejects_bad_host_without_probing(self) -> None:
-        with mock.patch.object(self.source, "_validate_host", return_value=(False, "bad host")):
-            with mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.validate_jenkins_credentials"
-            ) as mock_validate:
-                result = self.source.validate_credentials(_config(), team_id=self.team_id)
-        assert result == (False, "bad host")
-        mock_validate.assert_not_called()
+        config = JenkinsSourceConfig(host="https://user@evil.example.com", username="ci-bot", api_token="token")
+        with scripted_network([]) as network:
+            result = self.source.validate_credentials(config, team_id=self.team_id)
+        assert result == (False, "Invalid Jenkins URL")
+        assert network.requests_log == []
+        assert network.session_options == []
 
     @parameterized.expand(
         [
@@ -142,12 +145,13 @@ class TestJenkinsSource:
         assert captured["db_incremental_field_last_value"] is None
 
     def test_source_for_pipeline_raises_on_invalid_host(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "jobs"
-        with mock.patch.object(self.source, "_validate_host", return_value=(False, "Jenkins URL must use https")):
-            try:
-                self.source.source_for_pipeline(_config(), MagicMock(), inputs)
-            except ValueError as e:
-                assert "https" in str(e)
-            else:
-                raise AssertionError("expected ValueError for invalid host")
+        config = JenkinsSourceConfig(host="http://jenkins.example.com", username="ci-bot", api_token="token")
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source.is_cloud",
+            return_value=True,
+        ):
+            with mock.patch.object(self.source, "is_database_host_valid", return_value=(True, None)):
+                result = SourceDriver(self.source, config).run("jobs", [])
+        assert isinstance(result.raised, ValueError)
+        assert "https" in str(result.raised)
+        assert result.requests == []

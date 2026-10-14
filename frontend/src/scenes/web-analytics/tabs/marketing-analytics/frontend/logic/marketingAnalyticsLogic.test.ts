@@ -370,6 +370,50 @@ describe('marketingAnalyticsLogic', () => {
             expect(logic.values.includeConversionGoals).toBe(true)
             search.actions.setMetrics('conversions')
             expect(search.values.query.includePostHogConversions).toBe(false)
+            for (const sourceType of ['GoogleAds', 'BingAds'] as const) {
+                await expectLogic(logic, () =>
+                    logic.actions.loadSourcesSuccess({
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                id: 'search-ads',
+                                source_type: sourceType,
+                                source_id: 'example-account',
+                                connection_id: 'example-search',
+                                status: ExternalDataJobStatus.Completed,
+                                prefix: null,
+                                description: 'Example search ads',
+                                created_via: 'web',
+                                latest_error: null,
+                                sync_frequency: '24hour',
+                                job_inputs: {},
+                                user_access_level: AccessControlLevel.Admin,
+                                revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                                schemas: (sourceType === 'GoogleAds'
+                                    ? ['keyword', 'keyword_stats']
+                                    : ['keyword_performance_report']
+                                ).map(
+                                    (name) =>
+                                        ({
+                                            id: name,
+                                            name,
+                                            should_sync: true,
+                                            status: ExternalDataSchemaStatus.Completed,
+                                            last_synced_at: dayjs(),
+                                            table: { name, hogql_name: name },
+                                        }) as ExternalDataSourceSchema
+                                ),
+                            } as ExternalDataSource,
+                        ],
+                    })
+                ).toFinishAllListeners()
+                expect(search.values.query.includePostHogConversions).toBe(true)
+                logic.actions.setAdPerformanceConversionGoals(false)
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                logic.actions.setAdPerformanceConversionGoals(true)
+            }
             search.actions.setBreakdown('page')
             expect(search.values.query.includePostHogConversions).toBe(true)
             search.actions.selectRow({

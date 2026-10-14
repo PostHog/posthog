@@ -26,10 +26,13 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     cache_errors: int = 0
     failed_chunks: int = 0
     # Scanners whose requests the gateway rate-limited, and scanners left for the next run because
-    # the run had already been rate-limited RATE_LIMIT_BACKOFF_AFTER times.
+    # the run had been rate-limited RATE_LIMIT_GIVE_UP_AFTER turns in a row.
     scanners_rate_limited: int = 0
     scanners_backed_off: int = 0
     input_tokens: int = 0
+    # Seconds the run's requests spent waiting for their pacing slot, so a run that spends its
+    # budget paced rather than judging is visible without log access.
+    pacing_wait_seconds: float = 0.0
     estimated_cost_usd: float = 0.0
     hit_team_cap: bool = False
     hit_scanner_cap: bool = False

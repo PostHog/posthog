@@ -36,8 +36,14 @@ export function BIShelfDropTarget({
 }): JSX.Element {
     const { activeDropShelf, dragSessionId } = useValues(biEditorLogic)
     const { config } = useValues(biEditorLogic)
-    const { addFieldToShelf, clearActiveDropShelf, moveFieldToShelf, setActiveDropShelf, setMeasureShelf } =
-        useActions(biEditorLogic)
+    const {
+        addFieldToShelf,
+        clearActiveDropShelf,
+        moveFieldToShelf,
+        duplicateField,
+        setActiveDropShelf,
+        setMeasureShelf,
+    } = useActions(biEditorLogic)
 
     return (
         <div
@@ -56,7 +62,7 @@ export function BIShelfDropTarget({
                 const dragKind = carriesBIDrag(event)
                 if (dragKind) {
                     event.preventDefault()
-                    event.dataTransfer.dropEffect = dragKind === 'pill' ? 'move' : 'copy'
+                    event.dataTransfer.dropEffect = dragKind === 'pill' && !event.altKey ? 'move' : 'copy'
                 }
             }}
             onDragLeave={(event) => {
@@ -72,6 +78,10 @@ export function BIShelfDropTarget({
                 const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
                 if (pill) {
                     if (pill.dragSessionId !== dragSessionId) {
+                        return
+                    }
+                    if (event.altKey && pill.shelf !== 'filters') {
+                        duplicateField(pill.shelf, pill.index, shelf, index)
                         return
                     }
                     if (pill.shelf === 'values' && shelf === 'values' && index !== undefined) {

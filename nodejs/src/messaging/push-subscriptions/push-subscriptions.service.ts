@@ -7,7 +7,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 import { verifyPushIdentityToken } from './identity-token'
 import { ProjectTokenLookup } from './project-token-lookup'
-import { PushCaptureService } from './push-capture'
+import { CaptureBillingLimitError, PushCaptureService } from './push-capture'
 import { InflatedBodyTooLargeError, RawRequest, decodeRequest } from './request-decoding'
 
 export type PushRejectionCode =
@@ -19,6 +19,7 @@ export type PushRejectionCode =
     | 'missing_fields'
     | 'identity_verification_failed'
     | 'capture_failed'
+    | 'capture_billing_limited'
 
 export type PushErrorType = 'validation_error' | 'authentication_error' | 'server_error'
 
@@ -260,7 +261,8 @@ export class PushSubscriptionsService {
         } catch (error) {
             return {
                 ...reject(
-                    'capture_failed',
+                    // A code of its own lets the error-rate alert leave out projects over their billing limit.
+                    error instanceof CaptureBillingLimitError ? 'capture_billing_limited' : 'capture_failed',
                     500,
                     'server_error',
                     request.method === 'POST'

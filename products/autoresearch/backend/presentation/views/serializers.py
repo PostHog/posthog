@@ -40,6 +40,7 @@ VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
+BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
@@ -659,6 +660,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         max_length=255,
         help_text="Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.",
     )
+    write_person_property = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether live scoring writes the champion's score to output_person_property on each scored person. "
+            "Feature flags, cohorts, workflows and insights that target people by score need it on."
+        ),
+    )
     status = serializers.ChoiceField(
         choices=PIPELINE_STATUS_CHOICES,
         read_only=True,
@@ -766,6 +774,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
             "status",
             "created_by",
             "created_at",
@@ -870,6 +879,15 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "non-archived pipelines."
         ),
     )
+    write_person_property = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. "
+            "Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. "
+            "Prediction events, validation and segments work without it. Turning it off, or archiving or deleting "
+            "the pipeline while it is on, removes the property from the people it scored."
+        ),
+    )
 
     class Meta:
         dataclass = PipelineWrite
@@ -887,6 +905,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
         ]
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
@@ -984,6 +1003,19 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not output_person_property:
             output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
             updates["output_person_property"] = output_person_property
+        if is_update and (
+            self._supplied(data, "output_person_property") or self._supplied(data, "write_person_property")
+        ):
+            stored = api.get_pipeline_definition(team.pk, self._pipeline_id)
+            writes = self._value(data, "write_person_property", stored.write_person_property)
+            if writes and not self._value(data, "output_person_property", stored.output_person_property):
+                raise serializers.ValidationError(
+                    {
+                        "output_person_property": (
+                            "Set a person property name before you turn on writing scores to person profiles."
+                        )
+                    }
+                )
         if output_person_property and api.output_person_property_taken(
             team.pk, output_person_property, exclude_pipeline_id=self._pipeline_id
         ):
@@ -1544,13 +1576,13 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     likely_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability are in the Likely segment: likely_lift times the "
-            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null."
+            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed."
         )
     )
     possible_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability and below likely_threshold are in the Possible "
-            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null."
+            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed."
         )
     )
     likely_lift = serializers.FloatField(
@@ -1559,11 +1591,20 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     base_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Fraction of the champion's scored users who did the target event, pooled over the newest checked "
-            "dates. Null, and the fixed cut points apply, until those dates hold enough positives."
+            "The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored "
+            "users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the "
+            "fraction of the champion's training population that did it. Null when base_rate_source is fixed."
         ),
     )
     base_rate_dates = serializers.IntegerField(help_text="Number of checked prediction dates the base rate pools.")
+    base_rate_source = serializers.ChoiceField(
+        choices=BASE_RATE_SOURCE_CHOICES,
+        help_text=(
+            "Where the cut points come from. realized: the checked dates hold enough positives. training: no "
+            "realized base rate yet, so the champion's training population sets it. fixed: neither is available, "
+            "so fixed cut points apply."
+        ),
+    )
     champion_mean_p_y = serializers.FloatField(
         allow_null=True,
         help_text=(

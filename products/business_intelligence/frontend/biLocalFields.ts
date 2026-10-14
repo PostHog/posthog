@@ -83,6 +83,7 @@ export function upsertBILocalField(config: BIConfig, field: BIField): BIConfig {
         localFields: [...(config.localFields ?? []).filter((current) => current.id !== field.id), field],
         rows: config.rows.map(replace),
         columns: config.columns.map(replace),
+        hierarchies: config.hierarchies?.map((hierarchy) => ({ ...hierarchy, levels: hierarchy.levels.map(replace) })),
         values: config.values.map((value) => ({
             ...value,
             field: replace(value.field),
