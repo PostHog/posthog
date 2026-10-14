@@ -170,7 +170,6 @@ class RemoteConfig(UUIDTModel):
         }
 
         # The Team API validates this column. Older rows can still hold malformed JSON.
-        # An unreadable column takes the V1 path.
         trigger_groups_config = team.session_recording_trigger_groups
         groups = trigger_groups_config.get("groups") if isinstance(trigger_groups_config, dict) else None
 
@@ -182,7 +181,8 @@ class RemoteConfig(UUIDTModel):
             # Build normalized copies to avoid mutating the team's stored data.
             normalized_groups = []
             for group in groups:
-                # The SDK throws on a group whose conditions or events it cannot read. This loop drops such a group.
+                # The SDK throws on a group whose conditions is not an object.
+                # It also throws on events that is neither null nor a list.
                 conditions = group.get("conditions") if isinstance(group, dict) else None
                 if not isinstance(conditions, dict):
                     continue

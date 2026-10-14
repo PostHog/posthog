@@ -348,8 +348,8 @@ class TestRemoteConfig(_RemoteConfigBase):
         [
             ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP]),
             (
-                "conditions_not_an_object",
-                {"version": 2, "groups": [{"conditions": None}, _READABLE_GROUP]},
+                "conditions_missing",
+                {"version": 2, "groups": [{"id": "g2", "sampleRate": 1}, _READABLE_GROUP]},
                 [_SENT_GROUP],
             ),
             ("events_null", {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]}, [_FLAG_GROUP_WITH_NULL_EVENTS]),
