@@ -1,9 +1,11 @@
 import os
 import time
+import inspect
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, ContextDecorator
-from typing import Any
+from functools import wraps
+from typing import Any, TypeVar, cast
 
 import posthoganalytics
 from opentelemetry import trace
@@ -15,6 +17,7 @@ from products.tasks.backend.logic.services.model_catalogue import runtime_adapte
 
 Attributes = dict[str, str | int | float | bool]
 tracer = trace.get_tracer(__name__)
+F = TypeVar("F", bound=Callable[..., object])
 
 TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
@@ -458,6 +461,62 @@ def record_sandbox_created(
         pass
 
 
+def record_startup_step_event(
+    step: str,
+    duration_ms: int,
+    attributes: Attributes,
+    *,
+    started_at: dt.datetime | None = None,
+) -> None:
+    try:
+        context = posthoganalytics.get_tags()
+        run_id = context.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            return
+        properties: dict[str, object] = {
+            "$process_person_profile": False,
+            **{
+                key: context[key]
+                for key in (
+                    "run_id",
+                    "task_id",
+                    "origin_product",
+                    "run_environment",
+                    "mode",
+                    "run_source",
+                    "runtime_adapter",
+                    "provider",
+                )
+                if key in context
+            },
+            **attributes,
+            "step": step,
+            "duration_ms": duration_ms,
+        }
+        if started_at is not None:
+            properties["started_at"] = started_at.isoformat()
+            properties["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+        if activity.in_activity():
+            info = activity.info()
+            properties.update(
+                {
+                    "temporal_activity_id": info.activity_id,
+                    "temporal_activity_type": info.activity_type,
+                    "temporal_attempt": info.attempt,
+                    "temporal_workflow_id": info.workflow_id,
+                    "temporal_workflow_run_id": info.workflow_run_id,
+                }
+            )
+        posthoganalytics.capture(
+            "task_startup_step_completed",
+            distinct_id=run_id,
+            properties=properties,
+            send_feature_flags=False,
+        )
+    except Exception:
+        pass
+
+
 def record_agent_server_session_init_ms(
     session_init_ms: int,
     boot_path: str | None = None,
@@ -483,6 +542,7 @@ def record_agent_server_session_init_ms(
         ).record(dt.timedelta(milliseconds=session_init_ms))
     except Exception:
         pass
+    record_startup_step_event("agent_server_session_init", session_init_ms, attributes)
 
 
 def record_agent_server_step_ms(
@@ -513,6 +573,7 @@ def record_agent_server_step_ms(
         ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
+    record_startup_step_event(step, duration_ms, attributes)
 
 
 def record_agent_server_boot_phases_ms(
@@ -623,6 +684,17 @@ def record_agent_boot_milestone_ms(
 
 
 class StepTimer(ContextDecorator):
+    def __call__(self, func: F) -> F:
+        if not inspect.iscoroutinefunction(func):
+            return super().__call__(func)
+
+        @wraps(func)
+        async def timed(*args: object, **kwargs: object) -> object:
+            with self._recreate_cm():
+                return await func(*args, **kwargs)
+
+        return cast(F, timed)
+
     def __init__(
         self,
         step: str,
@@ -643,6 +715,7 @@ class StepTimer(ContextDecorator):
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
         self._start_counter: float | None = None
+        self._started_at: dt.datetime | None = None
         self._span: AbstractContextManager[Span] | None = None
 
     def _recreate_cm(self) -> "StepTimer":
@@ -661,6 +734,7 @@ class StepTimer(ContextDecorator):
     def __enter__(self) -> "StepTimer":
         self._span = tracer.start_as_current_span("tasks.step." + self.step)
         self._span.__enter__()
+        self._started_at = dt.datetime.now(dt.UTC)
         self._start_counter = time.perf_counter()
         return self
 
@@ -698,4 +772,5 @@ class StepTimer(ContextDecorator):
         except Exception:
             pass
 
+        record_startup_step_event(self.step, delta_ms, attributes, started_at=self._started_at)
         self._start_counter = None

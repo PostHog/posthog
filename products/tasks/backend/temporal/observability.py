@@ -119,6 +119,19 @@ def log_activity_execution(
     """
     bound_logger = logger.bind(**context)
 
+    for key in (
+        "run_id",
+        "task_id",
+        "origin_product",
+        "environment",
+        "mode",
+        "run_source",
+        "runtime_adapter",
+        "provider",
+    ):
+        if key in context:
+            posthoganalytics.tag("run_environment" if key == "environment" else key, context[key])
+
     if activity.in_activity():
         info = activity.info()
         bound_logger = bound_logger.bind(

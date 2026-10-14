@@ -754,6 +754,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
@@ -902,6 +903,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
@@ -949,7 +951,9 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def mark_repo_ready(input: MarkRepoReadyInput) -> None:
+    posthoganalytics.tag("run_id", input.run_id)
     with StepTimer("sandbox_lookup"):
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     for repository in input.failed_repositories or []:
@@ -973,6 +977,7 @@ def mark_repo_ready(input: MarkRepoReadyInput) -> None:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 

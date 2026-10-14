@@ -16,6 +16,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import (
@@ -42,6 +43,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
@@ -50,7 +52,6 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
@@ -63,6 +64,9 @@ _BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
 
 def tag_startup_dispatch(task_run: TaskRun | None) -> None:
     if task_run is not None and not task_run.task.is_scout_experiment:
+        posthoganalytics.tag("run_id", str(task_run.id))
+        posthoganalytics.tag("origin_product", task_run.task.origin_product)
+        posthoganalytics.tag("run_environment", task_run.environment)
         trace.get_current_span().set_attributes(
             {
                 "run_id": str(task_run.id),
@@ -163,7 +167,7 @@ def _evaluate_boot_rollout_flag(
         return False
 
 
-@tracer.start_as_current_span("tasks.startup.capture_dispatch_flags")
+@StepTimer("capture_dispatch_flags")
 def _capture_run_feature_flags(run_id: str) -> None:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
@@ -259,7 +263,8 @@ async def _aget_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
-@tracer.start_as_current_span("tasks.startup.dispatch", attributes={"dispatch_route": "direct"})
+@scoped_temporal(fresh=True, capture_exceptions=False)
+@StepTimer("dispatch")
 async def execute_task_processing_workflow_async(
     task_id: str,
     run_id: str,
@@ -316,7 +321,7 @@ async def execute_task_processing_workflow_async(
             extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
         )
 
-        with tracer.start_as_current_span("tasks.startup.temporal_connect"):
+        with StepTimer("temporal_connect"):
             client = await async_connect()
         await client.start_workflow(
             "process-task",
@@ -360,7 +365,8 @@ async def execute_task_processing_workflow_async(
         )
 
 
-@tracer.start_as_current_span("tasks.startup.dispatch", attributes={"dispatch_route": "direct"})
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
+@StepTimer("dispatch")
 def execute_task_processing_workflow(
     task_id: str,
     run_id: str,
@@ -416,7 +422,7 @@ def execute_task_processing_workflow(
             extra={"task_id": task_id, "task_queue": settings.TASKS_TASK_QUEUE},
         )
 
-        with tracer.start_as_current_span("tasks.startup.temporal_connect"):
+        with StepTimer("temporal_connect"):
             client = sync_connect()
 
         logger.info(

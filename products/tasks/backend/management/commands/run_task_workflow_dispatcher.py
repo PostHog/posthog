@@ -14,7 +14,6 @@ from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections
 
 from asgiref.sync import sync_to_async
-from opentelemetry import trace
 from prometheus_client import start_http_server
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -24,6 +23,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
@@ -50,11 +50,11 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import _capture_run_feature_flags, tag_startup_dispatch
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.visibility import task_control_q
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE = 500
 
 
@@ -202,7 +202,8 @@ class Command(BaseCommand):
         )
         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="failed").inc()
 
-    @tracer.start_as_current_span("tasks.startup.dispatch", attributes={"dispatch_route": "dispatcher"})
+    @scoped_temporal(fresh=True, capture_exceptions=False)
+    @StepTimer("dispatch")
     async def _process(
         self, client: Client, dispatch: TaskWorkflowDispatch, instance_id: str, semaphore: asyncio.Semaphore
     ) -> None:

@@ -2801,8 +2801,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     if self._startup_context_loaded_at
                     else None,
                     "startup_requested_at": (self.context.state or {}).get("startup_requested_at"),
+                    "run_environment": self.context.environment,
+                    "agent_ready_at": self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 }
             )
+            requested_at = properties["startup_requested_at"]
+            if isinstance(requested_at, str):
+                try:
+                    requested = datetime.fromisoformat(requested_at)
+                    if requested.tzinfo is not None and requested <= now:
+                        properties["since_startup_requested_ms"] = int((now - requested).total_seconds() * 1000)
+                        properties["handoff_ms"] = max(
+                            0, int((workflow.info().start_time - requested).total_seconds() * 1000)
+                        )
+                except ValueError:
+                    pass
+            properties["worker_wait_ms"] = max(
+                0, int((self._startup_worker_started_at - workflow.info().start_time).total_seconds() * 1000)
+            )
+            if self._startup_context_loaded_at is not None:
+                properties["task_setup_ms"] = max(
+                    0, int((self._startup_context_loaded_at - self._startup_worker_started_at).total_seconds() * 1000)
+                )
         if since_agent_ready_ms is not None:
             self._record_boot_milestone_sample(event_name, since_agent_ready_ms)
         else:

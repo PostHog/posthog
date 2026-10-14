@@ -708,6 +708,7 @@ def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTempl
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
     ctx = input.context
 
@@ -903,6 +904,7 @@ def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare
 
 
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
     prepared = input.prepared
@@ -1170,6 +1172,7 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
     blobless_clone = _is_blobless_signals_clone_enabled(ctx)
@@ -1253,6 +1256,7 @@ def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
 
 @activity.defn
 @asyncify
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutBranchInSandboxOutput:
     ctx = input.context
 

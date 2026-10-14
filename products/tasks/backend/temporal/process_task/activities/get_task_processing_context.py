@@ -1217,9 +1217,11 @@ def _is_continue_as_new_enabled(
 @activity.defn
 @asyncify
 @close_db_connections
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskProcessingContext:
     """Fetch task details and create the processing context for the workflow."""
     run_id = input.run_id
+    posthoganalytics.tag("run_id", run_id)
     log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
@@ -1230,6 +1232,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "task__github_integration",
                 "task__github_user_integration",
             ).get(id=run_id)
+            posthoganalytics.tag("origin_product", task_run.task.origin_product)
+            posthoganalytics.tag("run_environment", task_run.environment)
+            posthoganalytics.tag("mode", (task_run.state or {}).get("mode", "background"))
     except ObjectDoesNotExist:
         # The row may simply not be visible yet (creating transaction not committed) or
         # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.

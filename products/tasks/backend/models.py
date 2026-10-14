@@ -686,7 +686,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 event=event,
                 properties=all_properties,
                 groups=groups(team=self.team),
-                send_feature_flags=True,
+                send_feature_flags=event != "task_created",
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
@@ -2985,7 +2985,7 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
-                "send_feature_flags": True,
+                "send_feature_flags": event != "task_run_created",
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid

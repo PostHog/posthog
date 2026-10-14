@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import TestCase
 
+import posthoganalytics
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -15,6 +16,7 @@ from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_cust
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.metrics import StepTimer
+from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
     TrackWorkflowEventInput,
     track_workflow_event,
@@ -51,6 +53,29 @@ class TestSandboxDeadlineMetrics:
 
 
 class TestStartupStepMetrics:
+    async def test_async_step_timer_waits_for_work_before_recording(self) -> None:
+        @StepTimer("dispatch")
+        async def dispatch() -> str:
+            return "started"
+
+        with (
+            posthoganalytics.new_context(fresh=True, capture_exceptions=False),
+            patch("products.tasks.backend.temporal.metrics.time.perf_counter", side_effect=[1, 3]),
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+        ):
+            posthoganalytics.tag("run_id", "test-run")
+            assert await dispatch() == "started"
+
+        assert capture.call_args.kwargs["properties"]["duration_ms"] == 2000
+
+    @pytest.mark.parametrize("event", ["agent_first_activity_observed", "agent_first_command_dispatched"])
+    def test_startup_milestone_capture_does_not_fetch_feature_flags(self, event: str) -> None:
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.track_workflow_event.posthoganalytics.capture"
+        ) as capture:
+            track_workflow_event(TrackWorkflowEventInput(event, "test-user", {"run_id": "test-run"}))
+        assert capture.call_args.kwargs["send_feature_flags"] is False
+
     @pytest.mark.parametrize("fails", [False, True])
     def test_decorated_timer_keeps_nested_attempt_durations_and_failures_separate(self, fails: bool) -> None:
         @StepTimer("flag_streaming")
@@ -62,10 +87,14 @@ class TestStartupStepMetrics:
 
         meter = MagicMock()
         with (
+            posthoganalytics.new_context(fresh=True, capture_exceptions=False),
             patch("products.tasks.backend.temporal.metrics.time.perf_counter", side_effect=[0, 1, 2, 4]),
             patch("products.tasks.backend.temporal.metrics._metric_meter", return_value=meter) as metric_meter,
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
             pytest.raises(ValueError, match="failed step") if fails else nullcontext(),
         ):
+            posthoganalytics.tag("run_id", "test-run")
+            posthoganalytics.tag("origin_product", "signals_scout")
             work(True)
 
         durations = [args.args[0] for args in meter.create_histogram_timedelta.return_value.record.call_args_list]
@@ -73,6 +102,33 @@ class TestStartupStepMetrics:
         assert [args.args[0]["status"] for args in metric_meter.call_args_list] == [
             "FAILED" if fails else "COMPLETED"
         ] * 2
+        events = [call.kwargs["properties"] for call in capture.call_args_list]
+        assert [event["duration_ms"] for event in events] == [1000, 4000]
+        assert all(event["run_id"] == "test-run" and event["origin_product"] == "signals_scout" for event in events)
+        assert all(event["status"] == ("FAILED" if fails else "COMPLETED") for event in events)
+        assert all(call.kwargs["send_feature_flags"] is False for call in capture.call_args_list)
+
+    @pytest.mark.parametrize("capture_fails", [False, True])
+    def test_step_events_use_scoped_run_context_without_affecting_work(self, capture_fails: bool) -> None:
+        with patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture:
+            capture.side_effect = RuntimeError("queue unavailable") if capture_fails else None
+            for run_id, origin in [("first-run", "slack"), ("second-run", "review_hog")]:
+                with (
+                    posthoganalytics.new_context(fresh=True, capture_exceptions=False),
+                    log_activity_execution("startup", run_id=run_id, origin_product=origin, environment="cloud"),
+                    StepTimer("setup"),
+                ):
+                    pass
+            with StepTimer("unrelated"):
+                pass
+
+        assert capture.call_count == 2
+        properties = [call.kwargs["properties"] for call in capture.call_args_list]
+        assert [(event["run_id"], event["origin_product"]) for event in properties] == [
+            ("first-run", "slack"),
+            ("second-run", "review_hog"),
+        ]
+        assert all(event["run_environment"] == "cloud" for event in properties)
 
 
 class TestTaskRunMetrics(TestCase):

@@ -1550,9 +1550,14 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(monk
         assert properties["worker_started_at"] == "2026-01-01T00:00:02+00:00"
         assert properties["context_loaded_at"] == "2026-01-01T00:00:03+00:00"
         assert properties["observed_at"] == now.isoformat()
+        assert properties["since_startup_requested_ms"] == 10000
+        assert properties["handoff_ms"] == 1000
+        assert properties["worker_wait_ms"] == 1000
+        assert properties["task_setup_ms"] == 1000
     else:
         assert "startup_requested_at" not in properties
         assert "observed_at" not in properties
+        assert "since_startup_requested_ms" not in properties
 
 
 @pytest.mark.parametrize(
