@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { Children, ComponentProps, MouseEvent, ReactNode, useContext, useEffect } from 'react'
+import { Children, ComponentProps, ReactNode, useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
@@ -349,7 +349,7 @@ export function SceneMenuBarItem({
     onClick,
     ...props
 }: SceneMenuBarItemProps): JSX.Element {
-    const handleClick = (e: MouseEvent<HTMLDivElement>): void => {
+    const handleClick: NonNullable<SceneMenuBarItemProps['onClick']> = (e) => {
         const dataAttr = (props as Record<string, unknown>)['data-attr']
         captureSceneMenuBar('scene menu bar item clicked', {
             item: typeof dataAttr === 'string' ? dataAttr : typeof children === 'string' ? children : undefined,

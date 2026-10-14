@@ -689,7 +689,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
                         const insight = await insightsApi.getByShortId(
                             shortId,
-                            undefined,
+                            // Notebook data nodes own execution and can restore a recent response.
+                            // Fetching results here would start a query before that cache is checked.
+                            props.retainResponseOnUnmount ? true : undefined,
                             hasOverrides ? 'async_except_on_cache_miss' : 'async',
                             filtersOverride,
                             variablesOverride,
