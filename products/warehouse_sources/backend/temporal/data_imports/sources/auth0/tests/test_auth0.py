@@ -370,6 +370,89 @@ class TestGetRows:
         assert isinstance(result.raised, Auth0HostNotAllowedError)
         assert result.requests == []
 
+    def test_fan_out_walks_each_parent_through_its_checkpoint_pages(self) -> None:
+        orgs = {"organizations": [{"id": "org_1"}, {"id": "org_2"}, {"id": "org_3"}], "total": 3}
+        members_page_1 = {
+            "members": [{"user_id": "auth0|1", "roles": [{"id": "rol_a", "name": "Admin"}]}],
+            "next": "cp1",
+        }
+        members_page_2 = {
+            "members": [
+                {"user_id": "auth0|2", "roles": [{"id": "rol_a", "name": "Admin"}, {"id": "rol_b", "name": "Viewer"}]},
+                {"user_id": "auth0|3", "roles": []},
+            ]
+        }
+        result = self._run(
+            "organization_member_roles",
+            [
+                ScriptedResponse(json=orgs),
+                ScriptedResponse(json=members_page_1),
+                ScriptedResponse(json=members_page_2),
+                # Deleted after the organization page was read.
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"members": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"user_id": "auth0|1", "id": "rol_a", "name": "Admin", "organization_id": "org_1"},
+            {"user_id": "auth0|2", "id": "rol_a", "name": "Admin", "organization_id": "org_1"},
+            {"user_id": "auth0|2", "id": "rol_b", "name": "Viewer", "organization_id": "org_1"},
+        ]
+        assert result.paths[2:] == [
+            "/api/v2/organizations/org_1/members",
+            "/api/v2/organizations/org_1/members",
+            "/api/v2/organizations/org_2/members",
+            "/api/v2/organizations/org_3/members",
+        ]
+        assert result.params("from")[2:] == [None, "cp1", None, None]
+        assert result.requests[2].param("fields") == "user_id,roles"
+        # A page that does not finish its parent leaves the cursor in front of it.
+        assert result.saved_states == [
+            Auth0ResumeConfig(page=0, last_parent_id=None),
+            Auth0ResumeConfig(page=0, last_parent_id="org_1"),
+            Auth0ResumeConfig(page=0, last_parent_id="org_2"),
+        ]
+
+    def test_fan_out_over_users_escapes_the_user_id_and_slides_the_parent_window(self) -> None:
+        users = {"users": [{"user_id": "auth0|1", "created_at": "2024-01-01T00:00:00.000Z"}], "total": 1}
+        session = {"id": "sess_1", "user_id": "auth0|1", "created_at": "2024-02-01T00:00:00.000Z"}
+        result = self._run(
+            "user_sessions", [ScriptedResponse(json=users), ScriptedResponse(json={"sessions": [session]})]
+        )
+
+        assert result.raised is None
+        assert result.rows == [session]
+        assert result.requests[1].param("fields") == "user_id,created_at"
+        assert result.requests[1].param("sort") == "created_at:1"
+        assert result.paths[2] == "/api/v2/users/auth0%7C1/sessions"
+
+    @pytest.mark.parametrize(
+        "last_parent_id, expected_member_paths",
+        [
+            ("org_1", ["/api/v2/organizations/org_2/members"]),
+            # The resume parent left the page, so the whole page is read again rather than skipped.
+            (
+                "org_gone",
+                ["/api/v2/organizations/org_1/members", "/api/v2/organizations/org_2/members"],
+            ),
+        ],
+    )
+    def test_fan_out_resumes_after_the_last_finished_parent(
+        self, last_parent_id: str, expected_member_paths: list[str]
+    ) -> None:
+        orgs = {"organizations": [{"id": "org_1"}, {"id": "org_2"}], "total": 2}
+        result = self._run(
+            "organization_members",
+            [ScriptedResponse(json=orgs), *[ScriptedResponse(json={"members": []})] * len(expected_member_paths)],
+            resume_state=Auth0ResumeConfig(page=3, last_parent_id=last_parent_id),
+        )
+
+        assert result.raised is None
+        assert result.requests[1].param("page") == "3"
+        assert result.paths[2:] == expected_member_paths
+
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
     def test_client_errors_propagate(self, status_code: int) -> None:
         result = self._run("roles", [ScriptedResponse(status=status_code)])
@@ -436,6 +519,47 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None
         assert scope in error
+
+    @pytest.mark.parametrize(
+        "parent_response, child_response, expected",
+        [
+            (ScriptedResponse(json={"organizations": [], "total": 0}), None, (True, None)),
+            (
+                ScriptedResponse(status=403),
+                None,
+                (
+                    False,
+                    "Your Auth0 application is missing the `read:organizations` scope for organization_members",
+                ),
+            ),
+            (
+                ScriptedResponse(json={"organizations": [{"id": "org_1"}], "total": 1}),
+                ScriptedResponse(status=403),
+                (
+                    False,
+                    "Your Auth0 application is missing the `read:organization_members` scope for organization_members",
+                ),
+            ),
+            (
+                ScriptedResponse(json={"organizations": [{"id": "org_1"}], "total": 1}),
+                ScriptedResponse(json={"members": []}),
+                (True, None),
+            ),
+        ],
+    )
+    def test_scoped_probe_of_a_child_collection_uses_a_real_parent(
+        self,
+        parent_response: ScriptedResponse,
+        child_response: ScriptedResponse | None,
+        expected: tuple[bool, str | None],
+    ) -> None:
+        script = [ScriptedResponse(json=TOKEN_JSON), parent_response, *([child_response] if child_response else [])]
+        with scripted_network(script) as network:
+            result = validate_credentials(DOMAIN, "cid", "secret", "v2", schema_name="organization_members", team_id=1)
+
+        assert result == expected
+        if child_response is not None:
+            assert network.requests_log[-1].path == "/api/v2/organizations/org_1/members"
 
     def test_scoped_probe_refuses_a_redirect(self) -> None:
         ok, error = self._validate(
