@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RetellAISource(ResumableSource[RetellAISourceConfig, RetellAIResumeConfig]):
+    codebase_detection = detect(
+        env=("^RETELL_API_KEY$",), npm=("retell-sdk", "retell-client-js-sdk"), pypi=("retell-sdk",)
+    )
+
     lists_tables_without_credentials = True
     # Retell versions individual endpoints: calls/chats use v3, agents/phone numbers use v2.
     supported_versions = ("v3",)

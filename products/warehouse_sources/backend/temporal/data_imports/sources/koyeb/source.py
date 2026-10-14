@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
+    codebase_detection = detect(
+        env=("^KOYEB_",),
+        pypi=("koyeb-sdk",),
+        go=(
+            "github.com/koyeb/koyeb-api-client-go",
+            "github.com/koyeb/koyeb-cli",
+            "github.com/koyeb/koyeb-github-runner-scheduler",
+        ),
+    )
+
     api_docs_url = "https://www.koyeb.com/docs/reference/api"
 
     # `get_schemas` iterates the static endpoint catalog with no I/O, so the public docs can

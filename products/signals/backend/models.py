@@ -2439,6 +2439,14 @@ class SignalReportCheck(UUIDModel):
 #   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
+def default_scout_write_scopes() -> list[str]:
+    from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the models import path
+        SCOUT_DEFAULT_WRITE_SCOPES,
+    )
+
+    return sorted(SCOUT_DEFAULT_WRITE_SCOPES)
+
+
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """One row per (team, scout skill): schedule + emit posture for a scout skill.
 
@@ -2740,16 +2748,17 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=[],
         blank=True,
     )
-    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
-    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
-    # a grantable object later is one allowlist entry rather than a new column. Empty means the
-    # scout reads the project and writes only what the fleet grants every scout.
+    # User-facing write scopes this one scout holds, on top of the fleet-wide posture every scout
+    # carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding a grantable
+    # object later is one allowlist entry rather than a new column. A new row starts with
+    # `SCOUT_DEFAULT_WRITE_SCOPES`. Empty means the scout reads the project and writes only its own
+    # findings and memory.
     # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
     # it again when a run's token is minted, so a stored grant cannot widen a token past the
     # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
-    write_scopes = models.JSONField(default=list, db_default=[])
+    write_scopes = models.JSONField(default=default_scout_write_scopes, db_default=[])
     # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
     # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
     # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it

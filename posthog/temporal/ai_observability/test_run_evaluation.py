@@ -439,11 +439,12 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "usage": usage,
     }
     response = httpx.Response(200, stream=httpx.ByteStream(json.dumps(response_body).encode()))
+    prompt = "Is the response polite? Return N/A when no response text is supplied."
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
         "team_id": 1,
-        "evaluation_config": {"prompt": "Is the response polite?"},
+        "evaluation_config": {"prompt": prompt},
     }
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
@@ -471,14 +472,22 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     assert request.call_args.args[0].headers.get("Authorization") == (
         f"Bearer {connection_config['api_key']}" if connection_config["api_key"] else None
     )
-    assert json.loads(request.call_args.args[0].content)["model"] == model
+    sent = json.loads(request.call_args.args[0].content)
+    assert sent["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
     assert result.get("probability") == (probability if verdict is not None else None)
     assert result["model"] == model
     assert result["total_tokens"] == sum(usage.values())
     if allows_na:
+        instructions = sent["questions"]["applicable"]["instructions"]
+        assert "those instructions require N/A" in instructions
+        assert "essential context or evidence is missing" in instructions
+        assert "even if the result would be a fail" in instructions
+        assert instructions.endswith(prompt)
         assert result["applicable"] is (applicability >= 0.5)
+    else:
+        assert "applicable" not in sent["questions"]
     properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
     assert properties["$ai_input_tokens"] == usage.get("input_tokens")
     assert properties["$ai_output_tokens"] == usage.get("output_tokens")

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SplunkObservabilityCloudSource(
     ResumableSource[SplunkObservabilityCloudSourceConfig, SplunkObservabilityCloudResumeConfig]
 ):
+    codebase_detection = detect(
+        env=("^SPLUNK_ACCESS_TOKEN$", "^SPLUNK_REALM$"),
+        script_hosts=("cdn.observability.splunkcloud.com", "cdn.signalfx.com"),
+        npm=("@splunk/otel", "@splunk/otel-web"),
+        pypi=("splunk-opentelemetry",),
+        go=("github.com/signalfx/splunk-otel-go", "github.com/signalfx/splunk-otel-collector"),
+        maven=(
+            "com.splunk:splunk-otel-javaagent",
+            "com.splunk:splunk-otel-android",
+            "com.splunk:splunk-otel-android-volley",
+            "com.splunk:splunk-otel-javaagent-csa",
+        ),
+        rubygems=("splunk-otel",),
+        swiftpm=("github.com/signalfx/splunk-otel-ios", "github.com/signalfx/splunk-otel-ios-crashreporting"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

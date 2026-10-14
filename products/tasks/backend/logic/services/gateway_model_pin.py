@@ -31,9 +31,12 @@ def _first_party_pin(product: str) -> list[str]:
 # Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
 _DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini")
 
+# Go has no `@cf/` alias, so a run stored on `@cf/zai-org/glm-5.2` calls Go under the bare id.
+_GO_SPELLINGS: tuple[str, ...] = ("zai-org/glm-5.2",)
+
 # Every model a PostHog Desktop session or cloud run may call, slash ids included. Go picks the provider.
 DESKTOP_AGENT_MODELS: list[str] = list(
-    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS), *_DESKTOP_LEGACY_MODELS])
+    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS), *_DESKTOP_LEGACY_MODELS, *_GO_SPELLINGS])
 )
 # The Go gateway refuses a pin longer than this at mint.
 MAX_GATEWAY_PIN_LENGTH = 32
@@ -53,6 +56,7 @@ FREE_TIER_PIN_KEY = "posthog_code:free"
 
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _first_party_pin("posthog_ai"),
+    "account_audit": _first_party_pin("account_audit"),
     "posthog_code": DESKTOP_AGENT_MODELS,
     FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
     "review_hog": _first_party_pin("review_hog"),

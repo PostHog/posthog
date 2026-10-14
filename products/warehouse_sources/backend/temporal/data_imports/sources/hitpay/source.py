@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HitpaySource(ResumableSource[HitpaySourceConfig, HitpayResumeConfig]):
+    codebase_detection = detect(env=("^HITPAY_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # HitPay's API is served unversioned at /v1, with no other version ever documented or
     # offered — not a real version choice to pin.

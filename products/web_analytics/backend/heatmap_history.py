@@ -1,4 +1,5 @@
 import json
+import asyncio
 import hashlib
 from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
@@ -52,6 +53,7 @@ HEATMAPS_PAGE_HISTORY_FLAG = "heatmaps-page-history"
 HEATMAP_HISTORY_PREFERRED_WIDTH = 1024
 HEATMAP_HISTORY_RETENTION = timedelta(days=90)
 HEATMAP_HISTORY_MANUAL_COOLDOWN = timedelta(minutes=10)
+HEATMAP_HISTORY_DISPATCH_TIMEOUT = timedelta(seconds=10)
 HEATMAP_HISTORY_REQUEST_TIMEOUT = timedelta(minutes=30)
 HEATMAP_HISTORY_TEAM_DAILY_CAP = 100
 HEATMAP_HISTORY_GLOBAL_DAILY_CAP = 5000
@@ -164,14 +166,17 @@ def defer_to_next_day(heatmap: SavedHeatmap, day: CaptureDay) -> None:
 
 
 async def start_capture_workflow(request: HeatmapCaptureRequest) -> None:
-    client = await async_connect()
-    await client.start_workflow(
-        CAPTURE_WORKFLOW_NAME,
-        CaptureInputs(team_id=request.team_id, request_id=str(request.id)),
-        id=capture_workflow_id(str(request.id)),
-        task_queue=settings.WEB_ANALYTICS_TASK_QUEUE,
-        execution_timeout=max(request.deadline - timezone.now(), timedelta(seconds=1)),
-    )
+    async def start() -> None:
+        client = await async_connect()
+        await client.start_workflow(
+            CAPTURE_WORKFLOW_NAME,
+            CaptureInputs(team_id=request.team_id, request_id=str(request.id)),
+            id=capture_workflow_id(str(request.id)),
+            task_queue=settings.WEB_ANALYTICS_TASK_QUEUE,
+            execution_timeout=max(request.deadline - timezone.now(), timedelta(seconds=1)),
+        )
+
+    await asyncio.wait_for(start(), timeout=HEATMAP_HISTORY_DISPATCH_TIMEOUT.total_seconds())
 
 
 class HeatmapHistoryService:
