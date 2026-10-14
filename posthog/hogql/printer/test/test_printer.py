@@ -1894,6 +1894,7 @@ class TestPrinter(BaseTest):
         [
             ("hogql", "sha1('abc')"),
             ("clickhouse", "lower(hex(SHA1(%(hogql_val_0)s)))"),
+            ("postgres", "encode(public.digest(convert_to(%(hogql_val_0)s, 'UTF8'), 'sha1'), 'hex')"),
             ("duckdb", "sha1(%(hogql_val_0)s)"),
             ("mysql", "sha1(CONVERT(%(hogql_val_0)s USING utf8mb4))"),
             ("snowflake", "sha1(%(hogql_val_0)s)"),
@@ -1907,6 +1908,7 @@ class TestPrinter(BaseTest):
             database=Database(),
             restricted_properties=set(),
             enable_select_queries=True,
+            direct_postgres_connection_metadata={"pgcrypto_schema": "public"},
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
@@ -1922,6 +1924,7 @@ class TestPrinter(BaseTest):
             for dialect, error in (
                 ("hogql", "Function 'sha1' expects 1 argument, found {count}"),
                 ("clickhouse", "Function 'sha1' requires exactly 1 argument"),
+                ("postgres", "Function 'sha1' expects 1 argument, found {count}"),
                 ("duckdb", "Function 'sha1' expects 1 argument, found {count}"),
                 ("mysql", "Function 'sha1' expects 1 argument, found {count}"),
                 ("snowflake", "Function 'sha1' expects 1 argument, found {count}"),
@@ -1945,14 +1948,31 @@ class TestPrinter(BaseTest):
             prepare_and_print_ast(parse_select(f"SELECT sha1({arguments}) AS digest"), context, dialect)
         assert str(exc.value) == expected_error
 
-    def test_sha1_postgres_requires_optional_extension(self) -> None:
-        context = HogQLContext(database=Database(), restricted_properties=set(), enable_select_queries=True)
+    @parameterized.expand(
+        [
+            (
+                "not_discovered",
+                {},
+                "Refresh this PostgreSQL connection's schemas to check for the pgcrypto extension before using sha1.",
+            ),
+            (
+                "not_installed",
+                {"pgcrypto_schema": None},
+                "Function 'sha1' requires the pgcrypto extension on this PostgreSQL connection. "
+                "Install pgcrypto and refresh the connection's schemas.",
+            ),
+        ]
+    )
+    def test_sha1_postgres_requires_optional_extension(self, _name, metadata, expected_error) -> None:
+        context = HogQLContext(
+            database=Database(),
+            restricted_properties=set(),
+            enable_select_queries=True,
+            direct_postgres_connection_metadata=metadata,
+        )
         with pytest.raises(QueryError) as exc:
             prepare_and_print_ast(parse_select("SELECT sha1('abc')"), context, "postgres")
-        assert str(exc.value) == (
-            "Function 'sha1' is not supported in the Postgres dialect. "
-            "SHA-1 requires pgcrypto, and HogQL does not detect installed extensions."
-        )
+        assert str(exc.value) == expected_error
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values

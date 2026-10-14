@@ -153,6 +153,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
+    get_connection_metadata,
     get_enforced_unique_keys,
     get_foreign_keys,
     get_leading_index_columns,
@@ -6464,6 +6465,38 @@ class TestGetSslmode:
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = True
             assert _get_sslmode(True) == "prefer"
+
+
+class TestPostgresConnectionMetadata:
+    @pytest.mark.parametrize(
+        "version,extension,expected",
+        [
+            ("PostgreSQL 15.12", ("crypto",), {"pgcrypto_schema": "crypto"}),
+            ("PostgreSQL 15.12", None, {"pgcrypto_schema": None}),
+            ("PostgreSQL 15.0 (Duckgres/DuckDB)", ("crypto",), {}),
+            ("PostgreSQL 15.12", psycopg.errors.InsufficientPrivilege("catalog access denied"), {}),
+        ],
+    )
+    def test_discovers_pgcrypto_without_losing_other_metadata(self, version, extension, expected):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [("analytics", version), extension]
+        cursor.fetchall.side_effect = [[("count",)], []]
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with patch(f"{module}.pg_connection") as connect, patch(f"{module}.capture_exception"):
+            connect.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+            metadata = get_connection_metadata(
+                host="db.example.com", port=5432, database="analytics", user="reader", password="test"
+            )
+
+        assert metadata == {
+            "database": "analytics",
+            "version": version,
+            "engine": "duckdb" if "DuckDB" in version else "postgres",
+            "function_source": "duckdb_functions" if "DuckDB" in version else "pg_proc",
+            "available_functions": ["count"],
+            "available_table_functions": [],
+            **expected,
+        }
 
 
 class TestNormalizeFunctionNames:

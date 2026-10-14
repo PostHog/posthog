@@ -1105,16 +1105,38 @@ class TestPostgresPrinter(BaseTest):
         result = self._expr(expr)
         self.assertIsNotNone(result)
 
-    def test_connection_metadata_functions_pass_through(self):
+    @parameterized.expand(
+        [
+            (
+                "date_bin",
+                "date_bin(toIntervalHour(1), now(), now())",
+                "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+            ),
+            ("sha1", "sha1(event)", "sha1(events.event)"),
+        ]
+    )
+    def test_connection_metadata_functions_pass_through(self, name, expression, expected):
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            direct_postgres_connection_metadata={"available_functions": ["date_bin"]},
+            direct_postgres_connection_metadata={"available_functions": [name]},
         )
 
         self.assertEqual(
-            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
-            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+            self._expr(expression, context=context),
+            expected,
+        )
+
+    def test_sha1_qualifies_and_quotes_pgcrypto_schema(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={"pgcrypto_schema": 'Crypto "Hashes"'},
+        )
+
+        self.assertEqual(
+            self._expr("sha1(event)", context=context),
+            "encode(\"Crypto \"\"Hashes\"\"\".digest(convert_to(events.event, 'UTF8'), 'sha1'), 'hex')",
         )
 
     @parameterized.expand(

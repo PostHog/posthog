@@ -4212,8 +4212,9 @@ class TestExternalDataSource(APIBaseTest):
         assert table is not None
         self.assertEqual(table.name, "Accounts")
 
+    @parameterized.expand([ExternalDataSource.AccessMethod.DIRECT, ExternalDataSource.AccessMethod.WAREHOUSE])
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_updates_connection_metadata(self, mock_get_source):
+    def test_refresh_schemas_direct_postgres_updates_connection_metadata(self, access_method, mock_get_source):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4222,18 +4223,20 @@ class TestExternalDataSource(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="test",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            access_method=access_method,
+            direct_query_enabled=True,
             job_inputs={"host": "localhost", "port": 5432},
-            connection_metadata={"database": "old_db", "available_functions": ["count"]},
+            connection_metadata={"database": "old_db", "available_functions": ["count"], "pgcrypto_schema": None},
         )
 
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_connection_metadata.return_value = {
-            "database": "ducklake",
-            "version": "PostgreSQL 15.0 (Duckgres/DuckDB)",
-            "engine": "duckdb",
-            "function_source": "duckdb_functions",
-            "available_functions": ["duckdb_functions", "date_bin"],
+            "database": "analytics",
+            "version": "PostgreSQL 15.12",
+            "engine": "postgres",
+            "function_source": "pg_proc",
+            "available_functions": ["count", "digest"],
+            "pgcrypto_schema": "crypto",
         }
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -4253,8 +4256,9 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         connection_metadata = source.connection_metadata
         assert connection_metadata is not None
-        self.assertEqual(connection_metadata["database"], "ducklake")
-        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        self.assertEqual(connection_metadata["database"], "analytics")
+        self.assertEqual(connection_metadata["available_functions"], ["count", "digest"])
+        self.assertEqual(connection_metadata["pgcrypto_schema"], "crypto")
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):

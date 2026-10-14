@@ -1941,7 +1941,7 @@ def get_connection_metadata(
             available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
             available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
 
-            return {
+            metadata: dict[str, Any] = {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
@@ -1949,6 +1949,17 @@ def get_connection_metadata(
                 "available_functions": available_functions,
                 "available_table_functions": available_table_functions,
             }
+            if not is_duckdb:
+                try:
+                    cursor.execute(
+                        "SELECT n.nspname FROM pg_extension e "
+                        "JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pgcrypto'"
+                    )
+                    extension = cursor.fetchone()
+                    metadata["pgcrypto_schema"] = extension[0] if extension else None
+                except Exception as error:
+                    capture_exception(error)
+            return metadata
 
 
 class JsonAsStringLoader(Loader):

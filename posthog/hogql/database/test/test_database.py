@@ -1994,6 +1994,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         source.connection_metadata = {
             "engine": "postgres",
             "database": "db",
+            "pgcrypto_schema": "crypto",
             "available_functions": ["query_to_xml"],
             "available_table_functions": ["some_set_returning_fn"],
         }
@@ -2005,6 +2006,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "available_functions" not in database._direct_connection_metadata
         assert "available_table_functions" not in database._direct_connection_metadata
         assert database._direct_connection_metadata.get("engine") == "postgres"
+        assert database._direct_connection_metadata.get("pgcrypto_schema") == "crypto"
 
     def test_direct_source_keeps_introspected_function_passthrough(self):
         # A DIRECT source is the user's own connected DB (full access by design), so introspected
