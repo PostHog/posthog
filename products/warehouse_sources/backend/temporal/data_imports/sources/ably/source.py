@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +45,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
+    codebase_detection = detect(
+        env=("^ABLY_",),
+        script_hosts=("cdn.ably.com",),
+        npm=("ably",),
+        pypi=("ably",),
+        cocoapods=("Ably", "AblyDeltaCodec", "AblyRealtime"),
+        composer=("ably/ably-php", "ably/ably-php-laravel"),
+        go=(
+            "github.com/ably/ably-go",
+            "github.com/ably/ably-common",
+            "github.com/ably/ably-common-go",
+            "github.com/ably/ably-server",
+        ),
+        maven=("io.ably:ably-java", "io.ably:ably-android"),
+        pub=("ably_flutter", "ably", "ably_pubsub_device", "ably_pubsub_device_flutter"),
+        rubygems=("ably", "ably-pubsub-core", "ably-pubsub-server", "ably-rest", "msgpack-ably"),
+        swiftpm=(
+            "github.com/ably/ably-cocoa",
+            "github.com/ably/ably-chat-swift",
+            "github.com/ably/ably-cocoa-plugin-support",
+            "github.com/ably/ably-liveobjects-swift-plugin",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://ably.com/docs/api/rest-api"
 

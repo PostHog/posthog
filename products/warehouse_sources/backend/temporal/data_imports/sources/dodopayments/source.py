@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,24 @@ DODOPAYMENTS_API_KEYS_URL = "https://app.dodopayments.com/developer/api-keys"
 
 @SourceRegistry.register
 class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsResumeConfig]):
+    codebase_detection = detect(
+        env=("^DODO_PAYMENTS_",),
+        npm=("dodopayments", "dodopayments-checkout", "@dodopayments/nextjs"),
+        pypi=("dodopayments",),
+        composer=("dodopayments/client",),
+        go=("github.com/dodopayments/dodopayments-go",),
+        maven=(
+            "com.dodopayments.api:dodo-payments-java",
+            "com.dodopayments.api:dodo-payments-kotlin",
+            "com.dodopayments.api:dodo-payments-java-client-okhttp",
+            "com.dodopayments.api:dodo-payments-java-core",
+            "com.dodopayments.api:dodo-payments-kotlin-client-okhttp",
+            "com.dodopayments.api:dodo-payments-kotlin-core",
+        ),
+        rubygems=("dodopayments",),
+        swiftpm=("github.com/dodopayments/dodopayments-mobile-sdk-ios",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Dodo Payments serves unversioned paths (`/payments`, `/subscriptions`) with no version
     # header, query param or dated release channel, so there is nothing to pin.

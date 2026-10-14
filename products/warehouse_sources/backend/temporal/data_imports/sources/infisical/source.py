@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InfisicalSource(ResumableSource[InfisicalSourceConfig, InfisicalResumeConfig]):
+    codebase_detection = detect(
+        env=("^INFISICAL_",),
+        npm=("@infisical/sdk", "@infisical/cli"),
+        pypi=("infisicalsdk", "infisical-python"),
+        cargo=("infisical",),
+        go=(
+            "github.com/infisical/go-sdk",
+            "github.com/Infisical/infisical-agent-injector",
+            "github.com/Infisical/infisical-go-client",
+            "github.com/Infisical/infisical-issuer",
+            "github.com/Infisical/infisical-ksp",
+            "github.com/infisical/infisical-csi-provider",
+            "github.com/infisical/infisical-kmip",
+            "github.com/infisical/packer-plugin-infisical",
+            "github.com/infisical/provider-infisical",
+            "github.com/infisical/sigstore-kms-infisical",
+        ),
+        maven=("com.infisical:sdk",),
+        rubygems=("infisical-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
