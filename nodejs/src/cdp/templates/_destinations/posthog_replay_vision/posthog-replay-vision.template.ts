@@ -72,5 +72,17 @@ return { 'state': scan.state, 'output': scan.output, 'warnings': scan.warnings }
             description:
                 'Scan the recording once the session has been quiet for 35 minutes, so the whole session is analyzed. Turn this off only when the triggering event comes after the session is over.',
         },
+        {
+            // The engine fails the step on a 4xx before the code above sees it, unless the status is listed here.
+            // 409 is the daily scan limit, which the code turns into a skip. Required, though hidden, so a step
+            // built through the API or MCP gets the default too (see the run-scout template).
+            key: 'non_failure_status_codes',
+            type: 'non_failure_status_codes',
+            label: 'Non-failure status codes',
+            secret: false,
+            required: true,
+            hidden: true,
+            default: [409],
+        },
     ],
 }

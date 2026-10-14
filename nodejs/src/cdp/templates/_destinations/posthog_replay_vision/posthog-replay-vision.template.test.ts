@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { isNonFailureStatus } from '~/cdp/utils/non-failure-status-codes'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
@@ -50,8 +51,8 @@ describe('posthog replay vision template', () => {
         [
             'returns a settled answer in the shape a wake brings',
             202,
-            { request_id: 'r1', status: 'completed', state: 'succeeded', output: { tag: 'checkout' }, warnings: null },
-            { state: 'succeeded', output: { tag: 'checkout' }, warnings: null },
+            { request_id: 'r1', status: 'completed', state: 'succeeded', output: { tag: 'checkout' }, warnings: [] },
+            { state: 'succeeded', output: { tag: 'checkout' }, warnings: [] },
         ],
         [
             'skips the event at a daily limit',
@@ -65,6 +66,13 @@ describe('posthog replay vision template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.execResult).toEqual(expected)
+    })
+
+    it('lets the engine hand a daily-limit 409 to the code instead of failing the step', () => {
+        const codes = template.inputs_schema.find((input) => input.type === 'non_failure_status_codes')
+        expect(codes).toMatchObject({ required: true, hidden: true })
+        expect(isNonFailureStatus(409, codes?.default)).toBe(true)
+        expect(isNonFailureStatus(400, codes?.default)).toBe(false)
     })
 
     it('fails the step on a refused scan', async () => {
