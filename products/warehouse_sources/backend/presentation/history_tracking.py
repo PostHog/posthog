@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Optional
 
 from posthog.event_usage import report_user_action
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AnonymousUser

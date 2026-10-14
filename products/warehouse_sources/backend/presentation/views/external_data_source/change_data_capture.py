@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.history_tracking import report_history_toggled, schema_keeps_history
+from products.warehouse_sources.backend.presentation.history_tracking import (
+    report_history_toggled,
+    schema_keeps_history,
+)
 
 from . import base
 
@@ -462,7 +465,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 sync_type=ExternalDataSchema.SyncType.CDC,
             )
             .exclude(deleted=True)
-            .select_related("table")
+            .select_related("table", "source", "team")
         )
         # Disabling cancels jobs, drops the slot, purges buffered change data, and resets
         # every CDC schema — editor on the source isn't enough when a table is locked below it.

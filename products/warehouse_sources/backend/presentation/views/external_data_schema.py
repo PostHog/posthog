@@ -83,7 +83,7 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
 )
-from products.warehouse_sources.backend.history_tracking import report_history_change, schema_keeps_history
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_change, schema_keeps_history
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,

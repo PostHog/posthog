@@ -152,6 +152,22 @@ class TestWarehouseUsage(BaseTest):
 
         assert [(s.id, s.uses_history_table) for s in sources] == [(str(source.id), expected)]
 
+    def test_history_read_survives_a_jev_read_of_the_same_source(self):
+        source = self._create_stripe_table()
+        self._create_history_table(source, "stripe_table_1_cdc")
+        executor = HogQLQueryExecutor(query="SELECT id FROM stripe_table_1_cdc", team=self.team, user=self.user)
+        # A jev source execution of the same connector read only the current table.
+        executor._prompt_jev_warehouse_sources = [
+            WarehouseSourceUsage(id=str(source.id), source_type="Stripe", table_name="stripe_table_1")
+        ]
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("id", "Nullable(String)")])):
+            response = executor.execute()
+
+        assert [(s.id, s.uses_history_table) for s in response.used_data_warehouse_sources or []] == [
+            (str(source.id), True)
+        ]
+
     def test_deduplicates_by_source(self):
         source = self._create_stripe_table()
 

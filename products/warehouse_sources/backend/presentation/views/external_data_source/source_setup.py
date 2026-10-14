@@ -75,7 +75,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.history_tracking import report_history_toggled, schema_keeps_history
+from products.warehouse_sources.backend.presentation.history_tracking import (
+    report_history_toggled,
+    schema_keeps_history,
+)
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
