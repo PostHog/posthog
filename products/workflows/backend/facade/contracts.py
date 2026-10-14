@@ -469,6 +469,8 @@ class WorkflowRef:
     trigger_type: str | None
     trigger_filters: dict[str, Any]
     variables: list[dict[str, Any]] | None
+    # Read from the published steps, not the draft.
+    has_email_step: bool
 
 
 class WorkflowNotFound(Exception):
