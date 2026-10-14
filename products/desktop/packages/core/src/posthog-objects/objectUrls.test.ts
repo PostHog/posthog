@@ -25,6 +25,8 @@ describe("parsePostHogObjectUrl", () => {
     [`${PROJECT}/sql?open_query=${HOGQL_NODE}`, ["hogql", "SELECT 1"]],
     [`${PROJECT}/insights/new#q=${HOGQL_NODE}`, ["hogql", "SELECT 1"]],
     [`${PROJECT}/replay/0190-s1?t=30`, ["replay", "0190-s1"]],
+    [`${PROJECT}/error-tracking/0190-e1`, ["error", "0190-e1"]],
+    [`${PROJECT}/error_tracking/0190-e1`, ["error", "0190-e1"]],
     [
       `${PROJECT}/replay/home?sessionRecordingId=0190-s1`,
       ["replay", "0190-s1"],
