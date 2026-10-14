@@ -2143,6 +2143,11 @@ def _pr_size_properties(snapshot: "PRSnapshotArtefact | None") -> dict[str, int 
     }
 
 
+def _pr_draft(snapshot: "PRSnapshotArtefact | None") -> bool | None:
+    """Whether the PR was a draft when the turn fetched it; None when the turn's snapshot is unavailable."""
+    return snapshot.pr_metadata.draft if snapshot is not None else None
+
+
 def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionStats | None) -> dict[str, object]:
     """A single-agent turn's finding funnel and session health; empty for a pipeline turn.
 
@@ -2207,6 +2212,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             "review_design_reason": input.review_design_reason or None,
             "flash_coordinator": input.coordinator,
             **_pr_size_properties(snapshot),
+            "pr_draft": _pr_draft(snapshot),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
@@ -2236,7 +2242,9 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
     await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
-def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -> None:
+def _track_push_gate_decided(
+    input: GatePushInput, decision: PushGateDecision, current: "PRSnapshotArtefact | None"
+) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
@@ -2259,6 +2267,7 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
+            "pr_draft": _pr_draft(current),
         },
         groups=groups(team=report.team),
     )
@@ -2280,7 +2289,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
-        _track_push_gate_decided(input, decision)
+        _track_push_gate_decided(input, decision, current)
     except Exception:
         logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
     return decision
@@ -2341,6 +2350,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
                 review_design=input.review_design,
             ),
             **_pr_size_properties(snapshot),
+            "pr_draft": _pr_draft(snapshot),
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,
