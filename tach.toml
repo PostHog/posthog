@@ -83,6 +83,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.account_audits",
     "products.alerts_platform",
     "products.ai_training",
     "products.autoresearch",
@@ -305,6 +306,9 @@ depends_on = [
     "products.surveys", "products.access_control",
     # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
     "products.canvas",
+    # Facade-only: the dashboard filter access check asks the exports facade whether a
+    # subscription delivers the dashboard.
+    "products.exports",
 ]
 layer = "modules"
 
@@ -1734,4 +1738,18 @@ expose = [
 ]
 from = [
     "products.github_commands",
+]
+
+[[modules]]
+path = "products.account_audits"
+depends_on = ["posthog", "products.notebooks", "products.signals", "products.skills", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.account_audits",
 ]
