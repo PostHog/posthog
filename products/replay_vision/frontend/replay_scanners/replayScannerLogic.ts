@@ -207,7 +207,7 @@ function experimentScannersEnabled(): boolean {
 
 /** The control arm gets legacy drafts, so it never makes a free-only scanner. */
 function goalFlowEnabled(): boolean {
-    return featureFlagLogic.values.featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
+    return featureFlagLogic.values.featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
 }
 
 /** The experiment a goal draft named, in the experiment type's config or in the legacy targeting. */

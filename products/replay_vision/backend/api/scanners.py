@@ -190,7 +190,7 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 # The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
 # rename; server-side so a client/rollout skew cannot half-apply the new flow.
-GOAL_FLOW_FLAG = "vision-goal-flow-v2"
+GOAL_FLOW_FLAG = "vision-goal-flow-v3"
 
 
 class ScannerCreationMethod(models.TextChoices):

@@ -267,7 +267,7 @@ describe('replayScannerLogic', () => {
         ])(
             'applies the spend choice to the drafted scanner: $flow',
             async ({ variant, solved, freeOnly, expectFree, creditLimit }) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: variant })
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: variant })
                 draftSpy.mockReturnValue([
                     200,
                     {
@@ -293,9 +293,9 @@ describe('replayScannerLogic', () => {
         )
 
         it('keeps a free draft free when the goal-flow flag changes while the request runs', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' })
             draftSpy.mockImplementation(() => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'control' })
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'control' })
                 return [
                     200,
                     {
@@ -1917,7 +1917,7 @@ describe('replayScannerLogic', () => {
             'drafting from %s reports the AI path without the goal text',
             async (_, templateKey, reportedKey, goalFlowVariant, spendMode) => {
                 featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: goalFlowVariant ?? false,
+                    [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: goalFlowVariant ?? false,
                 })
                 const captureSpy = jest.spyOn(posthog, 'capture')
                 await expectLogic(logic, () => {
