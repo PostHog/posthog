@@ -9,6 +9,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
+from posthog.object_tags.kinds import OBJECT_KINDS, object_ref_for_url
 from posthog.utils import render_template
 from posthog.views import login_required
 
@@ -85,13 +86,18 @@ def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
     if metadata is None:
         return {}
     canonical_url = f"{settings.SITE_URL}{path}"
-    return {
+    context = {
         "page_title": metadata.title,
         "page_description": metadata.description,
         "canonical_url": canonical_url,
         "preview_image_url": _PREVIEW_IMAGE_URL,
         "structured_data_json": _structured_data_json(metadata, canonical_url),
     }
+    linked = object_ref_for_url(request.GET.get("next", "")) if path == "/login" else None
+    if linked:
+        context["og_title"] = f"{OBJECT_KINDS[linked.kind].kind_label} • PostHog"
+        context["og_description"] = "Log in to PostHog to open this link."
+    return context
 
 
 def region_host_from_current_instance(cookie_value: str | None) -> str | None:

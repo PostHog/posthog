@@ -17,13 +17,22 @@ from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
+from posthog.object_tags.kinds import ObjectRef
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.canvas.backend.facade import testing as canvas_testing
+from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.error_tracking.backend.facade import testing as error_tracking_testing
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.models import SignalReport
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
@@ -34,52 +43,49 @@ from products.slack_app.backend.slack_link_unfurl import (
     parse_posthog_resource_link,
 )
 from products.slack_app.backend.tasks import start_slack_unfurl_charts
-from products.tasks.backend.models import Task
+from products.surveys.backend.models import Survey
+from products.tasks.backend.models import Channel, Task
+
+_TASK_ID = "c76f58f4-4c64-4cd7-825d-4ef89f6dd4ac"
+_CHANNEL_ID = "0192f0a0-0000-4000-8000-000000000001"
+_CANVAS_ID = "0192f0a0-0000-4000-8000-000000000002"
 
 
 class TestParsePosthogResourceLink:
-    def test_project_insight(self):
-        assert parse_posthog_resource_link("https://us.posthog.com/project/42/insights/abc123") == ("insight", "abc123")
-
-    def test_project_insight_with_subpath(self):
-        assert parse_posthog_resource_link("https://eu.posthog.com/project/42/insights/abc123/edit") == (
-            "insight",
-            "abc123",
-        )
-
-    def test_short_insight_path(self):
-        assert parse_posthog_resource_link("https://app.posthog.com/i/xyz789") == ("insight", "xyz789")
-
-    def test_project_dashboard(self):
-        assert parse_posthog_resource_link("https://us.posthog.com/project/3/dashboard/99") == ("dashboard", 99)
-
-    def test_skips_insight_new(self):
-        assert parse_posthog_resource_link("https://x.com/project/1/insights/new") is None
-
-    def test_support_ticket_by_number(self):
-        assert parse_posthog_resource_link("https://us.posthog.com/project/42/support/tickets/123") == ("ticket", "123")
-
-    def test_support_ticket_by_uuid_ignores_fragment(self):
-        assert parse_posthog_resource_link("https://app.posthog.com/support/tickets/abc-uuid#panel=discussion") == (
-            "ticket",
-            "abc-uuid",
-        )
-
-    def test_task(self):
-        task_id = "c76f58f4-4c64-4cd7-825d-4ef89f6dd4ac"
-        assert parse_posthog_resource_link(f"https://us.posthog.com/project/42/tasks/{task_id}") == (
-            "task",
-            task_id,
-        )
-
-    def test_rejects_invalid_task_id(self):
-        assert parse_posthog_resource_link("https://us.posthog.com/project/42/tasks/not-a-uuid") is None
-
-    def test_skips_ticket_new(self):
-        assert parse_posthog_resource_link("https://x.com/support/tickets/new") is None
-
-    def test_unrelated_url(self):
-        assert parse_posthog_resource_link("https://example.com/foo") is None
+    @parameterized.expand(
+        [
+            ("project_insight", "https://us.posthog.com/project/42/insights/abc123", "insight", "abc123"),
+            ("insight_subpath", "https://eu.posthog.com/project/42/insights/abc123/edit", "insight", "abc123"),
+            ("short_insight", "https://app.posthog.com/i/xyz789", "insight", "xyz789"),
+            ("bi_worksheet", "https://us.posthog.com/project/42/bi/xyz789", "insight", "xyz789"),
+            ("dashboard", "https://us.posthog.com/project/3/dashboard/99", "dashboard", "99"),
+            ("ticket", "https://us.posthog.com/project/42/support/tickets/123", "ticket", "123"),
+            (
+                "ticket_fragment",
+                "https://app.posthog.com/support/tickets/abc-uuid#panel=discussion",
+                "ticket",
+                "abc-uuid",
+            ),
+            ("task", f"https://us.posthog.com/project/42/tasks/{_TASK_ID}", "task", _TASK_ID),
+            ("desktop_task", f"https://us.posthog.com/code/task/{_TASK_ID}", "task", _TASK_ID),
+            ("space_task", f"https://us.posthog.com/code/channel/{_CHANNEL_ID}/tasks/{_TASK_ID}", "task", _TASK_ID),
+            ("ai_task", f"https://us.posthog.com/project/42/ai?task={_TASK_ID}", "task", _TASK_ID),
+            ("canvas", f"https://us.posthog.com/project/42/canvases/{_CANVAS_ID}", "canvas", _CANVAS_ID),
+            ("desktop_canvas", f"https://us.posthog.com/code/canvas/{_CHANNEL_ID}/{_CANVAS_ID}", "canvas", _CANVAS_ID),
+            ("notebook", "https://us.posthog.com/project/42/notebooks/Xy12", "notebook", "Xy12"),
+            ("flag", "https://us.posthog.com/project/42/feature_flags/412", "flag", "412"),
+            ("inbox_report", f"https://us.posthog.com/project/42/inbox/reports/{_TASK_ID}", "report", _TASK_ID),
+            ("insight_new", "https://x.com/project/1/insights/new", None, None),
+            ("ticket_new", "https://x.com/support/tickets/new", None, None),
+            ("flag_by_key", "https://us.posthog.com/project/42/feature_flags/my-flag", None, None),
+            ("replay", "https://us.posthog.com/project/42/replay/0192f0a0", None, None),
+            ("opted_out", "https://us.posthog.com/project/42/insights/abc123?unfurl=false", None, None),
+            ("unrelated", "https://example.com/foo", None, None),
+        ]
+    )
+    def test_parse(self, _name: str, url: str, kind: str | None, object_id: str | None) -> None:
+        expected = ObjectRef(kind=kind, id=object_id) if kind and object_id else None
+        assert parse_posthog_resource_link(url) == expected
 
 
 class TestInsightResourceLabel:
@@ -158,10 +164,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_client.chat_unfurl.assert_called_once()
         call_kw = mock_client.chat_unfurl.call_args.kwargs
         assert url in call_kw["unfurls"]
-        text = call_kw["unfurls"][url]["blocks"][0]["text"]["text"]
+        text = self._unfurl_text(call_kw["unfurls"][url])
         assert "Trends insight" in text
         assert "Weekly active users" in text
         assert "A test description" in text
+        actions = next(block for block in call_kw["unfurls"][url]["blocks"] if block["type"] == "actions")
+        assert actions["elements"][0]["url"] == f"{url}?utm_source=slack&utm_medium=unfurl&utm_content=insight"
 
     @parameterized.expand(
         [
@@ -473,7 +481,9 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ],
         )
 
-        assert len(mock_client.chat_unfurl.call_args.kwargs["unfurls"]) == 2
+        unfurls = mock_client.chat_unfurl.call_args.kwargs["unfurls"]
+        assert len(unfurls) == 2
+        assert not [block for payload in unfurls.values() for block in payload["blocks"] if block["type"] == "actions"]
         assert len(self._invite_blocks(mock_client)) == 1
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -555,16 +565,116 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         mock_client.chat_unfurl.assert_called_once()
-        text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "Dashboard" in text
         assert "Main board" in text
+
+    def _create_object(self, kind: str) -> tuple[str, list[str]]:
+        base = f"http://testserver/project/{self.team.pk}"
+        match kind:
+            case "canvas":
+                with team_scope(self.team.pk):
+                    channel = Channel.objects.create(team=self.team, name="Growth")
+                canvas_id = canvas_testing.create_canvas(
+                    team_id=self.team.pk, channel_id=channel.id, name="Launch board", created_by_id=self.user.id
+                )
+                return f"{base}/canvases/{canvas_id}", ["Launch board", "Space: Growth"]
+            case "notebook":
+                notebook = Notebook.objects.create(
+                    team=self.team, title="Activation dip", text_content="Activation fell", created_by=self.user
+                )
+                return f"{base}/notebooks/{notebook.short_id}", ["Activation dip", ">>> Activation fell"]
+            case "flag":
+                flag = FeatureFlag.objects.create(
+                    team=self.team,
+                    key="new-checkout",
+                    created_by=self.user,
+                    filters={"groups": [{"properties": [], "rollout_percentage": 25}]},
+                )
+                return f"{base}/feature_flags/{flag.pk}", ["new-checkout", "*Active*", "25% of users"]
+            case "experiment":
+                flag = FeatureFlag.objects.create(team=self.team, key="button-color", created_by=self.user)
+                experiment = Experiment.objects.create(team=self.team, name="Button color", feature_flag=flag)
+                return f"{base}/experiments/{experiment.pk}", ["Button color", "button-color"]
+            case "survey":
+                survey = Survey.objects.create(
+                    team=self.team,
+                    name="Checkout NPS",
+                    type="popover",
+                    questions=[{"type": "open", "question": "Why?"}],
+                )
+                return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "*Questions*\n1"]
+            case "cohort":
+                cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
+                return f"{base}/cohorts/{cohort.pk}", ["Power users", "1,200"]
+            case "error":
+                issue_id = error_tracking_testing.create_issue(
+                    team_id=self.team.pk, name="TypeError", description="Cannot read id"
+                )
+                return f"{base}/error_tracking/{issue_id}", ["TypeError", "*Active*", ">>> Cannot read id"]
+            case "report":
+                report = SignalReport.objects.create(
+                    team=self.team,
+                    title="Checkout drop",
+                    summary="Fewer orders",
+                    status=SignalReport.Status.IN_PROGRESS,
+                )
+                return f"{base}/inbox/reports/{report.pk}", ["Checkout drop", "*In progress*", ">>> Fewer orders"]
+        raise ValueError(kind)
+
+    @parameterized.expand(
+        [(kind,) for kind in ("canvas", "notebook", "flag", "experiment", "survey", "cohort", "error", "report")]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurls_kind(self, kind: str, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
+        url, expected = self._create_object(kind)
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        for snippet in expected:
+            assert snippet in text
+
+    @parameterized.expand(
+        [
+            ("notebook", "notebook"),
+            ("flag", "feature_flag"),
+            ("experiment", "experiment"),
+            ("survey", "survey"),
+            ("cohort", "cohort"),
+            ("error", "error_tracking"),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_kind_without_viewer_access(
+        self, kind: str, resource: str, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, f"restricted-{kind}@posthog.com", "password")
+        url, _ = self._create_object(kind)
+        AccessControl.objects.create(resource=resource, team=self.team, access_level="none")
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links([url])
+
+        mock_client.chat_unfurl.assert_not_called()
 
     @staticmethod
     def _unfurl_text(unfurl: dict) -> str:
         parts: list[str] = []
         for block in unfurl["blocks"]:
             if block["type"] == "section":
-                parts.append(block["text"]["text"])
+                parts.extend(field["text"] for field in [block.get("text"), *block.get("fields", [])] if field)
             elif block["type"] == "context":
                 parts.extend(element["text"] for element in block["elements"])
         return "\n".join(parts)
@@ -592,8 +702,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_called_once()
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
-        assert "Support Ticket #1" in text
-        assert "Requested by:* john@example.com" in text
+        assert "Ticket #1" in text
+        assert "Requested by john@example.com" in text
         assert "New" in text  # default status, humanized
 
     @parameterized.expand([("resource",), ("object",)])
@@ -678,7 +788,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
-        assert "Requested by:* John Doe" in text
+        assert "Requested by John Doe" in text
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

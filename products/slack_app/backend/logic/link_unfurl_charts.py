@@ -74,14 +74,15 @@ def unfurl_chart_targets(inputs: SlackAppUnfurlChartsWorkflowInputs) -> UnfurlCh
 
 
 def with_chart_images(unfurls: dict[str, Any], image_urls: dict[str, str], titles: dict[str, str]) -> dict[str, Any]:
-    """The unfurls with an image block under the title of each card that has a chart."""
+    """The unfurls with an image block above the buttons of each card that has a chart."""
     result: dict[str, Any] = {}
     for url, payload in unfurls.items():
         blocks = list(payload.get("blocks") or [])
         image_url = image_urls.get(url)
         if image_url is not None:
             alt_text = (titles.get(url) or "Insight chart")[:_MAX_ALT_TEXT_CHARS]
-            blocks.insert(1, {"type": "image", "image_url": image_url, "alt_text": alt_text})
+            position = next((i for i, block in enumerate(blocks) if block.get("type") == "actions"), len(blocks))
+            blocks.insert(position, {"type": "image", "image_url": image_url, "alt_text": alt_text})
         result[url] = {**payload, "blocks": blocks}
     return result
 

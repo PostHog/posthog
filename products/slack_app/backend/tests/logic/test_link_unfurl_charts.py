@@ -23,7 +23,8 @@ from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_char
 
 _URL = "https://us.posthog.com/project/1/insights/abc123"
 _SHORT_URL = "https://us.posthog.com/i/abc123"
-_TEXT_CARD = {"type": "section", "text": {"type": "mrkdwn", "text": "*Weekly active users • Trends insight*"}}
+_TITLE = {"type": "section", "text": {"type": "mrkdwn", "text": "📈  *<https://us.posthog.com|Weekly active users>*"}}
+_BUTTONS = {"type": "actions", "elements": []}
 
 
 def _slack_error(code: str, status_code: int) -> SlackApiError:
@@ -63,7 +64,7 @@ class TestLinkUnfurlCharts(BaseTest):
             message_ts="123.456",
             unfurl_id=None,
             source=None,
-            unfurls={url: {"blocks": [_TEXT_CARD]} for url in urls},
+            unfurls={url: {"blocks": [_TITLE, _BUTTONS]} for url in urls},
             charts=[
                 SlackUnfurlChartRequest(url=url, insight_id=self.insight.id, title="Weekly active users")
                 for url in urls
@@ -109,7 +110,7 @@ class TestLinkUnfurlCharts(BaseTest):
         ]
     )
     @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
-    def test_post_adds_the_chart_under_the_title_only_when_allowed(
+    def test_post_adds_the_chart_above_the_buttons_only_when_allowed(
         self,
         _name: str,
         public_sharing: bool,
@@ -128,7 +129,7 @@ class TestLinkUnfurlCharts(BaseTest):
             chat_unfurl.assert_not_called()
             return
         blocks = chat_unfurl.call_args.kwargs["unfurls"][_URL]["blocks"]
-        assert blocks[0] == _TEXT_CARD
+        assert [blocks[0], blocks[2]] == [_TITLE, _BUTTONS]
         assert blocks[1]["type"] == "image"
         assert blocks[1]["alt_text"] == "Weekly active users"
         assert blocks[1]["image_url"].startswith("http")
