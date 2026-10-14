@@ -66,14 +66,25 @@ class FrameSource implements AsyncIterable<IngestStreamRequest> {
 
 /** Records feeds and lets the test hand-complete batches. */
 class FakeDriver implements StreamIngestDriver {
-    feeds: { streamId: number; seq: number; offsets: number[]; budget: SubBatchBudget }[] = []
+    feeds: { streamId: number; seq: number; offsets: number[]; partitions: number[]; budget: SubBatchBudget }[] = []
     feedResult: FeedResult = { ok: true }
     private completions: CompletedSubBatch[] = []
     private nextWaiters: Deferred<CompletedSubBatch | null>[] = []
     nextError: Error | null = null
 
-    feed(streamId: number, seq: number, messages: { offset: number }[], budget: SubBatchBudget): Promise<FeedResult> {
-        this.feeds.push({ streamId, seq, offsets: messages.map((m) => m.offset), budget })
+    feed(
+        streamId: number,
+        seq: number,
+        messages: { partition: number; offset: number }[],
+        budget: SubBatchBudget
+    ): Promise<FeedResult> {
+        this.feeds.push({
+            streamId,
+            seq,
+            offsets: messages.map((m) => m.offset),
+            partitions: messages.map((m) => m.partition),
+            budget,
+        })
         return Promise.resolve(this.feedResult)
     }
 
@@ -130,6 +141,7 @@ function subBatch(
         replay?: boolean
         assignmentEpoch?: bigint
         softBudgetMs?: bigint
+        partition?: number
     } = {}
 ): IngestStreamRequest {
     return create(IngestStreamRequestSchema, {
@@ -144,7 +156,7 @@ function subBatch(
                 messages: offsets.map((offset) =>
                     create(KafkaMessageSchema, {
                         topic: 'events',
-                        partition: 0,
+                        partition: overrides.partition ?? 0,
                         offset: BigInt(offset),
                         timestamp: 0n,
                         key: 'k',
@@ -581,14 +593,17 @@ describe('WorkerIngestServer', () => {
         const collected = collect(server, source)
 
         source.push(hello())
-        source.push(subBatch(1, [10, 11, 12, 13]))
+        source.push(subBatch(1, [10, 11, 12, 13], { partition: 3 }))
         source.push(subBatch(2, [14]))
         await until(() => driver.feeds.length === 2)
         const streamId = driver.feeds[0].streamId
+        // A non-zero partition, because every other test uses partition 0 and
+        // would not notice the server dropping or defaulting it on either leg.
+        expect(driver.feeds[0].partitions).toEqual([3, 3, 3, 3])
 
         // The consumer commits what a PARTIAL ack accepts.
         const settled = new Deferred<void>()
-        driver.complete({ streamId, seq: 1, accepted: 3, unfinished: [{ partition: 0, offset: 11 }] }, settled.promise)
+        driver.complete({ streamId, seq: 1, accepted: 3, unfinished: [{ partition: 3, offset: 11 }] }, settled.promise)
         driver.complete({ streamId, seq: 2, accepted: 1 })
         await until(() => collected.acks.length >= 1)
         expect(collected.acks.map((ack) => ack.seq)).toEqual([2n])
@@ -601,7 +616,7 @@ describe('WorkerIngestServer', () => {
         expect(collected.acks.map((ack) => ack.seq)).toEqual([2n, 1n])
         const ack = collected.acks[1]
         expect(ack.status).toBe(SubBatchStatus.PARTIAL)
-        expect(ack.unfinished).toMatchObject([{ partition: 0, offset: 11n }])
+        expect(ack.unfinished).toMatchObject([{ partition: 3, offset: 11n }])
         expect(ack.accepted + ack.unfinished.length).toBe(4)
         expect(await metricValue('ingestion_api_messages_processed_total')).toBe(
             baselineMessages + collected.acks.reduce((sum, { accepted }) => sum + accepted, 0)
