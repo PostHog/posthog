@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HarnessSource(ResumableSource[HarnessSourceConfig, HarnessResumeConfig]):
+    codebase_detection = detect(
+        env=("^HARNESS_PLATFORM_API_KEY$", "^HARNESS_API_KEY$", "^HARNESS_ACCOUNT_ID$", "^HARNESS_ENDPOINT$"),
+        go=(
+            "github.com/harness/harness-go-sdk",
+            "github.com/harness/gitness",
+            "github.com/harness/harness-cli",
+            "github.com/harness/harness-docker-runner",
+            "github.com/harness/harness-migrate",
+            "github.com/harness/terraform-kubernetes-harness-delegate",
+        ),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://apidocs.harness.io/"
 
