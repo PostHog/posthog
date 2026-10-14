@@ -390,7 +390,7 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?:
  *
  * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
  *
- * The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
+ * The split runs asynchronously: a 201 response means the task was enqueued. A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, but gets a random UUID when another person already holds that UUID, so do not compute it client-side. To find or delete a split-off person, look it up by its distinct_id once the task completes. Until then the distinct_id still resolves to the original person.
  */
 export const personsSplitCreate = async (
     projectId: string,
