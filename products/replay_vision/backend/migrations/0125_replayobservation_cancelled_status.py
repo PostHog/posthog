@@ -1,13 +1,10 @@
 from django.db import migrations, models
 
-from posthog.migration_helpers import AddConstraintNotValid, ValidateConstraint
+from posthog.migration_helpers import AddConstraintNotValid
 
 
 class Migration(migrations.Migration):
-    # The new check is wider than the old one, so every row passes it. Validating it outside a transaction
-    # keeps the scan under SHARE UPDATE EXCLUSIVE.
-    atomic = False
-
+    # The new check is wider than the old one, so every row passes it. A later migration validates it.
     dependencies = [
         ("replay_vision", "0124_replayscanner_free_only"),
     ]
@@ -43,7 +40,6 @@ class Migration(migrations.Migration):
                 name="rlo_completed_at_matches_status",
             ),
         ),
-        ValidateConstraint(model_name="replayobservation", name="rlo_completed_at_matches_status"),
         migrations.RemoveConstraint(
             model_name="replayobservation",
             name="replay_observation_completed_at_matches_status",
