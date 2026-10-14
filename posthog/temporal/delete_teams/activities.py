@@ -90,15 +90,10 @@ async def delete_data_modeling_schedules_activity(inputs: TeamDataActivityInputs
             await database_sync_to_async_pool(delete_team_data_modeling_schedules)(team_id)
 
 
+# Legacy loops are gone. Stays registered so deletions that scheduled it before the skip patch can finish.
 @temporalio.activity.defn
 async def delete_loop_trigger_schedules_activity(inputs: TeamDataActivityInputs) -> None:
-    """Tear down loops' Temporal Schedules for the teams. CASCADE removes the LoopTrigger rows but
-    never talks to Temporal, so without this the Schedules keep firing forever into deleted triggers."""
-    async with Heartbeater():
-        from products.tasks.backend.facade.loops import delete_team_loop_schedules
-
-        for team_id in inputs.team_ids:
-            await database_sync_to_async_pool(delete_team_loop_schedules)(team_id)
+    return None
 
 
 @temporalio.activity.defn

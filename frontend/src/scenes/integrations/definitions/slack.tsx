@@ -1,4 +1,5 @@
-import { getMissingScopes, IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { getMissingScopes } from 'lib/integrations/integrationScopes'
+import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { ICONS } from 'lib/integrations/utils'
 
 import { IntegrationType } from '~/types'

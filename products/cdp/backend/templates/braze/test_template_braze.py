@@ -1,8 +1,7 @@
 import time_machine
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.braze.template_braze import template as template_braze
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateBraze(BaseHogFunctionTemplateTest):

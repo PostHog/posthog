@@ -888,10 +888,16 @@ class SignalReportMergeResponseSerializer(serializers.Serializer):
 SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
 
+class SignalReportFeedbackSentiment(models.TextChoices):
+    POSITIVE = "positive", "positive"
+    NEGATIVE = "negative", "negative"
+
+
 class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     sentiment = serializers.ChoiceField(
-        choices=[("positive", "positive"), ("negative", "negative")],
-        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+        choices=SignalReportFeedbackSentiment.choices,
+        allow_null=True,
+        help_text="The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.",
     )
     note = serializers.CharField(
         max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
@@ -905,6 +911,15 @@ class SignalReportFeedbackRequestSerializer(serializers.Serializer):
             "scout as a steering note."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["sentiment"] is None and attrs["note"].strip():
+            raise serializers.ValidationError({"note": "Select a rating before you add a note."})
+        return attrs
+
+
+class SignalReportFeedbackStateSerializer(SignalReportFeedbackRequestSerializer):
+    note = serializers.CharField(allow_blank=True, help_text="The current user's saved note, or an empty string.")
 
 
 class SignalReportFeedbackResponseSerializer(serializers.Serializer):
@@ -1187,7 +1202,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only
@@ -1335,6 +1350,7 @@ class SignalReportViewSet(
             "signals",
             "refund",
             "feedback",
+            "feedback_state",
             "viewed",
             "pr_checks",
             "pr_comments",
@@ -2930,6 +2946,22 @@ class SignalReportViewSet(
             ).data
         )
 
+    @extend_schema(responses=SignalReportFeedbackStateSerializer)
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def feedback_state(self, request: Request, pk=None, **kwargs) -> Response:
+        report = self.get_object()
+        metadata = (
+            SignalReportAction.objects.for_team(self.team.id)
+            .filter(report=report, user=cast(User, request.user), type=SignalReportAction.ActionType.FEEDBACK)
+            .values_list("metadata", flat=True)
+            .first()
+        ) or {}
+        return Response(
+            SignalReportFeedbackStateSerializer(
+                {"sentiment": metadata.get("sentiment"), "note": metadata.get("note", "")}
+            ).data
+        )
+
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
@@ -2944,7 +2976,7 @@ class SignalReportViewSet(
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:read"])
     def feedback(self, request, pk=None, **kwargs):
         """Persist a report's thumbs rating and forward its note to the authoring scout.
 
@@ -2969,10 +3001,10 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.FEEDBACK,
-                metadata={"sentiment": data["sentiment"]},
-                bump_count=not note,
+                metadata={"sentiment": data["sentiment"], **({"note": note} if note else {})},
+                bump_count=not note and data["sentiment"] is not None,
             )
-            if not note:
+            if not note and data["sentiment"] is not None:
                 capture_background_report_events(
                     team=self.team,
                     user=request.user,
@@ -4374,7 +4406,7 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         repository, pr_number = reference
-        user_github = UserGitHubIntegration(user_integration)
+        user_github = UserGitHubIntegration(user_integration, source="signals_api", priority=Priority.CRITICAL)
         if comment_id is not None:
             lookup = self._run_user_github_write(
                 lambda: user_github.get_pull_request_review_comment(repository, comment_id),
@@ -5741,7 +5773,9 @@ class SignalReportArtefactViewSet(
         # PRs). That connection boundary is the intended scope — any `task:write` holder can already
         # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
         try:
-            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+            github = GitHubIntegration.first_for_team_repository(
+                self.team.id, repository, source="signals_api", priority=Priority.CRITICAL
+            )
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:

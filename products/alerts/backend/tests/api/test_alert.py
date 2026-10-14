@@ -15,7 +15,6 @@ from rest_framework import status
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.cdp.templates.fixtures import template_slack
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.integration import Integration
@@ -33,6 +32,7 @@ from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.product_analytics.backend.facade.models import Insight
 

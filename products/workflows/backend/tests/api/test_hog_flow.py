@@ -17,10 +17,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.flag_gated_templates import gated_template_enabled
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -33,7 +29,11 @@ from posthog.test.fixtures import create_app_metric2
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.filters import RUNTIME_CONTRACT
+from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -5267,6 +5267,31 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("broadcast", "broadcasts"),
+            ("workflow", None),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+    def test_created_usage_event_carries_origin_product(self, _name, origin_product, mock_report):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        if origin_product:
+            hog_flow["origin_product"] = origin_product
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        created_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_created"]
+        assert len(created_events) == 1
+        assert created_events[0].args[2]["origin_product"] == origin_product
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{response.json()['id']}")
+        assert response.status_code == 204
+        assert [c.args[1] for c in mock_report.call_args_list].count("hog_flow_deleted") == 1
+
+    @parameterized.expand(
+        [
             ("draft",),
             ("active",),
         ]
@@ -6530,7 +6555,7 @@ class TestFlagGatedTemplates(APIBaseTest):
     def test_flag_eval_failure_hides_the_gated_template(self):
         # A flag-service blip must hide the pre-release step, not expose it.
         with patch(
-            "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
+            "products.cdp.backend.flag_gated_templates.posthoganalytics.feature_enabled",
             side_effect=Exception("flag service down"),
         ):
             assert gated_template_enabled("workflow-ai-task-action", self.team) is False

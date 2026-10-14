@@ -75,6 +75,8 @@ export interface sidePanelLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    defaultTab: SidePanelTab
+    deprecatedTabs: SidePanelTab[]
     enabledTabs: SidePanelTab[]
     isAccessControlSettings: boolean
     visibleTabs: SidePanelTab[]
@@ -109,10 +111,13 @@ export interface sidePanelLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             isAccessControlSettings: boolean
         ) => SidePanelTab[]
+        deprecatedTabs: (featureFlags: FeatureFlagsSet) => SidePanelTab[]
+        defaultTab: (scenePanelIsPresent: boolean, deprecatedTabs: SidePanelTab[]) => SidePanelTab
         visibleTabs: (
             enabledTabs: SidePanelTab[],
             sceneSidePanelContext: SidePanelSceneContext,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            deprecatedTabs: SidePanelTab[]
         ) => SidePanelTab[]
     }
 }
@@ -234,13 +239,27 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             },
         ],
 
+        /** Tabs on their way out. They stay usable, but sit at the end of the bar and never open by default. */
+        deprecatedTabs: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): SidePanelTab[] =>
+                featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? [SidePanelTab.Info] : [],
+        ],
+        defaultTab: [
+            (s) => [s.scenePanelIsPresent, s.deprecatedTabs],
+            (scenePanelIsPresent: boolean, deprecatedTabs: SidePanelTab[]): SidePanelTab =>
+                scenePanelIsPresent && !deprecatedTabs.includes(SidePanelTab.Info)
+                    ? SidePanelTab.Info
+                    : SidePanelTab.Max,
+        ],
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs, s.sceneSidePanelContext, s.featureFlags],
+            (s) => [s.enabledTabs, s.sceneSidePanelContext, s.featureFlags, s.deprecatedTabs],
             (
                 enabledTabs: SidePanelTab[],
                 sceneSidePanelContext: SidePanelSceneContext,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                deprecatedTabs: SidePanelTab[]
             ): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
                 const hiddenTabs: SidePanelTab[] = sceneSidePanelContext.canvas_id
@@ -250,7 +269,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                     hiddenTabs.push(SidePanelTab.Discussion, SidePanelTab.Notebooks)
                 }
-                return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
+                const tabs = enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
+                return [
+                    ...tabs.filter((tab) => !deprecatedTabs.includes(tab)),
+                    ...tabs.filter((tab) => deprecatedTabs.includes(tab)),
+                ]
             },
         ],
     }),

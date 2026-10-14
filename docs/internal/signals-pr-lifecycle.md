@@ -27,6 +27,12 @@ It also skips a plan that carries its own open, draft, or unknown PR, because th
 
 ## Follow-up checks
 
+Scout and research guidance asks for a verified live observation metric when a central quantitative claim comes from events.
+A count can justify a metric without a chart or a change over time.
+The metric must match the finding's filters, population, exclusions, window, and aggregation.
+When no useful supported metric can measure that claim, the summary states the specific limitation in one short sentence.
+Qualitative findings can omit metrics.
+
 Research writes measurable outcome goals as `metric_threshold` report checks and investigative goals as `agent` checks. A metric check stores a bounded live query, baseline, comparison, and soak window; the query and display format are copied from its report metric when it names one. The check waits for the report to resolve, then the coordinator runs it and records a verdict. Metric checks keep the configured soak separate from their query window and wait until that full window contains only post-resolution data. Each run pins absolute query bounds to avoid reusing a pre-resolution cached result. Reopening clears the measurement start; the next resolution starts it again. Existing active metric checks without a recorded start begin their window at the first coordinator tick. New metric checks validate count, rate, duration, baseline, and threshold values using the same rules as report metrics; existing configurations remain readable. A later research pass reviews every open check, preserves unchanged checks and their approvals, replaces changed checks, and retires omitted checks. A failed verification turn leaves existing checks alone. Verification can revise only Expected impact; other summary sections and their chart links must remain intact. The full replacement schedule, including its soak and measurement window, must finish before the 90-day horizon. The Follow-up checks sidebar shows schedules and results for both kinds. The Expected impact section uses the same metric checks to show goals and charts, behind the person-level `signals-expected-impact` display flag. A person can mark those measurements "Looks good" as a quality signal; approval does not control scheduling or execution. The "Suggest different metrics" action starts a discussion that can atomically replace relevant open metric checks while preserving unrelated checks. A failed replacement leaves the original running, and a successful replacement starts unapproved. Report observation metrics remain separate from these forward-looking checks.
 
 Reports awaiting human input also retain their generated checks, pending resolution. Pending sidebar rows show the minimum wait after resolution. Metric replacements require access to the query they schedule and preserve the remaining recurring runs and soak duration, including zero minutes. Replacement cannot override the soak. Creation and replacement share full schedule validation against the 90-day horizon. A replacement rejects a check moved by a concurrent report merge; reload the report and retry on the survivor. Units cannot contain null characters or unpaired Unicode surrogates. The Expected impact section shows finished verdicts and refreshes after agent tasks change checks.
@@ -57,6 +63,23 @@ This is prompt guidance, not an enforced access control, and it does not validat
 ## Reviewer notifications
 
 Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
+
+The `signals-research-reviewer-selection` flag lets research choose reviewers and preserve its selected order.
+Research first reads recent human corrections from the project profile, which is available on every plan.
+It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
+Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
+The existing limit remains three reviewers.
+
+The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
+A different explanation alone does not add a row. Human edits retain precedence.
+A real selection change after the first Slack notification can still leave that notification out of date.
+Automatic reviewer changes do not send additional Slack notifications.
+
+During the internal trial, check correction relevance and assignment quality in report samples.
+Use `after_inbox_notification` on `signals_suggested_reviewers_resolved` to inspect pipeline changes after notification.
+Use `runner_source=team_fallback` on `signals_autostart_steering_attached` and `skip_reason=no_runner` on `signals_autostart_skipped` to inspect task outcomes.
+Compare report state, not raw event totals: skipped unchanged writes reduce the event count.
+Keep the selection flag disabled until the trial confirms suitable assignments and expected autostart behavior.
 
 When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 
