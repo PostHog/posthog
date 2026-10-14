@@ -1,0 +1,61 @@
+# Views walkthrough in the demo. Starts and ends on the sign-in screen with demo mode off, so it can run
+# again right away. How to run it: products/mobile/docs/TESTING.md, with views-smoke in place of demo-smoke.
+steps:
+    - echo: Restart PostHog. Expect the sign-in screen with demo mode off
+    - launch: com.posthog.code.mobile
+    - await: { visible: { id: try-demo }, timeout: 25000 }
+    - await: { idle: true }
+
+    - echo: On sign-in. Tap Try the demo. Expect the inbox
+    - tap: { id: try-demo }
+    - await: { visible: { id: inbox-refresh } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open Views from the bottom bar. Expect the pinned list
+    - tap: { id: inbox-nav-views }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: views-pin-dashboard-demo-dash-kpis }, contains: Product KPIs } }
+
+    - echo: On Views. Open Edit pins and show Signups as a number. Expect the big value
+    - tap: { id: views-menu }
+    - tap: { id: views-edit-pins }
+    - await: { visible: { id: edit-pins-sheet } }
+    - tap: { id: edit-pin-mode-number-insight-demo-ins-signups }
+    - tap: { id: edit-pins-done }
+    - await: { visible: { id: views-pin-value-insight-demo-ins-signups } }
+    - await: { idle: true }
+
+    - echo: On Views. Scroll to Browse and open Dashboards. Expect the dashboard list
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.8, toX: 0.5, toY: 0.25, durationMs: 300 }
+    - await: { visible: { id: views-browse-dashboards } }
+    - tap: { id: views-browse-dashboards }
+    - await: { visible: { id: views-browse-dashboards-screen } }
+    - await: { visible: { text: Product KPIs } }
+    - await: { idle: true }
+
+    - echo: On the dashboard list. Go back. Expect Views
+    - tap: { id: views-browse-back }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+
+    - echo: On Views. Go to Home from the bottom bar. Expect the inbox
+    - tap: { id: inbox-nav-home }
+    - await: { visible: { id: inbox-refresh } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open the menu. Expect Settings in it
+    - tap: { id: inbox-more }
+    - await: { visible: { id: nav-settings } }
+    - await: { idle: true }
+
+    - echo: Menu open. Open Settings. Expect Exit demo
+    - tap: { id: nav-settings }
+    - await: { visible: { id: settings-exit-demo } }
+    - await: { idle: true }
+
+    - echo: On Settings. Tap Exit demo. Expect the sign-in screen
+    - tap: { id: settings-exit-demo }
+    - await: { visible: { id: try-demo }, timeout: 10000 }
+    - await: { hidden: { id: settings-exit-demo } }

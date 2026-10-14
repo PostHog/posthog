@@ -58,3 +58,60 @@ Compare on dashboards stays off behind `DASHBOARD_COMPARE_SUPPORTED` until US an
 
 `src/demo/views.ts` returns API-shaped answers, so demo mode runs the same adapters, queue and status line.
 Demo numbers start 42 minutes old; a forced demo read makes them current and moves the next allowed force 3 minutes ahead.
+
+## The Views tab
+
+The third slot of the bottom bar opens the Views tab (`app/(tabs)/views.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
+
+The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
+The header shows the status line and the refresh hint from `useViewsList().refresh`, the refresh button and a More menu with "Edit pins".
+Loading, the pin list error and the sign-in state are separate screens. The sign-in state shows when `useViewsAccess()` is not `ok`, with the copy of the plan's scope section.
+
+### Pins
+
+A pin shows in one of three modes, chosen on this phone:
+
+| Mode | Shows | Height | Reads data |
+| --- | --- | --- | --- |
+| Row | Icon, name, the view type ("Dashboard", "Notebook · Opens on the web") | 64 pt | No |
+| Number | The value, a neutral change pill, the saved range or the tile name, a 14-bucket sparkline | 139 pt | Yes |
+| Chart | The value, the change pill, a compact `MetricChart` | 207 pt | Yes |
+
+Each mode has a fixed height, so the list never moves when a value arrives or a chart's canvas replaces its sparkline placeholder.
+Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`.
+A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
+Web analytics and pins that open on the web show as rows only (`pinModes`).
+
+A dashboard pin in Number or Chart mode shows one tile.
+Picking Number or Chart on a dashboard pin without a tile opens "Choose tile" at once, with the first tile that can show that mode chosen.
+The sheet lists the dashboard's tiles from the cached dashboard, or one `force_cache` dashboard read when it has none or it is 5 minutes old.
+A pin whose tile is gone (its insight answers 404, or the cached dashboard no longer has the tile) shows as a row with "The chosen tile was removed. Choose another."
+
+### Pin actions
+
+- Long press any pin for its menu: Show as Row, Number or Chart, Choose tile (dashboards), Move up, Move down, Unpin.
+- Long press a Recent, Browse or search row for Pin to Views (or Unpin) and Open.
+- Swipe a row left for Pin or Unpin. Chart pins have no swipe, because their plot takes horizontal drags.
+- Every Recent, Browse and search row has a pin button.
+- "Edit pins" (More menu, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions.
+
+Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
+Pin and unpin show a toast with Undo. Undo pins the view again as a new row, so it comes back as a Row at the end of the list.
+
+### Search and Browse
+
+Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
+Browse has Dashboards, Insights, Web analytics and Recordings. Recordings opens the project's replay list on the web.
+The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
+
+### Routes
+
+| View | Route |
+| --- | --- |
+| Dashboard | `/views/dashboard/{ref}?from={entry}[&mode={display mode}]` |
+| Insight | `/views/insight/{short_id}?from={entry}[&mode={display mode}]` |
+| Web analytics | `/views/web-analytics?from={entry}` |
+| Browse lists | `/views/browse/dashboards`, `/views/browse/insights` |
+
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse` or `search`) for `mobile_view_opened`; `mode` is the pin's display mode.
