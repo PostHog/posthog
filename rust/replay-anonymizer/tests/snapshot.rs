@@ -1016,8 +1016,7 @@ fn image_collection_off_blanks_images_and_returns_no_bytes() {
 }
 
 #[test]
-fn image_collection_rasterizes_svg() {
-    // SVG is text: it reaches the scrub topic only as a rendered PNG, which draws no text.
+fn image_collection_sends_svg_to_the_scrub_as_its_document() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     use base64::Engine;
     let svg = base64::engine::general_purpose::STANDARD.encode(
@@ -1046,7 +1045,7 @@ fn image_collection_rasterizes_svg() {
     .expect("anonymizes");
     let lines = String::from_utf8(out.lines.clone()).unwrap();
     assert_eq!(out.meta.images.len(), 1, "collected once");
-    assert!(out.image_bytes.starts_with(b"\x89PNG"), "as a raster");
+    assert!(out.image_bytes.starts_with(b"<svg"));
     assert!(!lines.contains(&svg), "raw svg must not pass through");
     assert!(out.meta.scrub_drops.is_empty());
 }

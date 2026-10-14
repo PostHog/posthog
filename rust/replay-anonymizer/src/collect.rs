@@ -130,8 +130,8 @@ pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 64 * 1024 * 1024;
 /// Why an image did not reach the scrub lane. Each one is blanked and counted under this reason.
 pub(crate) const DROP_COLLECTION_OFF: &str = "image_collection_off";
 pub(crate) const DROP_NOT_RASTER: &str = "image_not_base64_raster";
-pub(crate) const DROP_SVG: &str = "image_svg";
-pub(crate) const DROP_SVG_TOO_COMPLEX: &str = "image_svg_too_complex";
+pub const DROP_SVG: &str = "image_svg";
+pub const DROP_SVG_TOO_COMPLEX: &str = "image_svg_too_complex";
 pub(crate) const DROP_BMP: &str = "image_bmp";
 pub(crate) const DROP_AVIF: &str = "image_avif";
 pub(crate) const DROP_TOO_LARGE: &str = "image_too_large";
@@ -260,18 +260,14 @@ pub fn collectable_data_uri_bytes(
         .and_then(|rest| rest.split_once(','))
         .ok_or(DROP_NOT_RASTER)?;
     let meta = meta.to_ascii_lowercase();
-    if !meta.starts_with("image/") || !meta.contains("base64") {
-        return Err(if meta.starts_with("image/svg") {
-            DROP_SVG
-        } else {
-            DROP_NOT_RASTER
-        });
-    }
     let mime_type = meta
         .split_once(';')
         .map_or(meta.as_str(), |(mime_type, _)| mime_type);
     if mime_type.starts_with("image/svg") {
-        return Err(DROP_SVG);
+        return crate::svg::svg_document(&meta, payload, max_image_bytes);
+    }
+    if !meta.starts_with("image/") || !meta.contains("base64") {
+        return Err(DROP_NOT_RASTER);
     }
     if mime_type.contains("bmp") {
         return Err(DROP_BMP);
@@ -392,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn collectable_rejects_svg_non_base64_and_non_image() {
+    fn collectable_rejects_broken_svg_non_base64_and_non_image() {
         assert!(collectable("data:image/svg+xml;base64,PHN2Zz4=").is_none());
         assert!(collectable("data:image/bmp;base64,Qk0=").is_none());
         assert!(collectable("data:image/x-bmp;base64,Qk0=").is_none());
@@ -401,7 +397,10 @@ mod tests {
         // AVIF bytes behind a raster label.
         assert!(collectable("data:image/png;base64,AAAAHGZ0eXBhdmlm").is_none());
         assert!(collectable("data:image/png;base64,Qk0=").is_none());
-        assert!(collectable("data:image/svg+xml;utf8,<svg/>").is_none());
+        assert_eq!(
+            collectable("data:image/svg+xml;utf8,<svg/>").as_deref(),
+            Some(b"<svg/>".as_slice())
+        );
         assert!(collectable("data:text/plain;base64,aGk=").is_none());
         assert!(collectable("data:image/png;utf8,notbase64").is_none());
         assert!(collectable("data:image/png;base64,%%%").is_none());

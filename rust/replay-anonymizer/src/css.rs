@@ -811,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_svg_in_css_reaches_the_collection_lane_as_png() {
+    fn inline_svg_in_css_reaches_the_collection_lane_as_its_document() {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
@@ -827,10 +827,7 @@ mod tests {
         assert!(!rewritten.css.contains(original));
         let images = ctx.into_collected_images();
         assert_eq!(images.len(), 1);
-        assert!(
-            images[0].bytes.starts_with(b"\x89PNG"),
-            "collected as a raster"
-        );
+        assert!(images[0].bytes.starts_with(b"<svg>"));
     }
 
     #[test]

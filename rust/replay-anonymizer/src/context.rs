@@ -15,7 +15,7 @@ use crate::allow_lists::AllowLists;
 use crate::assets::{is_numbered_placeholder, PLACEHOLDER_SRC};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
-    DROP_COLLECTION_OFF, DROP_MESSAGE_CAP, DROP_SVG, MAX_IMAGE_BYTES,
+    DROP_COLLECTION_OFF, DROP_MESSAGE_CAP, MAX_IMAGE_BYTES,
 };
 use crate::data_uri::blank_image_data_uri;
 use crate::data_uri::ImageFallback;
@@ -336,11 +336,8 @@ impl<'a> Ctx<'a> {
             return hit.clone();
         }
         let max_image_bytes = collector.borrow().max_image_bytes();
-        let outcome = match collectable_data_uri_bytes(original, max_image_bytes) {
-            Err(DROP_SVG) => crate::svg::rasterize_svg_data_uri(original, max_image_bytes),
-            decoded => decoded,
-        }
-        .and_then(|bytes| collector.borrow_mut().collect(bytes));
+        let outcome = collectable_data_uri_bytes(original, max_image_bytes)
+            .and_then(|bytes| collector.borrow_mut().collect(bytes));
         self.image_memo
             .borrow_mut()
             .insert(original.to_string(), outcome.clone());
