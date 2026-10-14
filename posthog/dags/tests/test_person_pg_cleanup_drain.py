@@ -27,6 +27,7 @@ from posthog.dags.person_pg_cleanup_drain import (
     person_pg_cleanup_drain_job,
     pg_recovery,
 )
+from posthog.models.person.util import create_person as create_person_in_ch
 from posthog.personhog_client.fake_client import FakePersonHogClient, get_active_fake
 from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse
 from posthog.persons_db import persons_db_url
@@ -243,11 +244,21 @@ def test_removes_rows_for_live_and_unknown_persons_without_deleting_them(cluster
     assert (totals.persons_deleted, totals.persons_skipped_live, totals.persons_not_found) == (1, 1, 1)
 
 
+def queued_bounds(conn) -> dict[str, int | None]:
+    with conn.cursor() as cursor:
+        cursor.execute(f"SELECT person_uuid::text, max_version FROM {PG_CLEANUP_QUEUE_TABLE}")
+        return dict(cursor.fetchall())
+
+
 @pytest.mark.django_db
+@pytest.mark.parametrize("newer_row_in_clickhouse", [True, False])
 def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_queued(
-    cluster: ClickhouseCluster, persons_database
+    cluster: ClickhouseCluster, persons_database, newer_row_in_clickhouse: bool
 ):
-    # A person tombstoned again after the sweep still has ClickHouse rows, so its Postgres row stays.
+    # A person tombstoned again after the sweep stays in Postgres. When ClickHouse has the newer
+    # tombstone, the next sweep queues the person again, so its row goes. When ClickHouse never saw
+    # it (ingestion's create-undo publishes nothing), nothing would queue the person again, so the
+    # row stays with the bound raised and the next run deletes the person.
     # A row without a bound is never sent, because nothing says which versions the sweep removed.
     fake = get_active_fake()
     at_bound = seed_tombstoned(fake, TEAM_A, 1, version=3)
@@ -255,17 +266,44 @@ def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_
     unversioned = seed_tombstoned(fake, TEAM_A, 3)
     queue(persons_database, [(TEAM_A, at_bound, SWEEP_1), (TEAM_A, above, SWEEP_1)], max_version=3)
     queue(persons_database, [(TEAM_A, unversioned, SWEEP_1)], max_version=None)
+    if newer_row_in_clickhouse:
+        create_person_in_ch(uuid=above, team_id=TEAM_A, version=4, is_deleted=True)
 
     result = run_job(cluster)
 
     assert not present(fake, TEAM_A, at_bound)
     assert present(fake, TEAM_A, above) and present(fake, TEAM_A, unversioned)
-    assert queued(persons_database) == [(TEAM_A, unversioned, SWEEP_1, None)]
+    expected_queue = {unversioned: None} if newer_row_in_clickhouse else {unversioned: None, above: 4}
+    assert queued_bounds(persons_database) == expected_queue
     bounds = [(person.person_uuid, person.max_version) for r in delete_requests(fake) for person in r.bounded_persons]
     assert sorted(bounds) == sorted([(at_bound, 3), (above, 3)])
     totals = totals_of(result)
     assert (totals.persons_deleted, totals.persons_skipped_version, totals.persons_not_found) == (1, 1, 0)
-    assert (totals.rows_unversioned, totals.queue_rows_deleted) == (1, 2)
+    assert (totals.rows_unversioned, totals.queue_rows_deleted, totals.rows_rebounded) == (
+        (1, 2, 0) if newer_row_in_clickhouse else (1, 1, 1)
+    )
+
+    run_job(cluster)
+
+    assert present(fake, TEAM_A, above) == newer_row_in_clickhouse
+    assert queued_bounds(persons_database) == {unversioned: None}
+
+
+@pytest.mark.django_db
+def test_a_failed_clickhouse_check_drops_the_skipped_row_without_failing_the_run(
+    cluster: ClickhouseCluster, persons_database
+):
+    fake = get_active_fake()
+    above = seed_tombstoned(fake, TEAM_A, 1, version=4)
+    queue(persons_database, [(TEAM_A, above, SWEEP_1)], max_version=3)
+
+    with patch.object(drain, "_clickhouse_person_versions", side_effect=RuntimeError("clickhouse down")):
+        result = run_job(cluster)
+
+    assert result.success
+    assert present(fake, TEAM_A, above)
+    assert queued(persons_database) == []
+    assert (totals_of(result).persons_skipped_version, totals_of(result).rows_rebounded) == (1, 0)
 
 
 @pytest.mark.django_db
@@ -903,6 +941,7 @@ def test_publishes_every_measurement_the_run_took():
         persons_blocked=1,
         rows_deleted=40,
         rows_stamped_blocked=1,
+        rows_rebounded=9,
         rows_unversioned=8,
         requests_pending_resent=4,
         queue_rows_estimate_at_start=1000,
@@ -928,6 +967,7 @@ def test_publishes_every_measurement_the_run_took():
             "persons_blocked",
             "rows_deleted",
             "rows_stamped_blocked",
+            "rows_rebounded",
             "rows_unversioned",
             "requests_pending_resent",
             "step_rows_min",
@@ -945,6 +985,7 @@ def test_publishes_every_measurement_the_run_took():
         "persons_blocked": 1,
         "rows_deleted": 40,
         "rows_stamped_blocked": 1,
+        "rows_rebounded": 9,
         "rows_unversioned": 8,
         "requests_pending_resent": 4,
         "step_rows_min": 250,

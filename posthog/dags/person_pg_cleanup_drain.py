@@ -14,7 +14,9 @@ Every call does a bounded amount of work: persons that fit the call's row budget
 whole, and a person with more dependent rows than that gives up a bounded slice per call and
 comes back as pending until it fits. The job sends pending persons again until none come back, so
 a person of any size is deleted in steps that each fit the router's deadline; run time is what
-gives. Queue rows are removed once personhog has resolved the person either way.
+gives. Queue rows are removed once personhog has resolved the person either way, except a person
+tombstoned again with no newer ClickHouse row: no sweep would queue it again, so its row stays with
+the bound raised to its current version.
 
 A run fails only when a dependency is down or broken: a request that keeps failing for the whole
 retry window, a Postgres statement that keeps failing for its window (a lost connection is
@@ -35,6 +37,7 @@ from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Literal, TypeVar
+from uuid import UUID
 
 from django.conf import settings
 
@@ -45,6 +48,7 @@ import pydantic
 import psycopg2.extensions
 from prometheus_client import Gauge
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.clickhouse_cleanup import (
@@ -57,6 +61,7 @@ from posthog.dags.clickhouse_cleanup import (
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.person.util import get_person_tombstones
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
 from posthog.personhog_client.proto import (
     DeleteTombstonedPersonsRequest,
@@ -260,6 +265,7 @@ class DrainTotals:
     persons_blocked: int = 0
     rows_deleted: int = 0
     rows_stamped_blocked: int = 0
+    rows_rebounded: int = 0
     rows_unversioned: int = 0
     blocked_sample: list[str] = field(default_factory=list)
     queue_rows_deleted: int = 0
@@ -293,6 +299,7 @@ class DrainTotals:
             "persons_blocked": dagster.MetadataValue.int(self.persons_blocked),
             "rows_deleted": dagster.MetadataValue.int(self.rows_deleted),
             "rows_stamped_blocked": dagster.MetadataValue.int(self.rows_stamped_blocked),
+            "rows_rebounded": dagster.MetadataValue.int(self.rows_rebounded),
             "rows_unversioned": dagster.MetadataValue.int(self.rows_unversioned),
             "blocked_sample": dagster.MetadataValue.text(", ".join(self.blocked_sample) or "none"),
             "queue_rows_deleted": dagster.MetadataValue.int(self.queue_rows_deleted),
@@ -474,6 +481,31 @@ def _mark_blocked(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_uuids
         (chunk.team_id, chunk.deleted_at, list(person_uuids)),
     )
     return [str(person_uuid) for (person_uuid,) in cursor.fetchall()]
+
+
+def _rebound_queue_rows(cursor: psycopg2.extensions.cursor, chunk: Chunk, bounds: Mapping[str, int]) -> int:
+    if not bounds:
+        return 0
+    # Same deleted_at guard as the delete. Raising the bound only moves it up, so a rerun is a no-op.
+    cursor.execute(
+        f"""
+        UPDATE {PG_CLEANUP_QUEUE_TABLE} AS q
+        SET max_version = b.max_version
+        FROM unnest(%s::uuid[], %s::bigint[]) AS b(person_uuid, max_version)
+        WHERE q.team_id = %s AND q.deleted_at = %s AND q.person_uuid = b.person_uuid
+          AND q.max_version < b.max_version
+        """,
+        (list(bounds), list(bounds.values()), chunk.team_id, chunk.deleted_at),
+    )
+    return cursor.rowcount
+
+
+def _clickhouse_person_versions(team_id: int, person_uuids: Sequence[str]) -> dict[str, int]:
+    rows = sync_execute(
+        "SELECT id, max(version) FROM person WHERE team_id = %(team_id)s AND id IN %(ids)s GROUP BY id",
+        {"team_id": team_id, "ids": list(person_uuids)},
+    )
+    return {str(person_id): int(version) for person_id, version in rows}
 
 
 def _queue_rows_estimate(cursor: psycopg2.extensions.cursor) -> int:
@@ -766,9 +798,11 @@ class _Drain:
         unresolved = set(blocked) | set(response.pending_person_uuids)
         resolved = [uuid for uuid in sent if uuid not in unresolved]
         # Skipped-live rows go too: the queue row is stale, and the sweep queues the person again
-        # if it is ever tombstoned again. So do rows skipped above their version bound: the newer
-        # tombstone has its own ClickHouse rows, and the sweep that removes them queues the person
-        # again with a higher bound.
+        # if it is ever tombstoned again. So do rows skipped above their version bound when the
+        # newer tombstone has its own ClickHouse rows: the sweep that removes them queues the person
+        # again with a higher bound. A newer tombstone with no ClickHouse rows keeps its row with
+        # the bound raised, because no sweep would ever queue that person again.
+        rebound = self.unpublished_bounds(chunk, resolved) if response.skipped_version_count else {}
         self.totals.persons_deleted += response.deleted_count
         self.totals.persons_skipped_live += response.skipped_live_count
         self.totals.persons_skipped_version += response.skipped_version_count
@@ -777,9 +811,34 @@ class _Drain:
         )
         self.totals.persons_blocked += len(blocked)
         self.totals.rows_deleted += response.rows_deleted
-        self.totals.queue_rows_deleted += self.timed_pg(lambda cursor: _delete_queue_rows(cursor, chunk, resolved))
+        dequeued = [uuid for uuid in resolved if uuid not in rebound]
+        self.totals.queue_rows_deleted += self.timed_pg(lambda cursor: _delete_queue_rows(cursor, chunk, dequeued))
+        if rebound:
+            self.totals.rows_rebounded += self.timed_pg(lambda cursor: _rebound_queue_rows(cursor, chunk, rebound))
         if blocked:
             self.stamp_blocked(chunk, blocked)
+
+    def unpublished_bounds(self, chunk: Chunk, resolved: Sequence[str]) -> dict[str, int]:
+        """New version bounds for persons skipped above their bound whose newer tombstone ClickHouse never saw.
+
+        Ingestion's create-undo tombstones a person again without publishing it. The sweep already removed the
+        person's ClickHouse rows up to the old bound, so with no newer row the person can be drained at its
+        current version. A check that fails returns no bounds, which drops these rows as before.
+        """
+        try:
+            stored = get_person_tombstones(chunk.team_id, [UUID(uuid) for uuid in resolved])
+            above = {str(t.uuid): t.version for t in stored if t.version > chunk.max_versions[str(t.uuid)]}
+            in_clickhouse = _clickhouse_person_versions(chunk.team_id, list(above)) if above else {}
+        except Exception:
+            self.context.log.warning(
+                "checking %d resolved persons for an unpublished newer tombstone failed; their queue rows are dropped",
+                len(resolved),
+                exc_info=True,
+            )
+            return {}
+        return {
+            uuid: version for uuid, version in above.items() if in_clickhouse.get(uuid, -1) <= chunk.max_versions[uuid]
+        }
 
     def stamp_blocked(self, chunk: Chunk, uuids: Sequence[str]) -> None:
         stamped = self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, list(uuids)))
@@ -806,6 +865,12 @@ class _Drain:
         ):
             _emit(self.metrics, "person_pg_cleanup_drain_persons", {"outcome": outcome}, delta)
         _emit(self.metrics, "person_pg_cleanup_drain_rows_deleted", {}, after.rows_deleted - before.rows_deleted)
+        _emit(
+            self.metrics,
+            "person_pg_cleanup_drain_queue_rows_rebounded",
+            {},
+            after.rows_rebounded - before.rows_rebounded,
+        )
         _emit(
             self.metrics,
             "person_pg_cleanup_drain_queue_rows_deleted",
@@ -835,6 +900,7 @@ class _Drain:
             persons_blocked=self.totals.persons_blocked,
             rows_deleted=self.totals.rows_deleted,
             queue_rows_deleted=self.totals.queue_rows_deleted,
+            rows_rebounded=self.totals.rows_rebounded,
             rpc_calls=self.totals.rpc_calls,
             pg_reconnects=self.totals.pg_reconnects,
             pg_queue_conflict_retries=self.totals.pg_queue_conflict_retries,
@@ -977,6 +1043,11 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
             name=f"{prefix}rows_stamped_blocked",
             help_text="Queue rows the run stamped blocked_at",
             value=totals.rows_stamped_blocked,
+        ),
+        PublishedGauge(
+            name=f"{prefix}rows_rebounded",
+            help_text="Queue rows kept with a raised version bound: tombstoned again in Postgres with no newer ClickHouse row",
+            value=totals.rows_rebounded,
         ),
         PublishedGauge(
             name=f"{prefix}requests_pending_resent",
