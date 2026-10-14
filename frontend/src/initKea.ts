@@ -29,6 +29,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
     'fetchSpans',
     'fetchSparkline',
+    'loadInboxSummary', // The inbox summary has an inline retry control.
     'loadOfflineExperiments', // Offline views provide inline retry states.
     'loadOfflineScorerOptions',
     'loadOfflineSuggestedScorers',
