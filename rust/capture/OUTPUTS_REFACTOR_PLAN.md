@@ -76,7 +76,7 @@ producers         → named connections (brokers, TLS, tuning), instantiated onc
 Steps 1–11 shipped the structure:
 
 - **1** — `assert_routing` goldens pin topic, partition key, headers, and reroute counters for every pipeline and lane.
-- **2, 5** — routing is the pure `pipeline::resolve(&metadata, ai_events_overflow_armed) -> AddressDecision { address, ordering }`. The Kafka sink still calls it during prep.
+- **2, 5** — routing is the pure `pipeline::resolve(&metadata) -> AddressDecision { address, ordering }`. The Kafka sink still calls it during prep.
 - **3** — `TopicTable` maps each `Destination` to a topic. `check_complete` refuses to boot on an empty topic, behind `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` (default off).
 - **4** — `serialization`: `Format` (JSON only) × `Envelope` (none or lz4) → `Serializer`, used in Kafka prep.
 - **6** — the `PublishPayloads` trait takes `PreparedPayload`s and returns per-event `SinkResult`s. Kafka's `prepare_batch` is an inherent method.
@@ -96,11 +96,32 @@ Step 14 makes the set of reachable outputs a type. Steps 15–16 are the checks 
 
 ### Step 14 · Per-mode output registries
 
-- **Goal.** One registry type per capture mode, with required fields: `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking) for Events and Import pods, `AiOutputs` for Ai pods, and `SessionReplayOutputs` for Recordings pods. Rows naming the same producer share its one instance.
-- **Each type holds exactly what its mode can reach.** The set comes from the routes the mode mounts: Ai pods serve only the AI batch, AI, OTEL, and v1 AI routes (`router.rs`), so `AiOutputs` does not demand heatmaps, warnings, or error-tracking topics. The exact rows for each mode, Import included, are derived from its routes when this step is scheduled.
+- **Goal.** One registry type per capture mode, every row required: `AnalyticsOutputs` for Events pods, `ImportOutputs` for Import pods, `AiOutputs` for Ai pods, and `SessionReplayOutputs` for Recordings pods. Rows naming the same producer share its one instance.
+- **Each type holds exactly what its mode can reach.** The set comes from the routes the mode mounts (`router.rs`) and the lanes their handlers resolve to:
+
+  | Output | Events | Import | Ai | Recordings |
+  | --- | --- | --- | --- | --- |
+  | analytics main, analytics overflow | ✓ | | | |
+  | analytics historical | ✓ | ✓ | | |
+  | ai main | ✓ | ✓ | ✓ | |
+  | ai overflow | ✓ | | ✓ | |
+  | heatmaps, client warnings, error tracking | ✓ | ✓ | | |
+  | session replay main, session replay overflow | | | | ✓ |
+  | dlq, custom producer | ✓ | ✓ | ✓ | ✓ |
+
+  - Import serves the analytics routes, but drops every batch without `historical_migration`, so every analytics event it accepts is historical. Its lanes have no analytics main and no overflow.
+  - Ai pods accept only `$ai_*` events: v0 rejects the request, v1 drops the event at validation, synthetic `$$heatmap` events included.
+  - dlq and custom are reachable from every mode through restrictions.
+- **Routing is checked at compile time, one layer at a time.** `CAPTURE_MODE` stops at `setup`, and each layer narrows the type it hands the next one:
+  - `setup` picks the deployment's route set, its event kind and its registry.
+  - Handlers classify an event name into the kind (`Classify`): `AnalyticsKind<MainOrHistorical>` for Events, `AnalyticsKind<Historical>` for Import, `AiKind` for Ai, `SnapshotKind` for Recordings. Only Ai can refuse a name, and its `Refusal` type says so.
+  - Routing (`Route`) turns the kind into an `Address<L>` over the deployment's own lane set (`AnalyticsOutputLane`, `ImportOutputLane`, `AiLane`, `SessionReplayLane`).
+  - The registry maps every lane to a `SingleOutput` with an exhaustive `match`; the Kafka sink only resolves addresses.
+- **No runtime check.** No layer below `setup` sees the mode, and an address can only name a lane its deployment has. Mounting the AI or OTEL handlers on Import does not compile. v1 gives an event its deployment refuses no address at all and drops it.
+- **No optional rows.** AI overflow becomes a required row on the modes that have it. Restriction overflow reaches it on those modes without any flag. `AI_EVENTS_OVERFLOW_ENABLED` only builds the AI lane's overflow limiter, as `OVERFLOW_ENABLED` does for analytics. The topic no longer arms anything. Import has no AI overflow lane and refuses the flag at boot, since imports never overflow. charts sets the flag wherever the topic is set before this step deploys; otherwise the AI lane stops limiter overflow.
 - **Why.** Step 15 demands configuration per mode. Without these types, that demand is a hand-written mode → outputs map. With them, the type is the list.
-- **Out of scope.** Binding handlers to capability traits over a generic `State<T>` (Step 30).
-- **Parity proof.** Goldens and integration suites unmodified; per-mode construction tests.
+- **Layers.** Three PRs, top down: the AI overflow flag, kinds at the boundary (lanes still universal), then lanes and registries.
+- **Parity proof.** Goldens and integration suites keep every case; per-registry construction tests.
 - **Size.** L.
 
 ### Step 15 · A reachable output must be configured
@@ -205,7 +226,7 @@ Unscheduled. To revive a step, move it under an objective with its parity proof.
 
 ### Step 30 · Handlers bound by publish capabilities
 
-Handlers bind on sealed traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`). `State<T>` is generic over the Step-14 registry, and `setup` builds the router per mode. Mounting an ingress on a registry that cannot publish its pipeline becomes a compile error.
+Superseded by Step 14, which makes `State` generic over the deployment's event kind and has `setup` build each deployment's route set. Handlers bind on the kind (`Classify + Route` for the analytics routes, `AiKind` and `SnapshotKind` for theirs), so mounting an ingress on a deployment that cannot publish its pipeline does not compile.
 
 ### Steps 35–36 · Outputs as an open trait
 
@@ -213,7 +234,7 @@ Handlers bind on sealed traits (`PublishesAnalyticsFamily`, `PublishesSessionRep
 
 Split and dual-write policies are also unscheduled. Before either is scheduled, it must define how per-target results become one result per event, which failures it retries, and how it handles an event delivered to both targets.
 
-Steps 31 and 34 are listed in the tracker only. Steps 27, 29, 32, and 33 are superseded; the tracker says by what.
+Steps 31 and 34 are listed in the tracker only. Steps 27, 29, 30, 32, and 33 are superseded; the tracker says by what.
 
 ## Repartitioning coordinator (design note)
 
@@ -286,7 +307,7 @@ One step = one commit, subject from the tracker. No `--no-verify`.
 | 27 · Prep hoist; `PublishEvents` retired | superseded | — (became Step 21) |
 | 28 · AI membership stamp; `AiRouting` retired | done | — (landed with the AI lane rollout, outside this plan's sequence) |
 | 29 · Sinks realize namespaces | superseded | — (targets map addresses to topics from Step 11) |
-| 30 · Handlers bound by publish capabilities | deferred | `feat(capture): handlers bound by publish capabilities over per-mode state` |
+| 30 · Handlers bound by publish capabilities | superseded | — (Step 14 makes `State` and the handlers generic over the event kind) |
 | 31 · AI ingress family | deferred | `feat(capture): ai ingress is its own router family with its own capability` |
 | 32 · Topic tables injected into sinks | superseded | — (the Kafka sink resolves addresses through its table from Step 11; Step 14's registries replace it) |
 | 33 · Per-pipeline output overrides; boot topic verification | superseded | — (boot verification became Step 16; retargeting is configuration after Steps 10 and 14) |
