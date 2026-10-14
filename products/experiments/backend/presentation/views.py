@@ -43,7 +43,12 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -56,6 +61,7 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
+from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -903,11 +909,26 @@ class EnterpriseExperimentsViewSet(
 
         The checks here read the experiment, its flag, its linked metrics, and the changes of the
         flag's variant split since launch. The checks that read exposure counts come with the
-        exposure query.
+        exposure query. The split-change check runs only for callers who can view the linked flag
+        and, with an API key, hold `query:read`.
         """
         experiment: Experiment = self.get_object()
-        findings = get_experiment_health_findings(team_id=self.team_id, experiment_id=experiment.id)
+        findings = get_experiment_health_findings(
+            team_id=self.team_id,
+            experiment_id=experiment.id,
+            with_split_history=self._may_read_split_history(request, experiment),
+        )
         return Response(ExperimentHealthSerializer({"findings": findings}).data)
+
+    def _may_read_split_history(self, request: Request, experiment: Experiment) -> bool:
+        # The split history shows the flag's past splits, which `activity` keeps behind the flag's own access
+        # controls. It also queries events, which a scoped token reaches only with `query:read`.
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
+            return False
+        return experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        )
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,

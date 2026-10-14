@@ -782,17 +782,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
         if split_edit_from_launch is not None:
-            with time_machine.travel(start_date + split_edit_from_launch), self.captureOnCommitCallbacks(execute=True):
-                flag.filters = {
-                    **flag.filters,
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 80},
-                            {"key": "test", "rollout_percentage": 20},
-                        ]
-                    },
-                }
-                flag.save()
+            self._rebalance_split_at(flag, start_date + split_edit_from_launch)
 
         with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
@@ -802,6 +792,70 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
+
+    @parameterized.expand(
+        [
+            ("session", None, False, True),
+            ("session_without_flag_access", None, True, False),
+            ("token_without_query_scope", ["experiment:read"], False, False),
+            ("token_with_query_scope", ["experiment:read", "query:read"], False, True),
+        ]
+    )
+    def test_health_reads_the_split_history_only_with_flag_and_query_access(
+        self, _name: str, token_scopes: list[str] | None, restrict_flag: bool, expect_split_finding: bool
+    ) -> None:
+        start_date = timezone.now() - timedelta(days=3)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-split-access-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, name="health-split-access", feature_flag=flag, start_date=start_date
+        )
+        self._rebalance_split_at(flag, start_date + timedelta(days=1))
+        headers: dict[str, str] = {}
+        if restrict_flag:
+            self._enable_access_control()
+            self._restrict_flag_and_login_as_member(flag.key, f"health-{_name}@posthog.com")
+        if token_scopes is not None:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="health", secure_value=hash_key_value(token), scopes=token_scopes
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}"}
+
+        with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/", headers=headers
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        codes = [finding["code"] for finding in response.json()["findings"]]
+        self.assertEqual("split_changed_mid_run" in codes, expect_split_finding)
+
+    def _rebalance_split_at(self, flag: FeatureFlag, at: datetime) -> None:
+        with time_machine.travel(at), self.captureOnCommitCallbacks(execute=True):
+            flag.filters = {
+                **flag.filters,
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 80},
+                        {"key": "test", "rollout_percentage": 20},
+                    ]
+                },
+            }
+            flag.save()
 
     @parameterized.expand(
         [("after_cutoff", 30, "$experiment_exposure"), ("before_cutoff", -30, "$feature_flag_called")]

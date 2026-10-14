@@ -126,16 +126,19 @@ def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> i
     return count
 
 
-def get_experiment_health_findings(*, team_id: int, experiment_id: int) -> list[ExperimentHealthFinding]:
-    """The findings of the health checks that read the experiment, its flag, the flag's split changes and its
-    linked metrics."""
+def get_experiment_health_findings(
+    *, team_id: int, experiment_id: int, with_split_history: bool
+) -> list[ExperimentHealthFinding]:
+    """The findings of the health checks that read the experiment, its flag and its linked metrics, and with
+    `with_split_history` also the flag's split changes."""
     experiment = (
         ExperimentModel.objects.filter(team_id=team_id)
         .select_related("team", "feature_flag")
         .prefetch_related("experimenttosavedmetric_set")
         .get(id=experiment_id)
     )
-    context = load_health_context(experiment, split_history=load_split_history(experiment))
+    split_history = load_split_history(experiment) if with_split_history else None
+    context = load_health_context(experiment, split_history=split_history)
     return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 
 
