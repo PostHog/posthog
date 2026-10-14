@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { NodeKind, RetentionQueryResponse, TrendsQuery, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { CompareLabelType, TrendResult } from '~/types'
@@ -19,7 +20,7 @@ export function getHomeTabSampleStatData(metric: HomeTabMetricKey, query: Trends
     const interval = query.interval ?? 'day'
     const unit = interval === 'quarter' ? 'month' : interval
     const step = interval === 'quarter' ? 3 : 1
-    const end = dayjs(query.dateRange?.date_to ?? undefined).startOf(unit)
+    const end = (dateStringToDayJs(query.dateRange?.date_to ?? null) ?? dayjs()).startOf(unit)
     const days = values.map((_, index) => end.subtract((values.length - index) * step, unit).toISOString())
     const series = query.series[0]
 
