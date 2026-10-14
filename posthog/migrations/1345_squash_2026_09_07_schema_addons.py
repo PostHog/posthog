@@ -283,10 +283,6 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RunSQL(
-            sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "oauthaccesstoken_scope_trgm" ON "posthog_oauthaccesstoken" USING gin (scope gin_trgm_ops) WHERE application_id IS NOT NULL',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_identityproviderconfig_saml_relay_state_a35fb61b_like" ON "posthog_identityproviderconfig" (saml_relay_state varchar_pattern_ops)',
             reverse_sql="",
         ),
