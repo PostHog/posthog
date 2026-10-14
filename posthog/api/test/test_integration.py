@@ -2319,7 +2319,7 @@ class TestIntegrationAPIKeyAccess:
 
         if use_session:
             client.force_login(self.user)
-        auth_headers = {} if use_session else {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
+        auth_headers: dict[str, Any] = {} if use_session else {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
 
         with patch_email_domain_agent_setup_flag(flag_on), override_settings(SITE_URL=site_url):
             response = client.post(

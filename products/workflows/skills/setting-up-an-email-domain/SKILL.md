@@ -69,7 +69,7 @@ Pick the first path that works:
 
 1. **Domain Connect (the person approves at their DNS host).**
    Call `integrations-domain-connect-check-retrieve` with the sending domain.
-   If `supported` is true, call `integrations-domain-connect-apply-url-create` with the `integration_id`, and omit `redirect_uri`.
+   If `supported` is true, call `integrations-domain-connect-apply-url-create` with the `integration_id`.
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
    If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
 2. **Your own DNS tools.**
@@ -104,7 +104,7 @@ The records are already in place, so it succeeds without new DNS work.
 
 ## Changing a sender
 
-Use `integrations-email-partial-update` to change the display name or MAIL FROM subdomain.
+Use `integrations-email-partial-update` to change the display name, the reply-to address or the MAIL FROM subdomain.
 Send the full config with the current `email`, which cannot change, and the current `name` unless you are renaming the sender.
 No read tool returns the name: take it from the `integrations-email-create` response if you created the sender, otherwise ask the person.
 A new `mail_from_subdomain` applies to every sender on the domain and needs new MX and SPF records at the new name, so confirm it with the person first, then run steps 3 to 5 again.

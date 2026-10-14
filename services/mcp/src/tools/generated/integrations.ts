@@ -104,9 +104,6 @@ const integrationsDomainConnectApplyUrlCreate = (): ToolBase<
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
         }
-        if (params.redirect_uri !== undefined) {
-            body['redirect_uri'] = params.redirect_uri
-        }
         if (params.provider_endpoint !== undefined) {
             body['provider_endpoint'] = params.provider_endpoint
         }

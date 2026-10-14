@@ -346,10 +346,6 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = () => zod.object({
         .number()
         .nullish()
         .describe('ID of the email integration (sender). Required when `context` is `email`.'),
-    redirect_uri: zod
-        .string()
-        .nullish()
-        .describe('Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.'),
     provider_endpoint: zod
         .string()
         .nullish()

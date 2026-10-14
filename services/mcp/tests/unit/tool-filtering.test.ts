@@ -1089,7 +1089,6 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'scout-trials',
             'self-optimising-workflows',
-            'workflows-email-domain-agent-setup',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'cross-project-dashboards',

@@ -22,17 +22,6 @@
                 }
             ],
             "description": "Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS."
-        },
-        "redirect_uri": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Where the DNS host sends the user after they approve. Omit it when handing the URL to a person."
         }
     },
     "required": ["integration_id"],
