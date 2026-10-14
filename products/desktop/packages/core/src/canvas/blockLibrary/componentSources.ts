@@ -5,7 +5,6 @@ import {
   type BlockProps,
   BlockDescription,
   BlockState,
-  CHART_COLORS,
   ChangeBadge,
   QueryButton,
   blockRoot,
@@ -66,7 +65,7 @@ export function Metric(props: MetricProps) {
           <div className="text-xs text-muted-foreground">{scopeLabel(filters, followFilters)}</div>
           {points.length > 1 ? (
             <div className="mt-auto pt-2">
-              <Sparkline data={points} theme={theme} color={CHART_COLORS[0]} fillOpacity={0.12} height={40} />
+              <Sparkline data={points} theme={theme} fillOpacity={0.12} height={40} />
             </div>
           ) : null}
         </BlockState>
@@ -83,7 +82,6 @@ import {
   sqlNode,
   type BlockProps,
   BlockState,
-  CHART_COLORS,
   QueryButton,
   blockRoot,
   breakdownLabel,
@@ -149,8 +147,8 @@ export function Trend(props: TrendProps) {
     return Number(previousByDay?.get(day.slice(0, 10))?.[seriesIndex - baseColumns.length + 1] ?? 0);
   };
   const colorAt = (index: number) => {
-    if (sql) return CHART_COLORS[(comparing ? index % Math.max(1, baseColumns.length) : index) % CHART_COLORS.length];
-    return CHART_COLORS[(filters.compare ? index % Math.max(1, names.length / 2) : index) % CHART_COLORS.length];
+    if (sql) return theme.colors[(comparing ? index % Math.max(1, baseColumns.length) : index) % theme.colors.length];
+    return theme.colors[(filters.compare ? index % Math.max(1, names.length / 2) : index) % theme.colors.length];
   };
   const chartSeries = names.map((name, seriesIndex) => ({
     key: "s" + seriesIndex,
@@ -1014,7 +1012,6 @@ import {
   type BlockProps,
   BlockDescription,
   BlockState,
-  CHART_COLORS,
   RetentionGrid,
   blockRoot,
   breakdownLabel,
@@ -1066,7 +1063,7 @@ function TrendsBody({ rows, display }: { rows: any[]; display: string }) {
   const series = rows.map((row, index) => ({
     key: "s" + index,
     label: seriesName(row, index),
-    color: CHART_COLORS[index % CHART_COLORS.length],
+    color: theme.colors[index % theme.colors.length],
     data: days.map((_, dayIndex) => Number(row.data?.[dayIndex] ?? 0)),
     ...(display === "ActionsAreaGraph" ? { fill: { opacity: 0.15 } } : {}),
   }));

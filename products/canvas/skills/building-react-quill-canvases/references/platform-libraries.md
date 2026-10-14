@@ -18,8 +18,8 @@ keep the dependency map returned by `canvas-source-retrieve` unchanged.
 
 ## Selection guidance
 
-- Use `@posthog/quill-charts` for charts. Use D3 only when the visual needs a layout, projection, or shape
-  that quill-charts does not provide.
+- Use `@posthog/quill-charts` for charts. Use D3 for a layout, projection, or shape that quill-charts does not
+  provide, following the `drawing-custom-charts` skill.
 - Prefer Quill's `Table` for small static tables. Use TanStack Table for table behavior and TanStack
   Virtual when the rendered row count is large. These libraries provide behavior, not visual styles.
 - Use React Hook Form with Quill inputs. Keep the network submit button disabled while submission is
@@ -39,23 +39,27 @@ The standard imports remain `react`, `react-dom`, `react-dom/client`, `@posthog/
 
 ## Charts
 
-`@posthog/quill-charts` draws on a `<canvas>` and takes its colors from the Quill tokens.
-Every chart takes `theme={useChartTheme()}`, and every chart except `Sparkline` needs a parent like `<div className="flex h-[280px] flex-col">`.
+`@posthog/quill-charts` draws on a `<canvas>` and takes its colors from the PostHog data palette in the Quill tokens.
+Every chart takes `theme={useChartTheme()}`.
+The axis charts need a parent like `<div className="flex h-[280px] flex-col">`; `BarList`, `ProportionBar`, `Sparkline` and `MetricCard` size themselves.
 
 | Chart                                 | Use it for                                                                                                                                                    |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TimeSeriesLineChart`                 | Trends over dates. Add `fill: {}` to a series for an area. Config takes `goalLines`, `trendLines`, `movingAverage`                                            |
-| `TimeSeriesBarChart`                  | Bars over dates. `config.barLayout`: `"grouped"`, `"stacked"`, or `"percent"`                                                                                 |
+| `TimeSeriesBarChart`                  | Bars over dates. `config.barLayout`: `"stacked"` (default), `"grouped"`, or `"percent"`                                                                       |
 | `TimeSeriesComboChart`                | Bars and lines on one date axis. Set `type: "bar" \| "line" \| "area"` on each series                                                                         |
 | `LineChart`, `BarChart`, `ComboChart` | The same charts over categories that are not dates. `BarChart` takes `config.axisOrientation: "horizontal"`                                                   |
-| `PieChart`                            | Part of a whole. One series per slice, one value each                                                                                                         |
+| `BarList`                             | A ranked list: one series per row, a label, a bar on a neutral track, and the value. Top events, top pages, top referrers                                     |
+| `ProportionBar`                       | A share of a whole as one segmented bar with a legend: one series per part. Category mix, browser share                                                       |
+| `PieChart`                            | Part of a whole as a circle. One series per slice. `config.innerRadiusRatio: 0.5` for a donut, `centerLabel` for the total                                    |
 | `FunnelChart`                         | Funnel steps. `funnelFromCounts` builds its input from step counts                                                                                            |
-| `ScatterChart`                        | Two numeric axes. Takes `points`, not `labels`                                                                                                                |
-| `Heatmap`                             | A grid of values, such as activity by day and hour                                                                                                            |
+| `ScatterChart`                        | Two numeric axes. Each series takes `points`, not `data`                                                                                                      |
+| `Heatmap`                             | A grid of values, such as activity by day and hour. Takes `xLabels`, `yLabels` and `cells[row][col]`                                                          |
 | `BoxPlot`                             | Distributions                                                                                                                                                 |
 | `SlopeChart`                          | Change between two points                                                                                                                                     |
 | `Sparkline`                           | A small trend with no axes. Takes `data` and a `height` prop instead of a sized parent. Its `fill` prop means "fill a flex parent's height", not an area fill |
 | `MetricCard`                          | A headline number with a sparkline and a change pill                                                                                                          |
+| `Chart`, `RadialChart`                | The core the charts above are built on. Extend it for a shape that is not listed, following the `drawing-custom-charts` skill                                 |
 
 ```tsx
 import dayjs from 'dayjs'
@@ -76,6 +80,26 @@ function Trend({ days, values }) {
 }
 ```
 
+```tsx
+import { BarList, ProportionBar, useChartTheme } from '@posthog/quill-charts'
+
+const formatNumber = (value: number) => value.toLocaleString()
+
+function TopEvents({ rows }: { rows: { event: string; count: number }[] }) {
+  const theme = useChartTheme()
+  const series = rows.map((row) => ({ key: row.event, label: row.event, data: [row.count] }))
+  return <BarList theme={theme} series={series} valueFormatter={formatNumber} config={{ valueDisplay: 'both' }} />
+}
+
+function CategoryMix({ parts }: { parts: { label: string; value: number }[] }) {
+  const theme = useChartTheme()
+  const series = parts.map((part) => ({ key: part.label, label: part.label, data: [part.value] }))
+  return <ProportionBar theme={theme} series={series} valueFormatter={formatNumber} />
+}
+```
+
 - Time-series charts take ISO date strings as `labels`, and labels must be unique.
-- Format values with `config.yAxis.tickFormatter` and `config.tooltip.valueFormatter`.
+- The time-series charts format through `config.xAxis.tickFormatter`, `config.yAxis.tickFormatter` and `config.tooltip.valueFormatter`. `BarChart`, `LineChart` and `ComboChart` take `config.xTickFormatter` and `config.yTickFormatter` at the top level instead; a `yAxis` key on them is ignored.
+- `BarList`, `ProportionBar` and `PieChart` value a series as the sum of its `data`, so pass one value per series. `BarList` keeps the order of `series`, so sort rows first, and takes `total` when the rows are the top of a larger whole.
+- A horizontal `BarChart` grows its container to fit 24px per row. Inside a fixed-height card pass `config.bars.fitToHeight: true`, and `config.maxCategoryLabelWidth` when labels are long. A `BarList` is usually the better choice for that case.
 - Mark a comparison or forecast series with `stroke: { pattern: [4, 4] }`.

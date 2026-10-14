@@ -54,8 +54,8 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   },
   {
     name: "@posthog/quill-charts",
-    version: "0.3.0-beta.30",
-    esm: `${ESM}/@posthog/quill-charts@0.3.0-beta.30?external=react,react-dom&deps=@floating-ui/react@0.27.20`,
+    version: "0.3.0-beta.31",
+    esm: `${ESM}/@posthog/quill-charts@0.3.0-beta.31?external=react,react-dom&deps=@floating-ui/react@0.27.20`,
   },
   // Kept so canvases written before quill-charts still resolve.
   {
