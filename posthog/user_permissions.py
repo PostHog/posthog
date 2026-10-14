@@ -205,6 +205,17 @@ class UserTeamPermissions:
         if organization_membership.user_id != self.p.user.pk:
             raise ValueError("organization_membership must belong to the UserPermissions principal")
 
+        if organization_membership.level == OrganizationMembership.Level.GUEST:
+            # A guest reaches a project only through a member rule that names them, and only as a member, whatever
+            # the organization's features. The default admin below would otherwise open every project to them.
+            names_guest = any(
+                ac["resource_id"] == str(self.team.id)
+                and ac["organization_member_id"] == organization_membership.id
+                and ac["access_level"] in ("member", "admin")
+                for ac in self.p._prefetched_access_controls.get(self.team.id, [])
+            )
+            return OrganizationMembership.Level.MEMBER if names_guest else None
+
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return self._capped_at_admin(organization_membership.level)
 

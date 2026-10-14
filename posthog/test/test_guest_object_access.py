@@ -9,6 +9,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action as EventAction
 from products.authz.backend.facade.contracts import CheckRequest, Context, Resource, ResourceIds
 from products.authz.backend.facade.enums import Action, ResourceType
@@ -27,6 +28,14 @@ class TestGuestObjectAccess(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.GUEST
         self.organization_membership.save()
+        # A guest invite always creates this project rule, which admits the guest to the project.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
         self.granted = Notebook.objects.create(team=self.team, title="Granted")
         self.hidden = Notebook.objects.create(team=self.team, title="Hidden")
         self.dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id)

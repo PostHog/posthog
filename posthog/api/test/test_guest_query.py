@@ -14,6 +14,7 @@ from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.facade.contracts import CheckRequest, Context
 from products.authz.backend.facade.enums import ResourceType
 from products.notebooks.backend.models import Notebook
@@ -35,6 +36,14 @@ class TestGuestQuery(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.GUEST
         self.organization_membership.save()
+        # A guest invite always creates this project rule, which admits the guest to the project.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
         self.insight = Insight.objects.create(team=self.team, query=SAVED_QUERY)
         self.other_insight = Insight.objects.create(team=self.team, query=SAVED_QUERY)
         notebook_content = {

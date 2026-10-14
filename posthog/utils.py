@@ -590,6 +590,7 @@ def _build_template_context(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
+        from posthog.guest_access import guest_effective_resource_access, guest_state
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.user_permissions import UserPermissions
@@ -635,19 +636,27 @@ def _build_template_context(
                 user.save(update_fields=["current_team"])
                 user_permissions = UserPermissions(user=user, team=None)
                 user_access_control = UserAccessControl(user=user, team=None)
-            with tracer.start_as_current_span("template.rbac.effective"):
-                effective_access: dict[str, Any] = {}
-                for resource in ACCESS_CONTROL_RESOURCES:
-                    with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
-                        effective_access[resource] = user_access_control.effective_access_level_for_resource(resource)
-                posthog_app_context["effective_resource_access_control"] = effective_access
-            with tracer.start_as_current_span("template.rbac.levels"):
-                resource_access: dict[str, Any] = {}
-                for resource in ACCESS_CONTROL_RESOURCES:
-                    with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        access = user_access_control.access_level_for_resource(resource)
-                        resource_access[resource] = access.access_level if access else None
-                posthog_app_context["resource_access_control"] = resource_access
+            if user.team is not None and guest_state(request, user.organization).enforced:
+                # A guest sees only the types they were granted, so the nav hides every other product.
+                guest_access = guest_effective_resource_access(user, user.team)
+                posthog_app_context["effective_resource_access_control"] = guest_access
+                posthog_app_context["resource_access_control"] = guest_access
+            else:
+                with tracer.start_as_current_span("template.rbac.effective"):
+                    effective_access: dict[str, Any] = {}
+                    for resource in ACCESS_CONTROL_RESOURCES:
+                        with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
+                            effective_access[resource] = user_access_control.effective_access_level_for_resource(
+                                resource
+                            )
+                    posthog_app_context["effective_resource_access_control"] = effective_access
+                with tracer.start_as_current_span("template.rbac.levels"):
+                    resource_access: dict[str, Any] = {}
+                    for resource in ACCESS_CONTROL_RESOURCES:
+                        with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
+                            access = user_access_control.access_level_for_resource(resource)
+                            resource_access[resource] = access.access_level if access else None
+                    posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):
                 user_serialized = UserSerializer(

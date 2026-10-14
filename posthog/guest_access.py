@@ -17,10 +17,11 @@ from rest_framework.request import Request
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
 
 from products.access_control.backend.facade.api import member_project_ids
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
@@ -49,6 +50,17 @@ GUEST_ALLOWED: Mapping[str, frozenset[str]] = {
 
 # Object types that only the guest model covers. Guest checks on them go to OpenFGA; members keep the legacy path.
 GUEST_V2_OBJECT_TYPES = frozenset({"notebook", "session_recording"})
+
+# Project fields a guest never sees: credentials, and settings that hold tokens.
+GUEST_HIDDEN_PROJECT_FIELDS = frozenset(
+    {
+        "secret_api_token",
+        "secret_api_token_backup",
+        "live_events_token",
+        "heatmaps_screenshot_secret",
+        "conversations_settings",
+    }
+)
 
 _STATE_ATTRIBUTE = "_guest_state"
 _LOOKUP_ERRORS = (AttributeError, KeyError, ValueError, NotFound, Http404, ObjectDoesNotExist, PermissionDenied)
@@ -185,3 +197,34 @@ def guest_referenced_ids(request: Request, user: User, team_id: int) -> QueryRef
     references = QueryReferences(cohort_ids=frozenset(cohort_ids), action_ids=frozenset(action_ids))
     request._guest_references = references
     return references
+
+
+def hide_project_fields_from_guest(request: Request | None, representation: dict[str, Any]) -> dict[str, Any]:
+    if request is not None and is_enforced_guest(request):
+        for field in GUEST_HIDDEN_PROJECT_FIELDS & representation.keys():
+            representation[field] = None
+    return representation
+
+
+# The types a guest can be granted, with the resource type each one lists on OpenFGA.
+GUEST_GRANT_TYPES = {
+    "dashboard": ResourceType.DASHBOARD,
+    "insight": ResourceType.INSIGHT,
+    "notebook": ResourceType.NOTEBOOK,
+}
+
+
+def guest_effective_resource_access(user: User, team: Team) -> dict[str, str]:
+    """Return the app's per-resource access for a guest: viewer for a type with a grant, none for every other type."""
+    access: dict[str, str] = dict.fromkeys(ACCESS_CONTROL_RESOURCES, "none")
+    for name, resource_type in GUEST_GRANT_TYPES.items():
+        listed = api.list_resources(
+            resource=Resource(type=resource_type, project_id=team.pk),
+            action=Action.VIEW,
+            subject=Subject(user_id=user.pk),
+            limit=1,
+        )
+        # With limit=1, two or more viewable objects come back as an incomplete list, which still means access.
+        if listed.ids or not listed.complete:
+            access[name] = "viewer"
+    return access

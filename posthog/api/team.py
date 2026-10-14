@@ -51,6 +51,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.guest_access import hide_project_fields_from_guest
 from posthog.helpers.impersonation import is_impersonated
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
@@ -1514,7 +1515,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = _default_data_color_theme_id()
 
-        return representation
+        return hide_project_fields_from_guest(self.context.get("request"), representation)
 
     @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
@@ -2202,7 +2203,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         try:
             modifiers = HogQLQueryModifiers(**value)
         except Exception:
-            raise exceptions.ValidationError(f"Invalid modifier key.")
+            raise exceptions.ValidationError("Invalid modifier key.")
 
         if "customBotDefinitions" in value:
             rules = modifiers.customBotDefinitions or []

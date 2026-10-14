@@ -6,6 +6,8 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 
 @patch("posthog.guest_access.api.guest_mode_active", return_value=True)
 class TestGuestPermission(APIBaseTest):
@@ -17,6 +19,14 @@ class TestGuestPermission(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.GUEST
         self.organization_membership.save()
+        # A guest invite always creates this project rule, which admits the guest to the project.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
 
     def test_guest_is_denied_endpoints_outside_the_allowlist(self, _active) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
