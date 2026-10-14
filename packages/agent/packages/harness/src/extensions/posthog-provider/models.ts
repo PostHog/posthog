@@ -23,7 +23,7 @@ export interface GatewayModel {
   // Free-tier model gate: authenticated fetches mark models outside the
   // caller's plan. Absence (anonymous fetch or older gateway) means allowed.
   allowed?: boolean;
-  // Request formats the Go gateway accepts for the model; the Python one omits it.
+  // Request formats the Go gateway accepts; absent on Python gateway rows.
   api_shapes?: string[];
 }
 
@@ -79,10 +79,8 @@ function detectFamily(model: GatewayModel): ModelFamily {
   return "anthropic";
 }
 
-// The Go gateway lists every model PostHog hosts as owned_by "posthog", where
-// the Python gateway names the host. Keep each on the API the Python listing
-// gives it (Kimi on Anthropic Messages, the rest on chat completions), unless
-// the model's api_shapes rule that API out.
+// Go labels every PostHog-hosted model "posthog"; each keeps the API the
+// Python gateway's listing serves it on.
 function servedModelFamily(model: GatewayModel): ModelFamily {
   const accepts = (shape: string) =>
     !model.api_shapes || model.api_shapes.includes(shape);
@@ -97,9 +95,7 @@ function servedModelFamily(model: GatewayModel): ModelFamily {
   return shape === ANTHROPIC_MESSAGES_SHAPE ? "anthropic" : "baseten";
 }
 
-// The Go gateway's /v1/models has no supports_vision, so an absent flag falls
-// back to what the harness already knows about the model. Models PostHog hosts
-// default to text-only; Anthropic and OpenAI models accept images.
+// The Go gateway's /v1/models omits supports_vision.
 function supportsVision(
   model: GatewayModel,
   family: ModelFamily,

@@ -231,7 +231,6 @@ describe("resolveModelConfigs", () => {
     expect(configs[0]?.maxTokens).toBe(128000);
   });
 
-  // Go gateway rows: no supports_vision, hosted models owned_by "posthog".
   it.each([
     {
       row: {
