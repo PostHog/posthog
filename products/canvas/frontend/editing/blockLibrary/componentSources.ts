@@ -155,7 +155,7 @@ export function Trend(props: TrendProps) {
     label: name,
     color: colorAt(seriesIndex) + (previousAt(seriesIndex) ? "80" : ""),
     data: days.map((day, index) => (sql ? sqlValue(day, index, seriesIndex) : Number(series[seriesIndex]?.data?.[index] ?? 0))),
-    ...(previousAt(seriesIndex) ? { stroke: { pattern: [4, 4] } } : display === "area" ? { fill: { opacity: 0.15 } } : {}),
+    ...(previousAt(seriesIndex) ? { stroke: { pattern: [4, 4] }, overlay: true } : display === "area" ? { fill: { opacity: 0.15 } } : {}),
   }));
   const chartConfig = {
     xAxis: { interval: filters.interval, tickFormatter: formatDay },
@@ -1065,7 +1065,7 @@ function TrendsBody({ rows, display }: { rows: any[]; display: string }) {
     label: seriesName(row, index),
     color: theme.colors[index % theme.colors.length],
     data: days.map((_, dayIndex) => Number(row.data?.[dayIndex] ?? 0)),
-    ...(display === "ActionsAreaGraph" ? { fill: { opacity: 0.15 } } : {}),
+    ...(row.compare_label === "previous" ? { stroke: { pattern: [4, 4] }, overlay: true } : display === "ActionsAreaGraph" ? { fill: { opacity: 0.15 } } : {}),
   }));
   const config = {
     xAxis: { tickFormatter: formatDay },
