@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPullRequest, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
@@ -16,6 +16,7 @@ import { CIExplorerSummaryCounts } from '../components/ciExplorer/CIExplorerSumm
 import { EntityHeader } from '../components/EntityHeader'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { CIExplorerLogicProps, CIExplorerView, ciExplorerLogic } from './ciExplorerLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 export const scene: SceneExport<CIExplorerLogicProps> = {
     component: CIExplorerScene,
@@ -29,6 +30,8 @@ export const scene: SceneExport<CIExplorerLogicProps> = {
 }
 
 export function CIExplorerScene(): JSX.Element {
+    // Remembers this repository, so the product root reopens it.
+    useMountedLogic(repoScopeLogic)
     const {
         lifecycle,
         prRuns,

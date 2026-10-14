@@ -92,7 +92,6 @@ describe('workflowRunDetailLogic', () => {
     it('links the loaded workflow breadcrumb back with the current scope', async () => {
         router.actions.push(urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', 42), {
             source: 'source-1',
-            repo: 'PostHog/posthog',
             date_from: '2026-06-01',
             date_to: '2026-06-30',
             run_scope: 'merge_queue',
@@ -122,19 +121,16 @@ describe('workflowRunDetailLogic', () => {
             date_to: '2026-06-30',
             run_scope: 'merge_queue',
             source: 'source-1',
-            repo: 'PostHog/posthog',
         })
 
         router.actions.replace(urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', 42), {
             source: 'source-1',
-            repo: 'PostHog/posthog',
             date_from: '-30d',
         })
         const hubDestination = new URL(logic.values.breadcrumbs[0].path!, 'https://example.com')
         expect(Object.fromEntries(hubDestination.searchParams)).toEqual({
             date_from: '-30d',
             source: 'source-1',
-            repo: 'PostHog/posthog',
         })
     })
 })

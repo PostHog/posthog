@@ -45,7 +45,7 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const { workflowHealth, workflowHealthLoadError, workflowHealthLoading, sourceId, activeSource } =
+    const { workflowHealth, workflowHealthLoadError, workflowHealthLoading, sourceId, scopeRepo, activeSource } =
         useValues(engineeringAnalyticsLogic)
     const { loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
     const { loadAttention, loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } =
@@ -229,7 +229,11 @@ export function RepoOverviewScene(): JSX.Element {
                                         to={
                                             // A bare link would reset the shared window / run scope / repo (the filters
                                             // logic re-hydrates from the URL on every route), so carry it, plus the source.
-                                            withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
+                                            withScope(
+                                                urls.engineeringAnalyticsWorkflows(scopeRepo),
+                                                searchParams,
+                                                sourceId
+                                            )
                                         }
                                     >
                                         View all →
@@ -270,7 +274,9 @@ export function RepoOverviewScene(): JSX.Element {
                                         Show more
                                     </LemonButton>
                                 )}
-                                <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                <Link
+                                    to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(scopeRepo), sourceId)}
+                                >
                                     View all →
                                 </Link>
                             </div>

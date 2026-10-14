@@ -754,13 +754,17 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
+                    path: withScope(urls.engineeringAnalytics(`${repoOwner}/${repoName}`), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {
                     key: 'EngineeringAnalyticsPullRequests',
                     name: 'Pull requests',
-                    path: withScope(urls.engineeringAnalyticsPullRequestList(), searchParams, sourceId),
+                    path: withScope(
+                        urls.engineeringAnalyticsPullRequestList(`${repoOwner}/${repoName}`),
+                        searchParams,
+                        sourceId
+                    ),
                     iconType: 'health',
                 },
                 {
