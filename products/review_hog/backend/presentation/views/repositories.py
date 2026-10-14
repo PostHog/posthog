@@ -361,14 +361,13 @@ class ReviewHogProjectViewSetMixin(TeamAndOrgViewSetMixin):
         return level is not None and level >= OrganizationMembership.Level.ADMIN
 
 
-class EffectiveTeamStrictManagementPermission(BasePermission):
-    """Members read, admins write, both checked on the root project that the writes change.
+class EffectiveTeamMemberPermission(BasePermission):
+    """Members only, checked on the root project that holds the rows.
 
-    An environment URL resolves to its parent project, and a user can be admin of the environment
-    but only a member of the parent.
+    An environment URL resolves to its parent project, and the default checks cover only the URL project.
     """
 
-    message = "You don't have sufficient permissions in the project."
+    message = "You don't have access to the project."
 
     def has_permission(self, request: Request, view: Any) -> bool:
         if not isinstance(view, ReviewHogProjectViewSetMixin):
@@ -378,9 +377,21 @@ class EffectiveTeamStrictManagementPermission(BasePermission):
         scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_teams is not None and view.effective_team_id not in scoped_teams:
             return False
-        if request.method in SAFE_METHODS:
-            return view.user_permissions.team(view.effective_team).effective_membership_level is not None
-        return view.is_effective_team_admin()
+        return view.user_permissions.team(view.effective_team).effective_membership_level is not None
+
+
+class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
+    """Members read, admins write, both checked on the root project that the writes change.
+
+    A user can be admin of the environment but only a member of the parent.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        return request.method in SAFE_METHODS or view.is_effective_team_admin()
 
 
 @extend_schema_view(
@@ -638,7 +649,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
     """
 
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositoryChoiceSerializer
     pagination_class = None
