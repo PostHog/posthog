@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -291,16 +289,13 @@ describe('insightAlertsLogic', () => {
     })
 
     it.each([
-        { name: 'metrics', query: METRICS_QUERY, metricsEnabled: true, expectedWarning: false },
-        { name: 'metrics', query: METRICS_QUERY, metricsEnabled: false, expectedWarning: false },
-        { name: 'flow funnel', query: funnelWithViz('flow'), metricsEnabled: false, expectedWarning: false },
-        { name: 'SQL', query: SQL_QUERY, metricsEnabled: false, expectedWarning: false },
-        { name: 'retention', query: RETENTION_QUERY, metricsEnabled: true, expectedWarning: true },
+        { name: 'metrics', query: METRICS_QUERY, expectedWarning: false },
+        { name: 'flow funnel', query: funnelWithViz('flow'), expectedWarning: false },
+        { name: 'SQL', query: SQL_QUERY, expectedWarning: false },
+        { name: 'retention', query: RETENTION_QUERY, expectedWarning: true },
     ])(
-        'with metrics flag $metricsEnabled, a $name query on an insight with alerts sets the deletion warning to $expectedWarning',
-        async ({ query, metricsEnabled, expectedWarning }) => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
+        'a $name query on an insight with alerts sets the deletion warning to $expectedWarning',
+        async ({ query, expectedWarning }) => {
             const insightLogicProps: InsightLogicProps = {
                 dashboardItemId: Insight42,
                 cachedInsight: {
@@ -379,9 +374,12 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(true)
     })
 
-    it('supports bare metrics query nodes only when metricsAlertsEnabled', () => {
-        expect(areAlertsSupportedForInsight(METRICS_QUERY, { metricsAlertsEnabled: true })).toBe(true)
-        expect(areAlertsSupportedForInsight(METRICS_QUERY)).toBe(false)
+    it('supports bare metrics query nodes', () => {
+        expect(areAlertsSupportedForInsight(METRICS_QUERY)).toBe(true)
+    })
+
+    it('does not offer anomaly alerts for metrics query nodes', () => {
+        expect(areAnomalyAlertsSupportedForInsight(METRICS_QUERY)).toBe(false)
     })
 
     it('supports steps and trends funnels but not time-to-convert or flow', () => {
@@ -404,31 +402,27 @@ describe('areAlertsSupportedForInsight', () => {
         ['SQL', SQL_QUERY, true],
         ['funnel', FUNNEL_QUERY, false],
         ['metrics', METRICS_QUERY, false],
-    ])('reports anomaly support for %s with the metrics flag on', (_name, query, expected) => {
-        expect(areAnomalyAlertsSupportedForInsight(query, { metricsAlertsEnabled: true })).toBe(expected)
+    ])('reports anomaly support for %s', (_name, query, expected) => {
+        expect(areAnomalyAlertsSupportedForInsight(query)).toBe(expected)
     })
 })
 
 describe('alertsUnsupportedReason', () => {
-    it.each([
-        ['metrics gated off', {}, ['trends', 'SQL', 'funnel'], ['metrics']],
-        ['metrics enabled', { metricsAlertsEnabled: true }, ['trends', 'SQL', 'funnel', 'metrics'], []],
-    ])('always lists trends/SQL/funnel and gates only metrics: %s', (_name, options, included, excluded) => {
-        const reason = alertsUnsupportedReason(options)
-        expect(included.every((type) => reason.includes(type))).toBe(true)
-        expect(excluded.every((type) => !reason.includes(type))).toBe(true)
+    it('lists every alertable insight type', () => {
+        const reason = alertsUnsupportedReason()
+        expect(['trends', 'SQL', 'funnel', 'metrics'].every((type) => reason.includes(type))).toBe(true)
     })
 
     // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"
     // copy reads as a contradiction; the reason should name the real cause instead.
     it('gives a funnel-viz-specific reason for time-to-convert / flow funnels', () => {
         for (const viz of ['time_to_convert', 'flow']) {
-            const reason = alertsUnsupportedReason({}, funnelWithViz(viz))
+            const reason = alertsUnsupportedReason(funnelWithViz(viz))
             expect(reason).toContain('conversion rate')
             expect(reason).toContain('steps or trends')
             expect(reason).not.toContain('only available for')
         }
         // No query → backward-compatible generic copy.
-        expect(alertsUnsupportedReason({})).toContain('only available for')
+        expect(alertsUnsupportedReason()).toContain('only available for')
     })
 })

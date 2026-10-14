@@ -40,15 +40,7 @@ export interface InsightAlertsLogicProps {
     deferInitialAlertsLoad?: boolean
 }
 
-/** Per-kind feature-flag state threaded from call sites into the alert-support predicates. */
-export interface AlertSupportFlagOptions {
-    metricsAlertsEnabled?: boolean
-}
-
-export const areAlertsSupportedForInsight = (
-    query?: Record<string, any> | null,
-    options: AlertSupportFlagOptions = {}
-): boolean => {
+export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
     if (!query) {
         return false
     }
@@ -62,17 +54,15 @@ export const areAlertsSupportedForInsight = (
         return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }
     // Metrics insights persist a bare MetricsQuery node (no InsightVizNode wrapper).
-    if (options.metricsAlertsEnabled && isMetricsQuery(query)) {
+    if (isMetricsQuery(query)) {
         return true
     }
     return containsHogQLQuery(query)
 }
 
-export const areAnomalyAlertsSupportedForInsight = (
-    query?: Record<string, any> | null,
-    options: AlertSupportFlagOptions = {}
-): boolean => {
-    if (!areAlertsSupportedForInsight(query, options)) {
+export const areAnomalyAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
+    // Metrics has no anomaly detector extractor, so the backend rejects a detector_config for it.
+    if (!areAlertsSupportedForInsight(query) || isMetricsQuery(query)) {
         return false
     }
     if (query && isInsightVizNode(query) && isTrendsQuery(query.source)) {
@@ -99,15 +89,7 @@ const alertsSurviveQuery = (query?: Record<string, any> | null): boolean => {
     return !!node && ALERT_SURVIVING_QUERY_KINDS.has(node.kind)
 }
 
-// List only the insight types this account can actually alert on — naming a flag-gated type the
-// user doesn't have would disclose an unreleased feature.
-const alertableInsightTypesLabel = (options: AlertSupportFlagOptions): string =>
-    ['trends', 'SQL', 'funnel', options.metricsAlertsEnabled && 'metrics'].filter(Boolean).join(', ')
-
-export const alertsUnsupportedReason = (
-    options: AlertSupportFlagOptions,
-    query?: Record<string, any> | null
-): string => {
+export const alertsUnsupportedReason = (query?: Record<string, any> | null): string => {
     // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —
     // "funnel insights are supported" while standing on a blocked funnel. Name the real reason instead.
     if (query && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
@@ -116,7 +98,7 @@ export const alertsUnsupportedReason = (
             return "Alerts track a conversion rate, which time-to-convert and flow funnels don't have. Switch to the steps or trends view to add an alert."
         }
     }
-    return `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
+    return 'Alerts are only available for trends, SQL, funnel, and metrics insights. Change the insight representation to add alerts.'
 }
 
 /** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */

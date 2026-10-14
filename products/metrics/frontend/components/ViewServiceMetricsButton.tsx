@@ -1,8 +1,6 @@
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 import { metricsUrlForService } from 'products/metrics/frontend/metricsLinks'
 
@@ -24,16 +22,11 @@ export interface ViewServiceMetricsButtonProps extends Pick<
  * a column misaligned. `ViewServiceMetricsButton` applies the same check itself.
  */
 export function useCanViewServiceMetrics(): boolean {
-    const metricsEnabled = useFeatureFlag('METRICS')
-    return metricsEnabled && canViewMetrics()
+    return canViewMetrics()
 }
 
 /**
  * "Show me this service's metrics", for Logs and Tracing to drop into a service row or a span.
- *
- * Metrics owns this gate rather than each caller, because the product is in alpha behind a
- * flag: a link rendered without it lands on the feature preview gate instead of a chart, and
- * callers would each have to remember that.
  */
 export function ViewServiceMetricsButton({
     serviceName,

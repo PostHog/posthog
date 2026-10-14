@@ -1,9 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -62,7 +59,6 @@ describe('metricsSceneLogic', () => {
             },
         } as AppContext
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
         jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         logic = metricsSceneLogic()
@@ -74,17 +70,14 @@ describe('metricsSceneLogic', () => {
         logic.unmount()
     })
 
-    it('requests metric names only after the flag is on and the gated scene primes them once', async () => {
+    it('requests metric names once, however often the scene primes them', async () => {
         logic.unmount()
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([], {})
         jest.mocked(metricsNamesRetrieve).mockClear()
         logic = metricsSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(metricsNamesRetrieve).not.toHaveBeenCalled()
 
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
         metricNamePickerLogic.actions.primeItems()
         metricNamePickerLogic.actions.primeItems()
         await expectLogic(metricNamePickerLogic).toFinishAllListeners()

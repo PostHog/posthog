@@ -61,7 +61,7 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.flags = {"metrics", "metrics-suggested-dashboards"}
+        self.flags = {"metrics-suggested-dashboards"}
         self.enterContext(
             patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key in self.flags)
         )

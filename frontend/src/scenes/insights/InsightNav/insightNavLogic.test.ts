@@ -237,14 +237,11 @@ describe('insightNavLogic', () => {
 
         describe('metrics tab visibility', () => {
             const enableMetricsBuilder = (): void => {
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.METRICS]: true,
-                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
-                })
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
             }
 
-            it('hides the metrics tab without both flags', () => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
+            it('hides the metrics tab without the insight builder flag', () => {
+                featureFlagLogic.actions.setFeatureFlags([], {})
                 expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
             })
 
