@@ -18,6 +18,7 @@ from asgiref.sync import async_to_sync
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
+from products.tasks.backend.constants import SANDBOX_PROVISIONING_STARTED_STATE_KEY
 from products.tasks.backend.facade.contracts import TaskRunActualCost, TaskRunCost, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
@@ -231,10 +232,24 @@ def get_task_run_actual_cost(*, run_id: UUID, team_id: int) -> TaskRunActualCost
     run = TaskRun.objects.get(id=run_id, team_id=team_id)
     sessions = list(SandboxSession.objects.for_team(team_id).filter(task_run=run))
     sources = _cost_sources(run, sessions=sessions)
+    never_provisioned = (
+        run.environment == TaskRun.Environment.CLOUD
+        and run.is_terminal
+        and not sessions
+        and (run.state or {}).get(SANDBOX_PROVISIONING_STARTED_STATE_KEY) is False
+        and not (run.state or {}).get("sandbox_id")
+    )
     compute = (
         int((sources.compute_cost_usd * 1_000_000).to_integral_value(rounding=ROUND_CEILING))
         if sources.compute_cost_usd is not None
         else None
+    )
+    if never_provisioned:
+        compute = 0
+    compute_complete = (
+        run.is_terminal
+        and compute is not None
+        and (never_provisioned or (bool(sessions) and all(session.ended_at is not None for session in sessions)))
     )
     token = (
         sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(run.state or {}))
@@ -244,15 +259,8 @@ def get_task_run_actual_cost(*, run_id: UUID, team_id: int) -> TaskRunActualCost
     return TaskRunActualCost(
         token_cost_microusd=token,
         compute_cost_microusd=compute,
-        complete=run.is_terminal
-        and sources.token_cost_microusd is not None
-        and compute is not None
-        and bool(sessions)
-        and all(session.ended_at is not None for session in sessions),
-        compute_complete=run.is_terminal
-        and compute is not None
-        and bool(sessions)
-        and all(session.ended_at is not None for session in sessions),
+        complete=compute_complete and sources.token_cost_microusd is not None,
+        compute_complete=compute_complete,
     )
 
 
