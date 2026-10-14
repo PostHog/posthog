@@ -63,6 +63,8 @@ class ChartEvents:
     modifiers: HogQLQueryModifiers
     # The database the filter was read with, for the queries that run it.
     database: Database
+    # Whether the chart applies the project's internal and test users filter.
+    filters_internal_users: bool
 
     def select(
         self, query: str, *, where: ast.Expr, sample: ast.SampleExpr | None = None, **placeholders: ast.Expr
@@ -108,6 +110,7 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
         ),
         modifiers=runner.modifiers,
         database=database,
+        filters_internal_users=bool(source.filterTestAccounts),
     )
 
 

@@ -1714,8 +1714,9 @@ class InsightDataCheckSerializer(serializers.Serializer):
         choices=InsightDataCheckAction.choices,
         allow_null=True,
         help_text=(
-            "The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. "
-            "Null when there is no single change."
+            "The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's "
+            "query. `open_filter_settings`: change the project's internal and test users filter. Null when there is "
+            "no single change."
         ),
     )
     events = serializers.IntegerField(
@@ -2480,12 +2481,12 @@ When set, the specified dashboard's filters and date range override will be appl
             200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
         },
         description=(
-            "Check the events behind an insight for the common ways they mislead: local development traffic, bots "
-            "and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose "
-            "series are events. The checks apply the insight's own filters and date range, and read a sample of an "
-            "insight with more than 1 million events. Nothing is stored. This route runs the query it is sent, so it "
-            "needs query access as well as insight access. To check a saved insight by its id, send a GET request "
-            "to `insights/{id}/data_checks/`."
+            "Check the events behind an insight for the common ways they mislead: internal and test users, local "
+            "development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness "
+            "and lifecycle insights whose series are events. The checks apply the insight's own filters and date "
+            "range, and read a sample of an insight with more than 1 million events. Nothing is stored. This "
+            "route runs the query it is sent, so it needs query access as well as insight access. To check a "
+            "saved insight by its id, send a GET request to `insights/{id}/data_checks/`."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read", "query:read"])
