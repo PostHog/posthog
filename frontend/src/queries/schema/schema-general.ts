@@ -2922,6 +2922,8 @@ export type QueryStatus = {
      */
     query_async: true
     team_id: integer
+    /** The user who started the query. Guests can read and cancel only their own queries. */
+    user_id?: integer
     insight_id?: integer
     dashboard_id?: integer
     /**

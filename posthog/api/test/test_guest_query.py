@@ -7,6 +7,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import QueryStatus
+
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
@@ -97,3 +100,15 @@ class TestGuestQuery(APIBaseTest):
         response = self._query(query=CLIENT_QUERY, insight_id=self.insight.id)
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert process.call_args.args[1].kind == "HogQLQuery"
+
+    @parameterized.expand([("own query", True), ("another user's query", False)])
+    def test_guest_reads_and_cancels_only_their_own_async_query(self, _name: str, own: bool) -> None:
+        user_id = self.user.pk if own else self.user.pk + 1
+        QueryStatusManager("query-1", self.team.pk).store_query_status(
+            QueryStatus(id="query-1", team_id=self.team.pk, user_id=user_id, complete=True, results=[1])
+        )
+        status_response = self.client.get(f"/api/environments/{self.team.id}/query/query-1/")
+        assert (status_response.status_code == status.HTTP_404_NOT_FOUND) is not own, status_response.json()
+        if not own:
+            cancel = self.client.delete(f"/api/environments/{self.team.id}/query/query-1/")
+            assert cancel.status_code == status.HTTP_404_NOT_FOUND

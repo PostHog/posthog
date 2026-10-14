@@ -609,7 +609,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Try the same query again, but with force
         client.enqueue_process_query_task(
-            self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True, force=True
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True, force=True
         )
 
         # Try the same query again (for good measure!)
@@ -632,7 +632,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Try the same query again, but with force
         client.enqueue_process_query_task(
-            self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True, force=True
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True, force=True
         )
 
         # Try the same query again (for good measure!)

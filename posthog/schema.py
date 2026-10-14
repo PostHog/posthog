@@ -7532,6 +7532,10 @@ class QueryStatus(BaseModel):
     start_time: AwareDatetime | None = Field(default=None, description="When was query execution task enqueued.")
     task_id: str | None = None
     team_id: int
+    user_id: int | None = Field(
+        default=None,
+        description=("The user who started the query. Guests can read and cancel only their own queries."),
+    )
 
 
 class QueryStatusResponse(BaseModel):

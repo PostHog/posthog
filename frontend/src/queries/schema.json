@@ -51429,6 +51429,10 @@
                 },
                 "team_id": {
                     "$ref": "#/definitions/integer"
+                },
+                "user_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The user who started the query. Guests can read and cancel only their own queries."
                 }
             },
             "required": ["id", "query_async", "team_id", "error", "complete", "error_message", "error_code"],

@@ -469,6 +469,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        # A query status holds the full results, so a guest may read only the queries they started.
+        if is_enforced_guest(request) and query_status.user_id != request.user.pk:
+            raise QueryNotFoundError()
         managed_connection_id = next(
             (
                 label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
@@ -521,6 +524,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
+        if (
+            is_enforced_guest(request)
+            and get_query_status(team_id=self.team.pk, query_id=pk).user_id != request.user.pk
+        ):
+            raise QueryNotFoundError()
         message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
 
         return Response(status=200, data={"message": message})
