@@ -1,0 +1,99 @@
+from collections.abc import Sequence
+from typing import Any
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.authz.backend.facade.contracts import CheckRequest, Context
+from products.authz.backend.facade.enums import ResourceType
+from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.models import Insight
+
+SAVED_QUERY = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
+CLIENT_QUERY = {"kind": "HogQLQuery", "query": "select * from persons"}
+
+
+class TestGuestQuery(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.GUEST
+        self.organization_membership.save()
+        self.insight = Insight.objects.create(team=self.team, query=SAVED_QUERY)
+        self.other_insight = Insight.objects.create(team=self.team, query=SAVED_QUERY)
+        notebook_content = {
+            "type": "doc",
+            "content": [{"type": "ph-query", "attrs": {"nodeId": "node-1", "query": SAVED_QUERY}}],
+        }
+        self.notebook = Notebook.objects.create(team=self.team, content=notebook_content)
+        self.other_notebook = Notebook.objects.create(team=self.team, content=notebook_content)
+        for target, kwargs in (
+            ("products.authz.backend.logic.rollout.get_feature_flag_or_none", {"return_value": "v2"}),
+            ("products.authz.backend.logic.authorization.check", {"side_effect": self._openfga_check}),
+        ):
+            patcher = patch(target, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _openfga_check(self, requests: Sequence[CheckRequest], _context: Context | None) -> list[bool]:
+        return [
+            request.resource.type in (ResourceType.PROJECT, ResourceType.ORGANIZATION)
+            or (request.resource.type == ResourceType.INSIGHT and request.resource.id == str(self.insight.id))
+            or (request.resource.type == ResourceType.NOTEBOOK and request.resource.id == str(self.notebook.id))
+            for request in requests
+        ]
+
+    def _query(self, **body: Any):
+        return self.client.post(f"/api/environments/{self.team.id}/query/", body, format="json")
+
+    def test_guest_query_without_a_reference_is_denied(self) -> None:
+        assert self._query(query=CLIENT_QUERY).status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("posthog.api.query.process_query_model", return_value={"results": []})
+    def test_guest_query_runs_the_saved_query_not_the_client_query(self, process) -> None:
+        response = self._query(query=CLIENT_QUERY, insight_id=self.insight.id)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert process.call_args.args[1].kind == "TrendsQuery"
+
+    def test_guest_cannot_query_an_insight_they_cannot_view(self) -> None:
+        response = self._query(query=CLIENT_QUERY, insight_id=self.other_insight.id)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("breakdown", {"breakdown_filter": {"breakdown": "email", "breakdown_type": "person"}}),
+            ("hogql filter", {"properties": [{"type": "hogql", "key": "person.properties.email = 'a'"}]}),
+        ]
+    )
+    def test_guest_cannot_use_overrides_that_expose_values(self, _name: str, filters_override: dict) -> None:
+        response = self._query(query=CLIENT_QUERY, insight_id=self.insight.id, filters_override=filters_override)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("granted notebook", True), ("other notebook", False)])
+    @patch("posthog.api.query.process_query_model", return_value={"results": []})
+    def test_guest_runs_a_notebook_node_only_in_a_granted_notebook(self, _name: str, granted: bool, process) -> None:
+        notebook = self.notebook if granted else self.other_notebook
+        response = self._query(query=CLIENT_QUERY, notebook_short_id=notebook.short_id, node_id="node-1")
+        assert response.status_code == (status.HTTP_200_OK if granted else status.HTTP_403_FORBIDDEN)
+        if granted:
+            assert process.call_args.args[1].kind == "TrendsQuery"
+
+    @patch("posthog.api.query.process_query_model", return_value={"results": []})
+    def test_members_still_run_their_own_query(self, process) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self._query(query=CLIENT_QUERY, insight_id=self.insight.id)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert process.call_args.args[1].kind == "HogQLQuery"

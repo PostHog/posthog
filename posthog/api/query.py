@@ -1,6 +1,6 @@
 import re
 from time import perf_counter
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -43,6 +43,7 @@ from posthog.api.monitoring import (
     monitor,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.guest_query import resolve_guest_query
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
@@ -60,6 +61,7 @@ from posthog.errors import (
 )
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.guest_access import is_enforced_guest
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
@@ -297,6 +299,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         with tracer.start_as_current_span("posthog.query.upgrade"):
             upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
+        if is_enforced_guest(request):
+            # A guest runs the saved query of the item they were granted, never the query they sent.
+            guest_query = resolve_guest_query(data, self.team, cast(User, request.user))
+            data = data.model_copy(
+                update={"query": QueryRequest.model_validate(upgrade({"query": guest_query.query})).query}
+            )
 
         query = None
         try:
