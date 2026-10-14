@@ -1084,15 +1084,18 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         user = self.viewer_user if access_level == "viewer" else self.editor_user
         self._create_access_control(user, access_level=access_level)
         self.client.force_login(user)
+        target: Node | Edge = self.node if deleted == "node" else edge
         if deleted == "node":
-            url, model, pk = f"{self._list_url()}{self.node.id}/", Node, self.node.id
+            url = f"{self._list_url()}{self.node.id}/"
         else:
-            url, model, pk = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/", Edge, edge.id
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
 
         response = self.client.delete(url)
 
         self.assertEqual(response.status_code, expected_status)
-        self.assertEqual(model.objects.filter(pk=pk).exists(), expected_status == status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
+        )
 
     @parameterized.expand(
         [
