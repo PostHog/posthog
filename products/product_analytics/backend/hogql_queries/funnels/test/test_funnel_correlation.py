@@ -2580,3 +2580,58 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         if kind == "EventsQuery":
             self.assertIs(runner.modifiers.convertToProjectTimezone, False)
         self.assertEqual(query.model_dump(), original)
+
+
+class TestActorExecutionUserContext(APIBaseTest):
+    @parameterized.expand(
+        [("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("FunnelCorrelationQuery",)]
+    )
+    def test_nested_query_context_follows_execution_user(self, kind: str) -> None:
+        from typing import cast
+
+        from posthog.schema import (
+            ActorsQuery,
+            FunnelCorrelationQuery,
+            FunnelCorrelationResultsType,
+            FunnelsActorsQuery,
+            FunnelsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+        )
+
+        from posthog.hogql.context import HogQLContext
+
+        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+        from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+        from posthog.hogql_queries.query_runner import get_query_runner_or_none
+
+        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner, FunnelsQueryRunner
+
+        source = FunnelsQuery(series=[EventsNode(event="started"), EventsNode(event="finished")])
+        actors = FunnelsActorsQuery(source=source, funnelStep=1)
+        queries = {
+            "ActorsQuery": ActorsQuery(source=actors),
+            "InsightActorsQuery": InsightActorsQuery(source=source),
+            "InsightActorsQueryOptions": InsightActorsQueryOptions(source=actors),
+            "FunnelCorrelationQuery": FunnelCorrelationQuery(
+                source=actors, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
+            ),
+        }
+        runner = get_query_runner_or_none(query=queries[kind], team=self.team, user=self.user)
+        assert runner is not None
+
+        def execution_context() -> HogQLContext:
+            if isinstance(runner, ActorsQueryRunner):
+                assert runner.source_query_runner is not None
+                return runner.source_query_runner.build_hogql_context()
+            if isinstance(runner, FunnelCorrelationQueryRunner):
+                return runner.context.hogql_context
+            assert isinstance(runner, (InsightActorsQueryRunner, InsightActorsQueryOptionsRunner))
+            return cast(FunnelsQueryRunner, runner.source_runner).context.hogql_context
+
+        assert execution_context().user is self.user
+        other_user = User.objects.create_and_join(self.organization, "context-user@example.com", None)
+        runner.user = other_user
+        runner._on_user_changed()
+        assert execution_context().user is other_user
