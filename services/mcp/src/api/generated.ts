@@ -64086,12 +64086,16 @@ export namespace Schemas {
     }
 
     export interface MCPEventSubscription {
+      /** Subscription ID supplied to the receiving MCP client. */
       readonly id: string;
       readonly arguments: MCPEventArguments;
       /** Callback hostname. Paths and signing secrets are hidden. */
       readonly callback_host: string;
+      /** Time when this subscription stops delivering events. */
       readonly expires_at: string;
+      /** Whether this subscription is enabled. */
       readonly active: boolean;
+      /** Time when this subscription was created. */
       readonly created_at: string;
     }
 
