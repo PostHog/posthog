@@ -150,7 +150,6 @@ class DeletePersonsProfileTests(ClickhouseTestMixin, BaseTest):
         assert publish.call_args.args[1].version == expected_version
         stored = get_active_fake().stored_person(self.team.pk, str(p.uuid))
         assert stored is not None and stored.is_deleted and stored.version == expected_version
-        # An unchecked tombstone stays queued, so the weekly repair checks it again.
         assert list(get_active_fake().tombstone_queue) == ([(self.team.pk, str(p.uuid))] if check_fails else [])
         assert _sample("posthog_person_deletion_clickhouse_version_checks_total", outcome=outcome) == checks_before + 1
 
