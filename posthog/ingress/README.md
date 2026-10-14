@@ -142,11 +142,11 @@ A product declares `products/<name>/backend/webhook_consumers.py` with a `WEBHOO
 ```python
 WEBHOOK_CONSUMERS = (
     WebhookConsumer(
-        name="loops",
+        name="tasks_pr_backstop",
         provider="github",
         app="posthog",
-        event_types=frozenset({"issues", "issue_comment", "pull_request", "push"}),
-        handler=handle_github_event_for_loops,
+        event_types=frozenset({"pull_request"}),
+        handler=_run_pr_backstop,
     ),
 )
 ```

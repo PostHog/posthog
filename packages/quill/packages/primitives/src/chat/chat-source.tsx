@@ -27,24 +27,32 @@ const STATUS_ICON: Record<ChatSourceStatus, React.ReactElement> = {
     done: <CircleCheckIcon />,
 }
 
-function ChatSourceList({ className, ...props }: React.ComponentProps<'ul'>): React.ReactElement {
-    return <ul data-quill data-slot="source-list" className={cn('quill-chat-source-list', className)} {...props} />
-}
+const ChatSourceList = React.forwardRef<HTMLUListElement, React.ComponentProps<'ul'>>(function ChatSourceList(
+    { className, ...props },
+    ref
+) {
+    return (
+        <ul
+            ref={ref}
+            data-quill
+            data-slot="source-list"
+            className={cn('quill-chat-source-list', className)}
+            {...props}
+        />
+    )
+})
 
 type ChatSourceProps = useRender.ComponentProps<'a'> & {
     status?: ChatSourceStatus
     href?: string
 }
 
-function ChatSource({
-    status = 'pending',
-    className,
-    children,
-    href,
-    render,
-    ...props
-}: ChatSourceProps): React.ReactElement {
+const ChatSource = React.forwardRef<HTMLElement, ChatSourceProps>(function ChatSource(
+    { status = 'pending', className, children, href, render, ...props },
+    ref
+) {
     const row = useRender({
+        ref,
         defaultTagName: href == null ? 'span' : 'a',
         props: mergeProps<'a'>(
             {
@@ -73,14 +81,20 @@ function ChatSource({
             {row}
         </li>
     )
-}
+})
 
-function ChatSourceTitle({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="source-title" className={cn('quill-chat-source__title', className)} {...props} />
-}
+const ChatSourceTitle = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatSourceTitle(
+    { className, ...props },
+    ref
+) {
+    return <span ref={ref} data-slot="source-title" className={cn('quill-chat-source__title', className)} {...props} />
+})
 
-function ChatSourceUrl({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="source-url" className={cn('quill-chat-source__url', className)} {...props} />
-}
+const ChatSourceUrl = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function ChatSourceUrl(
+    { className, ...props },
+    ref
+) {
+    return <span ref={ref} data-slot="source-url" className={cn('quill-chat-source__url', className)} {...props} />
+})
 
 export { ChatSourceList, ChatSource, ChatSourceTitle, ChatSourceUrl, type ChatSourceStatus }

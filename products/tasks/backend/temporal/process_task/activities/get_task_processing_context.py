@@ -32,6 +32,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PI_ACP_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -168,6 +169,7 @@ class TaskProcessingContext:
     # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
     # Exposure only: the peers endpoints re-check authorization server-side on every call.
     peer_messaging_enabled: bool = False
+    pi_acp_conversation_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -237,18 +239,6 @@ class TaskProcessingContext:
         state = self.state or {}
         has_resume_source = isinstance(state.get("resume_from_run_id"), str) or is_same_run_resume_state(state)
         return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
-
-    @property
-    def loop_id(self) -> str | None:
-        """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
-        value = (self.state or {}).get("loop_id")
-        return value if isinstance(value, str) else None
-
-    @property
-    def loop_trigger_id(self) -> str | None:
-        """Set alongside loop_id when a loop trigger fired this run."""
-        value = (self.state or {}).get("loop_trigger_id")
-        return value if isinstance(value, str) else None
 
     @property
     def runtime_adapter(self) -> str | None:
@@ -457,6 +447,28 @@ def _is_peer_messaging_enabled(
     if enabled:
         log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
     return enabled
+
+
+def _is_pi_acp_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_ACP_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pi_acp_flag_check_failed", run_id=run_id, error=str(e))
+        return False
 
 
 def _is_rtk_enabled(
@@ -1107,18 +1119,6 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
-def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
-    """Loop runs opt into the CI/review-comment follow-up loop when the loop's
-    snapshotted behaviors ask for it (`watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
-    the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
-    already-queued run.
-    """
-    if task.origin_product != Task.OriginProduct.LOOP:
-        return False
-    behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
-    return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
-
-
 def _is_pr_babysit_snapshot_enabled(
     *,
     distinct_id: str,
@@ -1343,7 +1343,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-        or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
@@ -1373,7 +1372,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
     try:
-        instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
+        instruction_updates, state_remove_keys = agent_instructions_state_update(
+            task, actor_user, ai_stage=state.get("ai_stage")
+        )
         state_updates.update(instruction_updates)
     except Exception as e:
         log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
@@ -1739,6 +1740,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI
         and _is_peer_messaging_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI
+        and _is_pi_acp_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,
             run_id=run_id,

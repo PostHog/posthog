@@ -5,21 +5,33 @@ import time
 import uuid
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import orjson
+from django.db import (
+    OperationalError as DjangoOperationalError,
+    close_old_connections,
+)
 
-from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
+import orjson
+from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError
+from clickhouse_driver.errors import ErrorCodes, NetworkError, ServerException, SocketTimeoutError
+from psycopg import OperationalError as PsycopgOperationalError
+
+from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
+from .harness.retries import infrastructure_retry_delay
 from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
@@ -168,6 +180,7 @@ class _BaseEvalRun:
         self.agent_trace_id_lookup: dict[str, str] = {}
         # Per-case metadata for emitting $ai_trace root events after scoring.
         self.case_trace_meta: dict[str, dict[str, Any]] = {}
+        self._trial_counts: dict[str, int] = {}
 
         # Local disk sink for raw agent logs — lets an agent iterating on the
         # harness read back what happened without round-tripping through Braintrust.
@@ -235,6 +248,9 @@ class _BaseEvalRun:
     async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
         case_name = input.get("name", "?")
+        hooks.metadata["trial_id"] = str(uuid.uuid4())
+        hooks.metadata["trial_index"] = self._trial_counts.get(case_name, 0)
+        self._trial_counts[case_name] = hooks.metadata["trial_index"] + 1
         status: Literal["ok", "timeout", "error"] = "ok"
         try:
             return await self._execute_case(input, hooks)
@@ -270,7 +286,12 @@ class _BaseEvalRun:
                 if not case_name:
                     continue
                 try:
-                    append_case_scores(self.run_log_dir, case_name, dict(eval_result.scores or {}))
+                    append_case_scores(
+                        self.run_log_dir,
+                        case_name,
+                        dict(eval_result.scores or {}),
+                        trial_id=eval_result.metadata.get("trial_id"),
+                    )
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
@@ -297,8 +318,9 @@ class _BaseEvalRun:
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
-                    trace_id = self.agent_trace_id_lookup.get(case_name)
-                    meta = self.case_trace_meta.get(case_name)
+                    trial_id = str(eval_result.metadata.get("trial_id") or case_name)
+                    trace_id = self.agent_trace_id_lookup.get(trial_id)
+                    meta = self.case_trace_meta.get(trial_id)
                     if trace_id and meta:
                         emit_trace_root(
                             self.posthog_client,
@@ -340,8 +362,7 @@ class _BaseEvalRun:
         """Write one JSONL row per case x trial to the run's local log dir.
 
         The reporter's ``eval_results.jsonl`` carries only per-experiment
-        aggregates, and ``eval_harness/logs/`` case logs overwrite each other
-        across trials — neither supports a paired case-level analysis. The data
+        aggregates. The per-case records support paired case-level analysis. The data
         already lives in ``ExperimentResult.results``; persist it here.
         ``trial_index`` groups the trials of one case: scores from the same
         trial index are comparable across runs of the same case set, but a
@@ -360,7 +381,8 @@ class _BaseEvalRun:
                     "run_id": self.experiment_id,
                     "experiment": self.experiment_name,
                     "case_name": case_name,
-                    "trial_index": trial_index,
+                    "trial_index": case_result.metadata.get("trial_index", trial_index),
+                    "trial_id": case_result.metadata.get("trial_id"),
                     "scores": case_result.scores,
                     "error": case_result.error,
                 }
@@ -398,6 +420,75 @@ class _BaseEvalRun:
 
         await self._finalize(result)
         return result
+
+
+def _retryable_setup_error(error: Exception) -> bool:
+    if isinstance(
+        error,
+        (
+            ConnectionError,
+            NetworkError,
+            SocketTimeoutError,
+            EndpointConnectionError,
+            ConnectionClosedError,
+            ReadTimeoutError,
+            ClickHouseAtCapacity,
+            ClickHouseQueryTimeOut,
+            ClickHouseQueryMemoryLimitExceeded,
+        ),
+    ):
+        return True
+    if isinstance(error, ServerException):
+        return error.code in {
+            ErrorCodes.TIMEOUT_EXCEEDED,
+            ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+            ErrorCodes.MEMORY_LIMIT_EXCEEDED,
+        }
+    if isinstance(error, ClientError):
+        return error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") in {500, 502, 503, 504}
+    cause = error.__cause__ if isinstance(error, DjangoOperationalError) else error
+    if isinstance(cause, PsycopgOperationalError):
+        code = cause.sqlstate
+        if code is not None:
+            return code.startswith("08") or code in {"40001", "40P01", "53300", "57P01", "57P02", "57P03"}
+        message = str(cause).lower()
+        if "fatal:" in message:
+            return False
+        return any(
+            transport_error in message
+            for transport_error in (
+                "connection refused",
+                "connection reset by peer",
+                "connection timed out",
+                "timeout expired",
+                "server closed the connection unexpectedly",
+                "ssl syscall error: eof detected",
+                "ssl connection has been closed unexpectedly",
+                "could not receive data from server",
+                "could not send data to server",
+                "network is unreachable",
+                "no route to host",
+                "temporary failure in name resolution",
+            )
+        )
+    return False
+
+
+async def _run_setup_step[Result](step: Callable[[], Result]) -> Result:
+    def run_in_worker() -> Result:
+        try:
+            return step()
+        except Exception:
+            close_old_connections()
+            raise
+
+    return await asyncio.to_thread(run_in_worker)
+
+
+@frozen
+class _SandboxedCaseSetup:
+    context: CustomPromptSandboxContext
+    seed: dict[str, Any]
 
 
 class _SandboxedEvalRun(_BaseEvalRun):
@@ -441,8 +532,69 @@ class _SandboxedEvalRun(_BaseEvalRun):
         assert isinstance(case, SandboxedEvalCase)
         return super()._case_input(case) | {"repo_fixture": case.repo_fixture}
 
+    async def _prepare_case(
+        self,
+        eval_case: SandboxedEvalCase,
+        original_case: SandboxedEvalCase | None,
+        hooks: CaseHooks | None,
+    ) -> _SandboxedCaseSetup:
+        for attempt in range(self.ctx.infrastructure_retries + 1):
+            if hooks is not None:
+                hooks.metadata["setup_attempts"] = attempt + 1
+            sandbox_context: CustomPromptSandboxContext | None = None
+            try:
+                # Team cloning and some case seeders both write to ClickHouse. Bound
+                # the full setup phase separately even when Modal makes sandbox
+                # capacity effectively unbounded.
+                async with self.ctx.team_setup_slots:
+                    # The factory does Django ORM work. Django's async-safety
+                    # guard rejects sync ORM calls from async contexts, so run it
+                    # in a worker thread.
+                    sandbox_context = await _run_setup_step(
+                        partial(
+                            self._demo_data.make_context,
+                            eval_case.name,
+                            disable_bundled_skills=(
+                                self.ctx.skill_delivery == "exec"
+                                or bool(original_case and original_case.disable_bundled_skills)
+                            ),
+                        ),
+                    )
+                    if original_case is not None and original_case.interaction_origin:
+                        sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                    elif self.ctx.skill_delivery == "exec":
+                        sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
+                    seed = (
+                        await _run_setup_step(partial(original_case.setup, sandbox_context))
+                        if original_case is not None and original_case.setup is not None
+                        else {}
+                    )
+                return _SandboxedCaseSetup(context=sandbox_context, seed=seed)
+            except Exception as error:
+                if sandbox_context is not None:
+                    await reclaim_kernels(
+                        sandbox_context.team_id,
+                        keep=self._provider_strategy.keeps_sandboxes(),
+                    )
+                if not _retryable_setup_error(error) or attempt == self.ctx.infrastructure_retries:
+                    raise
+                delay = infrastructure_retry_delay(attempt)
+                error_type = type(error).__name__
+                if hooks is not None:
+                    hooks.metadata.setdefault("setup_retry_errors", []).append(error_type)
+                await self.ctx.reporter.case_setup_retry(
+                    self.experiment_name,
+                    eval_case.name,
+                    next_attempt=attempt + 2,
+                    total_attempts=self.ctx.infrastructure_retries + 1,
+                    delay_seconds=delay,
+                    error_type=error_type,
+                )
+                await asyncio.sleep(delay)
+        raise AssertionError("unreachable")
+
     async def _run_sandbox_window(
-        self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None
+        self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None, hooks: CaseHooks | None = None
     ) -> tuple[EvalCaseResult, dict[str, Any]]:
         """Run the sandbox-owning window and return its result plus the seed data.
 
@@ -452,37 +604,13 @@ class _SandboxedEvalRun(_BaseEvalRun):
         never waits on post-processing.
         """
         ctx = self.ctx
-        seed_result: dict[str, Any] = {}
         async with self._sandbox_slots:
-            # Team cloning and some case seeders both write to ClickHouse. Bound
-            # the full setup phase separately even when Modal makes sandbox
-            # capacity effectively unbounded.
-            async with ctx.team_setup_slots:
-                # The factory does Django ORM work. Django's async-safety
-                # guard rejects sync ORM calls from async contexts, so run it
-                # in a worker thread.
-                sandbox_context = await asyncio.to_thread(
-                    self._demo_data.make_context,
-                    eval_case.name,
-                    disable_bundled_skills=(
-                        ctx.skill_delivery == "exec" or bool(original_case and original_case.disable_bundled_skills)
-                    ),
-                )
-                if original_case is not None and original_case.interaction_origin:
-                    sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
-                elif ctx.skill_delivery == "exec":
-                    sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
-                if original_case is not None and original_case.setup is not None:
-                    try:
-                        seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
-                    except Exception:
-                        logger.exception("Setup hook failed for '%s'", eval_case.name)
-                        raise
+            prepared = await self._prepare_case(eval_case, original_case, hooks)
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
                 result = await asyncio.wait_for(
-                    run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
+                    run_eval_case(eval_case, prepared.context, provider=self._provider_strategy),
                     timeout=ctx.per_case_timeout_seconds,
                 )
             finally:
@@ -491,10 +619,10 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # case is exactly the one most likely to have left one running. One
                 # indexed query for every case that never touched a notebook.
                 await reclaim_kernels(
-                    sandbox_context.team_id,
+                    prepared.context.team_id,
                     keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
                 )
-        return result, seed_result
+        return result, prepared.seed
 
     async def _post_process(
         self,
@@ -506,9 +634,10 @@ class _SandboxedEvalRun(_BaseEvalRun):
         """Build Braintrust spans, write local logs, emit trace events, and shape
         the scorer input dict — all off the sandbox slot."""
         # Store trace_id in metadata so evaluation events can link to the trace
+        trial_id = hooks.metadata.get("trial_id", eval_case.name)
         if result.trace_id:
             hooks.metadata["trace_id"] = result.trace_id
-            self.agent_trace_id_lookup[eval_case.name] = result.trace_id
+            self.agent_trace_id_lookup[trial_id] = result.trace_id
         hooks.metadata["artifacts"] = result.artifacts.model_dump()
 
         # Parse the log once, use for both Braintrust spans and PostHog trace capture
@@ -533,7 +662,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         run_metadata=self._experiment_metadata(),
                     )
                     # Store metadata for emit_trace_root (called after scoring)
-                    self.case_trace_meta[eval_case.name] = {
+                    self.case_trace_meta[trial_id] = {
                         "prompt": eval_case.prompt,
                         "duration": result.artifacts.duration_seconds,
                         "first_timestamp": parsed.first_timestamp,
@@ -553,7 +682,9 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 prompt=eval_case.prompt,
                 duration=result.artifacts.duration_seconds,
                 last_message=last_message,
-                token_usage=self.case_trace_meta.get(eval_case.name, {}).get("token_usage"),
+                token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
+                trial_id=hooks.metadata.get("trial_id"),
+                trace_id=result.trace_id,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -583,7 +714,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         )
         original_case = self.cases_by_name.get(input["name"])
         sandbox_case = original_case if isinstance(original_case, SandboxedEvalCase) else None
-        result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case)
+        result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case, hooks)
         return await self._post_process(eval_case, hooks, result, seed_result)
 
     def _timeout_output(self) -> dict[str, Any]:

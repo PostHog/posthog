@@ -211,6 +211,8 @@ class TestScoreInboxReports(SimpleTestCase):
         self.served_rendering = self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
         self.due = self._patch(sweep, "reports_due_for_scoring", return_value=[])
         self.score_reports = self._patch(scorer, "score_reports", side_effect=self._outcomes)
+        self.project_vectors = MagicMock()
+        self.pass_project_vectors = self._patch(scorer, "pass_project_vectors", return_value=self.project_vectors)
         self.capture = MagicMock()
         self.capture_scopes = 0
         self._patch(sweep, "ph_scoped_capture", new=self._capture_scope)
@@ -240,6 +242,7 @@ class TestScoreInboxReports(SimpleTestCase):
         now: datetime.datetime,
         serving: Any = None,
         capture: Any = None,
+        project_vectors: Any = None,
     ) -> list:
         if team_id in self.failing_teams:
             raise self.failing_teams[team_id]
@@ -286,10 +289,13 @@ class TestScoreInboxReports(SimpleTestCase):
             (call.args[0], call.args[1], call.kwargs["persist"]) for call in self.score_reports.call_args_list
         ) == [(1, ["a", "novec-c"], True), (2, ["b"], True)]
         assert all(
-            call.kwargs["serving"] is self.serving and call.kwargs["capture"] is self.capture
+            call.kwargs["serving"] is self.serving
+            and call.kwargs["capture"] is self.capture
+            and call.kwargs["project_vectors"] is self.project_vectors
             for call in self.score_reports.call_args_list
         )
         assert (self.load_serving_set.call_count, self.capture_scopes, self.capture.flush.call_count) == (1, 1, 2)
+        self.pass_project_vectors.assert_called_once_with(self.serving, [1, 2])
         self.logger.info.assert_any_call(
             "inbox_ranking_sweep_started", candidates=3, teams=2, manifest_version=MANIFEST, peak_rss_mb=ANY
         )

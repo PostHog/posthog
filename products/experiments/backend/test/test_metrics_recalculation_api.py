@@ -11,13 +11,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -259,7 +259,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",

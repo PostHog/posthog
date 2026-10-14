@@ -35,12 +35,16 @@ METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
-# Retry delay window for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the
-# cluster's at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's
-# 5s exponential schedule. Each bounce picks a random delay in the window, so metrics that bounced in the same
-# burst do not retry at the same moment and hit the same full limit again.
-CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 30
-CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 90
+# Below MAX_METRIC_ATTEMPTS for errors where a retry rarely succeeds and adds ClickHouse load. At the cap the
+# activity fails the metric non-retryable, so the RetryPolicy keeps MAX_METRIC_ATTEMPTS.
+CAPACITY_MAX_METRIC_ATTEMPTS = 3
+# The timeout class also holds SOCKET_TIMEOUT, so one retry stays for network failures.
+TIMEOUT_MAX_METRIC_ATTEMPTS = 2
+
+# Jittered delay after a capacity rejection (ClickHouseAtCapacity or ConcurrencyLimitExceeded), set via
+# next_retry_delay. The per-org app limiter skips Temporal activities, so the delay lets the cluster drain.
+CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
+CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
