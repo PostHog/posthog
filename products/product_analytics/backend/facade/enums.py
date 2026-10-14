@@ -15,3 +15,28 @@ class InsightVariableType(LabeledStrEnum):
     BOOLEAN = "Boolean", "Boolean"
     LIST = "List", "List"
     DATE = "Date", "Date"
+
+
+class InsightDataCheckKey(LabeledStrEnum):
+    LOCAL_DEVELOPMENT = "local_development", "Local development events"
+    BOT_TRAFFIC = "bot_traffic", "Bot and crawler traffic"
+    DUPLICATE_EVENTS = "duplicate_events", "Events sent twice"
+
+
+class InsightDataCheckLevel(LabeledStrEnum):
+    PASSED = "passed", "Passed"
+    WARNING = "warning", "Warning"
+    PROBLEM = "problem", "Problem"
+    SKIPPED = "skipped", "Not checked"
+
+
+class InsightDataCheckAction(LabeledStrEnum):
+    OPEN_FILTER_SETTINGS = "open_filter_settings", "Change the project's internal and test users filter"
+
+
+class InsightDataChecksStatus(LabeledStrEnum):
+    PASSED = "passed", "No data issues found"
+    WARNING = "warning", "A check found a small issue"
+    PROBLEM = "problem", "A check found a large issue"
+    NO_EVENTS = "no_events", "No events to check"
+    UNSUPPORTED = "unsupported", "This kind of insight cannot be checked"
