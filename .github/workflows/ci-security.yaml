@@ -89,7 +89,7 @@ jobs:
                         - 'nodejs/**'
                         - 'packages/**'
                         - 'services/agent-proxy/**'
-                        - 'services/integration-service/**'
+                        - 'services/credentials-service/**'
                         - 'services/mcp/**'
                         - 'services/oauth-proxy/**'
                         - 'services/stripe-app/**'
@@ -306,7 +306,7 @@ jobs:
                       --include /nodejs
                       --include /packages
                       --include /services/agent-proxy
-                      --include /services/integration-service
+                      --include /services/credentials-service
                       --include /services/mcp
                       --include /services/oauth-proxy
                       --include /services/stripe-app

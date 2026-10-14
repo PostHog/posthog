@@ -25,7 +25,6 @@
       ],
       "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mts,mjs}"],
       "ignoreDependencies": [
-        "typed-openapi",
         "chokidar",
         "detect-libc",
         "is-glob",
@@ -38,9 +37,10 @@
       ]
     },
     "packages/api-client": {
-      "entry": ["src/**/*.test.ts"],
-      "project": ["src/**/*.{ts,tsx}"],
+      "entry": ["src/**/*.test.ts", "scripts/*.ts"],
+      "project": ["src/**/*.{ts,tsx}", "scripts/*.ts"],
       "ignore": ["src/generated.ts", "src/generated.augment.ts"],
+      "ignoreDependencies": ["prettier", "typed-openapi"],
       "includeEntryExports": true
     },
     "packages/core": {

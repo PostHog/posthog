@@ -54,19 +54,18 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_flag_call_source_event,
 )
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    build_primary_calculation_configs,
+    team_experiments_configs,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_resolution import is_scheduled_metric
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     filter_metric_group_ids_by_event,
     resolve_action_events,
 )
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-    metric_display_rank,
-)
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
@@ -1038,11 +1037,11 @@ def _link_type(link: ExperimentToSavedMetric) -> str:
 
 @frozen
 class OutcomeMetric:
-    uuid: str
+    calculation_config: MetricCalculationConfig
     metric_type: str
 
 
-def _outcome_metric(experiment: Experiment) -> OutcomeMetric | None:
+def _outcome_metric(experiment: Experiment, team_config: TeamExperimentsConfig) -> OutcomeMetric | None:
     """The primary metric whose stored result this section reports.
 
     Only metrics that can have a stored result count, so a legacy metric listed first never hides
@@ -1051,24 +1050,15 @@ def _outcome_metric(experiment: Experiment) -> OutcomeMetric | None:
     analyzed population, which is the fact the outcome exists to carry.
     """
     candidates = [
-        OutcomeMetric(uuid=str(metric["uuid"]), metric_type=str(metric["metric_type"]))
-        for metric in [
-            *(metric for metric in experiment.metrics or [] if isinstance(metric, dict)),
-            *(
-                link.saved_metric.query
-                for link in _saved_metric_links(experiment)
-                if _link_type(link) == "primary" and isinstance(link.saved_metric.query, dict)
-            ),
-        ]
-        if is_scheduled_metric(metric)
+        OutcomeMetric(
+            calculation_config=calculation_config, metric_type=str(calculation_config.definition["metric_type"])
+        )
+        for calculation_config in build_primary_calculation_configs(experiment, team_config=team_config)
     ]
-    rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
-    # Stable, so a metric the experiment does not order keeps its declared place behind the ordered ones.
-    ordered = sorted(candidates, key=lambda candidate: rank(candidate.uuid))
-    for candidate in ordered:
+    for candidate in candidates:
         if candidate.metric_type in EXPOSURE_SHAPED_METRIC_TYPES:
             return candidate
-    return ordered[0] if ordered else None
+    return candidates[0] if candidates else None
 
 
 @frozen
@@ -1163,14 +1153,14 @@ def _multiple_variant_handling(exposure_criteria: dict[str, Any]) -> str:
 
 
 def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, ExperimentOutcome]:
-    """Stored result that describes each experiment's current run, in one query.
+    """The current stored result of each experiment's outcome metric, in one query.
 
     A legacy Trends or Funnels metric never has a stored result, with or without a uuid, because
     both writers of `ExperimentMetricResult` build the metric from its `metric_type`. Its
     experiment correctly gets no outcome.
     """
     summaries = MetricResultStore.current_outcomes(
-        {experiment_id: metric.uuid for experiment_id, metric in outcome_metrics.items()}
+        {experiment_id: metric.calculation_config for experiment_id, metric in outcome_metrics.items()}
     )
     outcomes: dict[int, ExperimentOutcome] = {}
     for experiment_id, summary in summaries.items():
@@ -1219,7 +1209,7 @@ def _control_baseline_value(
 def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -> PreviousExperiments:
     rows = list(
         experiments.exclude(deleted=True)
-        .select_related("feature_flag")
+        .select_related("feature_flag", "team")
         .prefetch_related(
             Prefetch(
                 "experimenttosavedmetric_set",
@@ -1230,9 +1220,15 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
         .order_by(F("start_date").desc(nulls_last=True), "-created_at", "-id")[:limit]
     )
 
-    outcome_metrics = {
-        experiment.id: metric for experiment in rows if (metric := _outcome_metric(experiment)) is not None
-    }
+    # A draft has no current result: rows from before a reset carry the earlier start date in their key.
+    launched_rows = [experiment for experiment in rows if experiment.start_date is not None]
+    # A calculation key resolves the team's experiment defaults, so read them once per team, not once per experiment.
+    team_configs = team_experiments_configs({experiment.team_id for experiment in launched_rows})
+    outcome_metrics: dict[int, OutcomeMetric] = {}
+    for experiment in launched_rows:
+        metric = _outcome_metric(experiment, team_configs[experiment.team_id])
+        if metric is not None:
+            outcome_metrics[experiment.id] = metric
     outcomes = _outcomes(outcome_metrics)
 
     previous: list[PreviousExperiment] = []

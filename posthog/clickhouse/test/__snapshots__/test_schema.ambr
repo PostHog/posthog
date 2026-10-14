@@ -7907,13 +7907,13 @@
   , _partition UInt64
   
   )
-  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}')
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}', _timestamp)
   -- Monthly, matching the events family. Daily partitions would put ~90 of them
   -- under a 90-day TTL, and enough parts across them to strain merges. The cost
   -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
   -- row expires, so rows survive up to a month past the TTL.
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))
+  ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -13732,13 +13732,13 @@
   , _partition UInt64
   
   )
-  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}')
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}', _timestamp)
   -- Monthly, matching the events family. Daily partitions would put ~90 of them
   -- under a 90-day TTL, and enough parts across them to strain merges. The cost
   -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
   -- row expires, so rows survive up to a month past the TTL.
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))
+  ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
   SETTINGS ttl_only_drop_parts = 1
   
