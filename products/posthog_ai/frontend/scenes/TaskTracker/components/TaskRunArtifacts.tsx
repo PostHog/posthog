@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
 
 import {
     IconCheck,
@@ -201,18 +201,7 @@ function IconAction({
     )
 }
 
-function SandboxedHtmlFrame({
-    url,
-    name,
-    scripts,
-    onLeave,
-}: {
-    url: string
-    name: string
-    scripts: boolean
-    onLeave: () => void
-}): JSX.Element {
-    const loads = useRef(0)
+function SandboxedHtmlFrame({ url, name, scripts }: { url: string; name: string; scripts: boolean }): JSX.Element {
     return (
         <iframe
             className="size-full border-0 bg-white"
@@ -220,12 +209,6 @@ function SandboxedHtmlFrame({
             referrerPolicy="no-referrer"
             src={url}
             title={`Preview of ${name}`}
-            onLoad={() => {
-                loads.current += 1
-                if (loads.current > 1) {
-                    onLeave()
-                }
-            }}
         />
     )
 }
@@ -476,8 +459,9 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         htmlPreview,
         htmlPreviewLoading,
     } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { ensureSelectedText, loadArtifactText, loadHtmlPreview, runHtmlPreviewScripts, leaveHtmlPreview } =
-        useActions(taskRunArtifactsLogic({ taskId }))
+    const { ensureSelectedText, loadArtifactText, loadHtmlPreview, runHtmlPreviewScripts } = useActions(
+        taskRunArtifactsLogic({ taskId })
+    )
     useEffect(() => {
         ensureSelectedText()
     }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, mode, ensureSelectedText])
@@ -538,28 +522,6 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
                 </div>
             )
         }
-        if (htmlPreview.left) {
-            return (
-                <Empty className="h-full">
-                    <EmptyHeader>
-                        <EmptyTitle>This file tried to open a different page</EmptyTitle>
-                        <EmptyDescription>
-                            PostHog closed the preview because the other page is not part of this file. Reload the
-                            preview to see the file again.
-                        </EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent>
-                        <Button
-                            variant="outline"
-                            onClick={() => loadHtmlPreview(selectedArtifact)}
-                            data-attr="task-artifact-reload-preview"
-                        >
-                            Reload preview
-                        </Button>
-                    </EmptyContent>
-                </Empty>
-            )
-        }
         if (!htmlPreview.url) {
             return (
                 <Empty className="h-full">
@@ -594,7 +556,6 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
                         url={htmlPreview.url}
                         name={selectedArtifact.name}
                         scripts={htmlPreview.scriptsEnabled}
-                        onLeave={leaveHtmlPreview}
                     />
                 </div>
             </div>

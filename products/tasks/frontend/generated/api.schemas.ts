@@ -3566,6 +3566,11 @@ export interface TaskRunArtifactFinalizeUploadApi {
     content_type?: string
     /** Skill bundle metadata, required when the artifact type is skill_bundle. */
     metadata?: TaskRunSkillBundleMetadataApi
+    /**
+     * ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.
+     * @maxLength 255
+     */
+    base_artifact_id?: string
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {

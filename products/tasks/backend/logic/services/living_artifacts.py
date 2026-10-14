@@ -36,7 +36,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
-from products.tasks.backend.constants import ARTIFACT_OPEN_NETWORK_WRITER_KEY
+from products.tasks.backend.constants import ARTIFACT_OPEN_NETWORK_WRITER_KEY, ARTIFACT_SCRIPT_SHA256_KEY
 from products.tasks.backend.facade.contracts import LivingArtifactVersionContent
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
@@ -164,11 +164,21 @@ def create_living_artifact(
                 "source_artifact_id": source_artifact_id,
                 "source_storage_path": source_storage_path,
             },
-            versions=[{**commit.version, ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network}],
+            versions=[
+                {
+                    **commit.version,
+                    ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network
+                    and _source_runs_scripts(content_payload),
+                }
+            ],
             current_version=1,
             export_asset_id=export_asset_id,
         )
     return artifact
+
+
+def _source_runs_scripts(content: ArtifactContent) -> bool:
+    return content.source_artifact is None or isinstance(content.source_artifact.get(ARTIFACT_SCRIPT_SHA256_KEY), str)
 
 
 def edit_living_artifact(
@@ -221,7 +231,18 @@ def edit_living_artifact(
     with transaction.atomic():
         locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
         versions = list(locked.versions or [])
-        versions.append({**commit.version, ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network})
+        base_version = next(
+            (v for v in versions if isinstance(v, dict) and v.get("version") == locked.current_version), None
+        )
+        versions.append(
+            {
+                **commit.version,
+                ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network
+                and base_version is not None
+                and base_version.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
+                and _source_runs_scripts(content_payload),
+            }
+        )
         locked.name = next_name
         locked.adapter = commit.adapter
         locked.location = commit.location

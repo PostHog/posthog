@@ -83,7 +83,6 @@ export interface ArtifactHtmlPreview {
     scriptsEnabled: boolean
     scriptsAvailable: boolean
     scriptsError: string | null
-    left: boolean
 }
 
 /** The file version an edit started from, and the text it had then. */
@@ -186,9 +185,6 @@ export interface taskRunArtifactsLogicActions {
         artifactId: string
     }
     ensureSelectedText: () => {
-        value: true
-    }
-    leaveHtmlPreview: () => {
         value: true
     }
     loadArtifactMedia: (artifact: RunArtifact) => RunArtifact
@@ -415,7 +411,6 @@ function emptyHtmlPreview(artifactId: string): ArtifactHtmlPreview {
         scriptsEnabled: false,
         scriptsAvailable: false,
         scriptsError: null,
-        left: false,
     }
 }
 
@@ -529,7 +524,6 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
         ensureSelectedText: true,
-        leaveHtmlPreview: true,
         openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
         reportLinkCopied: true,
         reportObjectOpened: (objectKind: string) => ({ objectKind }),
@@ -689,7 +683,6 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 state !== null && state.artifactId === artifact.id && state.url
                     ? { ...state, scriptsError: null }
                     : emptyHtmlPreview(artifact.id ?? ''),
-            leaveHtmlPreview: (state) => (state ? { ...state, url: null, left: true } : state),
         },
         activeTab: [
             'conversation' as TaskRunTab,
@@ -951,6 +944,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     name: session.name,
                     content,
                     contentType: session.contentType,
+                    baseArtifactId: session.baseArtifactId,
                 })
                 // Read the manifests before the edit ends, so the new version is in the list when the preview opens.
                 actions.loadChainRunsSuccess(
@@ -981,7 +975,6 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 (values.htmlPreview?.artifactId !== artifact.id ||
                     (!values.htmlPreviewLoading &&
                         !values.htmlPreview?.error &&
-                        !values.htmlPreview?.left &&
                         (values.htmlPreview?.expiresAt ?? 0) < Date.now()))
             ) {
                 actions.loadHtmlPreview(artifact)
@@ -1052,11 +1045,6 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             ensureSelectedText: loadSelectedText,
             runHtmlPreviewScripts: () => {
                 posthog.capture('task artifact scripts run', { living: !!values.selectedArtifact?.living })
-            },
-            leaveHtmlPreview: () => {
-                posthog.capture('task artifact preview left', {
-                    scripts_enabled: values.htmlPreview?.scriptsEnabled ?? false,
-                })
             },
             loadChainRuns: (runIds) => {
                 if (runIds[0]) {

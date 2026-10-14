@@ -4457,7 +4457,12 @@ def finalize_task_run_artifact_uploads(
             return None, build_task_run_artifact_size_error(safe_name, max_size_bytes)
 
         script_sha256 = None
-        if written_with_open_network and is_html_artifact(safe_name, content_type):
+        base_artifact_id = artifact.get("base_artifact_id")
+        base_entry = next((e for e in manifest if e.get("id") == base_artifact_id), None) if base_artifact_id else None
+        base_runs_scripts = base_artifact_id is None or (
+            base_entry is not None and isinstance(base_entry.get(ARTIFACT_SCRIPT_SHA256_KEY), str)
+        )
+        if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
             uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
             script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
 

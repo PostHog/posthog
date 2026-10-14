@@ -43,13 +43,44 @@ The header permits the fixed compiler and module CDNs, but blocks external image
 Use a built canvas with declared network origins for external images.
 Changes to this server policy and its tests require security review.
 
-Task HTML previews use the same artifact origin. The task API checks read access before issuing a short-lived URL for one artifact version. For a living artifact version, the API also checks analytics access for every run of the task, because any run of the task can write a version. The artifact host reads that version and responds with an HTML-specific CSP in an opaque-origin sandbox. It blocks network APIs and external resources. Task preview responses use `Cache-Control: no-store`, including when the CDN handles `/canvas-artifacts/`.
+Task HTML previews use the same artifact origin.
+The task API checks read access before issuing a short-lived URL for one artifact version.
+For a living artifact version, the API also checks analytics access for every run of the task, because any run of the task can write a version.
+Task preview responses use `Cache-Control: no-store`, including when the CDN handles `/canvas-artifacts/`.
 
-A preview opens with scripts off. The CSP sandbox has no `allow-scripts` flag, so the page cannot run code or use a meta refresh. The user must select "Run scripts" to get a URL with a CSP that allows inline JavaScript.
+The artifact host does not serve the file as the document.
+It serves a shim document with no script, and the shim holds the file in an inner frame through the `srcdoc` attribute, HTML-escaped.
+The shim's CSP applies to both frames, because a `srcdoc` document inherits the policy of its parent.
+That policy blocks network APIs and external resources, runs in an opaque-origin sandbox, and sets `frame-src 'none'`.
+The `frame-src` of a parent applies to every navigation of its child frame, including a navigation that the child starts itself.
+So the browser refuses `location = ...`, a meta refresh, a link click, and a form submission before the request leaves.
+A `srcdoc` frame is not subject to `frame-src`, so the file still loads.
+This holds in Chromium, Firefox, and WebKit.
 
-The browser cannot keep a running artifact offline. A script can navigate its frame to an external site, and CSP cannot block this. This sends artifact content or input outside PostHog. For this reason, the API gives a script URL only when whoever wrote that artifact version had full network access. The server records this on the manifest entry or the living artifact version at write time, from the authenticated writer, never from the request body. A sandbox agent gets the network access of the run that its token belongs to. A person gets full access. A file from a Slack thread, a file written before this record existed, or a file from any other write path has no record and stays static. Because the record belongs to the artifact, it does not matter which run or task holds the file, so an agent cannot get scripts by writing into another run or task. A run with no sandbox environment counts as full access. A run whose environment is deleted, is not accessible, or changed after the run started does not count. A caller cannot change `sandbox_environment_id` in run state, so an agent cannot remove its own restriction. The record also keeps a SHA-256 hash of the HTML bytes that the writer saved. A stored living artifact version keeps the same hash in its version record. A presigned upload form stays valid after finalize and can still replace the object, so the preview runs scripts only when the bytes it serves still match that hash. Otherwise it serves the file with scripts off. This keeps the network limit that a team sets on its sandbox environment.
+A preview opens with scripts off.
+The CSP sandbox has no `allow-scripts` flag, and the inner frame has an empty `sandbox` attribute, so the file cannot run code.
+The user must select "Run scripts" to get a URL with a CSP that allows inline JavaScript.
 
-When the frame loads a second document, the app removes the frame and shows a notice. This keeps an external page out of the PostHog UI. The first request to the external site still leaves the browser. The task preview has no PostHog credentials or API bridge. Do not put secrets in an HTML artifact that runs code. Self-hosted deployments need `CANVAS_ARTIFACT_ORIGIN` for the web preview in production; the app origin is used only in development and tests.
+CSP does not cover every channel: WebRTC and DNS prefetch are not blocked by this policy.
+For this reason, the API gives a script URL only when whoever wrote that artifact version had full network access.
+The server records this on the manifest entry or the living artifact version at write time, from the authenticated writer, never from the request body.
+A sandbox agent gets the network access of the run that its token belongs to.
+A person, through a session, a personal API key, or a PostHog Desktop grant, gets full access.
+Any other OAuth application gets no access.
+An edit records full access only when its base version has it: a finalized upload names its base with `base_artifact_id`, a living artifact edit uses the current version, and a living artifact copied from a run file uses that file.
+A file from a Slack thread, a file written before this record existed, or a file from any other write path has no record and stays static.
+Because the record belongs to the artifact, it does not matter which run or task holds the file, so an agent cannot get scripts by writing into another run or task.
+A run with no sandbox environment counts as full access.
+A run whose environment is deleted, is not accessible, or changed after the run started does not count.
+A caller cannot change `sandbox_environment_id` in run state, so an agent cannot remove its own restriction.
+The record also keeps a SHA-256 hash of the HTML bytes that the writer saved.
+A stored living artifact version keeps the same hash in its version record.
+A presigned upload form stays valid after finalize and can still replace the object, so the preview runs scripts only when the bytes it serves still match that hash.
+Otherwise it serves the file with scripts off.
+
+The task preview has no PostHog credentials or API bridge.
+Do not put secrets in an HTML artifact that runs code.
+Self-hosted deployments need `CANVAS_ARTIFACT_ORIGIN` for the web preview in production; the app origin is used only in development and tests.
 
 ## Cache policy
 

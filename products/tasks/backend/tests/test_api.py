@@ -20,6 +20,7 @@ from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
+from django.utils.html import escape
 
 import jwt
 import posthoganalytics
@@ -9149,8 +9150,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("open_base_version", True), ("restricted_base_version", False)])
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_open_and_edit(self, mock_integration_for_mapping):
+    def test_living_artifact_create_open_and_edit(self, _name, base_open, mock_integration_for_mapping):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -9201,6 +9203,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(open_response.status_code, status.HTTP_200_OK)
         self.assertEqual(open_response.json()["content"], "# Living report")
+        if not base_open:
+            created = TaskArtifact.objects.for_team(self.team.id).get(id=artifact["id"])
+            created.versions = [{**created.versions[0], "written_with_open_network": False}]
+            created.save(update_fields=["versions"])
 
         edit_response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/edit/",
@@ -9213,7 +9219,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(updated["current_version"], 2)
         self.assertEqual([version["version"] for version in updated["versions"]], [1, 2])
         stored = TaskArtifact.objects.for_team(self.team.id).get(id=artifact["id"])
-        self.assertEqual([version["written_with_open_network"] for version in stored.versions], [True, True])
+        self.assertEqual([version["written_with_open_network"] for version in stored.versions], [base_open, base_open])
         self.assertEqual(slack.api_call.call_args_list[0].args[0], "canvases.create")
         self.assertEqual(slack.api_call.call_args_list[1].args[0], "canvases.edit")
 
@@ -10265,9 +10271,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         static = self.client.get(api_path)
         self.assertEqual(static.status_code, status.HTTP_200_OK)
         self.assertTrue(static.json()["scripts_available"])
-        static_csp = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")[
-            "Content-Security-Policy"
-        ]
+        static_preview = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")
+        static_csp = static_preview["Content-Security-Policy"]
+        self.assertIn('<iframe sandbox="" ', static_preview.content.decode())
         self.assertIn("sandbox;", static_csp)
         self.assertIn("script-src 'none'", static_csp)
         self.assertNotIn("allow-scripts", static_csp)
@@ -10282,10 +10288,15 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
 
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        self.assertEqual(preview.content, mock_read_bytes.return_value)
+        self.assertIn(
+            f'<iframe sandbox="allow-scripts" title="Artifact" srcdoc="{escape(mock_read_bytes.return_value.decode())}">',
+            preview.content.decode(),
+        )
+        self.assertNotIn(mock_read_bytes.return_value.decode(), preview.content.decode())
         self.assertEqual(preview["Cache-Control"], "no-store")
         self.assertIn("sandbox allow-scripts", preview["Content-Security-Policy"])
         self.assertIn("script-src 'unsafe-inline'", preview["Content-Security-Policy"])
+        self.assertIn("frame-src 'none'", preview["Content-Security-Policy"])
         self.assertNotIn("allow-same-origin", preview["Content-Security-Policy"])
         self.assertEqual(self.client.get(preview_path).status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(
@@ -10372,12 +10383,112 @@ class TestTaskRunAPI(BaseTaskAPITest):
             minted = self.client.get(api_path)
             self.assertEqual(minted.status_code, status.HTTP_200_OK)
             served = self.client.get(urlsplit(minted.json()["url"]).path, HTTP_HOST="usercontent.example")
-            self.assertEqual(served.content, mock_read_bytes.return_value)
+            self.assertIn(escape(mock_read_bytes.return_value.decode()), served.content.decode())
             return served["Content-Security-Policy"]
 
         self.assertIn("sandbox allow-scripts", served_csp())
         mock_read_bytes.return_value = b"<script>location.replace('https://attacker.example/')</script>"
         self.assertNotIn("allow-scripts", served_csp())
+
+    @parameterized.expand(
+        [
+            ("edit_of_an_open_file", "upload_edit", True),
+            ("edit_of_a_restricted_file", "upload_edit", False),
+            ("living_copy_of_an_open_file", "living_copy", True),
+            ("living_copy_of_a_restricted_file", "living_copy", False),
+        ]
+    )
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch("posthog.storage.object_storage.read_bytes")
+    @patch("posthog.storage.object_storage.head_object")
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_html_written_by_a_person_from_another_file_runs_scripts_only_when_that_file_can(
+        self,
+        _name,
+        writer,
+        base_runs_scripts,
+        mock_integration_for_mapping,
+        _mock_tag,
+        _mock_write,
+        mock_head_object,
+        mock_read_bytes,
+    ):
+        html = b"<script>document.title = 'report'</script>"
+        mock_head_object.return_value = {"ContentLength": len(html), "ContentType": "text/html"}
+        mock_read_bytes.return_value = html
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        base_id = uuid.uuid4().hex
+        run.artifacts = [
+            {
+                "id": base_id,
+                "name": "report.html",
+                "type": "output",
+                "source": "agent_output",
+                "content_type": "text/html",
+                "storage_path": f"{run.get_artifact_s3_prefix()}/{base_id[:8]}_report.html",
+                **({"script_sha256": hashlib.sha256(html).hexdigest()} if base_runs_scripts else {}),
+            }
+        ]
+        run.save(update_fields=["artifacts"])
+        runs_path = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}"
+        if writer == "upload_edit":
+            edit_id = uuid.uuid4().hex
+            saved = self.client.post(
+                f"{runs_path}/artifacts/finalize_upload/",
+                {
+                    "artifacts": [
+                        {
+                            "id": edit_id,
+                            "name": "report.html",
+                            "type": "output",
+                            "storage_path": f"{run.get_artifact_s3_prefix()}/{edit_id[:8]}_report.html",
+                            "content_type": "text/html",
+                            "base_artifact_id": base_id,
+                        }
+                    ]
+                },
+                format="json",
+            )
+            api_path = f"{runs_path}/artifacts/{edit_id}/preview/"
+        else:
+            integration = Integration.objects.create(
+                team=self.team, kind="slack", integration_id="T123", config={"scope": "chat:write,files:write"}
+            )
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=integration,
+                slack_workspace_id="T123",
+                channel="C123",
+                thread_ts="1111.1",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U123",
+            )
+            slack_integration = MagicMock()
+            slack_integration.missing_scopes.return_value = set()
+            mock_integration_for_mapping.return_value = slack_integration
+            saved = self.client.post(
+                f"{runs_path}/living_artifacts/",
+                {
+                    "name": "report.html",
+                    "artifact_type": "file",
+                    "adapter": "slack_file",
+                    "source_artifact_id": base_id,
+                },
+                format="json",
+            )
+            api_path = f"{runs_path}/artifacts/{saved.json()['id']}/preview/?version=1"
+        self.assertEqual(saved.status_code, status.HTTP_200_OK, saved.content)
+
+        preview = self.client.get(api_path)
+
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.json()["scripts_available"], base_runs_scripts)
 
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
@@ -10399,7 +10510,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview_path = urlsplit(minted.json()["url"]).path
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        self.assertEqual(preview.content, versions[1]["content"].encode())
+        self.assertIn(escape(versions[1]["content"]), preview.content.decode())
         self.assertEqual(self.client.get(f"{api_path}?version=1").status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(self.client.get(f"{api_path}?version={'9' * 21}").status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -10412,6 +10523,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("agent_environment_changed_after_run", "agent", SandboxEnvironment.NetworkAccessLevel.FULL, -1, False),
             ("agent_environment_deleted", "agent", "deleted", 1, False),
             ("human_on_restricted_run", "human", SandboxEnvironment.NetworkAccessLevel.TRUSTED, 1, True),
+            ("other_oauth_application", "oauth_app", None, 1, False),
         ]
     )
     @override_settings(
@@ -10443,7 +10555,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
             created_at=(environment.updated_at if environment else django_timezone.now())
             + timedelta(minutes=run_started_minutes_after_environment),
         )
-        client = self._sandbox_oauth_client(task.id) if writer == "agent" else self.client
+        client = {
+            "agent": lambda: self._sandbox_oauth_client(task.id),
+            "oauth_app": lambda: self._sandbox_oauth_client(task.id, client_id="third-party-app", bound=False),
+        }.get(writer, lambda: self.client)()
         if network_access_level == "deleted":
             assert environment is not None
             environment.delete()

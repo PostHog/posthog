@@ -83,6 +83,7 @@ from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
     get_oauth_access_token,
     get_task_client_provenance,
+    is_interactive_desktop_grant,
     is_sandbox_oauth_request,
     is_sandbox_origin_request,
 )
@@ -1730,10 +1731,10 @@ def _sandbox_bound_task_id(request) -> UUID | None:
 
 
 def _writer_has_open_network(request: Request, team_id: int) -> bool:
-    if not is_sandbox_oauth_request(request):
-        return True
-    token_id = getattr(get_oauth_access_token(request), "id", None)
-    return token_id is not None and tasks_facade.sandbox_token_has_open_network(team_id, token_id)
+    if is_sandbox_oauth_request(request):
+        token_id = getattr(get_oauth_access_token(request), "id", None)
+        return token_id is not None and tasks_facade.sandbox_token_has_open_network(team_id, token_id)
+    return get_oauth_access_token(request) is None or is_interactive_desktop_grant(request)
 
 
 def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:

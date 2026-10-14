@@ -1840,6 +1840,14 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         required=False,
         help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
+    base_artifact_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text=(
+            "ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when "
+            "its base artifact can."
+        ),
+    )
 
     def validate(self, attrs):
         return validate_task_run_artifact_metadata(attrs)

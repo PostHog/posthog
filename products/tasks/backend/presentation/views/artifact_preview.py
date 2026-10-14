@@ -8,6 +8,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404, HttpRequest, HttpResponse
+from django.utils.html import escape
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.csp_middleware import app_frame_ancestor_sources
@@ -106,6 +107,15 @@ def _task_html_artifact_preview_csp(*, scripts: bool) -> str:
     )
 
 
+def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> str:
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}</style>"
+        f'</head><body><iframe sandbox="{"allow-scripts" if scripts else ""}" title="Artifact" '
+        f'srcdoc="{escape(content.decode("utf-8", errors="replace"))}"></iframe></body></html>'
+    )
+
+
 @xframe_options_exempt
 def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
     from products.canvas.backend.facade.api import ARTIFACT_PERMISSIONS_POLICY, require_artifact_host
@@ -134,13 +144,13 @@ def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
         content = living_content.content
     if error is not None or content is None or len(content) > TASK_RUN_ARTIFACT_MAX_SIZE_BYTES:
         raise Http404
-    response = HttpResponse(content, content_type="text/html; charset=utf-8")
+    scripts = claims.script_digest is not None and hashlib.sha256(content).hexdigest() == claims.script_digest
+    response = HttpResponse(_task_html_artifact_shim(content, scripts=scripts), content_type="text/html; charset=utf-8")
     response["Content-Disposition"] = "inline"
     response["Cache-Control"] = "no-store"
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
-    scripts = claims.script_digest is not None and hashlib.sha256(content).hexdigest() == claims.script_digest
     response["Content-Security-Policy"] = _task_html_artifact_preview_csp(scripts=scripts)
     response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
     return response

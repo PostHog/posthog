@@ -226,11 +226,6 @@ describe('taskRunArtifactsLogic', () => {
             scriptsAvailable: true,
             scriptsError: null,
         })
-
-        logic.actions.leaveHtmlPreview()
-        logic.actions.ensureSelectedText()
-        expect(pending).toHaveLength(6)
-        expect(logic.values.htmlPreview).toMatchObject({ url: null, left: true })
     })
 
     it.each([
@@ -303,6 +298,7 @@ describe('taskRunArtifactsLogic', () => {
             name: 'report.md',
             content: '# Report, edited',
             contentType: 'text/markdown',
+            baseArtifactId: 'report-v1',
         })
         expect(logic.values).toMatchObject({ isEditing: false, editConflict: null })
     })
