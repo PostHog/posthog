@@ -29,7 +29,7 @@ def _organization_flag_enabled(
 ) -> bool:
     """Read one organization-keyed rollout flag.
 
-    The flag is evaluated for every call so a flip takes effect immediately. Content flags are on
+    The flag is evaluated for every call. Content flags are on
     in DEBUG for local coverage; lifecycle flags can require explicit enablement. It fails closed,
     because a flag-service error must not add content to reports of an organization that is not opted in.
     """

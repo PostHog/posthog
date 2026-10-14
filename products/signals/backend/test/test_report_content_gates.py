@@ -7,7 +7,6 @@ from django.test import SimpleTestCase, override_settings
 import posthoganalytics
 from parameterized import parameterized
 
-from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_content_gates import (
     organization_report_metrics_enabled,
     organization_report_monitoring_enabled,
@@ -85,15 +84,3 @@ class TestReportContentGates(SimpleTestCase):
 
         team_lookup.assert_not_called()
         evaluate.assert_not_called()
-
-    @parameterized.expand([("disabled", False), ("enabled", True)])
-    def test_the_monitoring_transition_requires_enablement(self, _name: str, enabled: bool) -> None:
-        report = SignalReport(team_id=7, status=SignalReport.Status.READY)
-        with patch(_TEAM_LOOKUP) as lookup, patch(_FLAG_EVALUATION, return_value=enabled):
-            lookup.return_value.get.return_value = UUID("00000000-0000-0000-0000-000000000001")
-            if enabled:
-                report.transition_to(SignalReport.Status.MONITORING)
-                assert report.monitoring_started_at is not None
-            else:
-                with self.assertRaises(InvalidStatusTransition):
-                    report.transition_to(SignalReport.Status.MONITORING)

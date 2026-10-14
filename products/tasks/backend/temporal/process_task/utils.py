@@ -1501,7 +1501,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     record_gateway_routing(
         run_id=ctx.run_id,
         team_id=ctx.team_id,
-        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")) and ctx.task_runtime != "pi",
+        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")),
     )
     return env_vars
 

@@ -513,6 +513,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        monitoring_started_at: datetime | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -529,8 +530,15 @@ class SignalReport(UUIDModel):
 
         match (current_status, new_status):
             case (S.READY | S.PENDING_INPUT | S.FAILED, S.MONITORING):
-                self.monitoring_started_at = timezone.now()
+                if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
+                    raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
+                self.monitoring_started_at = monitoring_started_at
                 updated_fields.add("monitoring_started_at")
+
+            case (S.MONITORING, S.MONITORING):
+                if self.monitoring_started_at is None:
+                    raise ValueError("The current Monitoring period has no implementation-complete timestamp.")
+                return []
 
             case (S.SUPPRESSED, S.MONITORING):
                 if self.status_before_suppression != S.MONITORING or self.monitoring_started_at is None:
