@@ -115,11 +115,8 @@
                 </span>
             </div>
             <!--
-                Links rather than a form with a checkbox: the enforced app policy sets
-                `form-action 'self' https://accounts.google.com`, and Chromium judges every hop of a
-                form submission's redirect chain. Continuing here lands on this same view, which
-                redirects to slack.com, so a submitted form is cancelled with nothing shown to the
-                user. A link navigation is not governed by that directive.
+                Links, not a form: continuing lands on this same view, which redirects to slack.com,
+                and the app policy's `form-action` cancels a form submission that redirects off-origin.
             -->
             <div class="actions">
                 <a class="primary"
