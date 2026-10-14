@@ -1,90 +1,35 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metorial import (
+    MetorialSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.metorial import (
     DEFAULT_PAGE_SIZE,
     MetorialResumeConfig,
     _format_incremental_value,
-    metorial_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source import MetorialSource
 
 # A stand-in API key long enough to be caught by the transport's value-based redaction.
 _SECRET_KEY = "metorial_sk_abcdef1234567890"
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the metorial module.
-METORIAL_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.metorial.metorial.make_tracked_session"
-)
+
+def _driver(api_key: str = "metorial_sk_x") -> SourceDriver:
+    return SourceDriver(MetorialSource(), MetorialSourceConfig(api_key=api_key))
 
 
-def _response(
-    items: list[dict[str, Any]] | None = None,
-    *,
-    has_more_after: bool = False,
-    status: int = 200,
-    body: Any = None,
-    url: str = "https://api.metorial.com/tool-calls",
-    reason: str = "OK",
-    headers: dict[str, str] | None = None,
-) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = url
-    resp.reason = reason
-    if headers:
-        resp.headers.update(headers)
-    if body is not None:
-        payload: Any = body
-    else:
-        payload = {"items": items if items is not None else [], "pagination": {"has_more_after": has_more_after}}
-    resp._content = json.dumps(payload).encode()
-    return resp
-
-
-def _make_manager(resume: MetorialResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each request
-    is prepared rather than inspecting the final state.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(session_factory: MagicMock, **kwargs: Any) -> Any:
-    defaults: dict[str, Any] = {"api_key": "metorial_sk_x", "endpoint": "tool_calls", "team_id": 1, "job_id": "j"}
-    defaults.update(kwargs)
-    defaults.setdefault("resumable_source_manager", _make_manager())
-    return metorial_source(**defaults)
+def _page(items: list[dict[str, Any]], *, has_more_after: bool = False) -> ScriptedResponse:
+    return ScriptedResponse(json={"items": items, "pagination": {"has_more_after": has_more_after}})
 
 
 class TestFormatIncrementalValue:
@@ -104,83 +49,51 @@ class TestFormatIncrementalValue:
 
 
 class TestResume:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession: MagicMock) -> None:
+    def test_resumes_from_saved_cursor(self) -> None:
         # A resumed run must continue from the persisted cursor, not restart the whole stream.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "prn_9"}], has_more_after=False)])
-
-        rows = _rows(
-            _source(
-                MockSession,
-                endpoint="provider_runs",
-                resumable_source_manager=_make_manager(MetorialResumeConfig(after="prn_8")),
-            )
+        result = _driver().run(
+            "provider_runs",
+            [_page([{"id": "prn_9"}])],
+            resume_state=MetorialResumeConfig(after="prn_8"),
         )
 
-        assert params[0]["after"] == "prn_8"
-        assert [r["id"] for r in rows] == ["prn_9"]
+        assert result.params("after") == ["prn_8"]
+        assert [row["id"] for row in result.rows] == ["prn_9"]
+        assert result.raised is None
 
 
 class TestIncrementalFilter:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_builds_gt_filter_for_chosen_field_on_every_page(self, MockSession: MagicMock) -> None:
+    def test_builds_gt_filter_for_chosen_field_on_every_page(self) -> None:
         # Dropping or misnaming this filter turns every "incremental" sync into a full refresh.
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [_response([{"id": "ses_1"}], has_more_after=True), _response([{"id": "ses_2"}], has_more_after=False)],
+        result = _driver().run(
+            "sessions",
+            [_page([{"id": "ses_1"}], has_more_after=True), _page([{"id": "ses_2"}])],
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                MockSession,
-                endpoint="sessions",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
+        assert result.params("updated_at[gt]") == ["2026-03-04T02:58:14.000Z"] * 2
+        assert result.raised is None
 
-        assert len(params) == 2
-        for p in params:
-            assert p["updated_at[gt]"] == "2026-03-04T02:58:14.000Z"
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_first_sync_has_no_filter(self, MockSession: MagicMock) -> None:
+    def test_first_sync_has_no_filter(self) -> None:
         # No watermark yet: sending an empty gt filter would 400 (or silently sync nothing).
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "ses_1"}], has_more_after=False)])
+        result = _driver().run("sessions", [_page([{"id": "ses_1"}])], incremental_field="updated_at")
 
-        _rows(
-            _source(
-                MockSession,
-                endpoint="sessions",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-                incremental_field="updated_at",
-            )
-        )
+        assert len(result.requests) == 1
+        assert not any(key.endswith("[gt]") for key in result.requests[0].query)
+        assert result.raised is None
 
-        assert not any(k.endswith("[gt]") for k in params[0])
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_never_filters(self, MockSession: MagicMock) -> None:
+    def test_full_refresh_endpoint_never_filters(self) -> None:
         # providers exposes no server-side timestamp filter; it must not fabricate one.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "pro_1"}], has_more_after=False)])
-
-        _rows(
-            _source(
-                MockSession,
-                endpoint="providers",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-                incremental_field="created_at",
-            )
+        result = _driver().run(
+            "providers",
+            [_page([{"id": "pro_1"}])],
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
-        assert params[0] == {"limit": DEFAULT_PAGE_SIZE, "order": "asc"}
+        assert result.queries == [{"limit": (str(DEFAULT_PAGE_SIZE),), "order": ("asc",)}]
+        assert result.raised is None
 
 
 class TestSourceResponse:
@@ -208,71 +121,51 @@ class TestSourceResponse:
     def test_sort_mode_matches_incremental_field(
         self, _name: str, endpoint: str, incremental_field: str | None, expected_sort_mode: str
     ) -> None:
-        response = metorial_source(
-            api_key="metorial_sk_x",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-            incremental_field=incremental_field,
-        )
-        assert response.sort_mode == expected_sort_mode
-        assert response.primary_keys == ["id"]
+        result = _driver().run(endpoint, [_page([])], incremental_field=incremental_field)
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode
+        assert result.response.primary_keys == ["id"]
         # Partition key must be the stable created_at, never updated_at (partitions would rewrite each sync).
-        assert response.partition_keys == ["created_at"]
+        assert result.response.partition_keys == ["created_at"]
 
 
 class TestErrorHandling:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
-    @patch(CLIENT_SESSION_PATCH)
-    def test_4xx_raises_matchable_http_error_without_leaking_key(
-        self, _name: str, status: int, reason: str, MockSession: MagicMock
-    ) -> None:
+    def test_4xx_raises_matchable_http_error_without_leaking_key(self, _name: str, status: int, reason: str) -> None:
         # The secret key must never reach the exception text (surfaced as the schema's latest_error
         # outside warehouse ACLs), but the stable `<status> Client Error: <reason> for url:
         # https://api.metorial.com...` prefix that get_non_retryable_errors() matches on must survive.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response(status=status, reason=reason, url=f"https://api.metorial.com/sessions?token={_SECRET_KEY}")],
-        )
+        result = _driver(_SECRET_KEY).run("sessions", [ScriptedResponse(status=status)])
 
-        with pytest.raises(HTTPError) as exc:
-            _rows(_source(MockSession, endpoint="sessions", api_key=_SECRET_KEY))
-
-        message = str(exc.value)
+        assert isinstance(result.raised, HTTPError)
+        assert result.requests[0].headers["authorization"] == f"Bearer {_SECRET_KEY}"
+        assert _SECRET_KEY in result.session_options[0]["redact_values"]
+        message = str(result.raised)
         assert _SECRET_KEY not in message
         assert message.startswith(f"{status} Client Error: {reason} for url: https://api.metorial.com/sessions")
 
     @parameterized.expand([("server_error", 503), ("rate_limited", 429)])
-    @patch("time.sleep")
-    @patch(CLIENT_SESSION_PATCH)
-    def test_transient_status_is_retried(
-        self, _name: str, status: int, MockSession: MagicMock, _sleep: MagicMock
-    ) -> None:
+    def test_transient_status_is_retried(self, _name: str, status: int) -> None:
         # 429/5xx are transient: back off and retry rather than failing the sync.
-        session = MockSession.return_value
-        headers = {"Retry-After": "1"} if status == 429 else None
-        _wire(
-            session,
-            [
-                _response(status=status, reason="err", headers=headers),
-                _response([{"id": "tcl_5"}], has_more_after=False),
-            ],
+        headers = {"Retry-After": "1"} if status == 429 else {}
+        result = _driver().run(
+            "tool_calls",
+            [ScriptedResponse(status=status, headers=headers), _page([{"id": "tcl_5"}])],
         )
 
-        rows = _rows(_source(MockSession))
-
-        assert [r["id"] for r in rows] == ["tcl_5"]
-        assert session.send.call_count == 2
+        assert [row["id"] for row in result.rows] == ["tcl_5"]
+        assert len(result.requests) == 2
+        assert result.raised is None
 
 
 class TestValidateCredentials:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    @patch(METORIAL_SESSION_PATCH)
-    def test_invalid_key(self, _name: str, status: int, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status)
-        mock_session_factory.return_value = session
+    def test_invalid_key(self, _name: str, status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            assert validate_credentials("bad-key") is False
 
-        assert validate_credentials("bad-key") is False
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/sessions"
+        assert network.requests_log[0].param("limit") == "1"

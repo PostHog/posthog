@@ -51,7 +51,9 @@ export function BIToolbar(): JSX.Element {
                     !config.source
                         ? 'Select a table before running'
                         : !generatedQuery
-                          ? 'Fix invalid worksheet fields before running'
+                          ? config.rows.length || config.columns.length || config.values.length
+                              ? 'Fix invalid worksheet fields before running'
+                              : 'Add a field to rows or columns before running'
                           : undefined
                 }
                 data-attr="bi-editor-run-query"
@@ -74,7 +76,9 @@ export function BIToolbar(): JSX.Element {
                 tooltip="Swap rows and columns"
                 aria-label="Swap rows and columns"
                 disabledReason={
-                    config.rows.length === 0 && config.columns.length === 0 ? 'No fields to swap' : undefined
+                    config.rows.length === 0 && config.columns.length === 0 && config.values.length === 0
+                        ? 'No fields to swap'
+                        : undefined
                 }
                 onClick={swapRowsAndColumns}
                 data-attr="bi-editor-swap"
@@ -127,6 +131,7 @@ export function BIToolbar(): JSX.Element {
                 onChange={setLimit}
                 renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
                 aria-label="Query row limit"
+                tooltip="Maximum aggregated result rows, after grouping and calculations. This does not limit the source rows read."
                 size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}
@@ -156,7 +161,7 @@ export function BIToolbar(): JSX.Element {
                         className="@3xl/bi-editor:hidden"
                         data-attr="bi-editor-show-me"
                     >
-                        Chart types
+                        Show me
                     </LemonButton>
                 </LemonDropdown>
                 {!chartTypesOpen ? (
@@ -167,7 +172,7 @@ export function BIToolbar(): JSX.Element {
                         onClick={() => setChartTypesOpen(true)}
                         data-attr="bi-editor-show-me"
                     >
-                        Chart types
+                        Show me
                     </LemonButton>
                 ) : null}
             </div>

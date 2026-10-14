@@ -7,6 +7,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SurveyEventName } from '~/types'
 
 import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
     urlForNewWorkflowWithTrigger,
@@ -34,7 +35,13 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
             tooltip="Open a workflow that emails each person who responds to this survey"
             onClick={() => {
                 captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(urlForNewWorkflowWithTrigger(surveyFollowUpTrigger(surveyId), SOURCE))
+                router.actions.push(
+                    urlForNewWorkflowWithTrigger(
+                        surveyFollowUpTrigger(surveyId),
+                        SOURCE,
+                        draftMessage({ kind: 'survey_responded' })
+                    )
+                )
             }}
             data-attr="survey-start-follow-up-workflow"
         >

@@ -1,14 +1,22 @@
-import json
+import ssl
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 import time_machine
 from unittest import mock
 
-import requests
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
+    MetabaseAuthMethodConfig,
+    MetabaseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase import metabase as metabase_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
@@ -20,49 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     MetabaseQueryLogsUnavailableError,
     MetabaseResumeConfig,
     _resolve_auth_headers,
-    get_rows,
-    metabase_source,
     normalize_host,
     query_execution_months,
     validate_credentials,
 )
-
-# The RESTClient reuses the session passed in the client config; metabase builds that session via
-# make_tracked_session in the metabase module (the same helper mints the session-auth token), so a
-# single patch drives both the mint POST and the framework's data requests.
-METABASE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase.make_tracked_session"
-)
-
-
-def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.is_redirect = status_code in (301, 302, 303, 307, 308)
-    response.is_permanent_redirect = status_code in (301, 308)
-    response.text = text
-    response.json.return_value = json_data
-    response.headers = {}
-    return response
-
-
-def _real_response(*, status_code: int = 200, json_data: Any = None) -> Response:
-    """A real requests.Response the framework can parse — send() returns these to the RESTClient."""
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = b"" if json_data is None else json.dumps(json_data).encode()
-    resp.url = "https://x.metabaseapp.com/api/card"
-    if status_code in (301, 302, 303, 307, 308):
-        resp.headers["Location"] = "https://internal.example/redirected"
-    return resp
-
-
-def _manager(next_month: Optional[str] = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = next_month is not None
-    manager.load_state.return_value = MetabaseResumeConfig(next_month=next_month) if next_month else None
-    return manager
+from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source import MetabaseSource
 
 
 def _api_key_auth() -> MetabaseAuth:
@@ -71,6 +41,15 @@ def _api_key_auth() -> MetabaseAuth:
 
 def _session_auth() -> MetabaseAuth:
     return MetabaseAuth(method=SESSION_AUTH, username="me@example.com", password="hunter2")
+
+
+def _driver(*, session_auth: bool = False) -> SourceDriver:
+    auth = (
+        MetabaseAuthMethodConfig(selection="session", username="me@example.com", password="hunter2")
+        if session_auth
+        else MetabaseAuthMethodConfig(selection="api_key", api_key="mb_secret")
+    )
+    return SourceDriver(MetabaseSource(), MetabaseSourceConfig(host="https://x.metabaseapp.com", auth_method=auth))
 
 
 class TestNormalizeHost:
@@ -111,11 +90,6 @@ class TestQueryExecutionMonths:
 
 
 class TestResolveAuthHeaders:
-    def _patch_mint(self, post_response=None):
-        session = mock.MagicMock()
-        session.post.return_value = post_response
-        return session, mock.patch.object(metabase_module, "make_tracked_session", return_value=session)
-
     def test_api_key_missing_raises(self):
         auth = MetabaseAuth(method=API_KEY_AUTH, api_key=None)
         with pytest.raises(MetabaseAuthError):
@@ -123,9 +97,11 @@ class TestResolveAuthHeaders:
 
     @pytest.mark.parametrize("status_code", [400, 401, 403])
     def test_session_bad_credentials_raises_auth_error(self, status_code):
-        session, patch = self._patch_mint(_response(status_code=status_code))
-        with patch, pytest.raises(MetabaseAuthError):
-            _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            with pytest.raises(MetabaseAuthError):
+                _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        assert network.requests_log[0].path == "/api/session"
+        assert network.requests_log[0].json() == {"username": "me@example.com", "password": "hunter2"}
 
     def test_session_missing_username_raises(self):
         auth = MetabaseAuth(method=SESSION_AUTH, username=None, password="x")
@@ -133,54 +109,46 @@ class TestResolveAuthHeaders:
             _resolve_auth_headers("https://x.metabaseapp.com", auth, mock.MagicMock())
 
     def test_session_no_token_in_response_raises(self):
-        session, patch = self._patch_mint(_response(json_data={}))
-        with patch, pytest.raises(MetabaseAuthError):
-            _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        with scripted_network([ScriptedResponse(json={})]):
+            with pytest.raises(MetabaseAuthError):
+                _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
 
     def test_session_non_json_body_raises_auth_error(self):
         # A 2xx whose body isn't JSON (host isn't a Metabase API) must surface as a non-retryable
         # MetabaseAuthError, not a raw JSONDecodeError bubbling out of the activity.
-        response = _response(status_code=200)
-        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
-        session, patch = self._patch_mint(response)
-        with patch, pytest.raises(MetabaseAuthError) as exc:
-            _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        with scripted_network([ScriptedResponse(body=b"not json")]):
+            with pytest.raises(MetabaseAuthError) as exc:
+                _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
         assert SESSION_RESPONSE_NOT_JSON_ERROR in str(exc.value)
 
     @pytest.mark.parametrize("status_code", [404, 422, 500])
     def test_session_unexpected_status_raises_retryable_not_httperror(self, status_code):
         # Unexpected non-auth statuses must surface as a typed retryable error so callers'
         # except clauses catch them, not a raw requests HTTPError.
-        session, patch = self._patch_mint(_response(status_code=status_code))
-        with patch, pytest.raises(metabase_module.MetabaseRetryableError):
-            _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        with scripted_network([ScriptedResponse(status=status_code)]):
+            with pytest.raises(metabase_module.MetabaseRetryableError):
+                _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
 
 
 class TestValidateCredentials:
-    def _patch_session(self, get_response=None, raises=None):
-        session = mock.MagicMock()
-        if raises is not None:
-            session.get.side_effect = raises
-        else:
-            session.get.return_value = get_response
-        return mock.patch.object(metabase_module, "make_tracked_session", return_value=session)
-
     def test_success(self):
-        with self._patch_session(_response(status_code=200)):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             assert validate_credentials("https://x.metabaseapp.com", _api_key_auth()) == (True, None)
+        assert network.requests_log[0].path == "/api/user/current"
+        assert network.requests_log[0].headers["x-api-key"] == "mb_secret"
 
     def test_invalid_credentials(self):
-        with self._patch_session(_response(status_code=401)):
+        with scripted_network([ScriptedResponse(status=401)]):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
             assert msg == "Invalid Metabase credentials"
 
     def test_403_at_source_create_is_accepted(self):
-        with self._patch_session(_response(status_code=403)):
+        with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("https://x.metabaseapp.com", _api_key_auth(), schema_name=None) == (True, None)
 
     def test_403_for_scoped_probe_fails(self):
-        with self._patch_session(_response(status_code=403)):
+        with scripted_network([ScriptedResponse(status=403)]):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth(), schema_name="cards")
             assert valid is False
             assert msg is not None
@@ -196,7 +164,7 @@ class TestValidateCredentials:
         # on. The (fictional-range) IP and the raw blob must never reach the user; a friendly,
         # actionable message must.
         raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): Max retries exceeded"
-        with self._patch_session(raises=requests.exceptions.ConnectionError(raw)):
+        with scripted_network(always(ConnectionResetError(raw))):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
             assert msg is not None
@@ -208,7 +176,7 @@ class TestValidateCredentials:
         # HTTPS forced onto a plaintext port surfaces as SSL WRONG_VERSION_NUMBER; the guidance
         # should tell the user the instance must be served over HTTPS, without leaking the host.
         raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): SSLError([SSL: WRONG_VERSION_NUMBER])"
-        with self._patch_session(raises=requests.exceptions.SSLError(raw)):
+        with scripted_network(always(ssl.SSLError(raw))):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
             assert msg is not None
@@ -216,39 +184,37 @@ class TestValidateCredentials:
             assert "HTTPS" in msg
 
     def test_rejects_redirect_response(self):
-        with self._patch_session(_response(status_code=302)) as patched:
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://internal.example/redirected"})]
+        ) as network:
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
-            assert valid is False
-            assert msg == metabase_module.REDIRECT_NOT_FOLLOWED_ERROR
-            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+        assert valid is False
+        assert msg == metabase_module.REDIRECT_NOT_FOLLOWED_ERROR
+        assert [request.path for request in network.requests_log] == ["/api/user/current"]
 
     def test_blocks_unsafe_host(self):
-        with (
-            mock.patch.object(metabase_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(_response(status_code=200)) as patched,
-        ):
-            valid, msg = validate_credentials("https://10.0.0.1", _api_key_auth(), team_id=99)
-            assert valid is False
-            assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+        with scripted_network([]) as network:
+            with mock.patch.object(metabase_module, "_is_host_safe", return_value=(False, "internal address")):
+                valid, msg = validate_credentials("https://10.0.0.1", _api_key_auth(), team_id=99)
+        assert valid is False
+        assert msg == "internal address"
+        assert network.requests_log == []
 
     def test_unexpected_session_status_returns_failure_not_raises(self):
         # A 404 (e.g. wrong API path) during session minting must come back as (False, msg), not an
         # uncaught HTTPError bubbling out of source creation.
-        session = mock.MagicMock()
-        session.post.return_value = _response(status_code=404)
-        with mock.patch.object(metabase_module, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=404)]) as network:
             valid, msg = validate_credentials("https://x.metabaseapp.com", _session_auth())
-            assert valid is False
-            assert msg is not None
-            session.get.assert_not_called()
+        assert valid is False
+        assert msg is not None
+        assert [request.path for request in network.requests_log] == ["/api/session"]
 
     def test_unexpected_status_does_not_leak_response_body(self):
         # When the host isn't a Metabase instance it returns an arbitrary body (e.g. a hosting
         # provider's error page). That body must never reach the user — only a friendly,
         # status-coded message that points them back at the Instance URL.
         leaked_body = '{"error": {"code": "404", "message": "SENTINEL_UPSTREAM_BODY"}}'
-        with self._patch_session(_response(status_code=404, json_data={"error": {"code": "404"}}, text=leaked_body)):
+        with scripted_network([ScriptedResponse(status=404, body=leaked_body.encode())]):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
             assert msg is not None
@@ -269,14 +235,9 @@ class TestMetabaseSourceResponse:
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = metabase_source(
-            host="https://x.metabaseapp.com",
-            auth=_api_key_auth(),
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            team_id=1,
-            resumable_source_manager=_manager(),
-        )
+        result = _driver().run(endpoint, always(ScriptedResponse(json=[])))
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         if partition_key:
@@ -291,73 +252,52 @@ class TestGetRows:
     """Drives the new rest_source transport: a single unpaginated GET per endpoint, with the auth
     header, host guard, and redirect refusal preserved from the hand-rolled implementation."""
 
-    def _wire(self, session: mock.MagicMock, responses: list[Response]) -> list[Any]:
-        """Wire a mock session and capture the framework Request prepared for each send."""
-        session.headers = {}
-        requests_seen: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            requests_seen.append(request)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = responses
-        return requests_seen
-
-    def _run(
-        self,
-        responses: list[Response],
-        auth: Optional[MetabaseAuth] = None,
-        endpoint: str = "cards",
-        mint_response: Optional[Any] = None,
-    ) -> tuple[list[Any], mock.MagicMock, list[Any]]:
-        session = mock.MagicMock()
-        if mint_response is not None:
-            session.post.return_value = mint_response
-        requests_seen = self._wire(session, responses)
-        with mock.patch(METABASE_SESSION_PATCH, return_value=session):
-            rows: list[Any] = []
-            for table in get_rows(
-                host="https://x.metabaseapp.com",
-                auth=auth or _api_key_auth(),
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                team_id=1,
-                resumable_source_manager=_manager(),
-            ):
-                rows.extend(table)
-        return rows, session, requests_seen
-
     def test_yields_wrapped_array(self):
-        rows, _, _ = self._run([_real_response(json_data={"data": [{"id": 7}], "total": 1})], endpoint="databases")
-        assert [r["id"] for r in rows] == [7]
+        result = _driver().run("databases", [ScriptedResponse(json={"data": [{"id": 7}], "total": 1})])
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [7]
+        assert result.paths == ["/api/database"]
 
-    def test_passes_allow_redirects_false(self):
-        _rows, session, _ = self._run([_real_response(json_data=[{"id": 1}])])
-        assert session.send.call_args.kwargs["allow_redirects"] is False
+    def test_does_not_follow_a_redirect_to_another_path_on_the_host(self):
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://x.metabaseapp.com/api/elsewhere"})
+        result = _driver().run("cards", [redirect, ScriptedResponse(json=[{"id": 1}])])
+        assert result.paths == ["/api/card"]
+        assert result.rows == []
 
     def test_rejects_redirect(self):
         # allow_redirects=False makes the client refuse any 3xx rather than following it off-host.
-        with pytest.raises(ValueError, match="[Rr]edirect"):
-            self._run([_real_response(status_code=302)])
+        result = _driver().run(
+            "cards", [ScriptedResponse(status=302, headers={"Location": "https://internal.example/redirected"})]
+        )
+        assert result.paths == ["/api/card"]
+        assert isinstance(result.raised, ValueError)
+        assert "redirect" in str(result.raised).lower()
 
     def test_blocks_unsafe_host_at_runtime(self):
         with mock.patch.object(metabase_module, "_is_host_safe", return_value=(False, "internal address")):
-            with pytest.raises(MetabaseHostNotAllowedError):
-                self._run([_real_response(json_data=[{"id": 1}])])
+            result = _driver().run("cards", [])
+        assert isinstance(result.raised, MetabaseHostNotAllowedError)
+        assert result.requests == []
 
     def test_session_auth_mints_token_then_lists(self):
-        rows, session, requests_seen = self._run(
-            [_real_response(json_data=[{"id": 1}])],
-            auth=_session_auth(),
-            mint_response=_response(json_data={"id": "tok-123"}),
+        result = _driver(session_auth=True).run(
+            "cards",
+            route(
+                {
+                    "/api/session": [ScriptedResponse(json={"id": "tok-123"})],
+                    "/api/card": [ScriptedResponse(json=[{"id": 1}])],
+                }
+            ),
         )
-        assert session.post.called
+        assert result.raised is None
+        assert result.paths == ["/api/session", "/api/card"]
+        assert result.requests[0].method == "POST"
+        assert result.requests[0].json() == {"username": "me@example.com", "password": "hunter2"}
         # The minted token — not the username/password — is what the data request carries.
-        auth = requests_seen[0].auth
-        assert auth.name == "X-Metabase-Session"
-        assert auth.api_key == "tok-123"
-        assert [r["id"] for r in rows] == [1]
+        headers = result.requests[1].headers
+        assert headers["x-metabase-session"] == "tok-123"
+        assert "x-api-key" not in headers
+        assert [row["id"] for row in result.rows] == [1]
 
     def test_memberships_flatten_user_map(self):
         body = {
@@ -367,27 +307,24 @@ class TestGetRows:
                 {"membership_id": 12, "group_id": 3, "user_id": 2, "is_group_manager": True},
             ],
         }
-        rows, _, requests_seen = self._run([_real_response(json_data=body)], endpoint="permission_group_memberships")
-        assert requests_seen[0].url.endswith("/api/permissions/membership")
-        assert [(r["membership_id"], r["user_id"]) for r in rows] == [(10, 1), (11, 2), (12, 2)]
+        result = _driver().run("permission_group_memberships", [ScriptedResponse(json=body)])
+        assert result.raised is None
+        assert result.paths == ["/api/permissions/membership"]
+        assert [(r["membership_id"], r["user_id"]) for r in result.rows] == [(10, 1), (11, 2), (12, 2)]
 
     def test_fields_fan_out_over_databases(self):
-        rows, _, requests_seen = self._run(
+        result = _driver().run(
+            "fields",
             [
-                _real_response(json_data={"data": [{"id": 1}, {"id": 2}], "total": 2}),
-                _real_response(json_data=[{"id": 100, "table_id": 5, "name": "email"}]),
-                _real_response(json_data=[{"id": 200, "table_id": 9, "name": "amount"}]),
+                ScriptedResponse(json={"data": [{"id": 1}, {"id": 2}], "total": 2}),
+                ScriptedResponse(json=[{"id": 100, "table_id": 5, "name": "email"}]),
+                ScriptedResponse(json=[{"id": 200, "table_id": 9, "name": "amount"}]),
             ],
-            endpoint="fields",
         )
-        assert [r.url.split("x.metabaseapp.com")[1] for r in requests_seen] == [
-            "/api/database",
-            "/api/database/1/fields",
-            "/api/database/2/fields",
-        ]
-        assert [(r["id"], r["database_id"]) for r in rows] == [(100, 1), (200, 2)]
+        assert result.raised is None
+        assert result.paths == ["/api/database", "/api/database/1/fields", "/api/database/2/fields"]
+        assert [(r["id"], r["database_id"]) for r in result.rows] == [(100, 1), (200, 2)]
 
-    @time_machine.travel(datetime(2026, 4, 10, tzinfo=UTC), tick=False)
     @pytest.mark.parametrize(
         "last_value, resume_month, expected_ids, expected_requests",
         [
@@ -397,39 +334,35 @@ class TestGetRows:
             (None, "2026-02", [1, 2, 3, 4], 3),
         ],
     )
-    def test_query_executions_walk_months_ascending(self, last_value, resume_month, expected_ids, expected_requests):
+    def test_query_executions_walk_months_ascending(
+        self, last_value: str | None, resume_month: str | None, expected_ids: list[int], expected_requests: int
+    ):
         february = [{"id": 1, "started_at": "2026-02-15T10:00:00+00:00"}]
         # Metabase returns each month newest first.
         march = [{"id": 3, "started_at": "2026-03-25T10:00:00Z"}, {"id": 2, "started_at": "2026-03-02T10:00:00Z"}]
         april = [{"id": 4, "started_at": "2026-04-02T10:00:00Z"}]
-        responses = [_real_response(json_data=[]) for _ in range(expected_requests - 3)] + [
-            _real_response(json_data=month) for month in (february, march, april)
+        responses = [ScriptedResponse(json=[]) for _ in range(expected_requests - 3)] + [
+            ScriptedResponse(json=month) for month in (february, march, april)
         ]
+        inputs: dict[str, Any] = {}
+        if last_value is not None:
+            inputs = {"incremental_field": "started_at", "db_incremental_field_last_value": last_value}
 
-        session = mock.MagicMock()
-        requests_seen = self._wire(session, responses)
-        manager = _manager(resume_month)
-        with mock.patch(METABASE_SESSION_PATCH, return_value=session):
-            rows = [
-                row
-                for page in get_rows(
-                    host="https://x.metabaseapp.com",
-                    auth=_api_key_auth(),
-                    endpoint="query_executions",
-                    logger=mock.MagicMock(),
-                    team_id=1,
-                    resumable_source_manager=manager,
-                    db_incremental_field_last_value=last_value,
-                )
-                for row in page
-            ]
+        with time_machine.travel(datetime(2026, 4, 10, tzinfo=UTC), tick=False):
+            result = _driver().run(
+                "query_executions",
+                responses,
+                resume_state=MetabaseResumeConfig(next_month=resume_month) if resume_month else None,
+                **inputs,
+            )
 
-        assert [r["id"] for r in rows] == expected_ids
-        assert len(requests_seen) == expected_requests
-        assert requests_seen[-1].url.endswith("/api/ee/logs/query_execution/2026-04")
-        assert [c.args[0].next_month for c in manager.save_state.call_args_list][-2:] == ["2026-03", "2026-04"]
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == expected_ids
+        assert len(result.requests) == expected_requests
+        assert result.paths[-1] == "/api/ee/logs/query_execution/2026-04"
+        assert [state.next_month for state in result.saved_states][-2:] == ["2026-03", "2026-04"]
 
     @pytest.mark.parametrize("status_code", [402, 404])
     def test_query_executions_unavailable_is_typed(self, status_code):
-        with pytest.raises(MetabaseQueryLogsUnavailableError):
-            self._run([_real_response(status_code=status_code)], endpoint="query_executions")
+        result = _driver().run("query_executions", always(ScriptedResponse(status=status_code)))
+        assert isinstance(result.raised, MetabaseQueryLogsUnavailableError)

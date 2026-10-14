@@ -6,7 +6,7 @@ from typing import ClassVar
 from unittest.mock import Mock, patch
 
 from django.apps import apps
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -446,7 +446,7 @@ class TestForwardPendingUserMessage(TestCase):
 _extract_text_from_message_payload = _module._extract_text_from_message_payload
 
 
-class TestExtractTextFromMessagePayload(TestCase):
+class TestExtractTextFromMessagePayload(SimpleTestCase):
     """Guards the ``text-after-last-tool_use`` rule that keeps interim narrative
     ("Let me pull DAU…") out of the Slack reply while preserving the final answer."""
 

@@ -10,6 +10,7 @@ from datetime import timedelta
 from typing import ClassVar
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 import temporalio.workflow
@@ -35,6 +36,8 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import Flash
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
+    CoordinatorReviewInput,
+    CoordinatorReviewResult,
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
@@ -53,6 +56,7 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
+    ReviewReactionInput,
     SandboxStageInput,
     SelectPerspectivesInput,
     StatusCommentInput,
@@ -60,9 +64,11 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
+    TurnEndedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    _nudge_stamphog,
 )
 from products.review_hog.backend.temporal.resolution import (
     FailResolutionInput,
@@ -137,6 +143,7 @@ async def _run_full_review_pr_workflow(
     meta_pr_number: int | None = 7,
     empty_diff: bool = False,
     fail_dedup: bool = False,
+    retryable_dedup_failures: int = 0,
     selection: PerspectiveSelectionDTO | None = None,
     fail_selection: bool = False,
     fail_review_units: frozenset[tuple[int, int]] = frozenset(),
@@ -152,11 +159,15 @@ async def _run_full_review_pr_workflow(
     lens_chunks_capped: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
+    coordinator: bool = False,
+    coordinator_lens_failures: int = 0,
     automatic_reviewed_head_sha: str | None = None,
     skip_agent_review: bool = False,
     gate_skips: bool = False,
     fail_gate: bool = False,
     workflow_max_attempts: int | None = None,
+    publish_posts: bool = True,
+    fail_nudge: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -171,6 +182,7 @@ async def _run_full_review_pr_workflow(
     review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
+    publish_capped_lens_parts: list[int | None] = []
     finalize_will_publish: list[bool] = []
     remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
@@ -178,7 +190,6 @@ async def _run_full_review_pr_workflow(
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
     # all three must be the resolve/publish values, or the comment misattributes the gate.
     finalize_status_calls: list[tuple[str, str, str | None]] = []
-    status_capped_parts: list[int | None] = []
     # The urgency threshold each downstream consumer received (must be the resolve snapshot's value).
     threshold_calls: list[tuple[str, str]] = []
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
@@ -200,6 +211,8 @@ async def _run_full_review_pr_workflow(
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
     lens_calls: list[tuple[str, int]] = []
+    coordinator_calls: list[int] = []
+    started_coordinator: list[bool] = []
     lens_timeouts: list[timedelta | None] = []
 
     def _saw_design(stage: str, design: str) -> None:
@@ -230,6 +243,7 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            coordinator=coordinator,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
             skip_agent_review=skip_agent_review,
         )
@@ -332,11 +346,21 @@ async def _run_full_review_pr_workflow(
         if (input.lens, input.chunk_id) in fail_lens_units:
             raise ApplicationError("lens session died", non_retryable=True)
 
+    @activity.defn(name="coordinator_review_activity")
+    async def coordinator_review(input: CoordinatorReviewInput) -> CoordinatorReviewResult:
+        coordinator_calls.append(input.lens_chunk_count)
+        return CoordinatorReviewResult(lens_failures=coordinator_lens_failures)
+
+    dedup_attempts: list[int] = []
+
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
         _saw_design("dedup", input.review_design)
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
+        dedup_attempts.append(1)
+        if len(dedup_attempts) <= retryable_dedup_failures:
+            raise ApplicationError("sandbox busy")
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
         flash_stats = _FLASH_TURN_STATS if input.review_design == "single_agent" else None
         return DedupResult(issue_ids=["1-1-1", "1-2-1"], flash_stats=flash_stats)
@@ -363,8 +387,9 @@ async def _run_full_review_pr_workflow(
     async def publish_act(input: PublishInput) -> PublishResult:
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
+        publish_capped_lens_parts.append(input.capped_lens_parts)
         threshold_calls.append(("publish", input.urgency_threshold))
-        return PublishResult(posted=True, review_url=_REVIEW_URL)
+        return PublishResult(posted=publish_posts, review_url=_REVIEW_URL if publish_posts else None)
 
     @activity.defn(name="remove_trigger_label_activity")
     async def remove_label(input: RemoveTriggerLabelInput) -> None:
@@ -388,12 +413,36 @@ async def _run_full_review_pr_workflow(
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
         marker_calls["status"] = input.marker
-        status_capped_parts.append(input.capped_lens_parts)
         return None
 
+    # Each failure edit as (review_mode, last_attempt, uses_status_comment).
+    fail_status_calls: list[tuple[str, bool, bool]] = []
+
     @activity.defn(name="fail_status_comment_activity")
-    async def fail_status(input) -> None:
+    async def fail_status(input: StatusCommentInput) -> None:
+        fail_status_calls.append((input.review_mode, input.last_attempt, input.uses_status_comment))
         return None
+
+    # The PR's 👀 while the turn runs, as ("add",) and ("remove", reaction_id).
+    reaction_calls: list[tuple[str] | tuple[str, int | None]] = []
+
+    @activity.defn(name="add_review_reaction_activity")
+    async def add_reaction(input: ReviewReactionInput) -> int:
+        reaction_calls.append(("add",))
+        return 42
+
+    @activity.defn(name="remove_review_reaction_activity")
+    async def remove_reaction(input: ReviewReactionInput) -> None:
+        reaction_calls.append(("remove", input.reaction_id))
+
+    # Each stamphog nudge as (repository, pr_number, head_sha).
+    nudge_calls: list[tuple[str, int, str]] = []
+
+    @activity.defn(name="nudge_stamphog_activity")
+    async def nudge(input: TurnEndedInput) -> None:
+        nudge_calls.append((input.repository, input.pr_number, input.head_sha))
+        if fail_nudge:
+            raise ApplicationError("stamphog unavailable", non_retryable=True)
 
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
     # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
@@ -423,6 +472,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
+        started_coordinator.append(input.coordinator)
         _saw_design("track", input.review_design)
         return None
 
@@ -454,6 +504,7 @@ async def _run_full_review_pr_workflow(
                 review,
                 single_agent_review,
                 lens_review,
+                coordinator_review,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -464,6 +515,9 @@ async def _run_full_review_pr_workflow(
                 post_status,
                 finalize_status,
                 fail_status,
+                add_reaction,
+                remove_reaction,
+                nudge,
                 track_failed,
                 track_completed,
                 track_started,
@@ -514,13 +568,13 @@ async def _run_full_review_pr_workflow(
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "publish_capped_lens_parts": publish_capped_lens_parts,
         "finalize_will_publish": finalize_will_publish,
         "remove_label": remove_label_calls,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
-        "status_capped_parts": status_capped_parts,
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
         "track_flash": track_flash_calls,
@@ -533,8 +587,13 @@ async def _run_full_review_pr_workflow(
         "single_agent": single_agent_calls,
         "lens": lens_calls,
         "lens_timeouts": lens_timeouts,
+        "coordinator": coordinator_calls,
+        "started_coordinator": started_coordinator,
         "gate": gate_calls,
         "status_posts": status_posts,
+        "fail_status": fail_status_calls,
+        "reactions": reaction_calls,
+        "nudges": nudge_calls,
     }
 
 
@@ -542,6 +601,9 @@ async def _run_full_review_pr_workflow(
 async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     recorded = await _run_full_review_pr_workflow(publish=False)
     assert recorded["result"] == "rep-1"
+    # An eval / CLI run keeps zero GitHub footprint.
+    assert recorded["reactions"] == []
+    assert recorded["nudges"] == []
     # Review fans out per (perspective × chunk), then the always-on blind-spot check adds one unit
     # per chunk; validate fans out one warm session per chunk.
     wave = [c for c in recorded["review"] if not c[2]]
@@ -623,6 +685,39 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
     # The marker recorded at turn start reaches the completed event and the comment footer intact.
     assert recorded["markers"] == {"track": _TURN_MARKER, "status": _TURN_MARKER}
+    # A Deep turn keeps its status comment and also shows 👀 until it ends, removed by the id it got.
+    assert recorded["status_posts"] == ["rep-1"]
+    assert recorded["reactions"] == [("add",), ("remove", 42)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fail_dedup, publish_posts, fail_nudge",
+    [
+        pytest.param(False, True, False, id="completed"),
+        pytest.param(False, False, False, id="clean"),
+        pytest.param(True, True, False, id="failed"),
+        pytest.param(False, True, True, id="raising-nudge-keeps-the-turn"),
+    ],
+)
+async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
+    fail_dedup: bool, publish_posts: bool, fail_nudge: bool
+):
+    # Stamphog stops waiting before a Deep turn ends, so only this nudge re-runs a stamphog WAIT.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, fail_dedup=fail_dedup, publish_posts=publish_posts, fail_nudge=fail_nudge
+    )
+    assert recorded["failed"] is fail_dedup
+    assert recorded["nudges"] == [("o/r", 7, "sha1")]
+
+
+def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():
+    with patch(
+        "products.review_hog.backend.temporal.activities.request_rereview_after_external_review",
+        side_effect=ConnectionError("broker down"),
+    ):
+        with pytest.raises(ConnectionError):
+            _nudge_stamphog(TurnEndedInput(repository="o/r", pr_number=7, head_sha="sha1"))
 
 
 @pytest.mark.asyncio
@@ -632,10 +727,37 @@ async def test_review_pr_workflow_removes_label_trigger_after_completion():
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_removes_label_trigger_after_failure():
-    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label", fail_dedup=True)
+@pytest.mark.parametrize("review_mode", ["full", "flash"])
+async def test_review_pr_workflow_removes_label_trigger_after_failure(review_mode: str):
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, trigger_source="label", fail_dedup=True, review_mode=review_mode
+    )
     assert recorded["failed"] is True
     assert recorded["remove_label"] == [7]
+    # A Standard turn has no status comment, but its failure still returns the report to rest and
+    # tells the PR. A dead turn must not leave its 👀 behind either.
+    assert recorded["fail_status"] == [(review_mode, True, review_mode == "full")]
+    assert recorded["reactions"] == [("add",), ("remove", 42)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dedup_failures, expected_failed, expected_fail_status",
+    [
+        # The second attempt succeeds, so the first attempt's failure must not tell the PR.
+        (5, False, [("flash", False, False)]),
+        (10, True, [("flash", False, False), ("flash", True, False)]),
+    ],
+)
+async def test_review_pr_workflow_reports_a_failure_only_on_the_last_attempt(
+    dedup_failures: int, expected_failed: bool, expected_fail_status: list[tuple[str, bool, bool]]
+):
+    # Dedup runs up to five activity attempts, so five failures fail one workflow attempt.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, review_mode="flash", retryable_dedup_failures=dedup_failures, workflow_max_attempts=2
+    )
+    assert recorded["failed"] is expected_failed
+    assert recorded["fail_status"] == expected_fail_status
 
 
 @pytest.mark.asyncio
@@ -713,15 +835,26 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
     # Flash publishes every kept finding, whatever the acting user's threshold says.
     assert {threshold for _, threshold in recorded["thresholds"]} == {"consider"}
     assert recorded["modes"] == {
-        stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "status", "track")
+        stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "track")
     }
+    # A Standard turn posts no status comment: the 👀 shows that it runs, the review shows the outcome.
+    assert recorded["status_posts"] == []
+    assert recorded["finalize_status"] == []
+    assert recorded["reactions"] == [("add",), ("remove", 42)]
     assert recorded["efforts"] == {stage: {effort} for stage in ("review", "validate", "track")}
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
+@pytest.mark.parametrize("lens_chunks_capped,expected_capped_lens_parts", [(False, None), (True, 2)])
+async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation(
+    lens_chunks_capped: bool, expected_capped_lens_parts: int | None
+):
     recorded = await _run_full_review_pr_workflow(
-        publish=True, review_mode="flash", review_design="single_agent", lens_chunk_count=2, lens_chunks_capped=True
+        publish=True,
+        review_mode="flash",
+        review_design="single_agent",
+        lens_chunk_count=2,
+        lens_chunks_capped=lens_chunks_capped,
     )
 
     assert recorded["single_agent"] == ["single_agent"]
@@ -733,13 +866,39 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
     ]
     # A lens session on the sandbox timeout would hold the main findings back for up to an hour.
     assert set(recorded["lens_timeouts"]) == {FLASH_LENS_SESSION_TIMEOUT}
-    # The large-PR note lives only in the status comment, so the turn must hand it the part count.
-    assert recorded["status_capped_parts"] == [2]
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == [7]
+    assert recorded["publish_capped_lens_parts"] == [expected_capped_lens_parts]
     assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "track")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review_design,expect_coordinator", [("single_agent", True), ("pipeline", False)])
+async def test_review_pr_workflow_coordinator_replaces_the_separate_sessions_of_a_single_agent_turn(
+    review_design: str, expect_coordinator: bool
+) -> None:
+    # The fetch records the flag for every turn, so a pipeline turn must ignore it. A coordinated turn must
+    # run no separate sessions, and its events must say it ran coordinated, or the rollout cannot be compared.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design=review_design,
+        lens_chunk_count=2,
+        coordinator=True,
+        coordinator_lens_failures=1,
+    )
+
+    assert recorded["coordinator"] == ([2] if expect_coordinator else [])
+    assert recorded["started_coordinator"] == [expect_coordinator]
+    assert recorded["publish"] == [7]
+    if expect_coordinator:
+        assert recorded["single_agent"] == []
+        assert recorded["lens"] == []
+        [(_, sessions)] = recorded["track_flash"]
+        assert sessions is not None
+        assert (sessions.lens_failures, sessions.coordinator) == (1, True)
 
 
 @pytest.mark.asyncio
@@ -799,7 +958,8 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
-    assert bool(recorded["status_posts"]) is expected_review
+    # A skipped turn leaves no 👀 on the PR.
+    assert recorded["reactions"] == ([("add",), ("remove", 42)] if expected_review else [])
 
 
 @pytest.mark.asyncio
@@ -838,7 +998,7 @@ async def test_push_gate_judges_only_automatic_follow_ups(
     )
     assert recorded["gate"] == expected_gate
     assert bool(recorded["review"] or recorded["single_agent"]) is expected_review
-    assert bool(recorded["status_posts"]) is expected_review
+    assert recorded["reactions"] == ([("add",), ("remove", 42)] if expected_review else [])
     assert bool(recorded["track_started"]) is expected_review
 
 
@@ -853,6 +1013,7 @@ async def test_review_pr_workflow_early_exits_when_already_published():
     assert recorded["validate"] == []
     assert recorded["publish"] == []
     assert recorded["track_started"] == []  # a skipped turn never counts as started
+    assert recorded["reactions"] == []
 
 
 @pytest.mark.asyncio

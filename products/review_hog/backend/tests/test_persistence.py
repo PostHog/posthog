@@ -1244,7 +1244,7 @@ class TestPRSnapshot(BaseTest):
             review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
 
-        prompt = _prepare_single_agent_prompt(flash_input, chunk_id=2, for_lens=True)
+        prompt = _prepare_single_agent_prompt(flash_input, chunk_id=2, for_lens=True, guidelines="lens")
 
         assert "src/tests/test_a.py" in prompt
         pipeline = load_pr_snapshot(

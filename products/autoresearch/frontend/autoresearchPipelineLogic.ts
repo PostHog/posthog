@@ -32,6 +32,7 @@ import {
 import {
     autoresearchModelsList,
     autoresearchOnlinePerformanceRetrieve,
+    autoresearchPartialUpdate,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
     autoresearchRetrieve,
@@ -110,11 +111,17 @@ export function pipelineTabFromUrl(value: unknown): AutoresearchPipelineTab | nu
     return LEGACY_PIPELINE_TABS[value] ?? null
 }
 
+/** Where a person changed whether scores are written to person profiles. */
+export type PersonPropertyToggleSource = 'actions_panel' | 'setup_tab'
+
 /** How often the Score now button checks a running scoring run. */
 export const SCORE_RUN_POLL_INTERVAL_MS = 5000
 
 /** How often the Agent research tab reloads training runs while one is pending or running. */
 export const TRAINING_RUN_POLL_INTERVAL_MS = 10000
+
+/** How often the runs reload while a person property cleanup is pending or running. A cleanup takes over an hour. */
+export const PROPERTY_CLEANUP_POLL_INTERVAL_MS = 30000
 
 function isTrainingRunLive(run: AutoresearchTrainingRunApi): boolean {
     return run.status === 'pending' || run.status === 'running'
@@ -298,6 +305,7 @@ export interface autoresearchPipelineLogicValues {
     firstCheck: dayjs.Dayjs | null
     hasLiveTrainingRun: boolean
     latestChampionPerformance: OnlinePerformanceRowApi | null
+    latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
@@ -307,6 +315,7 @@ export interface autoresearchPipelineLogicValues {
     onlinePerformance: OnlinePerformanceRowApi[]
     onlinePerformanceError: boolean
     onlinePerformanceLoading: boolean
+    personPropertyDisabledReason: string | undefined
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
@@ -326,6 +335,7 @@ export interface autoresearchPipelineLogicValues {
     runsLoaded: boolean
     runsLoading: boolean
     savingCohortSegment: PredictionSegmentKey | null
+    savingWritePersonProperty: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     scoringCoverage: ScoringCoverage | null
@@ -379,6 +389,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         viewedArtifact: null
         payload?: any
+    }
+    experimentDetailsOpened: (point: SearchPoint) => {
+        point: SearchPoint
     }
     loadDailyVolume: () => any
     loadDailyVolumeFailure: (
@@ -670,6 +683,16 @@ export interface autoresearchPipelineLogicActions {
     setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
         tab: AutoresearchPipelineTab | null
     }
+    setWritePersonProperty: (
+        enabled: boolean,
+        source: PersonPropertyToggleSource
+    ) => {
+        enabled: boolean
+        source: PersonPropertyToggleSource
+    }
+    setWritePersonPropertyFinished: () => {
+        value: true
+    }
     startScorePolling: () => {
         value: true
     }
@@ -789,6 +812,11 @@ export interface autoresearchPipelineLogicMeta {
         ) => ExperimentLogGroup[]
         agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
+        latestPropertyCleanupRun: (runs: AutoresearchRunApi[]) => AutoresearchRunApi | null
+        personPropertyDisabledReason: (
+            pipeline: AutoresearchPipelineApi | null,
+            savingWritePersonProperty: boolean
+        ) => string | undefined
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
             defaultTab: AutoresearchPipelineTab
@@ -838,8 +866,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setExperimentLogFilter: (filter: ExperimentLogFilter) => ({ filter }),
         toggleLogRun: (runId: string) => ({ runId }),
         searchPointClicked: (point: SearchPoint) => ({ point }),
+        experimentDetailsOpened: (point: SearchPoint) => ({ point }),
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
+        setWritePersonProperty: (enabled: boolean, source: PersonPropertyToggleSource) => ({ enabled, source }),
+        setWritePersonPropertyFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
     }),
     reducers({
@@ -916,6 +947,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 saveSegmentCohort: (_, { segment }) => segment,
                 saveSegmentCohortFinished: () => null,
+            },
+        ],
+        savingWritePersonProperty: [
+            false,
+            {
+                setWritePersonProperty: () => true,
+                setWritePersonPropertyFinished: () => false,
             },
         ],
         segmentThresholds: [
@@ -1424,6 +1462,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (pipeline: AutoresearchPipelineApi | null): AutoresearchPipelineTab =>
                 pipeline?.last_scored_at ? 'predictions' : 'agent_research',
         ],
+        latestPropertyCleanupRun: [
+            (s) => [s.runs],
+            (runs: AutoresearchRunApi[]): AutoresearchRunApi | null =>
+                runs.find((run) => run.run_type === 'property_cleanup') ?? null,
+        ],
+        personPropertyDisabledReason: [
+            (s) => [s.pipeline, s.savingWritePersonProperty],
+            (pipeline: AutoresearchPipelineApi | null, savingWritePersonProperty: boolean): string | undefined =>
+                savingWritePersonProperty
+                    ? 'Wait for the person profile setting to save'
+                    : pipeline && !pipeline.write_person_property
+                      ? 'Turn on "Write scores to person profiles" to target people by score'
+                      : undefined,
+        ],
         activeTab: [
             (s) => [s.selectedTab, s.defaultTab],
             (
@@ -1540,6 +1592,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             if (values.activeScoreRun) {
                 actions.startScorePolling()
             }
+            // Follow the cleanup to the end, so the setting shows when it finished or failed.
+            const cleanup = values.latestPropertyCleanupRun
+            if (!cleanup || !isScoreRunInProgress(cleanup)) {
+                cache.disposables.dispose('cleanupPoll')
+            } else if (!cache.disposables.registry.has('cleanupPoll')) {
+                cache.disposables.add(() => {
+                    const timer = window.setInterval(() => actions.loadRuns(), PROPERTY_CLEANUP_POLL_INTERVAL_MS)
+                    return () => clearInterval(timer)
+                }, 'cleanupPoll')
+            }
         },
         startScorePolling: () => {
             if (cache.disposables.registry.has('scorePoll')) {
@@ -1634,6 +1696,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 status: point.status,
             })
         },
+        experimentDetailsOpened: ({ point }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model experiment details opened', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
+            })
+        },
         submitSuggestionSuccess: ({ suggestionSubmitResult }) => {
             posthog.capture('autoresearch model suggestion sent', {
                 pipeline_id: props.id,
@@ -1678,6 +1748,44 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setAccuracyCutoff: ({ cutoff }) => {
             posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
         },
+        setWritePersonProperty: async ({ enabled, source }) => {
+            if (!values.currentTeamId) {
+                actions.setWritePersonPropertyFinished()
+                return
+            }
+            const teamId = String(values.currentTeamId)
+            try {
+                actions.loadPipelineSuccess(
+                    await autoresearchPartialUpdate(teamId, props.id, { write_person_property: enabled })
+                )
+                posthog.capture('autoresearch model person property toggled', {
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                if (enabled) {
+                    lemonToast.success(
+                        'Scores are now written to person profiles. People get the property over the next few scoring runs.'
+                    )
+                } else {
+                    // The cleanup records a run, so reload the runs to show it.
+                    actions.loadRuns()
+                    lemonToast.success(
+                        'Scores are no longer written to person profiles. The property is being removed.'
+                    )
+                }
+            } catch {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'person_property',
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                lemonToast.error("Couldn't change the setting. Try again.")
+            } finally {
+                actions.setWritePersonPropertyFinished()
+            }
+        },
         saveSegmentCohort: async ({ segment }) => {
             const { pipeline, currentProjectId, segmentThresholds } = values
             const definition = values.segmentDefinitions?.find(({ key }) => key === segment)
@@ -1698,7 +1806,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     segment,
                     cohort_id: cohort.id,
                     people: values.predictionSegments?.[segment].people,
-                    cut_points: segmentThresholds.base_rate != null ? 'base_rate' : 'fixed',
+                    cut_points:
+                        segmentThresholds.base_rate_source === 'realized'
+                            ? 'base_rate'
+                            : segmentThresholds.base_rate_source,
                 })
                 lemonToast.success('Cohort saved', {
                     button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },

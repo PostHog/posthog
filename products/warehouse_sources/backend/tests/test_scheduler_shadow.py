@@ -36,12 +36,14 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     DECISION_SKIP_OVERLAP,
     DECISION_WOULD_FIRE,
     SYNC_EXTRACT_KIND,
+    SYNC_EXTRACT_LANE,
     EvaluationResult,
     SchemaCadence,
     evaluate_due,
     fetch_in_scope_schema_page,
     latest_fire_at,
     next_due_after,
+    queue_group_key,
     schedule_offset,
     window_boundary,
 )
@@ -51,8 +53,13 @@ from products.warehouse_sources_queue.backend.core.scheduler_state import (
     DecisionRecord,
     SchedulerStateTable,
 )
-from products.warehouse_sources_queue.backend.sdk import DueSchedule, HealthState, start_health_server
-from products.warehouse_sources_queue.backend.testing import ensure_scheduler_tables, get_test_database_url
+from products.warehouse_sources_queue.backend.sdk import DueSchedule, HealthState, JobsTable, start_health_server
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_generic_job_tables,
+    ensure_scheduler_tables,
+    get_test_database_url,
+    truncate_generic_job_tables,
+)
 
 # The product-structure lint reads a direct import of another product's logic
 # as a facade leak; tests reference cross-product internals by module path
@@ -205,33 +212,64 @@ def _due_row(schema_id: str, team_id: int, now_epoch: int) -> DueSchedule:
     )
 
 
+def _reset_queue_jobs() -> str:
+    db_url = get_test_database_url()
+    with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+        ensure_generic_job_tables(conn)
+        truncate_generic_job_tables(conn)
+    return db_url
+
+
+def _evaluate(db_url: str, due: list[DueSchedule], now_epoch: int) -> EvaluationResult:
+    async def run() -> EvaluationResult:
+        async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
+            return await evaluate_due(conn, due, now_epoch)
+
+    return async_to_sync(run)()
+
+
+def _seed_extract_job(db_url: str, team_id: int, schema_id: str, state: str) -> None:
+    async def run() -> None:
+        async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
+            job_id = await JobsTable.insert(
+                conn,
+                kind=SYNC_EXTRACT_KIND,
+                lane=SYNC_EXTRACT_LANE,
+                group_key=queue_group_key(team_id, schema_id),
+                team_id=team_id,
+                payload={},
+            )
+            assert job_id is not None
+            if state != "pending":
+                await JobsTable.update_status(conn, job_id=job_id, job_state=state)
+
+    async_to_sync(run)()
+
+
 @pytest.mark.django_db(transaction=True)
 class TestEvaluateDue:
     @pytest.mark.parametrize(
-        "job_status,sync_type_config,expected_decision",
+        "queue_job_state,sync_type_config,expected_decision",
         [
-            pytest.param("Running", {}, DECISION_SKIP_OVERLAP, id="running_job_overlaps"),
-            pytest.param("Completed", {}, DECISION_WOULD_FIRE, id="completed_job_fires"),
-            pytest.param("Failed", {}, DECISION_WOULD_FIRE, id="failed_job_fires"),
-            pytest.param("BillingLimitReached", {}, DECISION_WOULD_FIRE, id="billing_limited_job_fires"),
+            pytest.param("executing", {}, DECISION_SKIP_OVERLAP, id="running_queue_job_overlaps"),
+            pytest.param("pending", {}, DECISION_SKIP_OVERLAP, id="pending_queue_job_overlaps"),
+            pytest.param("waiting_retry", {}, DECISION_SKIP_OVERLAP, id="retrying_queue_job_overlaps"),
+            pytest.param("succeeded", {}, DECISION_WOULD_FIRE, id="succeeded_queue_job_fires"),
+            pytest.param("failed", {}, DECISION_WOULD_FIRE, id="failed_queue_job_fires"),
             pytest.param(None, {"cdc_broken": True}, DECISION_SKIP_CDC_HALTED, id="cdc_broken_skips"),
             pytest.param(None, {"cdc_extraction_paused": True}, DECISION_SKIP_CDC_HALTED, id="cdc_paused_skips"),
             pytest.param(None, {"cdc_broken": False}, DECISION_WOULD_FIRE, id="cdc_ok_fires"),
         ],
     )
-    def test_skip_reasons(self, team, job_status, sync_type_config, expected_decision):
+    def test_skip_reasons(self, team, queue_job_state, sync_type_config, expected_decision):
+        db_url = _reset_queue_jobs()
         source = _create_source(team)
         schema = _create_schema(team, source, sync_type_config=sync_type_config)
         now_epoch = int(time.time())
-        if job_status is not None:
-            job = ExternalDataJob.objects.create(team=team, pipeline=source, schema=schema, status=job_status)
-            if expected_decision == DECISION_SKIP_OVERLAP:
-                due_at = datetime.fromtimestamp(
-                    latest_fire_at(now_epoch, SchemaCadence(interval_seconds=21600, offset_seconds=0)), tz=UTC
-                )
-                ExternalDataJob.objects.filter(pk=job.pk).update(created_at=due_at - timedelta(seconds=1))
+        if queue_job_state is not None:
+            _seed_extract_job(db_url, team.pk, str(schema.id), queue_job_state)
 
-        result = async_to_sync(evaluate_due)([_due_row(str(schema.id), team.pk, now_epoch)], now_epoch)
+        result = _evaluate(db_url, [_due_row(str(schema.id), team.pk, now_epoch)], now_epoch)
 
         assert len(result.records) == 1
         record = result.records[0]
@@ -241,7 +279,15 @@ class TestEvaluateDue:
         )
         assert result.missed_windows == 0
 
-    def test_current_boundary_temporal_job_is_not_an_overlap(self, team):
+    @pytest.mark.parametrize(
+        "created_before_due",
+        [
+            pytest.param(timedelta(seconds=1), id="just_before_boundary"),
+            pytest.param(timedelta(days=120), id="orphaned_months_ago"),
+        ],
+    )
+    def test_running_external_data_job_does_not_overlap(self, team, created_before_due):
+        db_url = _reset_queue_jobs()
         source = _create_source(team)
         schema = _create_schema(team, source)
         now_epoch = int(time.time())
@@ -249,15 +295,35 @@ class TestEvaluateDue:
             latest_fire_at(now_epoch, SchemaCadence(interval_seconds=21600, offset_seconds=0)), tz=UTC
         )
         job = ExternalDataJob.objects.create(team=team, pipeline=source, schema=schema, status="Running")
-        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=due_at)
+        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=due_at - created_before_due)
 
-        result = async_to_sync(evaluate_due)([_due_row(str(schema.id), team.pk, now_epoch)], now_epoch)
+        result = _evaluate(db_url, [_due_row(str(schema.id), team.pk, now_epoch)], now_epoch)
 
         assert [record.decision for record in result.records] == [DECISION_WOULD_FIRE]
 
-    def test_unknown_schema_is_out_of_scope(self, team):
+    def test_overlap_is_decided_per_schema(self, team):
+        db_url = _reset_queue_jobs()
+        source = _create_source(team)
+        busy = _create_schema(team, source, name="busy")
+        idle = _create_schema(team, source, name="idle")
+        _seed_extract_job(db_url, team.pk, str(busy.id), "executing")
         now_epoch = int(time.time())
-        result = async_to_sync(evaluate_due)([_due_row(str(uuid.uuid4()), team.pk, now_epoch)], now_epoch)
+
+        result = _evaluate(
+            db_url,
+            [_due_row(str(busy.id), team.pk, now_epoch), _due_row(str(idle.id), team.pk, now_epoch)],
+            now_epoch,
+        )
+
+        assert {record.schedule_key: record.decision for record in result.records} == {
+            str(busy.id): DECISION_SKIP_OVERLAP,
+            str(idle.id): DECISION_WOULD_FIRE,
+        }
+
+    def test_unknown_schema_is_out_of_scope(self, team):
+        db_url = _reset_queue_jobs()
+        now_epoch = int(time.time())
+        result = _evaluate(db_url, [_due_row(str(uuid.uuid4()), team.pk, now_epoch)], now_epoch)
         assert [record.decision for record in result.records] == [DECISION_SKIP_OUT_OF_SCOPE]
 
 
@@ -268,7 +334,9 @@ class TestShadowSchedulerTick:
         due_at = (datetime.now(UTC) - timedelta(minutes=1)).replace(microsecond=0)
         with psycopg.Connection.connect(db_url, autocommit=True) as conn:
             ensure_scheduler_tables(conn)
+            ensure_generic_job_tables(conn)
             conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}, {SCHEDULER_STATE_TABLE}")
+            truncate_generic_job_tables(conn)
             for schema_id in schema_ids:
                 conn.execute(
                     f"""
@@ -681,6 +749,63 @@ class TestShadowReport:
         assert "shadow_only (shadow would fire, no job): 1" in output
         assert "temporal_only (schedule-fired job, no decision): 0" in output
         assert "adhoc (manual/backfill runs, excluded): 1" in output
+
+    @pytest.mark.parametrize(
+        "created_before_due,finished_after_due,expected_overlap_skip",
+        [
+            pytest.param(timedelta(hours=1), None, 1, id="unfinished_run"),
+            pytest.param(timedelta(hours=1), timedelta(minutes=5), 1, id="run_finished_after_due"),
+            pytest.param(timedelta(hours=1), timedelta(minutes=-5), 0, id="run_finished_before_due"),
+            pytest.param(timedelta(days=3), None, 1, id="long_run_started_before_window"),
+            pytest.param(timedelta(days=8), None, 0, id="orphan_older_than_seven_days"),
+        ],
+    )
+    def test_report_separates_temporal_overlap_skips(
+        self, team, monkeypatch, created_before_due, finished_after_due, expected_overlap_skip
+    ):
+        db_url = get_test_database_url()
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}")
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.management.commands.report_warehouse_scheduler_shadow"
+            ".WAREHOUSE_SOURCES_DATABASE_URL",
+            db_url,
+        )
+
+        source = _create_source(team)
+        schema = _create_schema(team, source)
+        due_at = (datetime.now(UTC) - timedelta(minutes=10)).replace(microsecond=0)
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            conn.execute(
+                f"""
+                INSERT INTO {SCHEDULER_DECISION_TABLE}
+                    (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                """,
+                {"team_id": team.pk, "kind": SYNC_EXTRACT_KIND, "schedule_key": str(schema.id), "due_at": due_at},
+            )
+        created_at = due_at - created_before_due
+        job = ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status="Running" if finished_after_due is None else "Completed",
+            workflow_id=f"{schema.id}-{created_at.isoformat()}",
+            finished_at=None if finished_after_due is None else due_at + finished_after_due,
+        )
+        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=created_at)
+
+        out = io.StringIO()
+        call_command("report_warehouse_scheduler_shadow", "--team-id", str(team.pk), stdout=out)
+        output = out.getvalue()
+
+        assert "matched: 0" in output
+        assert f"shadow_only (shadow would fire, no job): {1 - expected_overlap_skip}" in output
+        assert (
+            f"temporal_overlap_skip (shadow would fire, Temporal run still in progress): {expected_overlap_skip}"
+            in output
+        )
 
     @pytest.mark.parametrize(
         "workflow_id,expected",

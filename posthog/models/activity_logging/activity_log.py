@@ -1725,8 +1725,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     if not created:
         return

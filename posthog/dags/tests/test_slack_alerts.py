@@ -2,6 +2,7 @@ from unittest import mock
 
 import dagster
 from dagster import DagsterRunStatus
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.dags.common import JobOwners
@@ -85,34 +86,20 @@ class TestSlackAlertsRouting:
 
         assert result == JobOwners.TEAM_WEB_ANALYTICS.value
 
-    def test_asset_job_with_inbox_report_steps_routes_to_self_driving(self):
+    @parameterized.expand(
+        [
+            ("inbox_report_labels",),
+            ("inbox_signal_embeddings",),
+            ("inbox_ranking_model_candidate",),
+            ("inbox_user_report_interactions",),
+        ]
+    )
+    def test_asset_job_with_inbox_steps_routes_to_self_driving(self, step):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "__ASSET_JOB"
         mock_run.tags = {}
 
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['inbox_report_labels']."
-
-        result = get_job_owner_for_alert(mock_run, error_message)
-
-        assert result == JobOwners.TEAM_SELF_DRIVING.value
-
-    def test_asset_job_with_inbox_signal_steps_routes_to_self_driving(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {}
-
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['inbox_signal_embeddings']."
-
-        result = get_job_owner_for_alert(mock_run, error_message)
-
-        assert result == JobOwners.TEAM_SELF_DRIVING.value
-
-    def test_asset_job_with_inbox_ranking_steps_routes_to_self_driving(self):
-        mock_run = mock.MagicMock(spec=dagster.DagsterRun)
-        mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {}
-
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['inbox_ranking_model_candidate']."
+        error_message = f"Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['{step}']."
 
         result = get_job_owner_for_alert(mock_run, error_message)
 

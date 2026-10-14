@@ -1,7 +1,13 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb import ReverbResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source import ReverbSource
 
 _INCREMENTAL_ENDPOINTS = {"Orders", "Payouts"}
@@ -15,53 +21,58 @@ class TestReverbSource:
         self.config = ReverbSourceConfig(api_token="token")
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "script, expected_valid, expected_message",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Reverb personal access token"),
-            ((False, 403), False, "Could not connect to Reverb with the provided personal access token"),
-            ((False, None), False, "Could not connect to Reverb with the provided personal access token"),
+            (always(ScriptedResponse(status=200, json={})), True, None),
+            (
+                always(ScriptedResponse(status=401, json={})),
+                False,
+                "Invalid Reverb personal access token",
+            ),
+            (
+                always(ScriptedResponse(status=403, json={})),
+                False,
+                "Could not connect to Reverb with the provided personal access token",
+            ),
+            (
+                always(ConnectionError("boom")),
+                False,
+                "Could not connect to Reverb with the provided personal access token",
+            ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source.validate_reverb_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, script, expected_valid, expected_message):
+        with scripted_network(script) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("token", "3.0")
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
+        assert network.requests_log[0].headers["accept-version"] == "3.0"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source.reverb_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_reverb_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Orders"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.api_version = None
-        manager = mock.MagicMock()
+    def test_source_for_pipeline_plumbs_arguments(self):
+        result = SourceDriver(self.source, self.config).run(
+            "Orders",
+            [ScriptedResponse(json={"orders": [], "total_pages": 1})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            resume_state=ReverbResumeConfig(next_page=4),
+        )
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        request = result.requests[0]
+        assert request.headers["authorization"] == "Bearer token"
+        assert request.path == "/api/my/orders/selling/all"
+        assert request.param("updated_start_date") == "2026-01-01T00:00:00Z"
+        assert request.headers["accept-version"] == "3.0"
+        # The resume manager reaches the extraction: the first page is the saved page.
+        assert request.param("page") == "4"
 
-        mock_reverb_source.assert_called_once()
-        kwargs = mock_reverb_source.call_args.kwargs
-        assert kwargs["api_token"] == "token"
-        assert kwargs["endpoint"] == "Orders"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["api_version"] == "3.0"
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self):
+        result = SourceDriver(self.source, self.config).run(
+            "Orders",
+            [ScriptedResponse(json={"orders": [], "total_pages": 1})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source.reverb_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_reverb_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Listings"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.api_version = None
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_reverb_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.requests[0].param("updated_start_date") is None

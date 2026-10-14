@@ -1,12 +1,9 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
-from requests import Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze import (
@@ -17,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
     _format_modified_after,
     _series_rows,
     _series_windows,
-    braze_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
@@ -26,61 +22,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.sett
     BRAZE_ENDPOINTS,
     DATA_SERIES_HISTORY_DAYS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
 
 BASE_URL = "https://rest.iad-01.braze.com"
 
-# Both the data path and the credential probe build their session via
-# make_tracked_session imported into the braze module.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze.make_tracked_session"
 HOST_SAFE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze._is_host_safe"
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver(url: str = BASE_URL) -> SourceDriver:
+    return SourceDriver(BrazeSource(), BrazeSourceConfig(api_key="key", url=url))
 
 
-def _make_manager(resume_state: BrazeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _response(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request's params AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any):
-    return braze_source(
-        "key",
-        BASE_URL,
-        endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager or _make_manager(),
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _series_response(data: Any) -> ScriptedResponse:
+    return _response({"message": "success", "data": data})
 
 
 class TestFormatModifiedAfter:
@@ -107,131 +73,98 @@ class TestValidateCredentials:
             (500, False, "Braze API returned status 500"),
         ],
     )
-    @mock.patch(SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
-        mock_session.return_value.get.return_value = _response({"message": "x"}, status_code=status_code)
-
-        valid, message = validate_credentials("key", BASE_URL)
+    def test_status_mapping(self, status_code, expected_valid, expected_message):
+        answer = _response({"message": "x"}, status_code)
+        with scripted_network(always(answer) if status_code == 500 else [answer]):
+            valid, message = validate_credentials("key", BASE_URL)
 
         assert valid is expected_valid
         assert message == expected_message
 
-    @mock.patch(SESSION_PATCH)
-    def test_uses_no_redirect_session_and_probes_with_bearer(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
+    def test_uses_no_redirect_session_and_probes_with_bearer(self):
+        with scripted_network([_response({})]) as network:
+            validate_credentials("key", BASE_URL)
 
-        validate_credentials("key", BASE_URL)
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.requests_log[0].url == f"{BASE_URL}/campaigns/list?page=0"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
-        get_call = mock_session.return_value.get.call_args
-        assert get_call.args[0] == f"{BASE_URL}/campaigns/list?page=0"
-        assert get_call.kwargs["headers"]["Authorization"] == "Bearer key"
-
-    @mock.patch(SESSION_PATCH)
-    def test_swallows_request_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = ConnectionError("boom")
-
-        valid, message = validate_credentials("key", BASE_URL)
+    def test_swallows_request_exceptions(self):
+        with scripted_network(always(ConnectionError("boom"))):
+            valid, message = validate_credentials("key", BASE_URL)
 
         assert valid is False
         assert message == "Could not reach the Braze API"
 
     @mock.patch(HOST_SAFE_PATCH)
-    @mock.patch(SESSION_PATCH)
-    def test_blocks_internal_host_when_team_id_given(self, mock_session, mock_host_safe):
+    def test_blocks_internal_host_when_team_id_given(self, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
 
-        valid, message = validate_credentials("key", "https://10.0.0.1", team_id=42)
+        with scripted_network([]) as network:
+            valid, message = validate_credentials("key", "https://10.0.0.1", team_id=42)
 
         assert valid is False
         assert message == "host not allowed"
         # The host is rejected before any request is dispatched.
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestGetRows:
-    @mock.patch(SESSION_PATCH)
-    def test_uses_no_redirect_session_with_redacted_key(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"campaigns": []})])
+    def test_uses_no_redirect_session_with_redacted_key(self):
+        result = _driver().run("campaigns", [_response({"campaigns": []})])
 
-        _rows(_source("campaigns"))
+        assert result.raised is None
+        assert result.session_options[0]["allow_redirects"] is False
+        assert "key" in result.session_options[0]["redact_values"]
 
-        assert MockSession.call_args.kwargs["allow_redirects"] is False
-        assert "key" in MockSession.call_args.kwargs["redact_values"]
+    def test_resumes_offset_endpoint_from_saved_cursor(self):
+        result = _driver().run(
+            "email_templates", [_response({"templates": []})], resume_state=BrazeResumeConfig(cursor=200)
+        )
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_offset_endpoint_from_saved_cursor(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response({"templates": []})])
+        assert result.raised is None
+        assert result.params("offset") == ["200"]
+        assert result.params("limit") == ["100"]
 
-        _rows(_source("email_templates", _make_manager(BrazeResumeConfig(cursor=200))))
-
-        assert params[0]["offset"] == 200
-        assert params[0]["limit"] == 100
-
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_applies_modified_after_filter(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_incremental_applies_modified_after_filter(self):
+        result = _driver().run(
+            "email_templates",
             [
                 _response({"templates": [{"email_template_id": "a", "updated_at": "2026-02-01T00:00:00Z"}]}),
                 _response({"templates": []}),
             ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                "email_templates",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert params[0]["modified_after"] == "2026-01-01T00:00:00+00:00"
+        assert result.raised is None
+        assert result.params("modified_after")[0] == "2026-01-01T00:00:00+00:00"
         # The filter is carried on every page of the run.
-        assert params[1]["modified_after"] == "2026-01-01T00:00:00+00:00"
+        assert result.params("modified_after")[1] == "2026-01-01T00:00:00+00:00"
 
-    @mock.patch(SESSION_PATCH)
-    def test_full_refresh_endpoint_never_sends_modified_after(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_full_refresh_endpoint_never_sends_modified_after(self):
+        result = _driver().run(
+            "campaigns",
             [
                 _response({"campaigns": [{"id": "1"}]}),
                 _response({"campaigns": []}),
             ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                "campaigns",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert all("modified_after" not in p for p in params)
+        assert result.raised is None
+        assert result.params("modified_after") == [None, None]
 
     @mock.patch(HOST_SAFE_PATCH)
-    @mock.patch(SESSION_PATCH)
-    def test_raises_when_host_not_allowed(self, MockSession, mock_host_safe):
+    def test_raises_when_host_not_allowed(self, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
 
-        response = braze_source(
-            "key",
-            "https://10.0.0.1",
-            "campaigns",
-            team_id=42,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        with pytest.raises(BrazeHostNotAllowedError):
-            list(cast("Iterable[Any]", response.items()))
+        result = _driver("https://10.0.0.1").run("campaigns", [], team_id=42)
 
         # No request is made once the host is rejected.
-        MockSession.return_value.send.assert_not_called()
+        assert isinstance(result.raised, BrazeHostNotAllowedError)
+        assert result.requests == []
 
 
 class TestBrazeSourceResponse:
@@ -240,10 +173,6 @@ class TestBrazeSourceResponse:
         # Partition keys must be immutable creation timestamps, never updated/last-edit fields.
         if config.partition_key:
             assert config.partition_key == "created_at"
-
-
-def _series_response(data: Any) -> Response:
-    return _response({"message": "success", "data": data})
 
 
 class TestSeriesRows:
@@ -307,132 +236,133 @@ class TestSeriesRows:
 
 
 class TestDataSeriesRequests:
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_narrows_the_window_to_the_watermark(self, MockSession):
-        session = MockSession.return_value
-        session.get.side_effect = [_series_response([])]
-
-        _rows(
-            _source(
-                "kpi_dau",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=4),
-            )
+    def test_incremental_narrows_the_window_to_the_watermark(self):
+        result = _driver().run(
+            "kpi_dau",
+            [_series_response([])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=4),
         )
 
-        assert session.get.call_args.kwargs["params"]["length"] == 5
+        assert result.raised is None
+        assert result.params("length") == ["5"]
 
-    @mock.patch(SESSION_PATCH)
-    def test_campaign_series_fans_out_over_the_campaign_list(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"campaigns": [{"id": "c1"}, {"id": "c2"}]}), _response({"campaigns": []})])
-        session.get.side_effect = [
-            _series_response([{"time": "2026-03-09", "conversions": 1}]),
-            _series_response([{"time": "2026-03-09", "conversions": 2}]),
-        ]
+    def test_campaign_series_fans_out_over_the_campaign_list(self):
+        result = _driver().run(
+            "campaign_analytics",
+            route(
+                {
+                    "/campaigns/list": [
+                        _response({"campaigns": [{"id": "c1"}, {"id": "c2"}]}),
+                        _response({"campaigns": []}),
+                    ],
+                    "/campaigns/data_series": [
+                        _series_response([{"time": "2026-03-09", "conversions": 1}]),
+                        _series_response([{"time": "2026-03-09", "conversions": 2}]),
+                    ],
+                }
+            ),
+        )
 
-        rows = _rows(_source("campaign_analytics"))
+        assert result.raised is None
+        assert [row["campaign_id"] for row in result.rows] == ["c1", "c2"]
+        assert [r.param("campaign_id") for r in result.requests if r.path == "/campaigns/data_series"] == ["c1", "c2"]
 
-        assert [row["campaign_id"] for row in rows] == ["c1", "c2"]
-        assert [call.kwargs["params"]["campaign_id"] for call in session.get.call_args_list] == ["c1", "c2"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_event_series_fans_out_over_the_event_names(self, MockSession):
+    def test_event_series_fans_out_over_the_event_names(self):
         # /events/list returns bare strings, so the fan-out reads the wrapped `event_name`.
-        session = MockSession.return_value
-        _wire(session, [_response({"events": ["purchase"]}), _response({"events": []})])
-        session.get.side_effect = [_series_response([{"time": "2026-03-09", "count": 4}])]
+        result = _driver().run(
+            "event_analytics",
+            route(
+                {
+                    "/events/list": [_response({"events": ["purchase"]}), _response({"events": []})],
+                    "/events/data_series": [_series_response([{"time": "2026-03-09", "count": 4}])],
+                }
+            ),
+        )
 
-        rows = _rows(_source("event_analytics"))
+        assert result.raised is None
+        assert result.rows == [{"time": "2026-03-09", "count": 4, "event_name": "purchase"}]
+        assert [r.param("event") for r in result.requests if r.path == "/events/data_series"] == ["purchase"]
 
-        assert rows == [{"time": "2026-03-09", "count": 4, "event_name": "purchase"}]
-        assert session.get.call_args.kwargs["params"]["event"] == "purchase"
-
-    @mock.patch(SESSION_PATCH)
-    def test_canvas_series_requests_every_window_per_canvas(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"canvases": [{"id": "cv1"}]}), _response({"canvases": []})])
+    def test_canvas_series_requests_every_window_per_canvas(self):
         windows = _series_windows(
             BRAZE_DATA_SERIES_ENDPOINTS["canvas_analytics"].max_length_days,
             DATA_SERIES_HISTORY_DAYS,
             datetime.now(tz=UTC),
         )
-        session.get.side_effect = [_series_response({"name": "Welcome", "stats": []}) for _ in windows]
+        result = _driver().run(
+            "canvas_analytics",
+            route(
+                {
+                    "/canvas/list": [_response({"canvases": [{"id": "cv1"}]}), _response({"canvases": []})],
+                    "/canvas/data_series": [_series_response({"name": "Welcome", "stats": []}) for _ in windows],
+                }
+            ),
+        )
 
-        _rows(_source("canvas_analytics"))
-
-        params = [call.kwargs["params"] for call in session.get.call_args_list]
-        assert [p["length"] for p in params] == [length for _, length in windows]
-        assert all(p["canvas_id"] == "cv1" for p in params)
+        assert result.raised is None
+        series_requests = [r for r in result.requests if r.path == "/canvas/data_series"]
+        assert [r.param("length") for r in series_requests] == [str(length) for _, length in windows]
+        assert all(r.param("canvas_id") == "cv1" for r in series_requests)
         # The breakdowns are what make the table usable per step and per variant.
-        assert all(p["include_step_breakdown"] == "true" and p["include_variant_breakdown"] == "true" for p in params)
+        assert all(
+            r.param("include_step_breakdown") == "true" and r.param("include_variant_breakdown") == "true"
+            for r in series_requests
+        )
 
-    @mock.patch(SESSION_PATCH)
-    def test_segment_series_skips_segments_without_analytics_tracking(self, MockSession):
+    def test_segment_series_skips_segments_without_analytics_tracking(self):
         # Braze keeps no size history for an untracked segment, and asking for one errors — which
         # would abort the fan-out partway through every other segment.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(
-                    {
-                        "segments": [
-                            {"id": "s1", "analytics_tracking_enabled": True},
-                            {"id": "s2", "analytics_tracking_enabled": False},
-                            {"id": "s3", "analytics_tracking_enabled": True},
-                        ]
-                    }
-                ),
-                _response({"segments": []}),
-            ],
+        result = _driver().run(
+            "segment_analytics",
+            route(
+                {
+                    "/segments/list": [
+                        _response(
+                            {
+                                "segments": [
+                                    {"id": "s1", "analytics_tracking_enabled": True},
+                                    {"id": "s2", "analytics_tracking_enabled": False},
+                                    {"id": "s3", "analytics_tracking_enabled": True},
+                                ]
+                            }
+                        ),
+                        _response({"segments": []}),
+                    ],
+                    "/segments/data_series": [
+                        _series_response([{"time": "2026-03-09", "size": 10}]),
+                        _series_response([{"time": "2026-03-09", "size": 20}]),
+                    ],
+                }
+            ),
         )
-        session.get.side_effect = [
-            _series_response([{"time": "2026-03-09", "size": 10}]),
-            _series_response([{"time": "2026-03-09", "size": 20}]),
-        ]
 
-        rows = _rows(_source("segment_analytics"))
+        assert result.raised is None
+        assert [row["segment_id"] for row in result.rows] == ["s1", "s3"]
+        assert [r.param("segment_id") for r in result.requests if r.path == "/segments/data_series"] == ["s1", "s3"]
 
-        assert [row["segment_id"] for row in rows] == ["s1", "s3"]
-        assert [call.kwargs["params"]["segment_id"] for call in session.get.call_args_list] == ["s1", "s3"]
+    def test_uses_no_redirect_session_with_redacted_key(self):
+        result = _driver().run("kpi_dau", [_series_response([])])
 
-    @mock.patch(SESSION_PATCH)
-    def test_uses_no_redirect_session_with_redacted_key(self, MockSession):
-        session = MockSession.return_value
-        session.get.side_effect = [_series_response([])]
+        assert result.raised is None
+        assert result.session_options[0]["allow_redirects"] is False
+        assert "key" in result.session_options[0]["redact_values"]
 
-        _rows(_source("kpi_dau"))
-
-        assert MockSession.call_args.kwargs["allow_redirects"] is False
-        assert "key" in MockSession.call_args.kwargs["redact_values"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_raises_on_an_error_status(self, MockSession):
+    def test_raises_on_an_error_status(self):
         # raise_for_status keeps the 403 wording get_non_retryable_errors matches on.
-        session = MockSession.return_value
-        session.get.side_effect = [_response({"message": "forbidden"}, status_code=403)]
+        result = _driver().run("kpi_dau", [_response({"message": "forbidden"}, status=403)])
 
-        with pytest.raises(HTTPError, match="403 Client Error"):
-            _rows(_source("kpi_dau"))
+        assert isinstance(result.raised, HTTPError)
+        assert "403 Client Error" in str(result.raised)
 
     @mock.patch(HOST_SAFE_PATCH)
-    @mock.patch(SESSION_PATCH)
-    def test_raises_when_host_not_allowed(self, MockSession, mock_host_safe):
+    def test_raises_when_host_not_allowed(self, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
 
-        response = braze_source(
-            "key",
-            "https://10.0.0.1",
-            "kpi_dau",
-            team_id=42,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        with pytest.raises(BrazeHostNotAllowedError):
-            list(cast("Iterable[Any]", response.items()))
+        result = _driver("https://10.0.0.1").run("kpi_dau", [], team_id=42)
 
-        MockSession.return_value.get.assert_not_called()
+        assert isinstance(result.raised, BrazeHostNotAllowedError)
+        assert result.requests == []
 
 
 class TestBrazeDataSeriesSourceResponse:
@@ -443,14 +373,14 @@ class TestBrazeDataSeriesSourceResponse:
         if config.parent_id_column:
             assert config.parent_id_column in config.primary_keys
 
-    @mock.patch(SESSION_PATCH)
-    def test_series_rows_are_never_declared_sorted(self, MockSession):
+    def test_series_rows_are_never_declared_sorted(self):
         # Rows arrive grouped by parent and then by window, so the watermark cannot checkpoint
         # mid-stream on `time`.
-        session = MockSession.return_value
-        session.get.side_effect = [_series_response([])]
+        result = _driver().run("kpi_dau", [_series_response([])])
 
-        assert _source("kpi_dau").sort_mode is None
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.sort_mode is None
 
 
 class TestDetailsRows:
@@ -464,18 +394,25 @@ class TestDetailsRows:
 
 
 class TestDetailsRequests:
-    @mock.patch(SESSION_PATCH)
-    def test_campaign_details_fans_out_over_the_campaign_list(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"campaigns": [{"id": "c1"}, {"id": "c2"}]}), _response({"campaigns": []})])
-        session.get.side_effect = [
-            _response({"message": "success", "name": "Welcome", "channels": ["email"]}),
-            _response({"message": "success", "name": "Winback", "channels": ["sms"]}),
-        ]
+    def test_campaign_details_fans_out_over_the_campaign_list(self):
+        result = _driver().run(
+            "campaign_details",
+            route(
+                {
+                    "/campaigns/list": [
+                        _response({"campaigns": [{"id": "c1"}, {"id": "c2"}]}),
+                        _response({"campaigns": []}),
+                    ],
+                    "/campaigns/details": [
+                        _response({"message": "success", "name": "Welcome", "channels": ["email"]}),
+                        _response({"message": "success", "name": "Winback", "channels": ["sms"]}),
+                    ],
+                }
+            ),
+        )
 
-        rows = _rows(_source("campaign_details"))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "campaign_id": "c1",
                 "name": "Welcome",
@@ -491,36 +428,30 @@ class TestDetailsRequests:
                 "conversion_behaviors": "[]",
             },
         ]
-        assert [call.args[0] for call in session.get.call_args_list] == [f"{BASE_URL}/campaigns/details"] * 2
-        assert [call.kwargs["params"] for call in session.get.call_args_list] == [
-            {"campaign_id": "c1"},
-            {"campaign_id": "c2"},
-        ]
+        detail_requests = [r for r in result.requests if r.path == "/campaigns/details"]
+        assert [r.url.split("?", 1)[0] for r in detail_requests] == [f"{BASE_URL}/campaigns/details"] * 2
+        assert [r.param("campaign_id") for r in detail_requests] == ["c1", "c2"]
 
-    @mock.patch(SESSION_PATCH)
-    def test_raises_on_an_error_status(self, MockSession):
+    def test_raises_on_an_error_status(self):
         # raise_for_status keeps the 403 wording get_non_retryable_errors matches on.
-        session = MockSession.return_value
-        _wire(session, [_response({"campaigns": [{"id": "c1"}]}), _response({"campaigns": []})])
-        session.get.side_effect = [_response({"message": "forbidden"}, status_code=403)]
+        result = _driver().run(
+            "campaign_details",
+            route(
+                {
+                    "/campaigns/list": [_response({"campaigns": [{"id": "c1"}]}), _response({"campaigns": []})],
+                    "/campaigns/details": [_response({"message": "forbidden"}, status=403)],
+                }
+            ),
+        )
 
-        with pytest.raises(HTTPError, match="403 Client Error"):
-            _rows(_source("campaign_details"))
+        assert isinstance(result.raised, HTTPError)
+        assert "403 Client Error" in str(result.raised)
 
     @mock.patch(HOST_SAFE_PATCH)
-    @mock.patch(SESSION_PATCH)
-    def test_raises_when_host_not_allowed(self, MockSession, mock_host_safe):
+    def test_raises_when_host_not_allowed(self, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
 
-        response = braze_source(
-            "key",
-            "https://10.0.0.1",
-            "campaign_details",
-            team_id=42,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        with pytest.raises(BrazeHostNotAllowedError):
-            list(cast("Iterable[Any]", response.items()))
+        result = _driver("https://10.0.0.1").run("campaign_details", [], team_id=42)
 
-        MockSession.return_value.get.assert_not_called()
+        assert isinstance(result.raised, BrazeHostNotAllowedError)
+        assert result.requests == []

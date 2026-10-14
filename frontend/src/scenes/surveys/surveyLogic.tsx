@@ -201,6 +201,9 @@ type SurveyTranslationDraftPayload = {
         thankYouMessageHeader?: string
         thankYouMessageDescription?: string
         thankYouMessageCloseButtonText?: string
+        introScreenHeader?: string
+        introScreenDescription?: string
+        introScreenButtonText?: string
     }
     questions?: SurveyTranslationDraftQuestion[]
     translations?: Survey['translations']
@@ -252,6 +255,9 @@ function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTra
             thankYouMessageHeader: survey.appearance?.thankYouMessageHeader,
             thankYouMessageDescription: survey.appearance?.thankYouMessageDescription,
             thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
+            introScreenHeader: survey.appearance?.introScreenHeader,
+            introScreenDescription: survey.appearance?.introScreenDescription,
+            introScreenButtonText: survey.appearance?.introScreenButtonText,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -1063,6 +1069,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
@@ -1119,6 +1128,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined

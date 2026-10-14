@@ -94,6 +94,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     source?: {
+        id?: string
         name: string
         url: string
     }

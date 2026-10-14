@@ -82,7 +82,8 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 
 
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
-    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
+    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"
