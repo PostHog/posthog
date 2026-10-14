@@ -110,7 +110,7 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
         pub=("rollbar_flutter", "rollbar_dart", "rollbar_common"),
         rubygems=("rollbar", "ratchetio", "resque-rollbar"),
         swiftpm=("github.com/rollbar/rollbar-apple",),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

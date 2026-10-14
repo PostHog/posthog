@@ -82,7 +82,7 @@ class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
         pub=("configcat_client", "configcat_preferences_cache"),
         rubygems=("configcat", "configcat-openfeature-provider"),
         swiftpm=("github.com/configcat/swift-sdk", "github.com/configcat/openfeature-swift"),
-        competes_with=(ProductKey.FEATURE_FLAGS,),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -70,6 +70,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.source_suggestions import unused_suggestable_products
@@ -322,18 +323,24 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
     related_ids = recurrence_ids or related_ids
     if not related_ids:
         return None, None
+    closed_filter = await database_sync_to_async(report_status_filter)(
+        [SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED], team_id=team_id
+    )
     async for candidate in (
         SignalReport.objects.filter(
+            closed_filter,
             id__in=related_ids,
             team_id=team_id,
-            status__in=(SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED),
         )
         .only("title", "summary", "status", "team")
         .order_by("-created_at")
     ):
         if await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(str(candidate.id), team_id):
             continue
-        if candidate.status == SignalReport.Status.RESOLVED:
+        if (
+            await database_sync_to_async(lambda report=candidate: report.effective_status)()
+            == SignalReport.Status.RESOLVED
+        ):
             return candidate.title, candidate.summary
         # Only an archived candidate costs the dismissal read, and the newest match wins, so the
         # loop stops at the first one rather than reading every link.

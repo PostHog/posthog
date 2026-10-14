@@ -84,7 +84,7 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
         pub=("matomo_tracker", "matomo"),
         rubygems=("autometal-piwik", "piwik_analytics"),
         swiftpm=("github.com/matomo-org/matomo-sdk-ios",),
-        competes_with=(ProductKey.WEB_ANALYTICS,),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

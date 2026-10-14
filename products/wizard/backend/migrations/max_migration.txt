@@ -1,1 +1,1 @@
-0010_wizardscan_wizarddetectedtool
+0011_rename_competes_with_to_alternative_to
