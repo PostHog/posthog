@@ -371,6 +371,37 @@ class TestRegisterCdcCompanionTableStamp:
 
         assert not DataWarehouseTable.objects.filter(team_id=team.pk, external_data_source_id=source.pk).exists()
 
+    def test_a_load_that_races_the_history_target_drop_leaves_no_live_record(self, team):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = self._history_schema(team, source, cdc_table_mode="both")
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        def drop_history_target_mid_registration() -> dict:
+            ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config={"cdc_table_mode": "consolidated"})
+            return {}
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", side_effect=drop_history_target_mid_registration),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_a",
+            )
+
+        assert not DataWarehouseTable.objects.filter(
+            team_id=team.pk, external_data_source_id=source.pk, deleted=False
+        ).exists()
+
     def test_stamps_the_companion_folder_activation_on_the_schema(self, team):
         # The companion table shares the schema row with the snapshot table, so its stamp has to land
         # under its own folder name or the snapshot's publish step would read the wrong flip time.

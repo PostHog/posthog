@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     WebhookSource,
     add_table_failure_message,
+    companion_tables,
     deregister_companion_table,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
@@ -170,6 +171,26 @@ def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str 
     old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
     new_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(new_mode or "", frozenset())
     return bool(new_targets - old_targets)
+
+
+def _keeps_cdc_history_after(instance: ExternalDataSchema, data: dict[str, Any]) -> bool:
+    sync_type = data["sync_type"] if "sync_type" in data else instance.sync_type
+    table_mode = data.get("cdc_table_mode", instance.cdc_table_mode)
+    return sync_type == ExternalDataSchema.SyncType.CDC and table_mode in ("cdc_only", "both")
+
+
+def _require_editor_access_to_history_table(request: Request | None, view: Any, schema: ExternalDataSchema) -> None:
+    """Deregistering the history table deletes it, so it needs the access a table delete needs.
+
+    The permission class resolves access through `schema.table` only, and in `both` mode that is the
+    consolidated table.
+    """
+    if request is None or view is None or is_service_auth(request):
+        return
+    for table in companion_tables(schema):
+        level = view.user_access_control.get_user_access_level(table)
+        if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+            raise PermissionDenied("You do not have editor access to the history table of this table.")
 
 
 def _concrete_field_names(validated_data: dict[str, Any]) -> list[str]:
@@ -944,7 +965,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
-        kept_cdc_history = instance.keeps_cdc_history
+        # A retry of a request whose cleanup failed no longer starts from a schema that kept history,
+        # so a request that names the mode or the sync type checks for a stale history table too.
+        may_drop_cdc_history = not _keeps_cdc_history_after(instance, data) and (
+            instance.keeps_cdc_history or "cdc_table_mode" in data or "sync_type" in data
+        )
+        if may_drop_cdc_history:
+            _require_editor_access_to_history_table(self.context.get("request"), self.context.get("view"), instance)
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -1553,9 +1580,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             self._run_temporal_side_effect(update_schedule)
 
-        if kept_cdc_history and not updated_instance.keeps_cdc_history:
-            deregister_companion_table(updated_instance)
-
         if trigger_refresh:
             self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
 
@@ -1586,6 +1610,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     new_cdc_table_mode=new_cdc_table_mode,
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
+
+        # Last, so a failure here does not skip the side effects above.
+        if may_drop_cdc_history and not updated_instance.keeps_cdc_history:
+            deregister_companion_table(updated_instance)
 
         return updated_instance
 
@@ -2020,6 +2048,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
+        _require_editor_access_to_history_table(request, self, instance)
 
         if instance.table:
             instance.table.soft_delete()

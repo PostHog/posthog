@@ -17,6 +17,35 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+
+def companion_tables(schema: ExternalDataSchema) -> list[DataWarehouseTable]:
+    """The live records of the schema's history table."""
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+    source = schema.source
+    companion_name = build_table_name(source, companion_resource_name(schema.name))
+    own_names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    # A pinned folder can give the schema's own table the companion's name.
+    if companion_name == build_table_name(source, own_names.table_storage_name):
+        return []
+
+    # A source table named `<table>_cdc` resolves to the same table name, and that record is not ours.
+    owned_by_another_schema = (
+        ExternalDataSchema.objects.filter(team_id=schema.team_id, table_id=OuterRef("pk"))
+        .exclude(deleted=True)
+        .exclude(id=schema.id)
+    )
+    return list(
+        DataWarehouseTable.objects.filter(
+            team_id=schema.team_id,
+            name=companion_name,
+            external_data_source_id=source.id,
+            deleted=False,
+        ).filter(~Exists(owned_by_another_schema))
+    )
 
 
 def deregister_companion_table(schema: ExternalDataSchema) -> bool:
@@ -27,29 +56,8 @@ def deregister_companion_table(schema: ExternalDataSchema) -> bool:
     resets them before the new seed.
     """
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
-    source = schema.source
-    companion_name = build_table_name(source, companion_resource_name(schema.name))
-    own_names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-    # A pinned folder can give the schema's own table the companion's name.
-    if companion_name == build_table_name(source, own_names.table_storage_name):
-        return False
-
-    # A source table named `<table>_cdc` resolves to the same table name, and that record is not ours.
-    owned_by_another_schema = (
-        ExternalDataSchema.objects.filter(team_id=schema.team_id, table_id=OuterRef("pk"))
-        .exclude(deleted=True)
-        .exclude(id=schema.id)
-    )
-    companions = list(
-        DataWarehouseTable.objects.filter(
-            team_id=schema.team_id,
-            name=companion_name,
-            external_data_source_id=source.id,
-            deleted=False,
-        ).filter(~Exists(owned_by_another_schema))
-    )
+    companions = companion_tables(schema)
     if not companions:
         return False
 

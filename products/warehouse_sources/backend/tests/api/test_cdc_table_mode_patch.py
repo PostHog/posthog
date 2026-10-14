@@ -19,8 +19,10 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -532,6 +534,8 @@ def test_resync_of_a_streaming_table_keeps_its_buffer(team, user, client: HttpCl
     [
         ("both", "consolidated"),
         ("both", "cdc_only"),
+        # A retry after an earlier request saved the mode but failed to clean up.
+        ("consolidated", "consolidated"),
     ],
 )
 def test_patch_cdc_table_mode_dropping_target_skips_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
@@ -589,6 +593,46 @@ def test_deleting_a_schema_deregisters_its_unlinked_history_table(team, user, cl
     assert response.status_code == 204, response.content
     history_table.refresh_from_db()
     assert history_table.deleted is True
+
+
+@pytest.mark.parametrize("action", ["patch_to_consolidated", "delete_schema"])
+def test_dropping_history_needs_editor_access_to_the_history_table(team, user, client: HttpClient, action: str):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    history_table = _make_history_table(source, schema)
+    team.organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+    ]
+    team.organization.save()
+    AccessControl.objects.create(
+        team=team,
+        resource="warehouse_table",
+        resource_id=str(history_table.id),
+        access_level="viewer",
+        organization_member=team.organization.memberships.get(user=user),
+    )
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(f"{_VIEW}.purge_buffer_prefix"),
+    ):
+        url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+        if action == "delete_schema":
+            response = client.delete(url)
+        else:
+            response = client.patch(url, data={"cdc_table_mode": "consolidated"}, content_type="application/json")
+
+    assert response.status_code == 403, response.content
+    history_table.refresh_from_db()
+    assert history_table.deleted is False
+    schema.refresh_from_db()
+    assert schema.cdc_table_mode == "both"
+    assert not schema.deleted
 
 
 def test_patch_cdc_table_mode_idempotent_skips_resnapshot(team, user, client: HttpClient):
