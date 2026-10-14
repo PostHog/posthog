@@ -12,6 +12,7 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { DetectedSources } from 'products/marketing_analytics/frontend/dashboard/DetectedSources'
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('products/data_warehouse/frontend/shared/components/SourceIcon', () => ({ SourceIcon: () => null }))
@@ -92,5 +93,30 @@ it.each([false, true])('keeps suggestions actionable with synced data %s', async
         localStorage.removeItem('marketing-analytics-onboarding-completed')
         unmountSetup()
         unmountMarketing()
+    }
+})
+
+it.each([
+    [false, false, 'Finding your ad platforms'],
+    [true, false, 'Finding your ad platforms'],
+    [false, true, 'Could not check your events'],
+])('distinguishes scan loading %s and failure %s', (loading, failed, heading) => {
+    initKeaTests()
+    const unmountFlags = featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true })
+    const unmountSetup = setupPlanLogic.mount()
+    const plan = jest.spyOn(setupPlanLogic.selectors, 'setupPlan').mockReturnValue(null)
+    const planLoading = jest.spyOn(setupPlanLogic.selectors, 'setupPlanLoading').mockReturnValue(loading)
+    const planFailed = jest.spyOn(setupPlanLogic.selectors, 'setupPlanFailed').mockReturnValue(failed)
+    try {
+        render(<DetectedSources />)
+        expect(screen.getByRole('heading', { name: heading })).not.toBeNull()
+    } finally {
+        cleanup()
+        plan.mockRestore()
+        planLoading.mockRestore()
+        planFailed.mockRestore()
+        unmountSetup()
+        unmountFlags()
     }
 })

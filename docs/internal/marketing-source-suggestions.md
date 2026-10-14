@@ -263,3 +263,7 @@ Source setup component stories cover panel states; source onboarding stories cov
 
 Ad and Search setup cards use the same heading size and content inset.
 Source onboarding stories cover the current dashboard; they do not add snapshots for the experimental dashboard.
+
+A missing setup plan stays in the scanning state until a request fails.
+Manual retries bypass the event scan cache, including retries without a loaded plan.
+Managed external tables count as ready only when their schema sync status is completed; self-managed mapped tables remain available directly.
