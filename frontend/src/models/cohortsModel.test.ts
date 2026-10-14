@@ -417,6 +417,26 @@ describe('cohortsModel', () => {
                     }),
                 })
         })
+
+        it('puts the cohort back in cohortsById when the server refuses the delete', async () => {
+            await expectLogic(logic).toDispatchActions(['loadAllCohortsSuccess'])
+            useMocks({
+                patch: {
+                    '/api/projects/:team/cohorts/:id': () => [
+                        400,
+                        { detail: 'This cohort is used in 1 active feature flag(s).' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteCohort({ id: 1 })
+            })
+                .toDispatchActions(['deleteCohort', 'loadAllCohortsSuccess'])
+                .toMatchValues({
+                    cohortsById: expect.objectContaining({ 1: expect.objectContaining({ id: 1 }) }),
+                })
+        })
     })
 
     describe('selectors', () => {

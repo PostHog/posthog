@@ -152,6 +152,28 @@ describe('cohortsSceneLogic', () => {
                         }),
                     })
             })
+
+            it('puts the cohort back when the server refuses the delete', async () => {
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                useMocks({
+                    patch: {
+                        '/api/projects/:team/cohorts/:id': () => [
+                            400,
+                            { detail: 'This cohort is used in 1 active feature flag(s).' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.deleteCohort({ id: 1 })
+                })
+                    .toDispatchActions(['deleteCohort', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohorts: expect.objectContaining({
+                            results: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
+                        }),
+                    })
+            })
         })
 
         describe('selectors', () => {
