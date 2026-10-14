@@ -265,6 +265,39 @@ class TestComposeFlashFindings:
         ]
         assert (selection.cap, selection.lens_part_count) == (4, 1)
 
+    @pytest.mark.parametrize(
+        "budget_left,expected_kept,expected_dropped",
+        [
+            pytest.param(
+                3,
+                ["m1", "m2", "m3"],
+                [("m4", "budget", 4), ("m5", "cap", 5)],
+                id="must_fix_counts_toward_the_budget",
+            ),
+            pytest.param(
+                0,
+                ["m1"],
+                [("m2", "budget", 2), ("m3", "budget", 3), ("m4", "budget", 4), ("m5", "cap", 5)],
+                id="must_fix_posts_when_the_budget_is_spent",
+            ),
+            pytest.param(
+                None,
+                ["m1", "m2", "m3", "m4"],
+                [("m5", "cap", 5)],
+                id="no_budget_keeps_the_cap",
+            ),
+        ],
+    )
+    def test_the_finding_budget_cuts_below_the_cap(
+        self, budget_left: int | None, expected_kept: list[str], expected_dropped: list[tuple[str, str, int]]
+    ) -> None:
+        main = [_issue("m1", IssuePriority.MUST_FIX)] + [_issue(f"m{n}", IssuePriority.SHOULD_FIX) for n in range(2, 6)]
+
+        selection = compose_flash_findings(main, [], lens_part_count=1, budget_left=budget_left)
+
+        assert [issue.id for issue in selection.kept] == expected_kept
+        assert [(drop.issue.id, drop.disposition, drop.rank) for drop in selection.dropped] == expected_dropped
+
 
 def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
     return AsyncMock(

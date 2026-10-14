@@ -27,6 +27,7 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewArm,
     review_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.finding_budget import FINDING_BUDGET, FindingBudget
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -40,6 +41,7 @@ from products.review_hog.backend.reviewer.tools.coordinator_review import Coordi
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
+from products.review_hog.backend.reviewer.tools.single_agent_review import FlashSelection
 from products.review_hog.backend.temporal.activities import (
     CoordinatorReviewInput,
     LensReviewInput,
@@ -742,6 +744,42 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
         )
 
     assert result.raised_elsewhere == [AlreadyRaised(title="Already said", level="P2", comment_id=2, commenter="alice")]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "trigger_source,expected_budget_left",
+    [
+        pytest.param("automatic", 2, id="automatic_turn_is_held_to_the_budget"),
+        pytest.param("comment", None, id="requested_review_is_not"),
+        pytest.param(None, None, id="payload_from_before_the_field"),
+    ],
+)
+async def test_only_an_automatic_standard_turn_is_held_to_the_finding_budget(
+    trigger_source: str | None, expected_budget_left: int | None
+) -> None:
+    # Automatic reviews are the safeguard that stops at must-fix findings once the budget is spent. A review
+    # someone asks for must surface everything the turn keeps.
+    dedupe = AsyncMock(return_value=FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1))
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}._combine_and_clean", return_value=[]),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
+        patch(f"{_MODULE}.load_prior_findings_with_verdicts", return_value=[]),
+        patch(f"{_MODULE}._changed_since_last_review", return_value=None),
+        patch(f"{_MODULE}._finding_budget", return_value=FindingBudget(arm="budget", posted_before=FINDING_BUDGET - 2)),
+        patch(f"{_MODULE}.dedupe_flash_findings", dedupe),
+        patch(f"{_MODULE}.replace_deduplicated_findings", return_value=[]),
+        patch(f"{_MODULE}.replace_dropped_findings"),
+        patch(f"{_MODULE}.persist_verdicts"),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+    ):
+        await ActivityEnvironment().run(
+            dedup_activity, SandboxStageInput(**_single_agent_stage(trigger_source=trigger_source))
+        )
+
+    assert dedupe.call_args.kwargs["budget_left"] == expected_budget_left
 
 
 @pytest.mark.parametrize(

@@ -346,13 +346,27 @@ Standard turn posts a short review with it next to the 👍. That review has its
 marker, so a pull request gets it once and re-reviews do not repeat it. It does not set the published watermark, so a
 later turn on the head still publishes its findings.
 
+The finding budget (`reviewer/finding_budget.py`) caps what automatic Standard reviews post on one pull request in
+total. It counts every valid finding that published turns let through their urgency threshold, from every mode and
+trigger. Once the pull request has `FINDING_BUDGET` (20) posted findings, `compose_flash_findings` keeps only the
+must-fix findings of an automatic turn: they count toward the budget but always post. Automatic reviews run on every
+pull request as a safeguard, so past the budget they only raise what must be fixed. A review someone asks for (a
+comment, the label, the UI) is not limited, and `SandboxStageInput.trigger_source` tells the dedup stage which kind ran.
+A finding that fits under the turn's cap but not under the budget drops as `budget`. A review that still posts ends
+with one line that says how many it left out and, where comment commands run, offers `@posthog review --deep`: the head
+already has its Standard review, so only a Deep review runs on it again. A turn that keeps nothing stays silent. Fixing or resolving a finding gives no budget back, because a coding agent that fixes and resolves
+everything would otherwise refill it. Pull requests split into two arms by a hash of the repository and number
+(`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
+`reviewhog_finding_outcome` splits the measurement.
+
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
 with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,
-`dedup_anchor`, `dedup_sibling`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
+`dedup_anchor`, `dedup_sibling`, `cap`, or `budget`), `duplicate_of` (an issue key, or `comment:<id>`), the
 rank in the composed order for a cut finding, the cap, and the lens part count. A retried turn replaces its rows by
-`run_index`. Only analysis reads them: publishing, the status comment, outcome classification, `load_prior_findings`,
-and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor suppress a later finding.
+`run_index`. Only analysis reads them, and publishing counts the `budget` drops for its note: the status comment, outcome
+classification, `load_prior_findings`, and the reviews API read `issue_finding` rows, so a dropped finding can neither post
+nor suppress a later finding.
 
 A Flash turn of any size runs the single-agent design. The **pipeline design** (`reviewhog-flash-1-1`), the steps
 below, runs a Flash turn only when the `reviewhog-flash-pipeline-kill-switch` feature flag is on (organization-keyed,
@@ -501,7 +515,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     A single-agent turn's completed event also carries its finding funnel and session health: `flash_cap`,
     `flash_lens_parts`, `flash_reviewable_lines`, per session (`main` or a lens name) `flash_candidates`,
     `flash_must_fix` (P0/P1 as the session reported them) and `flash_must_fix_share`, then `flash_after_dedup`,
-    `flash_dropped` per disposition, `flash_kept`, `flash_lens_failures`, `flash_lens_timeouts`, and
+    `flash_dropped` per disposition, `flash_kept`, `flash_budget_left` (null outside the finding budget), `flash_lens_failures`, `flash_lens_timeouts`, and
     `flash_slowest_session_seconds`. The dedup activity returns the counts on `DedupResult.flash_stats`, and the
     workflow measures the sessions in workflow time. Cost stays on `$ai_generation`, per `ai_stage`.
     Flash finding outcomes use the mode and model configurations saved in the finding's `validation_context`,
