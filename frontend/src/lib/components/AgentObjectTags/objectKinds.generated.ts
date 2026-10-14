@@ -55,11 +55,11 @@ export const OBJECT_KIND_DATA = {
     error: {
         kindLabel: 'Error issue',
         source: 'Error tracking',
-        pathTemplate: '/error-tracking/{id}',
+        pathTemplate: '/error_tracking/{id}',
         idPattern: null,
         block: false,
         idIsBody: false,
-        urlAliases: ['/error_tracking/{id}'],
+        urlAliases: [],
     },
     replay: {
         kindLabel: 'Session replay',
