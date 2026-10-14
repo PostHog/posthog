@@ -67,7 +67,7 @@ function SpanListRow({
 }
 
 export function TraceDialogSpanTree(): JSX.Element {
-    const { spanRows, spanTree, collapsedSpanIds, timeline, serviceColorMap, selectedSpanId, trace, openedAtUs } =
+    const { spanRows, spanTree, collapsedSpanIds, timeline, serviceColorMap, selectedSpan, trace, openedAtUs } =
         useValues(traceDialogLogic)
     const { selectSpan, toggleSpanCollapsed, showAllChildren } = useActions(traceDialogLogic)
     const listRef = useListRef(null)
@@ -134,7 +134,7 @@ export function TraceDialogSpanTree(): JSX.Element {
                                 collapsedSpanIds,
                                 timeline,
                                 serviceColorMap,
-                                selectedSpanId,
+                                selectedSpanId: selectedSpan?.span_id ?? null,
                                 openedSpanId,
                                 openedAtUs,
                                 onSelect: selectSpan,

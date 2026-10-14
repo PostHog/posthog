@@ -6,15 +6,27 @@ import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@postho
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { pluralize } from 'lib/utils/strings'
 
+import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import { traceDialogLogic } from './traceDialogLogic'
 import { TraceDialogSpanTree } from './TraceDialogSpanTree'
 
 export function TraceDialog(): JSX.Element | null {
-    const { isOpen, trace, traceSpans, traceSpansLoading, traceSpansFailed, summary, timeline } =
-        useValues(traceDialogLogic)
-    const { closeTraceDialog, loadTraceSpans } = useActions(traceDialogLogic)
+    const {
+        isOpen,
+        trace,
+        traceSpans,
+        traceSpansLoading,
+        traceSpansFailed,
+        summary,
+        timeline,
+        selectedSpan,
+        serviceColorMap,
+        activeInspectorTab,
+        sessionErrorBadgesEnabled,
+    } = useValues(traceDialogLogic)
+    const { closeTraceDialog, loadTraceSpans, setInspectorTab } = useActions(traceDialogLogic)
 
     if (!trace) {
         return null
@@ -82,8 +94,30 @@ export function TraceDialog(): JSX.Element | null {
                         No spans found for this trace. Open it in Tracing to search other time ranges.
                     </div>
                 ) : (
-                    <div className="flex-1 min-h-0">
-                        <TraceDialogSpanTree />
+                    <div className="flex flex-1 min-h-0">
+                        <div className="flex-1 min-w-0">
+                            <TraceDialogSpanTree />
+                        </div>
+                        {selectedSpan && (
+                            <div
+                                className="w-2/5 shrink-0 min-h-0 overflow-y-auto border-l pl-4"
+                                data-attr="trace-dialog-inspector"
+                            >
+                                <SpanInspector
+                                    span={selectedSpan}
+                                    serviceColorMap={serviceColorMap}
+                                    traceTimestamp={summary.rootSpan?.timestamp ?? selectedSpan.timestamp}
+                                    sessionId={null}
+                                    showErrorsTab={sessionErrorBadgesEnabled}
+                                    errorsScope="span"
+                                    resolving={false}
+                                    tab={activeInspectorTab}
+                                    onSelectTab={setInspectorTab}
+                                    // The dialog has no span list for an attribute filter to narrow.
+                                    showFilterActions={false}
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
