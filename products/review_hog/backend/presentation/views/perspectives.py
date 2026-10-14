@@ -8,18 +8,19 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.models import ReviewSkillConfig
-from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_perspectives
-from products.review_hog.backend.reviewer.skill_loader import (
-    CANONICAL_PERSPECTIVE_SKILL_NAMES,
-    REVIEW_HOG_PERSPECTIVE_PREFIX,
-    register_missing_perspective_configs,
-    visible_skill_names,
+from products.review_hog.backend.facade.api import (
+    get_review_skill,
+    list_review_skill_choices,
+    set_review_perspective_enabled,
 )
-from products.skills.backend.models.skills import LLMSkill
+from products.review_hog.backend.facade.contracts import (
+    LastEnabledPerspectiveError,
+    ReviewSkillNameError,
+    ReviewSkillNotFoundError,
+)
+from products.review_hog.backend.facade.enums import ReviewSkillKind
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,6 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     scope_object = "llm_skill"
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "review-hog"
-    # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
-    queryset = ReviewSkillConfig.objects.unscoped()
     serializer_class = ReviewPerspectiveConfigSerializer
     lookup_field = "skill_name"
     pagination_class = None
@@ -85,38 +84,9 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         ),
     )
     def list(self, request: Request, **kwargs) -> Response:
-        # Resolve a raw environment URL id to its root team once — the skills and config rows all
-        # live on the canonical team, so an unresolved id would render an empty menu.
-        team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
-        # A team that never ran a review has no LLMSkill rows yet — seed the canonicals or the
-        # menu renders empty until the first run.
-        seed_canonicals_tolerantly(team_id, sync_canonical_perspectives)
-        register_missing_perspective_configs(team_id, user_id)
-        # Prefix-scope: validators share this table, so only join perspective rows to the menu.
-        enabled_by_name = dict(
-            ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-            .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
-            .values_list("skill_name", "enabled")
-        )
-        # Per-user visibility: the menu advertises the canonicals plus this user's own customs —
-        # never a teammate's.
-        visible = visible_skill_names(
-            team_id, user_id, prefix=REVIEW_HOG_PERSPECTIVE_PREFIX, canonical_names=CANONICAL_PERSPECTIVE_SKILL_NAMES
-        )
-        skills = LLMSkill.objects.filter(team_id=team_id, name__in=visible, is_latest=True, deleted=False).order_by(
-            "name"
-        )
-        items = [
-            {
-                "skill_name": s.name,
-                "enabled": enabled_by_name.get(s.name, False),
-                "description": s.description,
-                "body": s.body,
-            }
-            for s in skills
-        ]
-        return Response(ReviewPerspectiveConfigSerializer(items, many=True).data)
+        choices = list_review_skill_choices(self.team_id, user_id, ReviewSkillKind.PERSPECTIVE)
+        return Response(ReviewPerspectiveConfigSerializer(choices, many=True).data)
 
     @extend_schema(
         request=ReviewPerspectiveConfigUpdateSerializer,
@@ -137,53 +107,20 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         ),
     )
     def partial_update(self, request: Request, skill_name: str, **kwargs) -> Response:
-        if not skill_name.startswith(REVIEW_HOG_PERSPECTIVE_PREFIX):
-            raise ValidationError(f"'{skill_name}' is not a review perspective skill")
-        # Resolve a raw environment URL id to its root team once: `for_team` canonicalizes its
-        # filter but not the create kwargs, and mismatched ids mean a never-matching get plus
-        # 500s on the unique constraint from the second call on.
-        team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
-        # Same cold-team seed as list(): a canonical toggled before the team's first review would
-        # 404 without it.
-        seed_canonicals_tolerantly(team_id, sync_canonical_perspectives)
-        skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
-        # A teammate's custom 404s exactly like a missing skill — visibility is author-only, and a
-        # distinct error would leak that the name exists.
-        if skill is None or skill_name not in visible_skill_names(
-            team_id, user_id, prefix=REVIEW_HOG_PERSPECTIVE_PREFIX, canonical_names=CANONICAL_PERSPECTIVE_SKILL_NAMES
-        ):
+        try:
+            perspective = get_review_skill(self.team_id, user_id, ReviewSkillKind.PERSPECTIVE, skill_name)
+        except ReviewSkillNameError:
+            raise ValidationError(f"'{skill_name}' is not a review perspective skill")
+        except ReviewSkillNotFoundError:
             raise NotFound(f"No perspective skill '{skill_name}' on this project")
 
         update = ReviewPerspectiveConfigUpdateSerializer(data=request.data)
         update.is_valid(raise_exception=True)
         enabled: bool = update.validated_data["enabled"]
 
-        # Seed the canonicals first so the min-1 floor counts a cold user's defaults, not zero.
-        register_missing_perspective_configs(team_id, user_id)
-        if not enabled:
-            # Best-effort floor (count + write, no lock) — same as scouts. The loader's
-            # NoEnabledPerspectivesError is the backstop if a rare concurrent double-disable slips through.
-            # Prefix-scope: the floor counts only perspectives — an enabled validator (same table)
-            # must not let a user disable their last perspective.
-            others_enabled = (
-                ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-                .filter(user_id=user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
-                .exclude(skill_name=skill_name)
-                .count()
-            )
-            if others_enabled == 0:
-                raise ValidationError("Cannot disable your last enabled perspective — at least one must stay on")
-
-        # `team_id` / `user_id` stay in the create kwargs — the fail-closed filter doesn't propagate.
-        config, _created = ReviewSkillConfig.objects.for_team(team_id, canonical=True).get_or_create(
-            team_id=team_id, user_id=user_id, skill_name=skill_name, defaults={"enabled": enabled}
-        )
-        if config.enabled != enabled:
-            config.enabled = enabled
-            config.save(update_fields=["enabled", "updated_at"])
-        return Response(
-            ReviewPerspectiveConfigSerializer(
-                {"skill_name": skill_name, "enabled": enabled, "description": skill.description, "body": skill.body}
-            ).data
-        )
+        try:
+            choice = set_review_perspective_enabled(self.team_id, user_id, perspective, enabled)
+        except LastEnabledPerspectiveError:
+            raise ValidationError("Cannot disable your last enabled perspective — at least one must stay on")
+        return Response(ReviewPerspectiveConfigSerializer(choice).data)

@@ -1,4 +1,6 @@
-from django.db import models
+from collections.abc import Mapping
+
+from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils.functional import Promise
 
@@ -488,7 +490,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.CONSIDER,
+        default=UrgencyThreshold.CONSIDER.value,
         db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -521,6 +523,22 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         project = ReviewProjectSettings.load(team_id).defaults
         rows = cls.load_many(team_id, user_ids)
         return {user_id: ReviewPreferences.resolve(row.preferences, project) for user_id, row in rows.items()}
+
+    @classmethod
+    def save_preference_changes(cls, team_id: int, user_id: int, changes: Mapping[str, object]) -> ReviewPreferences:
+        """Apply `changes` to the user's stored preferences and return the effective result.
+
+        Raises `InvalidPreference` for an unknown key or an invalid value.
+        """
+        rows = cls.objects.for_team(team_id, canonical=True)
+        with transaction.atomic():
+            row, _created = rows.get_or_create(team_id=team_id, user_id=user_id)
+            # The lock keeps two concurrent edits of different keys from losing one of them.
+            row = rows.select_for_update().get(id=row.id)
+            current = ReviewPreferences.resolve(row.preferences, ReviewProjectSettings.load(team_id).defaults)
+            row.preferences = current.with_changes(changes)
+            row.save(update_fields=["preferences", "updated_at"])
+        return cls.load_preferences(team_id, user_id)
 
 
 class ReviewInstallationClaim(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
