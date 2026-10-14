@@ -209,3 +209,30 @@ def guest_effective_resource_access(user: User, team: Team) -> dict[str, str]:
         if listed.ids or not listed.complete:
             access[name] = "viewer"
     return access
+
+
+def _has_hogql_filter(node: Any) -> bool:
+    pending = [node]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, dict):
+            if item.get("type") == "hogql":
+                return True
+            pending.extend(item.values())
+    return False
+
+
+def reject_guest_value_overrides(request: Request | None, overrides: dict[str, Any] | None) -> None:
+    """Refuse a guest's filter overrides that could list values, such as emails.
+
+    A breakdown returns every value of a property, and a HogQL filter is a yes/no test on any column. Saved filters
+    stay allowed, because their author chose them. Only what the guest sends is checked.
+    """
+    if not overrides or request is None or not is_enforced_guest(request):
+        return
+    if overrides.get("breakdown_filter"):
+        raise PermissionDenied("Guests can't change a breakdown.")
+    if _has_hogql_filter(overrides.get("properties")):
+        raise PermissionDenied("Guests can't filter with HogQL expressions.")

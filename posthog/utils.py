@@ -1878,6 +1878,7 @@ def filters_override_requested_by_client(
     request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
 ) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+    from posthog.guest_access import reject_guest_value_overrides
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
@@ -1900,6 +1901,7 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
+    reject_guest_value_overrides(request, request_filters)
     return {**dashboard_filters, **request_filters}
 
 
@@ -1944,6 +1946,7 @@ def tile_filters_override_requested_by_client(
     request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
 ) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+    from posthog.guest_access import reject_guest_value_overrides
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
@@ -1968,6 +1971,7 @@ def tile_filters_override_requested_by_client(
             {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
         )
 
+    reject_guest_value_overrides(request, request_filters)
     return {**tile_filters, **request_filters}
 
 

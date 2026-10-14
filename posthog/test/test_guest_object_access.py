@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 
 from posthog.test.base import APIBaseTest
@@ -73,7 +74,11 @@ class TestGuestObjectAccess(APIBaseTest):
         return ResourceIds(ids=frozenset({granted[resource.type]}), complete=True)
 
     def _openfga_check(self, requests: Sequence[CheckRequest], _context: Context | None) -> list[bool]:
-        granted = {(ResourceType.NOTEBOOK, str(self.granted.id)), (ResourceType.DASHBOARD, str(self.dashboard_id))}
+        granted = {
+            (ResourceType.NOTEBOOK, str(self.granted.id)),
+            (ResourceType.DASHBOARD, str(self.dashboard_id)),
+            (ResourceType.INSIGHT, str(self.insight.id)),
+        }
         return [
             request.resource.type in (ResourceType.PROJECT, ResourceType.ORGANIZATION)
             or (request.action == Action.VIEW and (request.resource.type, request.resource.id) in granted)
@@ -107,3 +112,16 @@ class TestGuestObjectAccess(APIBaseTest):
             self.client.get(f"/api/projects/{self.team.id}/{path}/{unused.id}/").status_code
             == status.HTTP_404_NOT_FOUND
         )
+
+    @parameterized.expand(
+        [
+            ("breakdown", {"breakdown_filter": {"breakdown": "email", "breakdown_type": "person"}}, 403),
+            ("hogql filter", {"properties": [{"type": "hogql", "key": "person.properties.email = 'a'"}]}, 403),
+            ("date range", {"date_from": "-7d"}, 200),
+        ]
+    )
+    def test_guest_insight_overrides_cannot_expose_values(self, _name: str, override: dict, expected: int) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"filters_override": json.dumps(override)}
+        )
+        assert response.status_code == expected, response.json()

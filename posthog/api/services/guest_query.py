@@ -36,17 +36,6 @@ class GuestQuery:
     insight_id: int | None
 
 
-def _check_overrides(request_data: QueryRequest) -> None:
-    filters = request_data.filters_override
-    if filters is None:
-        return
-    if filters.breakdown_filter is not None:
-        raise PermissionDenied("Guests can't change a breakdown.")
-    for item in filters.properties or []:
-        if getattr(item, "type", None) == "hogql":
-            raise PermissionDenied("Guests can't filter with HogQL expressions.")
-
-
 def _runnable(query: dict[str, Any]) -> dict[str, Any]:
     source = query.get("source")
     return source if query.get("kind") in _WRAPPER_KINDS and isinstance(source, dict) else query
@@ -103,7 +92,6 @@ def _session_events_query(team: Team, user: User, session_id: str) -> dict[str, 
 
 
 def resolve_guest_query(request_data: QueryRequest, team: Team, user: User) -> GuestQuery:
-    _check_overrides(request_data)
     if request_data.insight_id is not None:
         return _insight_query(team, user, request_data.insight_id)
     if request_data.notebook_short_id is not None and request_data.node_id is not None:
