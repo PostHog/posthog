@@ -5,6 +5,7 @@ import datetime as dt
 from typing import Any
 
 from django.db import models
+from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
 import structlog
@@ -1381,16 +1382,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # The cap protects ClickHouse capacity. A Redis outage must not also make the logs API fail.
             logger.exception("logs_api_concurrency_limiter_unavailable", team_id=self.team_id)
 
-    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
-        # DRF calls finalize_response also when the handler raises, so the slot is released on every path.
-        if self._logs_api_slot is not None:
-            try:
-                get_logs_api_team_rate_limiter().release(self._logs_api_slot)
-            except RedisError:
-                # The slot expires after the limiter's ttl, so keep the response the query already produced.
-                logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
-            self._logs_api_slot = None
-        return super().finalize_response(request, response, *args, **kwargs)
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # DRF skips finalize_response when the exception handler re-raises an error, so only a finally block
+        # releases the slot on every path.
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            if self._logs_api_slot is not None:
+                try:
+                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+                except RedisError:
+                    # The slot expires after the limiter's ttl, so keep the response the query already produced.
+                    logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
+                self._logs_api_slot = None
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:

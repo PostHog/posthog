@@ -5,6 +5,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
@@ -168,6 +170,21 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         statuses = [self._post_count_with_personal_api_key().status_code for _ in range(limiter.max_concurrency + 1)]
 
         self.assertEqual(statuses, [status.HTTP_200_OK] * (limiter.max_concurrency + 1))
+
+    @override_settings(DEBUG=True)
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_personal_api_key_requests_release_their_concurrency_slot_when_the_handler_raises(self):
+        limiter = get_logs_api_team_rate_limiter()
+        self.client.raise_request_exception = False
+
+        with patch(
+            "products.logs.backend.presentation.views.api.CountQueryRunner.run", side_effect=RuntimeError("boom")
+        ):
+            response = self._post_count_with_personal_api_key()
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        self.assertEqual(limiter.redis_client.zcard(f"logs_api:query:per-team:{self.team.id}"), 0)
 
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_personal_api_key_requests_pass_when_the_limiter_redis_is_down(self):
