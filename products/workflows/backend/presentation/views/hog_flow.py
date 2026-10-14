@@ -583,12 +583,12 @@ _REPLAY_VISION_STEP_SCOPES = (
 
 
 def _strip_replay_vision_code(inputs: Any) -> None:
-    # A draft keeps its raw inputs when they fail validation, so client-compiled code can still be there. The
-    # engine would run that code instead of the value the access checks read.
+    # A draft keeps its raw inputs when they fail validation, so client-compiled code or a Liquid template can still
+    # be there. The engine would render those instead of the literal value the access checks read.
     analysis = inputs.get("analysis") if isinstance(inputs, dict) else None
     if isinstance(analysis, dict):
-        analysis.pop("bytecode", None)
-        analysis.pop("transpiled", None)
+        for key in ("bytecode", "transpiled", "templating"):
+            analysis.pop(key, None)
 
 
 def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
