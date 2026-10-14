@@ -1,3 +1,4 @@
+import threading
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -25,7 +26,12 @@ from products.error_tracking.backend.temporal.grouping_judge.algorithms import (
     LIVE_ALGORITHM,
     decisions_for,
 )
-from products.error_tracking.backend.temporal.grouping_judge.config import JUDGE_OFF, JudgeConfig, parse_judge_config
+from products.error_tracking.backend.temporal.grouping_judge.config import (
+    JUDGE_OFF,
+    JudgeConfig,
+    current_judge_config,
+    parse_judge_config,
+)
 from products.error_tracking.backend.temporal.grouping_judge.inline import (
     _fetch_document_texts,
     grouping_judge_properties,
@@ -122,6 +128,15 @@ class TestJudgeConfig(SimpleTestCase):
     ) -> None:
         assert parse_judge_config(payload, "EU") == expected
 
+    def test_off_without_reading_the_flag_when_no_definitions_are_loaded(self) -> None:
+        with (
+            patch(f"{MODULE}.config.posthoganalytics.feature_flag_definitions", return_value=None),
+            patch(f"{MODULE}.config.posthoganalytics.get_feature_flag_payload") as get_payload,
+        ):
+            assert current_judge_config() == JUDGE_OFF
+
+        get_payload.assert_not_called()
+
 
 class TestJudgeOutcome(SimpleTestCase):
     @parameterized.expand(
@@ -174,6 +189,7 @@ class TestGroupingJudgeProperties(SimpleTestCase):
         merge_outcome: AutoMergeOutcome | None = NO_MERGE,
         config: JudgeConfig = ALWAYS_JUDGE,
         input_content: str | None = None,
+        closest: list[SimilarFingerprintDistance] | None = None,
     ) -> tuple[dict[str, object], MagicMock, MagicMock]:
         team = MagicMock(id=1)
         team.organization.is_ai_data_processing_approved = approved
@@ -187,7 +203,7 @@ class TestGroupingJudgeProperties(SimpleTestCase):
             properties = grouping_judge_properties(
                 team,
                 dataclasses.replace(_inputs(), content=input_content),
-                [SimilarFingerprintDistance(fingerprint="fp-old", distance=0.01)],
+                closest or [SimilarFingerprintDistance(fingerprint="fp-old", distance=0.01)],
                 merge_outcome,
             )
         return properties, hogql, build_client
@@ -267,6 +283,7 @@ class TestGroupingJudgeProperties(SimpleTestCase):
             "judge_band": "low",
             "distance_bucket": "0.01-0.019",
             "judge_sampled": True,
+            "judge_target_fingerprint": "fp-old",
             "judge_outcome": "judged",
             "judge_same_issue": True,
             "judge_swapped": properties["judge_swapped"],
@@ -277,6 +294,35 @@ class TestGroupingJudgeProperties(SimpleTestCase):
         serialized = repr(properties)
         for leaked in ("customer message", "app.js", "REASONING-MARKER"):
             assert leaked not in serialized
+
+    def test_judges_the_pair_the_merge_used_when_it_skipped_rank_one(self) -> None:
+        client = _client_returning(_tool_response(True))
+
+        properties, _, _ = self._run(
+            client,
+            text_rows=[("fp-new", NEW_TEXT), ("fp-old", NEIGHBOUR_TEXT), ("fp-merged", "TypeError: merged target")],
+            merge_outcome=AutoMergeOutcome(merged_count=1, target_fingerprint="fp-merged"),
+            closest=[
+                SimilarFingerprintDistance(fingerprint="fp-old", distance=0.01),
+                SimilarFingerprintDistance(fingerprint="fp-merged", distance=0.015),
+            ],
+        )
+
+        prompt = client.with_options.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert properties["judge_target_fingerprint"] == "fp-merged"
+        assert "merged target" in prompt
+        assert "other customer" not in prompt
+
+    def test_skips_the_judge_when_every_worker_is_busy(self) -> None:
+        client = _client_returning(_tool_response(True))
+        no_free_workers = threading.BoundedSemaphore(1)
+        no_free_workers.acquire()
+
+        with patch(f"{MODULE}.inline._free_workers", no_free_workers):
+            properties, hogql, _ = self._run(client)
+
+        assert properties["judge_outcome"] == "unavailable"
+        hogql.assert_not_called()
 
 
 class TestFetchDocumentTexts(ClickhouseTestMixin, BaseTest):

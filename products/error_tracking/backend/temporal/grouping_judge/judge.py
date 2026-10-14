@@ -1,14 +1,11 @@
 """The LLM judge. It sees two document texts and nothing about how they were paired."""
 
-import structlog
 from anthropic import Anthropic, AnthropicError, APIConnectionError, APIStatusError, APITimeoutError
 from anthropic.types import ToolChoiceToolParam, ToolParam
 
 from posthog.dataclasses import frozen
 
 from products.error_tracking.backend.temporal.grouping_judge.types import JudgeOutcome
-
-logger = structlog.get_logger(__name__)
 
 JUDGE_MODEL = "claude-haiku-4-5"
 # Room for the reasoning, which comes before the verdict.
@@ -155,6 +152,5 @@ def judge_pair(client: Anthropic, *, document_a: str, document_b: str, timeout_s
         verdict = block.input if isinstance(block.input, dict) else {}
         same_issue = verdict.get("same_issue")
         if isinstance(same_issue, bool):
-            logger.debug("error_tracking_grouping_judge_reasoning", reasoning=verdict.get("reasoning"))
             return JudgeVerdict(outcome="judged", same_issue=same_issue)
     return JudgeVerdict(outcome="invalid")

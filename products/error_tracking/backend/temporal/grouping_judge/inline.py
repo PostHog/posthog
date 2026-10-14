@@ -1,6 +1,7 @@
 """Judge a sample of auto-merge decisions for the metrics event. Nothing here can change a merge."""
 
 import time
+import threading
 from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FuturesTimeoutError,
@@ -42,7 +43,7 @@ logger = structlog.get_logger(__name__)
 
 AI_PRODUCT = "error_tracking_grouping_judge"
 MAX_DOCUMENT_CHARS = 6000
-# Covers the text fetch and every judge call. A sampled issue's alert waits at most this long.
+# Bounds the ClickHouse text fetch and every judge call. A sampled issue's alert waits at most this long for them.
 TOTAL_BUDGET_SECONDS = 10.0
 TEXT_QUERY_MAX_EXECUTION_SECONDS = 3
 # A re-judge with less time than this left would most likely time out, so it is skipped.
@@ -70,7 +71,11 @@ DOCUMENT_TEXT_QUERY_BY_MODEL = {
 
 # The judge runs on its own thread so the activity can stop waiting at the budget even when a
 # call ignores its own timeout. A timed-out call keeps its thread until its own timeouts end it.
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="error-tracking-grouping-judge")
+# The ClickHouse socket has no client timeout, so a sample that finds every thread busy skips the
+# judge instead of queueing behind threads that may never come back.
+_MAX_WORKERS = 4
+_executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="error-tracking-grouping-judge")
+_free_workers = threading.BoundedSemaphore(_MAX_WORKERS)
 
 
 @frozen
@@ -169,10 +174,16 @@ def _judge(
         # A null approval counts as not approved.
         if team.organization.is_ai_data_processing_approved is not True:
             return _JudgeResult(outcome="no_consent")
-        future = _executor.submit(_judge_in_worker, team, inputs, neighbour_fingerprint, sample, deadline)
+        if not _free_workers.acquire(blocking=False):
+            return _JudgeResult(outcome="unavailable")
+        try:
+            future = _executor.submit(_judge_in_worker, team, inputs, neighbour_fingerprint, sample, deadline)
+        except BaseException:
+            _free_workers.release()
+            raise
+        future.add_done_callback(lambda _: _free_workers.release())
         return future.result(timeout=max(deadline - time.monotonic(), 0))
     except FuturesTimeoutError:
-        future.cancel()
         return _JudgeResult(outcome="timeout")
     except Exception:
         # Caught here rather than only at the entry point, so the row keeps its other judge properties.
@@ -214,12 +225,15 @@ def _grouping_judge_properties(
     if not sample.sampled:
         return properties
 
+    # Judge the pair the merge used, which is not rank 1 when the merge skipped it.
+    judged_fingerprint = merge_outcome.target_fingerprint or nearest.fingerprint
     start = time.monotonic()
-    result = _judge(team, inputs, nearest.fingerprint, sample)
+    result = _judge(team, inputs, judged_fingerprint, sample)
     # Document text and the model's reasoning hold customer data, so neither goes in the event.
     return {
         **properties,
         "judge_sampled": True,
+        "judge_target_fingerprint": judged_fingerprint,
         "judge_outcome": result.outcome,
         "judge_same_issue": result.same_issue,
         "judge_swapped": sample.swapped,

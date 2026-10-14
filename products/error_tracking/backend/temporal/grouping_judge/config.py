@@ -58,6 +58,10 @@ def current_judge_config() -> JudgeConfig:
     # Reads the payload from the locally evaluated flag definitions, so the merge activity makes no network call.
     # A missing or disabled flag returns None, which turns the judge off.
     try:
+        # With no definitions loaded, the SDK loads them with a blocking network call even for a
+        # local-only read, so the judge stays off until the background poller loads them.
+        if posthoganalytics.feature_flag_definitions() is None:
+            return JUDGE_OFF
         payload = posthoganalytics.get_feature_flag_payload(
             REMOTE_CONFIG_KEY, REMOTE_CONFIG_DISTINCT_ID, only_evaluate_locally=True, send_feature_flag_events=False
         )
