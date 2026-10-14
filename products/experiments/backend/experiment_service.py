@@ -52,8 +52,10 @@ from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.approvals.backend.actions.experiments import LaunchExperimentAction
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.transactions import gated_atomic
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
@@ -1970,7 +1972,7 @@ class ExperimentService:
             # A side-effect mutation can't be routed through the change-request flow (this runs
             # inside archive_experiment's transaction, so an ApprovalRequired would roll back the
             # just-created ChangeRequest) — refuse up front instead of letting the gate fire.
-            if flag_disable_requires_approval(self.team):
+            if flag_disable_requires_approval(feature_flag):
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."
@@ -2237,7 +2239,7 @@ class ExperimentService:
         # Phase 2 — locked: any failure here drops the snapshot cohort, which is referenced only by
         # the flag change attempted below — a failed freeze should leave nothing behind.
         try:
-            with transaction.atomic():
+            with gated_atomic():
                 # Lock the flag row so the guard re-check, the transform, and the save happen against
                 # a state no concurrent freeze/pause/archive/reset/edit can move underneath us — those
                 # writers either committed (we see them) or block until we commit (reset takes this
@@ -2269,16 +2271,10 @@ class ExperimentService:
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
-                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate.
-                # The `feature_flag.update` policy gates release condition changes on standalone flags
-                # only. An experiment owns this flag, so only `active` and `rollout_percentage` changes
-                # are gated here (see UpdateFeatureFlagAction in
-                # products/approvals/backend/actions/feature_flags.py).
-                # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
-                # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
-                # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-                # here. If approvals ever gate property/cohort changes on experiment flags, revisit this: the
-                # snapshot cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Design note (approvals): an `experiment.update` policy gates release condition changes
+                # on this flag once the organization scopes policies by flag owner, so this write can
+                # raise ApprovalRequired. gated_atomic keeps the change request, and the handler below
+                # keeps the snapshot cohort, which the change request writes into the flag on approval.
                 # Mark the write as freeze-driven so the flag's log entry does not read as
                 # a manual targeting edit.
                 locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
@@ -2289,6 +2285,8 @@ class ExperimentService:
                     user=self.user,
                     request=request,
                 )
+        except ApprovalRequired:
+            raise
         except Exception:
             exposure_snapshot.delete()
             raise
@@ -2921,7 +2919,7 @@ class ExperimentService:
     # Reset
     # ------------------------------------------------------------------
 
-    @transaction.atomic
+    @gated_atomic()
     def reset_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Reset an experiment back to draft state so it can be re-run.
 
@@ -2930,13 +2928,16 @@ class ExperimentService:
         machine-added snapshot-cohort narrowing is stripped and the snapshot cohort
         deleted, because a re-launched experiment would otherwise be born frozen
         against a stale snapshot and could never enroll anyone.
+
+        Stripping the narrowing can need approval. The reset then rolls back whole, and the
+        change request survives, so the reset can run again once the flag change is approved.
         """
         if experiment.is_draft:
             raise ValidationError("Experiment is already in draft state.")
 
         # Lock the experiment row before _clear_frozen_exposure locks the flag row, so every
         # transaction that holds both locks acquires them experiment-then-flag and can't
-        # deadlock. Held until this @transaction.atomic method commits.
+        # deadlock. Held until this method's transaction commits.
         locked_version = (
             Experiment.objects.select_for_update().filter(pk=experiment.pk).values_list("version", flat=True).first()
             or 0

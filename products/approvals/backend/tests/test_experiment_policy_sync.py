@@ -15,6 +15,14 @@ from products.approvals.backend.models import ApprovalPolicy
 
 
 class TestSyncExperimentPolicies(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        not_rolled_out = patch(
+            "products.approvals.backend.experiment_policy_sync.scope_by_owner_state", return_value=False
+        )
+        not_rolled_out.start()
+        self.addCleanup(not_rolled_out.stop)
+
     def _flag_policy(self, action_key: str, **overrides) -> ApprovalPolicy:
         fields = {
             "organization": self.organization,
@@ -135,23 +143,25 @@ class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
         }
         return ApprovalPolicy.objects.create(**fields)
 
-    def _rolled_out(self):
-        return patch("products.approvals.backend.experiment_policy_sync.scope_by_owner_enabled", return_value=True)
+    def _rollout_state(self, state: bool | None):
+        return patch("products.approvals.backend.experiment_policy_sync.scope_by_owner_state", return_value=state)
 
-    def test_does_not_overwrite_an_edited_experiment_policy(self) -> None:
+    @parameterized.expand([("rolled_out", True), ("rollout_unknown", None)])
+    def test_does_not_overwrite_an_edited_experiment_policy(self, _name: str, state: bool | None) -> None:
         self._policy("feature_flag.update", approver_config={"quorum": 1, "users": [self.user.id]})
         edited = self._policy("experiment.update", approver_config={"quorum": 3, "users": [self.user.id]})
 
-        with self._rolled_out():
+        with self._rollout_state(state):
             sync_experiment_policies()
 
         edited.refresh_from_db()
         assert edited.approver_config["quorum"] == 3
 
-    def test_does_not_delete_an_experiment_policy_with_no_flag_policy(self) -> None:
+    @parameterized.expand([("rolled_out", True), ("rollout_unknown", None)])
+    def test_does_not_delete_an_experiment_policy_with_no_flag_policy(self, _name: str, state: bool | None) -> None:
         own = self._policy("experiment.launch")
 
-        with self._rolled_out():
+        with self._rollout_state(state):
             sync_experiment_policies()
 
         assert ApprovalPolicy.objects.filter(id=own.id).exists()
@@ -159,7 +169,7 @@ class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
     def test_does_not_create_a_mirror(self) -> None:
         self._policy("feature_flag.enable")
 
-        with self._rolled_out():
+        with self._rollout_state(True):
             sync_experiment_policies()
 
         assert not ApprovalPolicy.objects.filter(action_key="experiment.launch").exists()
@@ -169,7 +179,7 @@ class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
         self._policy("feature_flag.enable")
 
         with patch(
-            "products.approvals.backend.experiment_policy_sync.scope_by_owner_enabled",
+            "products.approvals.backend.experiment_policy_sync.scope_by_owner_state",
             side_effect=lambda organization: organization.id != self.organization.id,
         ):
             sync_experiment_policies()

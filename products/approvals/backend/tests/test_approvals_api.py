@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import AvailableFeature
 from posthog.models import User
 
+from products.access_control.backend.models.role import Role
 from products.approvals.backend.models import (
     Approval,
     ApprovalDecision,
@@ -21,6 +22,7 @@ from products.approvals.backend.models import (
     ChangeRequestState,
     ValidationStatus,
 )
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -924,13 +926,16 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
             created_by=self.user,
         )
 
-    def _policy(self, action_key: str, conditions: Optional[dict] = None) -> ApprovalPolicy:
+    def _policy(
+        self, action_key: str, conditions: Optional[dict] = None, bypass_levels: Optional[list[str]] = None
+    ) -> ApprovalPolicy:
         return ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
             action_key=action_key,
             conditions=conditions or {},
             approver_config={"quorum": 1, "users": [self.user.id]},
+            bypass_org_membership_levels=bypass_levels or [],
             created_by=self.user,
         )
 
@@ -1004,6 +1009,62 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
             if refused:
                 with self.assertRaises(ValidationError):
                     self._adopt("experiment")
+            else:
+                self._adopt("experiment")
+
+    @parameterized.expand(
+        [
+            # Admins and owners the flag policy stops could adopt the flag and enable it unreviewed.
+            ("target_lets_more_levels_skip", [], ["8", "15"], False, True),
+            ("target_lets_a_role_skip", [], [], True, True),
+            ("same_bypass", ["8", "15"], ["8", "15"], False, False),
+            ("target_lets_fewer_skip", ["8", "15"], ["15"], False, False),
+        ]
+    )
+    def test_a_target_policy_must_let_no_more_members_skip_it(
+        self,
+        _mock_enabled,
+        _name: str,
+        source_levels: list[str],
+        target_levels: list[str],
+        target_role: bool,
+        refused: bool,
+    ) -> None:
+        self._policy("feature_flag.enable", bypass_levels=source_levels)
+        target = self._policy("experiment.launch", bypass_levels=target_levels)
+        if target_role:
+            target.bypass_roles.add(Role.objects.create(organization=self.organization, name="Release managers"))
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError):
+                    self._adopt("experiment")
+            else:
+                self._adopt("experiment")
+
+    @parameterized.expand(
+        [
+            # Launching reviews turning the flag on, which a flag already on never does again.
+            ("standalone_and_on", True, False, True),
+            ("standalone_and_off", False, False, False),
+            # Another experiment's launch already reviewed it, and experiments may share a flag.
+            ("owned_by_an_experiment_and_on", True, True, False),
+        ]
+    )
+    def test_an_active_flag_cannot_skip_the_launch_review(
+        self, _mock_enabled, _name: str, active: bool, owned_by_experiment: bool, refused: bool
+    ) -> None:
+        self._policy("experiment.launch")
+        self.flag.active = active
+        self.flag.save()
+        if owned_by_experiment:
+            Experiment.objects.create(team=self.team, name="Earlier", feature_flag=self.flag)
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError) as caught:
+                    self._adopt("experiment")
+                assert "already on" in str(caught.exception)
             else:
                 self._adopt("experiment")
 
