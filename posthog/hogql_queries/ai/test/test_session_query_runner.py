@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.conf import settings
 
@@ -11,6 +12,7 @@ from posthog.schema import DateRange, SessionQuery
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -500,7 +502,11 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
             for_evaluation=True,
         )
 
-        with self.capture_select_queries() as queries:
+        # Evaluation reads skip the full catalog build, which is slow on large warehouse projects.
+        with (
+            self.capture_select_queries() as queries,
+            patch.object(Database, "create_for", side_effect=AssertionError("built the full HogQL catalog")),
+        ):
             response = runner.calculate()
 
         select_queries = _select_queries_without_metadata(queries)

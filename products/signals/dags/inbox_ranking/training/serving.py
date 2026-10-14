@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
 from products.signals.backend.ranking.model_contract import readable_head_names, trained_head_files
+from products.signals.backend.ranking.model_store import ONNX_PROJECT_VECTOR_KINDS_KEY
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
@@ -80,6 +81,7 @@ def _entry(
         prefix=serving_model_prefix(prefix, key),
         heads=heads,
         model_file=ONNX_MODEL_FILE if model_kind == ONNX_MODEL_KIND else None,
+        reads_project_vectors=bool(metadata.get(ONNX_PROJECT_VECTOR_KINDS_KEY)),
     )
 
 
