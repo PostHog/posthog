@@ -108,6 +108,11 @@ export type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+    /**
+     * A plain-text crumb before the name that says where the scene sits, for example a settings level.
+     * Only the rail navigation shows it.
+     */
+    scope?: string
 
     /**
      * Additional class name for the title section

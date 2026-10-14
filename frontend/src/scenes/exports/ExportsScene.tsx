@@ -13,6 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { settingsSectionSceneScope } from 'scenes/settings/settingsSectionScenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -150,6 +151,7 @@ export function ExportsScene(): JSX.Element {
                 name={sceneConfigurations[Scene.Exports].name}
                 description={sceneConfigurations[Scene.Exports].description}
                 resourceType={{ type: 'exports' }}
+                scope={settingsSectionSceneScope('environment-exports')}
                 actions={
                     <LemonButton
                         onClick={loadExports}

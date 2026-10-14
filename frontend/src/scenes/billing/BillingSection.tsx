@@ -10,7 +10,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
+import { settingsSectionSceneScope } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
+
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Billing } from './Billing'
 import { billingLogic } from './billingLogic'
@@ -41,6 +44,7 @@ export function BillingSection(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { canAccessBilling, canViewUsageAndSpend, canOnlyViewUsageAndSpend } = useValues(billingLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
+    const todayRailNav = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const alertsRequested = location.pathname.includes('alerts')
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
     const tabs = billingAlertsEnabled || billingAlertsPending ? allTabs : allTabs.filter((tab) => tab.key !== 'alerts')
@@ -103,6 +107,13 @@ export function BillingSection(): JSX.Element {
 
     return (
         <div className="flex flex-col">
+            {todayRailNav && (
+                <SceneTitleSection
+                    name="Billing"
+                    resourceType={{ type: 'settings' }}
+                    scope={settingsSectionSceneScope('organization-billing')}
+                />
+            )}
             {visibleTabs.length > 0 && <LemonTabs activeKey={section} onChange={handleTabChange} tabs={visibleTabs} />}
 
             {section === 'overview' && <Billing />}

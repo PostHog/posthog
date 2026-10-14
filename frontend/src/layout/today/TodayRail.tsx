@@ -1,20 +1,29 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
-
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayOrgMenu } from './TodayOrgMenu'
-import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
+
+// pinned: autocapture data-attr. The Settings tile kept the attribute of the gear button it replaced.
+const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 export function TodayRail(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
+
+    const renderTile = (pane: TodayRailPane): JSX.Element => (
+        <TodayRailTile
+            key={pane}
+            label={TODAY_PANES[pane].label}
+            icon={TODAY_PANES[pane].icon}
+            active={activePane === pane}
+            to={railPaneHref(pane)}
+            onClick={() => clickRailPane(pane)}
+            dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
+        />
+    )
 
     return (
         <nav
@@ -24,36 +33,10 @@ export function TodayRail(): JSX.Element {
             style={{ width: TODAY_RAIL_WIDTH }}
         >
             <TodayOrgMenu />
-            {TODAY_RAIL_PANES.map((pane) => (
-                <TodayRailTile
-                    key={pane}
-                    label={TODAY_PANES[pane].label}
-                    icon={TODAY_PANES[pane].icon}
-                    active={activePane === pane}
-                    to={railPaneHref(pane)}
-                    onClick={() => clickRailPane(pane)}
-                    dataAttr={`today-rail-${pane}`}
-                />
-            ))}
-            <Tooltip>
-                <TooltipTrigger
-                    delay={0}
-                    render={
-                        <Button
-                            size="icon"
-                            aria-label="Settings"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.settings('project')} />}
-                            className="mt-auto size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
-                            // pinned: autocapture data-attr
-                            data-attr="today-settings"
-                        />
-                    }
-                >
-                    <IconGear />
-                </TooltipTrigger>
-                <TooltipContent side="right">Settings</TooltipContent>
-            </Tooltip>
+            {TODAY_RAIL_PANES.map(renderTile)}
+            <div className="mt-auto flex w-full flex-col items-center gap-3">
+                {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
+            </div>
             <TodayAccountMenu />
         </nav>
     )

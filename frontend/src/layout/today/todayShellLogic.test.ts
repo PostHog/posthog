@@ -42,6 +42,10 @@ describe('todayShellLogic', () => {
         ['/project/1/dashboard', 'views'],
         ['/project/1/persons', 'products'],
         ['/project/1/activity/events', 'products'],
+        ['/project/1/settings/project-replay', 'settings'],
+        ['/organization/billing/overview', 'settings'],
+        ['/organization/legal/new/dpa', 'settings'],
+        ['/project/1/exports', 'settings'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
