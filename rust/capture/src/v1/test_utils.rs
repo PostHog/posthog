@@ -782,7 +782,7 @@ impl TestStateBuilder {
         let mock_producer = self.mock_producer.unwrap_or_default();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             mock_producer.clone(),
-            OutputTable::from(&test_outputs_config()),
+            OutputTable::new(&test_outputs_config(), ai_events_overflow_enabled),
         )));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});

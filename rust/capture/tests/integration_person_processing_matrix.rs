@@ -227,7 +227,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputTable::from(&cfg.outputs));
+    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputTable::new(&cfg.outputs, cfg.ai_events_overflow_enabled));
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 

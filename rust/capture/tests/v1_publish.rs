@@ -41,7 +41,7 @@ async fn v1_outputs(topic: &str) -> OutputRegistry {
 
     let mut config = DEFAULT_CONFIG.clone();
     point_outputs_at(&mut config, topic);
-    let table = OutputTable::from(&config.outputs).map_producers(|name| producers.get(*name));
+    let table = OutputTable::new(&config.outputs, config.ai_events_overflow_enabled).map_producers(|name| producers.get(*name));
 
     OutputRegistry::single(KafkaSink::new(table, EnvelopeCompression::None))
 }

@@ -292,7 +292,7 @@ pub async fn build_components(
     let ai_events_overflow_enabled = ai_events_overflow_valve(&config);
     info!(
         ai_main_topic = %config.outputs.ai_main_topic,
-        ai_overflow_topic = ?config.outputs.ai_overflow_topic,
+        ai_overflow_topic = %config.outputs.ai_overflow_topic,
         ai_events_overflow_enabled,
         "AI events topic routing"
     );
@@ -396,22 +396,15 @@ pub async fn build_components(
     }
 }
 
-/// The AI overflow valve: an unset or empty
-/// `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` means AI events never
-/// overflow. Import mode refuses an armed valve at boot: non-AI import events
-/// can't overflow because historical rerouting takes precedence no matter how
-/// the deployment is configured, but nothing structural protects AI
-/// imports, so an armed valve would silently break the imports-never-overflow
-/// guarantee.
+/// The AI overflow valve. Import mode refuses an armed valve at boot: non-AI
+/// import events can't overflow because historical rerouting takes precedence,
+/// but nothing structural protects AI imports, so an armed valve would break
+/// the imports-never-overflow guarantee.
 fn ai_events_overflow_valve(config: &Config) -> bool {
-    let armed = config
-        .outputs
-        .ai_overflow_topic
-        .as_deref()
-        .is_some_and(|topic| !topic.is_empty());
+    let armed = config.ai_events_overflow_enabled;
     assert!(
         !(armed && matches!(config.capture_mode, CaptureMode::Import)),
-        "invalid configuration: CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC must be unset in import mode; imports must never overflow"
+        "invalid configuration: AI_EVENTS_OVERFLOW_ENABLED must be false in import mode; imports must never overflow"
     );
     armed
 }
@@ -500,7 +493,7 @@ async fn create_output(
 
     // Runs before any producer connects, so a blank topic refuses boot
     // immediately instead of after a broker connect attempt.
-    let outputs = OutputTable::from(&config.outputs);
+    let outputs = OutputTable::new(&config.outputs, config.ai_events_overflow_enabled);
     if config.outputs_completeness_check_enabled {
         outputs.check_complete()?;
     } else {
@@ -863,6 +856,7 @@ mod tests {
 
     struct AiValveInput {
         capture_mode: &'static str,
+        enabled: Option<&'static str>,
         overflow_topic: Option<&'static str>,
     }
 
@@ -878,6 +872,12 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+        if let Some(enabled) = input.enabled {
+            cfg_env.insert(
+                "AI_EVENTS_OVERFLOW_ENABLED".to_string(),
+                enabled.to_string(),
+            );
+        }
         if let Some(topic) = input.overflow_topic {
             cfg_env.insert(
                 "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC".to_string(),
@@ -888,35 +888,31 @@ mod tests {
     }
 
     #[rstest]
-    #[case::events_set(
+    #[case::events_enabled(
         AiValveInput {
             capture_mode: "events",
-            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
+            enabled: Some("true"),
+            overflow_topic: None,
         },
         true
     )]
-    #[case::events_unset(
+    #[case::events_topic_without_flag(
         AiValveInput {
             capture_mode: "events",
-            overflow_topic: None,
+            enabled: None,
+            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
         },
         false
     )]
-    #[case::import_unset(
+    #[case::import_disabled(
         AiValveInput {
             capture_mode: "import",
-            overflow_topic: None,
+            enabled: Some("false"),
+            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
         },
         false
     )]
-    #[case::import_empty(
-        AiValveInput {
-            capture_mode: "import",
-            overflow_topic: Some(""),
-        },
-        false
-    )]
-    fn ai_events_overflow_valve_arms_only_on_a_set_topic(
+    fn ai_events_overflow_valve_arms_only_on_the_flag(
         #[case] input: AiValveInput,
         #[case] expected_armed: bool,
     ) {
@@ -1010,7 +1006,8 @@ mod tests {
     fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
         ai_events_overflow_valve(&ai_valve_config(&AiValveInput {
             capture_mode: "import",
-            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
+            enabled: Some("true"),
+            overflow_topic: None,
         }));
     }
 
