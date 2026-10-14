@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_FLUSH_MAX_EVENTS
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_RESET_PENDING_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import (
     ConformanceEngine,
@@ -25,7 +26,7 @@ ORDERS = TableDef(name="public.orders", columns={"id": int, "status": str}, prim
 AUDIT = TableDef(name="public.audit", columns={"id": int, "note": str}, primary_key=("id",))
 
 # Above twice the capture flush size, so one transaction spans three buffer files.
-_LARGE_TRANSACTION_ROWS = 12_000
+_LARGE_TRANSACTION_ROWS = 2 * CDC_FLUSH_MAX_EVENTS + 2_000
 
 
 class CDCConformanceSuite:
@@ -76,8 +77,10 @@ class CDCConformanceSuite:
         db.commit(update(USERS, {"id": 1}, name="b"), insert(USERS, id=2, name="c"))
         kit.capture()
         kit.consume(USERS)
-        db.commit(update(USERS, {"id": 1}, name="d"), delete(USERS, id=2))
         db.commit(insert(USERS, id=3, name="e"))
+        # The replayed transaction ends the read, so its rows sit at the position the tables hold.
+        # It changes one key twice, and only the second version matches the consolidated row.
+        db.commit(update(USERS, {"id": 1}, name="d"), update(USERS, {"id": 1}, name="g"), delete(USERS, id=2))
 
         db.fail_next_confirm()
         with pytest.raises(SimulatedCrash):
@@ -92,7 +95,10 @@ class CDCConformanceSuite:
 
     def test_consumer_crash_between_tables_replays_exactly_once(self, kit: ConformanceKit) -> None:
         db = kit.db
+        # Two capture runs write two buffer files, so the first sits wholly below the consolidated
+        # table's position once the history table has fallen behind.
         db.commit(insert(USERS, id=1, name="a"), insert(USERS, id=2, name="b"))
+        kit.capture()
         db.commit(update(USERS, {"id": 1}, name="c"))
         kit.capture()
 

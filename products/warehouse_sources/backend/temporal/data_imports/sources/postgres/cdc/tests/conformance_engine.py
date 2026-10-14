@@ -1,8 +1,9 @@
 """Runs the CDC conformance suite over the Postgres adapter, reader and decoder.
 
 The scripted database is rendered as pgoutput messages and served by a simulated replication slot,
-so every change event comes out of the Postgres reader and decoder themselves. Only the connection
-is simulated: it answers the three statements the reader sends.
+so every change event comes out of the Postgres reader and decoder themselves. The connection, the
+catalog key lookups and the slot DDL helpers are simulated. The connection answers the three
+statements the reader sends.
 """
 
 from __future__ import annotations
@@ -190,18 +191,12 @@ class SimulatedPostgres:
             "cdc_publication_name": "posthog_pub",
         }
 
-    def _primary_keys(self, _conn: object, schema: str, tables: list[str]) -> dict[str, list[str]]:
-        return {name: list(self._db.tables[f"{schema}.{name}"].primary_key) for name in tables}
-
-    def _unique_keys(self, _conn: object, schema: str, tables: list[str]) -> dict[str, list[frozenset[str]]]:
-        return {name: [frozenset(self._db.tables[f"{schema}.{name}"].primary_key)] for name in tables}
-
     @contextmanager
     def installed(self) -> Iterator[None]:
         with (
             patch(f"{_READER}._connect_to_postgres", side_effect=lambda **_: _SimulatedConnection(self._slot)),
-            patch(f"{_READER}.get_primary_key_columns", side_effect=self._primary_keys),
-            patch(f"{_READER}.get_enforced_unique_keys", side_effect=self._unique_keys),
+            patch(f"{_READER}.get_primary_key_columns", side_effect=lambda _, *args: self._db.primary_keys(*args)),
+            patch(f"{_READER}.get_enforced_unique_keys", side_effect=lambda _, *args: self._db.unique_keys(*args)),
             # Slot recreation runs DDL over a management connection, which the slot stands in for.
             patch(f"{_ADAPTER}.cdc_pg_connection", side_effect=lambda *_, **__: nullcontext()),
             patch(f"{_ADAPTER}.drop_slot"),

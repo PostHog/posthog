@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 _STREAM_NAME = "fake_stream"
 _CAPTURE_SET_NAME = "fake_capture_set"
+# Raised by the adapter methods that only setup, the sweeper and repair call, so a test that starts
+# to reach one fails instead of trusting behavior nothing checks.
+_NOT_EXERCISED = "The conformance suite does not exercise this adapter method"
 
 
 class FakeStreamLostError(Exception):
@@ -98,10 +101,10 @@ class FakeCDCStreamReader:
         return _position(self._db.head)
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]:
-        return {name: list(self._db.tables[f"{schema_name}.{name}"].primary_key) for name in table_names}
+        return self._db.primary_keys(schema_name, table_names)
 
     def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]:
-        return {name: [frozenset(self._db.tables[f"{schema_name}.{name}"].primary_key)] for name in table_names}
+        return self._db.unique_keys(schema_name, table_names)
 
     def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
         self._key_change_columns = {table: frozenset(columns) for table, columns in columns_by_table.items()}
@@ -148,28 +151,28 @@ class FakeCDCAdapter:
         slot_name: str | None,
         publication_name: str | None,
     ) -> list[str]:
-        return []
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
-        self._db.lose_stream()
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def slot_exists(self, conn: Any, slot_name: str) -> bool:
-        return not self._db.stream_lost
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
-        return None if self._db.stream_lost else len(self._db.pending())
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def get_retention_cap_mb(self, conn: Any) -> int | None:
-        return None
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
         return isinstance(exc, FakeStreamLostError)
 
     def is_connection_error(self, exc: BaseException) -> bool:
-        return False
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def customer_fixable_error_message(self, exc: BaseException) -> str | None:
-        return None
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         return None
@@ -189,20 +192,19 @@ class FakeCDCAdapter:
         )
 
     def setup_resources(self, source: ExternalDataSource, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-        return {"cdc_consistent_point": _position(self._db.recreate_stream())}, None
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def cleanup_resources(self, source: ExternalDataSource) -> None:
-        self._db.lose_stream()
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
-        exists = not self._db.stream_lost
-        return {"slot_exists": exists, "publication_exists": True, "lag_bytes": self.get_lag_bytes(None, _STREAM_NAME)}
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        return None
+        raise NotImplementedError(_NOT_EXERCISED)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        return None
+        raise NotImplementedError(_NOT_EXERCISED)
 
 
 class FakeEngine:
