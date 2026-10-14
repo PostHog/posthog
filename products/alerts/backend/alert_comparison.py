@@ -3,11 +3,12 @@
 Production insight writes an `AlertCheck` row for every check, carrying the state that check left
 the alert in. So, unlike logs, nothing is reconstructed: production's verdict is a row.
 
-A platform check names its due slot, and the two stacks do not check at the same minute. Production
-checks an hourly alert at the minute it was created, while the platform checks on a UTC grid. So the
-state production held at the platform's instant is usually its previous period's verdict. Instead, a
-platform check pairs with production's first check in the same period: at or after the slot, and
-before one interval has passed. A production stack that made no check in that period is behind.
+A platform check names its due slot, and the two stacks do not check at the same minute. Each
+spreads its alerts over an offset within the period, keyed on its own id for the alert, so
+production's check of a period can come before the platform's slot or after it. A platform check
+pairs with production's first check in the same local calendar period: the quarter hour, hour,
+day, ISO week or month the slot falls in. A production stack that made no check in that period is
+behind.
 
 `AlertCheck` rows are deleted after `AlertCheck.RETENTION`, so an older slot cannot be answered.
 """
@@ -23,6 +24,7 @@ from uuid import UUID
 from django.db.models import Q
 
 import structlog
+from dateutil.relativedelta import relativedelta
 
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertCalculationInterval
@@ -49,14 +51,17 @@ logger = structlog.get_logger(__name__)
 # The bound the retention does not give: an hourly alert holds 336 rows, and alerts add up.
 MAX_CHECKS_PER_BATCH = 100_000
 
-# How long after its slot production may still make its check of the same period. A month is the
-# longest calendar unit insight evaluates on.
-_PERIOD: dict[str, timedelta] = {
+# Sub-day periods are fixed lengths, added in UTC so a repeated local hour is not counted twice.
+_FIXED_PERIOD: dict[str, timedelta] = {
     AlertCalculationInterval.EVERY_15_MINUTES: timedelta(minutes=15),
     AlertCalculationInterval.HOURLY: timedelta(hours=1),
-    AlertCalculationInterval.DAILY: timedelta(days=1),
-    AlertCalculationInterval.WEEKLY: timedelta(days=7),
-    AlertCalculationInterval.MONTHLY: timedelta(days=31),
+}
+# Calendar periods follow the team's local calendar: a day across a daylight-saving change is 23 or
+# 25 hours, and a month is as long as it is.
+_CALENDAR_PERIOD: dict[str, relativedelta] = {
+    AlertCalculationInterval.DAILY: relativedelta(days=1),
+    AlertCalculationInterval.WEEKLY: relativedelta(weeks=1),
+    AlertCalculationInterval.MONTHLY: relativedelta(months=1),
 }
 
 
@@ -86,6 +91,12 @@ class _Pairing:
 
 
 @frozen
+class _Period:
+    start: datetime
+    end: datetime
+
+
+@frozen
 class _ProductionCheck:
     id: UUID
     created_at: datetime
@@ -104,15 +115,12 @@ class InsightCorrespondence(SourceCorrespondence):
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]:
         verdicts: dict[CheckRef, SourceVerdict] = {}
         by_team: dict[int, list[_Pairing]] = defaultdict(list)
-        kept_since = datetime.now(UTC) - AlertCheck.RETENTION
         for check in checks:
             slot = slot_of_evaluation_key(check.evaluation_key)
             if check.legacy_configuration_id is None:
                 verdicts[check.ref] = _unknown("the platform configuration names no insight alert")
             elif slot is None:
                 verdicts[check.ref] = _unknown("the evaluation key names no due slot")
-            elif slot < kept_since:
-                verdicts[check.ref] = _unknown("production no longer keeps its checks from this slot")
             elif check.state == AlertState.SNOOZED:
                 # Both stacks hold the alert snoozed off the same production snooze and evaluate nothing.
                 verdicts[check.ref] = SourceVerdict(
@@ -146,17 +154,23 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
             "schedule_restriction",
         )
     }
+    periods: dict[CheckRef, _Period | None] = {
+        pairing.check.ref: _period_of(pairing.slot, alerts[pairing.alert_id])
+        for pairing in pairings
+        if pairing.alert_id in alerts
+    }
     earliest: dict[UUID, datetime] = {}
     for pairing in pairings:
-        if pairing.alert_id in alerts:
-            earliest[pairing.alert_id] = min(pairing.slot, earliest.get(pairing.alert_id, pairing.slot))
+        period = periods.get(pairing.check.ref)
+        if period is not None:
+            earliest[pairing.alert_id] = min(period.start, earliest.get(pairing.alert_id, period.start))
 
     rows = []
     if earliest:
-        # Each alert from its own earliest slot, so one old slot does not widen every alert's read.
+        # Each alert from its own earliest period, so one old slot does not widen every alert's read.
         since = Q()
-        for alert_id, slot in earliest.items():
-            since |= Q(alert_configuration_id=alert_id, created_at__gte=slot)
+        for alert_id, start in earliest.items():
+            since |= Q(alert_configuration_id=alert_id, created_at__gte=start)
         rows = list(
             AlertCheck.objects.filter(since, alert_configuration__team_id=team_id)
             .order_by("alert_configuration_id", "created_at")
@@ -182,20 +196,48 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         )
 
     times = {alert_id: [row.created_at for row in checks] for alert_id, checks in history.items()}
+    kept_since = datetime.now(UTC) - AlertCheck.RETENTION
     verdicts: dict[CheckRef, SourceVerdict] = {}
     for pairing in pairings:
         alert = alerts.get(pairing.alert_id)
         if alert is None:
             verdicts[pairing.check.ref] = _unknown("no insight alert with that id in this project")
             continue
-        period = _PERIOD.get(alert.calculation_interval or "")
+        period = periods.get(pairing.check.ref)
         if period is None:
             verdicts[pairing.check.ref] = _unknown("the insight alert's interval has no period to pair within")
+            continue
+        # The period, not the slot: production's check of the period can come before the slot.
+        if period.start < kept_since:
+            verdicts[pairing.check.ref] = _unknown("production no longer keeps its checks from this period")
             continue
         verdicts[pairing.check.ref] = _verdict_at(
             pairing, alert, period, history[pairing.alert_id], times.get(pairing.alert_id, [])
         )
     return verdicts
+
+
+def _period_of(slot: datetime, alert: AlertConfiguration) -> _Period | None:
+    """The local calendar period the slot falls in: its quarter hour, hour, day, ISO week or month.
+
+    Both schedulers check once per such period, each at an offset of its own, so production's check
+    of the same period can come before the platform's slot as well as after it.
+    """
+    interval = alert.calculation_interval or ""
+    local = slot.astimezone(alert.team.timezone_info)
+    if interval in _FIXED_PERIOD:
+        minutes = int(_FIXED_PERIOD[interval].total_seconds() // 60)
+        start = local.replace(minute=local.minute - local.minute % minutes, second=0, microsecond=0)
+        start_utc = start.astimezone(UTC)
+        return _Period(start=start_utc, end=start_utc + _FIXED_PERIOD[interval])
+    if interval not in _CALENDAR_PERIOD:
+        return None
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    if interval == AlertCalculationInterval.WEEKLY:
+        midnight -= relativedelta(days=midnight.weekday())
+    elif interval == AlertCalculationInterval.MONTHLY:
+        midnight = midnight.replace(day=1)
+    return _Period(start=midnight.astimezone(UTC), end=(midnight + _CALENDAR_PERIOD[interval]).astimezone(UTC))
 
 
 def _platform_state(insight_state: str) -> str | None:
@@ -212,15 +254,15 @@ def _unknown(detail: str) -> SourceVerdict:
 def _verdict_at(
     pairing: _Pairing,
     alert: AlertConfiguration,
-    period: timedelta,
+    period: _Period,
     rows: Sequence[_ProductionCheck],
     times: Sequence[datetime],
 ) -> SourceVerdict:
     """Production's first check of the slot's period, when it left that state, and when it reached
     the platform's state."""
     check = pairing.check
-    index = bisect_left(times, pairing.slot)
-    if index == len(rows) or rows[index].created_at >= pairing.slot + period:
+    index = bisect_left(times, period.start)
+    if index == len(rows) or rows[index].created_at >= period.end:
         return _no_check_in_period(pairing.slot, alert)
 
     matched = rows[index]

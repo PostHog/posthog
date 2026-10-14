@@ -154,6 +154,67 @@ class TestInsightCorrespondence(BaseTest):
 
         assert self._verdict(check).coverage is coverage
 
+    @parameterized.expand(
+        [
+            # Production checks the same local day earlier than the platform's slot.
+            (
+                "an_earlier_check_of_the_same_day",
+                AlertCalculationInterval.DAILY,
+                "America/Los_Angeles",
+                datetime(2026, 3, 4, 9, 52, tzinfo=UTC),
+                datetime(2026, 3, 4, 9, 37, tzinfo=UTC),
+                SourceCoverage.EVALUATED,
+            ),
+            # A fixed 31 days from February 1 would reach into March.
+            (
+                "february",
+                AlertCalculationInterval.MONTHLY,
+                "UTC",
+                datetime(2026, 2, 1, 4, 30, tzinfo=UTC),
+                datetime(2026, 3, 1, 4, 20, tzinfo=UTC),
+                SourceCoverage.BEHIND,
+            ),
+            # Spring forward makes March 8 a 23-hour day, so a fixed 24 hours would reach into March 9.
+            (
+                "a_daylight_saving_day",
+                AlertCalculationInterval.DAILY,
+                "America/Los_Angeles",
+                datetime(2026, 3, 8, 9, 0, tzinfo=UTC),
+                datetime(2026, 3, 9, 7, 30, tzinfo=UTC),
+                SourceCoverage.BEHIND,
+            ),
+            (
+                "a_daylight_saving_week",
+                AlertCalculationInterval.WEEKLY,
+                "America/Los_Angeles",
+                datetime(2026, 3, 2, 11, 0, tzinfo=UTC),
+                datetime(2026, 3, 9, 7, 30, tzinfo=UTC),
+                SourceCoverage.BEHIND,
+            ),
+        ]
+    )
+    def test_a_check_pairs_within_the_local_calendar_period_of_its_slot(
+        self,
+        _name: str,
+        interval: AlertCalculationInterval,
+        timezone: str,
+        slot: datetime,
+        production_check: datetime,
+        coverage: SourceCoverage,
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        AlertConfiguration.objects.filter(id=self.alert.id).update(calculation_interval=interval.value)
+        row = AlertCheck.objects.create(alert_configuration=self.alert, state=InsightAlertState.FIRING.value)
+        AlertCheck.objects.filter(id=row.id).update(created_at=production_check)
+        check = self._check(evaluation_key=evaluation_key_for_slot(slot_of(slot, slot)), occurred_at=slot)
+
+        # Inside production's check retention, so the period decides rather than the retention cut.
+        with time_machine.travel(slot + timedelta(days=1), tick=False):
+            verdict = self._verdict(check)
+
+        assert verdict.coverage is coverage
+
     def test_a_snoozed_check_is_suppressed_on_both_stacks(self) -> None:
         verdict = self._verdict(self._check(state="snoozed"))
 
