@@ -1,4 +1,5 @@
 from django.db import connection, models, transaction
+from django.db.models import Q
 
 from posthog.models import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -21,14 +22,15 @@ class DAGMismatchError(Exception):
     pass
 
 
-class DataModelingEdgeQuerySet(models.QuerySet):
-    def scheduling(self):
-        """The edges that order runs and carry cadence: a managed view's readers do not schedule it."""
-        return self.exclude(
-            source__saved_query__managed_viewset__isnull=False,
-            target__saved_query__managed_viewset__isnull=True,
-        )
+# The edges that neither order runs nor carry cadence: a managed view's readers do not schedule it.
+# Exclude it from an edge queryset to get the scheduling edges.
+NON_SCHEDULING_EDGES = Q(
+    source__saved_query__managed_viewset__isnull=False,
+    target__saved_query__managed_viewset__isnull=True,
+)
 
+
+class DataModelingEdgeQuerySet(models.QuerySet):
     def update(self, **kwargs):
         for key in DISALLOWED_UPDATE_FIELDS:
             if key in kwargs:

@@ -35,12 +35,13 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
     DataWarehouseSavedQueryColumnAnnotation,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
-from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
 
 __all__ = [
     "DAG",
     "DEFAULT_DAG_NAME",
+    "NON_SCHEDULING_EDGES",
     "RESERVED_DAG_NAMES",
     "REVENUE_ANALYTICS_DAG_NAME",
     "SAVED_QUERY_NODE_TYPES",
