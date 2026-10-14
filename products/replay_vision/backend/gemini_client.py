@@ -40,16 +40,20 @@ def resolve_replay_gateway_config() -> AIGatewayConfig | None:
     """
     if not settings.REPLAY_VISION_AI_GATEWAY_API_KEY:
         return None
-    if not settings.REPLAY_VISION_GEMINI_API_KEY:
-        _warn_gateway_disabled("REPLAY_VISION_AI_GATEWAY_API_KEY is set but REPLAY_VISION_GEMINI_API_KEY is not")
-        return None
-    if _disabled_reason is not None:
-        _warn_gateway_disabled(_disabled_reason)
+    if (fault := replay_direct_route_fault()) is not None:
+        _warn_gateway_disabled(fault)
         return None
     return resolve_ai_gateway_config(api_key=settings.REPLAY_VISION_AI_GATEWAY_API_KEY)
 
 
 _disabled_reason: str | None = None
+
+
+def replay_direct_route_fault() -> str | None:
+    """Why this process's direct key cannot read the files the gateway stores, or None when it can."""
+    if not settings.REPLAY_VISION_GEMINI_API_KEY:
+        return "REPLAY_VISION_GEMINI_API_KEY is unset, so the direct key is the shared project's"
+    return _disabled_reason
 
 
 def disable_replay_gateway(reason: str) -> None:

@@ -6,6 +6,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import httpx
 from google.genai import types
 from google.genai.errors import APIError
@@ -192,16 +194,19 @@ async def test_a_direct_upload_is_scanned_direct_even_with_the_flag_on() -> None
     assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
 
 
-@pytest.mark.asyncio
-async def test_a_gateway_upload_is_scanned_direct_when_this_worker_has_no_gateway() -> None:
-    # The upload's cleanup-key check proved the direct key reads gateway-stored files.
+async def _scan_a_gateway_upload_without_a_gateway(
+    **settings: str,
+) -> tuple[MagicMock, MagicMock, AsyncMock, AsyncMock, MagicMock]:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
     create_cache = AsyncMock(return_value=None)
     attempts = AsyncMock(return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    disabled = settings.pop("_disabled", None)
     with (
+        override_settings(**settings),
+        patch("products.replay_vision.backend.gemini_client._disabled_reason", disabled),
         patch(f"{module}.replay_gateway_client", return_value=None),
         patch(f"{module}.genai.AsyncClient") as direct_cls,
         patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
@@ -222,12 +227,50 @@ async def test_a_gateway_upload_is_scanned_direct_when_this_worker_has_no_gatewa
             trace_id="trace-1",
             via_gateway=True,
         )
+    return direct_cls, direct_cache_cls, create_cache, attempts, log
+
+
+@pytest.mark.asyncio
+async def test_a_gateway_upload_is_scanned_direct_when_this_worker_has_no_gateway_key() -> None:
+    # Rollback: the gateway key is unset here, and the direct key is Replay Vision's own.
+    direct_cls, direct_cache_cls, create_cache, attempts, log = await _scan_a_gateway_upload_without_a_gateway(
+        REPLAY_VISION_AI_GATEWAY_API_KEY="", REPLAY_VISION_GEMINI_API_KEY="rv-google-key"
+    )
 
     assert create_cache.call_args.args[0] is direct_cache_cls.return_value
     assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
     warning = log.warning.call_args
     assert warning.args[0] == "replay_vision_gateway_upload_scanned_direct"
     assert "REPLAY_VISION_AI_GATEWAY_API_KEY" in warning.kwargs["reason"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "settings, setting_at_fault",
+    [
+        (
+            {"REPLAY_VISION_AI_GATEWAY_API_KEY": "phs_rv", "REPLAY_VISION_GEMINI_API_KEY": ""},
+            "REPLAY_VISION_GEMINI_API_KEY",
+        ),
+        (
+            {
+                "REPLAY_VISION_AI_GATEWAY_API_KEY": "phs_rv",
+                "REPLAY_VISION_GEMINI_API_KEY": "rv-google-key",
+                "_disabled": "REPLAY_VISION_GEMINI_API_KEY must reach the Google project bound to REPLAY_VISION_AI_GATEWAY_API_KEY",
+            },
+            "REPLAY_VISION_AI_GATEWAY_API_KEY",
+        ),
+    ],
+    ids=["direct key unset", "cleanup key mismatch"],
+)
+async def test_a_gateway_upload_fails_when_this_workers_direct_key_cannot_read_it(
+    settings: dict[str, str], setting_at_fault: str
+) -> None:
+    with pytest.raises(ScannerFailureError) as raised:
+        await _scan_a_gateway_upload_without_a_gateway(**settings)
+
+    assert raised.value.kind == FailureKind.INTERNAL_ERROR
+    assert setting_at_fault in str(raised.value)
 
 
 def test_a_scan_payload_without_the_upload_route_reads_direct() -> None:

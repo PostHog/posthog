@@ -43,6 +43,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.gemini_client import (
     GatewayGeminiClient,
     GatewaySpendLimitError,
+    replay_direct_route_fault,
     replay_gateway_client,
 )
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
@@ -696,17 +697,24 @@ async def _run_mission(
 def _upload_route_gateway(via_gateway: bool, properties: dict[str, Any]) -> GatewayGeminiClient | None:
     """The gateway client when the upload stored the file through it, else None for the direct route.
 
-    A gateway upload passed the cleanup-key check, so the direct key reads the file when this worker has no gateway.
+    Without a gateway here, a gateway upload goes direct only when the direct key reaches its project. The upload's
+    cleanup-key check usually proved that; a check skipped on a transient error proved nothing.
     """
     if not via_gateway:
         return None
     gateway = replay_gateway_client(properties=properties)
-    if gateway is None:
-        logger.warning(
-            "replay_vision_gateway_upload_scanned_direct",
-            reason="REPLAY_VISION_AI_GATEWAY_API_KEY is unset or disabled on this worker",
+    if gateway is not None:
+        return gateway
+    if (fault := replay_direct_route_fault()) is not None:
+        raise ScannerFailureError(
+            f"The video was stored through the AI gateway, and this worker cannot read it direct: {fault}",
+            kind=FailureKind.INTERNAL_ERROR,
         )
-    return gateway
+    logger.warning(
+        "replay_vision_gateway_upload_scanned_direct",
+        reason="REPLAY_VISION_AI_GATEWAY_API_KEY is unset on this worker",
+    )
+    return None
 
 
 def _last_video_second(duration_seconds: float | None) -> int | None:
