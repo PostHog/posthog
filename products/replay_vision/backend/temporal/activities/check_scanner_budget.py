@@ -10,7 +10,7 @@ from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_types import CheckScannerBudgetInputs, CheckScannerBudgetOutput
 
 
-def _notify_limit_reached(scanner: ReplayScanner) -> bool:
+def _notify_limit_reached(scanner: ReplayScanner, free_credits_bound: bool = False) -> bool:
     """Best-effort notification; False only when the send raised. A deliberate skip inside the
     pipeline (flag off, nobody to notify) counts as sent so it is not retried every tick."""
     try:
@@ -55,8 +55,10 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
                 ]
 
         body = (
-            "It stopped scanning until its billing period resets. Sessions skipped while capped are not scanned later."
-        )
+            "It only uses free credits, and your organization has used them for this billing period. "
+            if free_credits_bound
+            else ""
+        ) + "It stopped scanning until its billing period resets. Sessions skipped while capped are not scanned later."
         # The cap also holds a running backfill without changing its status; without this line the
         # notification leaves that backfill looking stalled for no reason.
         if (
@@ -72,7 +74,9 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
                 # A cap is a usage event, not breakage; it must not surface as a pipeline failure.
                 notification_type=NotificationType.USAGE_SPIKE,
                 priority=Priority.NORMAL,
-                title=f'"{scanner.name}" reached its credit limit',
+                title=f'"{scanner.name}" used its free credits'
+                if free_credits_bound
+                else f'"{scanner.name}" reached its credit limit',
                 body=body,
                 target_type=TargetType.TEAM,
                 target_id=str(scanner.team_id),
@@ -107,7 +111,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     if scanner is None:
         # The reconciler removes schedules for deleted scanners. A racing tick just stops here.
         return CheckScannerBudgetOutput(capped=False)
-    if scanner.credit_limit is None:
+    if not scanner.has_spend_ceiling:
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decision and the notification stamp cannot straddle a rollover.
     period = current_period_bounds(scanner.team.organization_id)
@@ -159,7 +163,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         },
     )
     # Sent only after the stamp commits: a push can't be un-sent, so it must never precede its record.
-    if stamped and not _notify_limit_reached(scanner):
+    if stamped and not _notify_limit_reached(scanner, budget.settled_block_from_free_credits):
         # Hand the claim back so a transient outage delays the notification instead of consuming it.
         ReplayScanner.objects.filter(pk=scanner.pk, limit_notified_period_start=period.start).update(
             limit_notified_period_start=None

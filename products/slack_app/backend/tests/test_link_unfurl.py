@@ -1,6 +1,8 @@
+import json
+
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
@@ -31,6 +33,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
+from products.slack_app.backend.tasks import start_slack_unfurl_charts
 from products.tasks.backend.models import Task
 
 
@@ -159,6 +162,54 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert "Trends insight" in text
         assert "Weekly active users" in text
         assert "A test description" in text
+
+    @parameterized.expand(
+        [
+            ("allowed", True, True, True),
+            ("flag_off", False, True, False),
+            ("public_sharing_off", True, False, False),
+        ]
+    )
+    @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
+    @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
+    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_insight_unfurl_starts_the_chart_workflow_only_when_allowed(
+        self,
+        _name: str,
+        flag_on: bool,
+        public_sharing: bool,
+        expect_started: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+        mock_flag: MagicMock,
+        mock_sync_connect: MagicMock,
+        mock_delay: MagicMock,
+    ) -> None:
+        # Runs the queued task in process, through JSON like the Celery broker.
+        mock_delay.side_effect = lambda **kwargs: start_slack_unfurl_charts(**json.loads(json.dumps(kwargs)))
+        self.organization.allow_publicly_shared_resources = public_sharing
+        self.organization.save()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_flag.return_value = flag_on
+        mock_sync_connect.return_value.start_workflow = AsyncMock()
+        url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        start_workflow = mock_sync_connect.return_value.start_workflow
+        if not expect_started:
+            start_workflow.assert_not_called()
+            return
+        inputs = start_workflow.call_args.args[1]
+        assert [chart.insight_id for chart in inputs.charts] == [self.insight.id]
+        assert (
+            inputs.unfurls == mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
+        )
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

@@ -221,13 +221,18 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         # simulate a legacy placement of this managed view in the Default DAG
         default_dag = DAG.get_or_create_default(self.team)
-        Node.objects.get_or_create(team=self.team, saved_query=sq, dag=default_dag, defaults={"type": NodeType.VIEW})
+        stale_node, _ = Node.objects.get_or_create(
+            team=self.team, saved_query=sq, dag=default_dag, defaults={"type": NodeType.VIEW}
+        )
+        stale_parent = Node.objects.create(team=self.team, dag=default_dag, name="stripe.charge", type=NodeType.TABLE)
+        Edge.objects.create(team=self.team, dag=default_dag, source=stale_parent, target=stale_node)
 
         managed_viewset.sync_views()
 
         ra_dag = DAG.objects.get(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME)
         self.assertTrue(Node.objects.filter(team=self.team, saved_query=sq, dag=ra_dag).exists())
         self.assertFalse(Node.objects.filter(team=self.team, saved_query=sq, dag=default_dag).exists())
+        self.assertFalse(Node.objects.filter(id=stale_parent.id).exists())
 
     def test_sync_views_keeps_stale_node_with_dependent(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(

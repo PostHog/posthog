@@ -170,12 +170,16 @@ A request naming `$feature_flag` therefore completes: the cleaned row goes back 
 The same names on `sharded_events` (`$session_id`, `$window_id`, `$group_0..4`) are true `MATERIALIZED` columns with that comment.
 The copy reads the `SELECT *` shape of the table, which leaves `MATERIALIZED` columns out, and the reingest recomputes them from the cleaned `properties`.
 
-#### Replay duplicates
+#### Duplicate rows
 
-`sharded_flag_evaluations` is a plain `MergeTree` that keeps Kafka replay duplicates, so one uuid can have several identical rows.
-The staged files keep every physical row, so the reingest puts every duplicate back, cleaned.
-The copy, the delete's count, the reingest and the shard verify count each uuid once, so duplicates do not block the request.
-The same counting covers unmerged `ReplacingMergeTree` duplicates on events.
+`sharded_flag_evaluations` is a `ReplacingMergeTree` on `_timestamp`, like `sharded_events`, so the copies of one flag call collapse when their parts merge.
+Until a merge, one uuid can have several rows.
+The staged files keep every physical row.
+The copy, the delete's count, the reingest and the shard verify count each uuid once, so unmerged duplicates do not block the request.
+The reingest bumps `_timestamp` past the original's on both tables, so a merge that meets a cleaned row and a surviving original keeps the cleaned row.
+A request that removes `$feature_flag` empties `flag_key`, which is in the sort key.
+That cleaned row therefore never collapses with an original.
+A table created before the switch to `ReplacingMergeTree` keeps every duplicate, and the job leaves its `_timestamp` as it is, because the job reads the engine from `system.tables` on each run.
 
 #### Rows past the TTL
 
