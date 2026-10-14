@@ -16,6 +16,7 @@ import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getDistinctIdWithKey, getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 import { type ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 
 import { LogErrorCount } from './LogErrorCount'
@@ -48,6 +49,7 @@ export function LogContextLinks({
     const { configuredSessionIdKeys, configuredDistinctIdKeys } = useValues(logsConfigLogic)
 
     const traceId = usableId(log.trace_id)
+    const openTraceDialog = useOpenTraceDialog()
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
@@ -72,6 +74,7 @@ export function LogContextLinks({
                     traceId={traceId}
                     spanId={log.span_id}
                     timestamp={log.timestamp}
+                    onClick={(event) => openTraceDialog(event, { traceId, spanId: log.span_id, ts: log.timestamp })}
                     size="xsmall"
                     type="secondary"
                     data-attr={TRACE_DATA_ATTR[surface]}
