@@ -290,20 +290,29 @@ def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_
 
 
 @pytest.mark.django_db
-def test_a_failed_clickhouse_check_drops_the_skipped_row_without_failing_the_run(
+def test_a_failed_clickhouse_check_keeps_the_chunk_queued_without_failing_the_run(
     cluster: ClickhouseCluster, persons_database
 ):
     fake = get_active_fake()
-    above = seed_tombstoned(fake, TEAM_A, 1, version=4)
-    queue(persons_database, [(TEAM_A, above, SWEEP_1)], max_version=3)
+    deleted = seed_tombstoned(fake, TEAM_A, 1, version=3)
+    above = seed_tombstoned(fake, TEAM_A, 2, version=4)
+    queue(persons_database, [(TEAM_A, deleted, SWEEP_1), (TEAM_A, above, SWEEP_1)], max_version=3)
 
     with patch.object(drain, "_clickhouse_person_versions", side_effect=RuntimeError("clickhouse down")):
         result = run_job(cluster)
 
     assert result.success
-    assert present(fake, TEAM_A, above)
-    assert queued(persons_database) == []
-    assert (totals_of(result).persons_skipped_version, totals_of(result).rows_rebounded) == (1, 0)
+    assert not present(fake, TEAM_A, deleted) and present(fake, TEAM_A, above)
+    assert queued_bounds(persons_database) == {deleted: 3, above: 3}
+    totals = totals_of(result)
+    assert (totals.persons_deleted, totals.persons_skipped_version) == (1, 1)
+    assert (totals.queue_rows_deleted, totals.rows_rebounded, totals.rows_kept_unchecked) == (0, 0, 2)
+
+    result = run_job(cluster)
+
+    # The next run resolves both: the deleted person reads as not found, the other is re-bounded.
+    assert totals_of(result).persons_not_found == 1
+    assert queued_bounds(persons_database) == {above: 4}
 
 
 @pytest.mark.django_db
@@ -942,6 +951,7 @@ def test_publishes_every_measurement_the_run_took():
         rows_deleted=40,
         rows_stamped_blocked=1,
         rows_rebounded=9,
+        rows_kept_unchecked=10,
         rows_unversioned=8,
         requests_pending_resent=4,
         queue_rows_estimate_at_start=1000,
@@ -968,6 +978,7 @@ def test_publishes_every_measurement_the_run_took():
             "rows_deleted",
             "rows_stamped_blocked",
             "rows_rebounded",
+            "rows_kept_unchecked",
             "rows_unversioned",
             "requests_pending_resent",
             "step_rows_min",
@@ -986,6 +997,7 @@ def test_publishes_every_measurement_the_run_took():
         "rows_deleted": 40,
         "rows_stamped_blocked": 1,
         "rows_rebounded": 9,
+        "rows_kept_unchecked": 10,
         "rows_unversioned": 8,
         "requests_pending_resent": 4,
         "step_rows_min": 250,

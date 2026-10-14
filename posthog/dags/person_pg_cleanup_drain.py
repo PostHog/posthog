@@ -266,6 +266,7 @@ class DrainTotals:
     rows_deleted: int = 0
     rows_stamped_blocked: int = 0
     rows_rebounded: int = 0
+    rows_kept_unchecked: int = 0
     rows_unversioned: int = 0
     blocked_sample: list[str] = field(default_factory=list)
     queue_rows_deleted: int = 0
@@ -300,6 +301,7 @@ class DrainTotals:
             "rows_deleted": dagster.MetadataValue.int(self.rows_deleted),
             "rows_stamped_blocked": dagster.MetadataValue.int(self.rows_stamped_blocked),
             "rows_rebounded": dagster.MetadataValue.int(self.rows_rebounded),
+            "rows_kept_unchecked": dagster.MetadataValue.int(self.rows_kept_unchecked),
             "rows_unversioned": dagster.MetadataValue.int(self.rows_unversioned),
             "blocked_sample": dagster.MetadataValue.text(", ".join(self.blocked_sample) or "none"),
             "queue_rows_deleted": dagster.MetadataValue.int(self.queue_rows_deleted),
@@ -801,7 +803,9 @@ class _Drain:
         # if it is ever tombstoned again. So do rows skipped above their version bound when the
         # newer tombstone has its own ClickHouse rows: the sweep that removes them queues the person
         # again with a higher bound. A newer tombstone with no ClickHouse rows keeps its row with
-        # the bound raised, because no sweep would ever queue that person again.
+        # the bound raised, because no sweep would ever queue that person again. If that check fails,
+        # every resolved row stays and the next run sends it again; a deleted person then reads as
+        # not found.
         rebound = self.unpublished_bounds(chunk, resolved) if response.skipped_version_count else {}
         self.totals.persons_deleted += response.deleted_count
         self.totals.persons_skipped_live += response.skipped_live_count
@@ -811,19 +815,23 @@ class _Drain:
         )
         self.totals.persons_blocked += len(blocked)
         self.totals.rows_deleted += response.rows_deleted
-        dequeued = [uuid for uuid in resolved if uuid not in rebound]
+        if rebound is None:
+            dequeued: list[str] = []
+            self.totals.rows_kept_unchecked += len(resolved)
+        else:
+            dequeued = [uuid for uuid in resolved if uuid not in rebound]
         self.totals.queue_rows_deleted += self.timed_pg(lambda cursor: _delete_queue_rows(cursor, chunk, dequeued))
         if rebound:
             self.totals.rows_rebounded += self.timed_pg(lambda cursor: _rebound_queue_rows(cursor, chunk, rebound))
         if blocked:
             self.stamp_blocked(chunk, blocked)
 
-    def unpublished_bounds(self, chunk: Chunk, resolved: Sequence[str]) -> dict[str, int]:
+    def unpublished_bounds(self, chunk: Chunk, resolved: Sequence[str]) -> dict[str, int] | None:
         """New version bounds for persons skipped above their bound whose newer tombstone ClickHouse never saw.
 
         Ingestion's create-undo tombstones a person again without publishing it. The sweep already removed the
         person's ClickHouse rows up to the old bound, so with no newer row the person can be drained at its
-        current version. A check that fails returns no bounds, which drops these rows as before.
+        current version. A check that fails returns None.
         """
         try:
             stored = get_person_tombstones(chunk.team_id, [UUID(uuid) for uuid in resolved])
@@ -831,11 +839,11 @@ class _Drain:
             in_clickhouse = _clickhouse_person_versions(chunk.team_id, list(above)) if above else {}
         except Exception:
             self.context.log.warning(
-                "checking %d resolved persons for an unpublished newer tombstone failed; their queue rows are dropped",
+                "checking %d resolved persons for an unpublished newer tombstone failed; their queue rows stay",
                 len(resolved),
                 exc_info=True,
             )
-            return {}
+            return None
         return {
             uuid: version for uuid, version in above.items() if in_clickhouse.get(uuid, -1) <= chunk.max_versions[uuid]
         }
@@ -1048,6 +1056,11 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
             name=f"{prefix}rows_rebounded",
             help_text="Queue rows kept with a raised version bound: tombstoned again in Postgres with no newer ClickHouse row",
             value=totals.rows_rebounded,
+        ),
+        PublishedGauge(
+            name=f"{prefix}rows_kept_unchecked",
+            help_text="Resolved queue rows kept for the next run because the check for an unpublished newer tombstone failed",
+            value=totals.rows_kept_unchecked,
         ),
         PublishedGauge(
             name=f"{prefix}requests_pending_resent",
