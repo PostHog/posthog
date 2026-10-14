@@ -1170,7 +1170,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             page = self.paginate_queryset(queryset)
             # Non-web reads only: the web app also calls this for global search and setup checks.
             if get_event_source(request) != EventSource.WEB:
-                report_user_action(request.user, "support tickets listed", {}, team=self.team, request=request)
+                try:
+                    report_user_action(request.user, "support tickets listed", {}, team=self.team, request=request)
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
 
             if page is not None:
                 self._attach_persons_to_tickets(page)
