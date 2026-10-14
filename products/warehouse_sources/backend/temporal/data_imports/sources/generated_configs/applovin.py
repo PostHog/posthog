@@ -7,3 +7,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class AppLovinSourceConfig(config.Config):
     api_key: str
+    campaign_api_key: str | None = None
+    account_id: str | None = None
