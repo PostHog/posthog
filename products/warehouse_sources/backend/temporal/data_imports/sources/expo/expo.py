@@ -15,7 +15,8 @@ EXPO_GRAPHQL_URL = "https://api.expo.dev/graphql"
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
-# `viewer` resolves only for user tokens, while `meActor` resolves for both users and robots.
+# Expo types `viewer` as `User`, so it does not resolve for robot or SSO user tokens.
+# `meActor` returns the `Actor` interface, which covers every account type.
 _ACTOR_QUERY = "query PostHogExpoActor { meActor { id } }"
 _REJECTED_TOKEN_HINT = "Create a new one at expo.dev under Access tokens."
 
