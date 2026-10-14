@@ -1,4 +1,4 @@
-"""Validation helpers for project settings."""
+"""Validation, feature flag, and access helpers for project settings."""
 
 import json
 from typing import TYPE_CHECKING, Any, cast
