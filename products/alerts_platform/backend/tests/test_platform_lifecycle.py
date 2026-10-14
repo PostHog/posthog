@@ -143,6 +143,49 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert rows == [("not_firing", self.cutoff)]
         assert self._alert().firing_started_at is None
 
+    @parameterized.expand(
+        [
+            ("logs_shares_the_team_slot", PlatformAlertConfiguration.SourceKind.LOGS, True),
+            ("insight_spreads_by_configuration", PlatformAlertConfiguration.SourceKind.INSIGHT, False),
+        ]
+    )
+    def test_a_team_alerts_on_one_cadence_are_due_together_only_where_the_source_batches_them(
+        self, _name: str, source_kind: str, same_slot: bool
+    ) -> None:
+        # Ids 1 and 2 fall in different slots of a 5-minute cadence when the offset is per configuration.
+        with team_scope(self.team.id):
+            configurations = [
+                PlatformAlertConfiguration.objects.create(
+                    id=UUID(int=n),
+                    team=self.team,
+                    name=f"Alert {n}",
+                    source_kind=source_kind,
+                    source_config={},
+                    check_interval_minutes=5,
+                    next_check_at=self.cutoff - timedelta(minutes=1),
+                )
+                for n in (1, 2)
+            ]
+        outcomes = [
+            PlatformAlertOutcome(
+                configuration_id=c.id,
+                evaluation_key=f"window:{self.cutoff.isoformat()}",
+                kind=AlertEventKind.CHECK,
+                new_state="not_firing",
+                notified=False,
+                consecutive_failures=0,
+            )
+            for c in configurations
+        ]
+        with self.captureOnCommitCallbacks(execute=True):
+            record_outcomes(self.team.id, outcomes, self.cutoff)
+
+        with team_scope(self.team.id):
+            due = {
+                c.next_check_at for c in PlatformAlertConfiguration.objects.filter(id__in=[UUID(int=1), UUID(int=2)])
+            }
+        assert (len(due) == 1) is same_slot
+
     def _copy(self, legacy_id: UUID, **overrides: Any) -> None:
         fields: dict[str, Any] = {
             "legacy_configuration_id": legacy_id,

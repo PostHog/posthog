@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
 from typing import Any, Final, cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import pytz
 from dateutil.relativedelta import relativedelta
@@ -51,6 +51,28 @@ def compute_shard_offset_seconds(
     shard_count = max(1, cadence_seconds // schedule_interval_seconds)
     shard_index = alert_id.int % shard_count
     return shard_index * schedule_interval_seconds
+
+
+# The team ID goes through uuid5 so that sequential IDs do not fill the slots in a pattern.
+# Production logs alerting and the platform both key on this namespace, so the two stacks
+# check one team's alerts in the same minute. Changing it moves every logs alert to a new slot.
+_TEAM_SHARD_NAMESPACE = UUID("4f2c9a1e-5b7d-4e8a-9c3f-6d1b2a7e8f90")
+
+
+def compute_team_shard_offset_seconds(
+    team_id: int,
+    check_interval_minutes: int,
+    *,
+    schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS,
+) -> int:
+    """One slot for all of a team's alerts on a cadence, for a source that batches a team's due
+    alerts into one query per slot. A per-alert offset splits that team across slots, and each
+    slot then runs its own query."""
+    return compute_shard_offset_seconds(
+        uuid5(_TEAM_SHARD_NAMESPACE, str(team_id)),
+        check_interval_minutes,
+        schedule_interval_seconds=schedule_interval_seconds,
+    )
 
 
 def advance_next_check_at(
