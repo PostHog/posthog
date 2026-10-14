@@ -194,7 +194,7 @@ export function Pane({
   // A message just sent from this pane that the run has not echoed yet.
   pending: string | null;
   // The backend could not deliver this chat's pending message, logged at `at` (epoch ms).
-  onUndelivered: (at: number) => void;
+  onUndelivered: (at: number, sandboxGone: boolean) => void;
   // The chat's log now carries the pending message, so it is no longer on its way.
   onDelivered?: () => void;
   // ! commands run in this chat that its run has not logged yet.
@@ -285,7 +285,7 @@ export function Pane({
   );
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires once per failure, while a message is pending
   useEffect(() => {
-    if (delivery && pending) onUndelivered(delivery.at);
+    if (delivery && pending) onUndelivered(delivery.at, delivery.sandboxGone);
   }, [delivery?.at, pending]);
   const echoed =
     pending !== null &&

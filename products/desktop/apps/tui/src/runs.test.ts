@@ -675,6 +675,31 @@ describe("setupProgress", () => {
 });
 
 describe("deliveryFailure", () => {
+  it("knows a 502 from the sandbox means nothing runs in it any more", () => {
+    const failed = (detail: string): StoredLogEntry =>
+      ({
+        type: "notification",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        notification: {
+          method: "_posthog/progress",
+          params: {
+            step: "followup_delivery",
+            status: "failed",
+            label: "Couldn't deliver your message",
+            detail,
+          },
+        },
+      }) as StoredLogEntry;
+    expect(
+      deliveryFailure([failed("send_followup failed: Sandbox returned 502")])
+        ?.sandboxGone,
+    ).toBe(true);
+    expect(
+      deliveryFailure([failed("send_followup failed: refresh_session missing")])
+        ?.sandboxGone,
+    ).toBe(false);
+  });
+
   const delivery = (status: string, detail?: string): StoredLogEntry =>
     ({
       type: "notification",
@@ -738,7 +763,11 @@ describe("deliveryFailure", () => {
       { kind: "user" as const, id: "u", text: "hi" },
       { kind: "assistant" as const, id: "a", text: "hello" },
     ];
-    const failed = { at: 0, text: "Couldn't deliver your message" };
+    const failed = {
+      at: 0,
+      text: "Couldn't deliver your message",
+      sandboxGone: false,
+    };
     expect(
       runNotice(view, lines, false, null, null, { delivery: failed }),
     ).toEqual({ text: "Couldn't deliver your message", tone: "error" });
