@@ -73,6 +73,9 @@ class StopSlackAgentDesignStreamInput:
     # The stream opened with the answer, which already carried the @-mention.
     mention_sent: bool = False
     actor_slack_user_id: Optional[str] = None
+    # The turn's whole answer, which `final_markdown` omits when the stream opened with it. Set only
+    # for a finished turn, because a stopped turn waits for nothing from the reader.
+    answer_markdown: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -198,5 +201,6 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         if handler.stream_ended and task_run is not None:
             # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
             deliver_pending_slack_file_artifacts(task_run)
+        handler.offer_reply_suggestions(input.answer_markdown)
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

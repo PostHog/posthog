@@ -76,6 +76,7 @@ from products.slack_app.backend.services import (
     bare_mention,
     inbox_interactivity,
     project_picker,
+    reply_suggestions,
     slack_welcome_messages,
     turn_feedback,
 )
@@ -3860,6 +3861,118 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+REPLY_SUGGESTION_CLAIM_SECONDS = 60 * 60 * 24
+
+
+def _reply_suggestion_claim_key(integration_id: int, channel: str, message_ts: str) -> str:
+    return f"slack_app_reply_suggestion_claim:{integration_id}:{channel}:{message_ts}"
+
+
+def _handle_reply_suggestion_click(payload: dict) -> HttpResponse:
+    """Send the clicked reply to the agent as the clicker's thread reply, then show the choice
+    in place of the buttons.
+
+    The reply takes the untagged follow-up path, already confirmed: the click says the message
+    is for the agent, so the classifier and the creator's prompt have nothing left to decide,
+    and a thread with no task behind it never starts a new one.
+    """
+    clicked = reply_suggestions.clicked_suggestion(payload)
+    slack_team_id = payload.get("team", {}).get("id", "")
+    clicker_slack_user_id = payload.get("user", {}).get("id", "")
+    container = payload.get("container") or {}
+    message = payload.get("message") or {}
+    channel = container.get("channel_id") or (payload.get("channel") or {}).get("id")
+    message_ts = container.get("message_ts") or message.get("ts")
+    thread_ts = container.get("thread_ts") or message.get("thread_ts")
+    if clicked is None or not slack_team_id or not clicker_slack_user_id:
+        return HttpResponse(status=200)
+    if not isinstance(channel, str) or not isinstance(message_ts, str) or not isinstance(thread_ts, str):
+        return HttpResponse(status=200)
+    integration_id, text, index = clicked
+
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team__organization")
+        .first()
+    )
+    if integration is None:
+        return HttpResponse(status=200)
+    slack = SlackIntegration(integration)
+
+    # Anyone in the channel sees the buttons, so the click must clear the bar a typed reply
+    # clears: the clicker must reach the project the thread's task belongs to.
+    posthog_user = _is_org_member(integration, clicker_slack_user_id)
+    if posthog_user is None or not _can_access_team(posthog_user, integration):
+        logger.info(
+            "slack_app_reply_suggestion_no_access",
+            integration_id=integration.id,
+            slack_workspace_id=slack_team_id,
+            slack_user_id=clicker_slack_user_id,
+        )
+        try:
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=clicker_slack_user_id,
+                thread_ts=thread_ts,
+                text="Only members of this PostHog project can reply to the agent. Ask a project member to reply instead.",
+            )
+        except Exception:
+            logger.warning("slack_app_reply_suggestion_no_access_notice_failed", exc_info=True)
+        return HttpResponse(status=200)
+
+    # One reply per suggestions message. Two people can click before the buttons disappear,
+    # and only the first click may reach the agent.
+    if not cache.add(
+        _reply_suggestion_claim_key(integration.id, channel, message_ts),
+        clicker_slack_user_id,
+        timeout=REPLY_SUGGESTION_CLAIM_SECONDS,
+    ):
+        return HttpResponse(status=200)
+
+    try:
+        slack.client.chat_update(
+            channel=channel,
+            ts=message_ts,
+            text=f"<@{clicker_slack_user_id}> replied: {text}",
+            blocks=reply_suggestions.chosen_reply_blocks(clicker_slack_user_id, text),
+        )
+    except Exception:
+        logger.warning("slack_app_reply_suggestion_update_failed", integration_id=integration.id, exc_info=True)
+
+    # The suggestions message stands in for the reply: its ts carries the reactions that show
+    # progress, and it keys the follow-up's idempotent message id.
+    event = {
+        "type": "message",
+        "user": clicker_slack_user_id,
+        "channel": channel,
+        "ts": message_ts,
+        "thread_ts": thread_ts,
+        "text": text,
+    }
+    _start_mention_workflow(
+        event,
+        integration,
+        slack_team_id,
+        None,
+        posthog_user=posthog_user,
+        untagged_followup=True,
+        untagged_followup_confirmed=True,
+    )
+    capture_slack_event(
+        integration,
+        "slack app reply suggestion clicked",
+        slack_user_id=clicker_slack_user_id,
+        posthog_user=posthog_user,
+        suggestion_index=index,
+        slack_session_id=slack_session_id(slack_team_id, channel, thread_ts),
+    )
+    return HttpResponse(status=200)
+
+
 def _report_slack_mention_received(
     event: dict,
     integration: Integration,
@@ -5380,13 +5493,16 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     project_picker_integration_id = project_picker.picked_integration_id(payload)
-    # Both controls a reply carries, and the modal a thumbs-down opens, claim the same
-    # workspace, so one hint serves all three. Only the modal needs its own extractor:
-    # a view submission carries no action for the generic one to read.
+    # The controls a reply carries, the modal a thumbs-down opens, and the reply suggestions
+    # under an answer claim the same workspace, so one hint serves all of them. The modal and
+    # the suggestions need their own extractors: a view submission carries no action for the
+    # generic one to read, and each suggestion button has its own action id.
+    clicked_reply_suggestion = reply_suggestions.clicked_suggestion(payload)
     reply_control_integration_id = (
         _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)[0]
         or _extract_action_value_hints(payload, TURN_FEEDBACK_ACTION_ID)[0]
         or turn_feedback.extract_modal_hint(payload)
+        or (clicked_reply_suggestion[0] if clicked_reply_suggestion else None)
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -5552,6 +5668,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_fork_thread_submit(payload)
             if action_id == TURN_FEEDBACK_ACTION_ID:
                 return turn_feedback.handle_turn_feedback_click(payload)
+            if reply_suggestions.is_reply_suggestion_action(action_id):
+                return _handle_reply_suggestion_click(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_DENY:

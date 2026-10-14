@@ -13,7 +13,15 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_forking_enabled,
+    is_slack_app_reply_suggestions_enabled,
+)
+from products.slack_app.backend.services.reply_suggestions import (
+    reply_suggestions_block,
+    reply_suggestions_fallback_text,
+    suggest_replies,
+)
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
@@ -921,6 +929,45 @@ class SlackThreadHandler:
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))
             return False
+
+    def offer_reply_suggestions(self, answer_markdown: str | None) -> None:
+        """Post one-click replies under an answer that waits for the reader, or nothing.
+
+        A message of its own and not blocks on the answer: a click replaces the buttons with
+        the chosen reply, and Slack can only rewrite a whole message. A streamed answer is also
+        closed by the time the replies are known, so it can take no more blocks.
+        """
+        if not answer_markdown or not answer_markdown.strip():
+            return
+        integration = self._get_integration()
+        if not is_slack_app_reply_suggestions_enabled(integration):
+            return
+        suggestions = suggest_replies(answer_markdown, trace_id=self.turn_trace_id)
+        if not suggestions:
+            return
+        try:
+            posted = (
+                self._post_in_thread(
+                    text=reply_suggestions_fallback_text(suggestions),
+                    blocks=[reply_suggestions_block(integration.id, suggestions)],
+                )
+                is not None
+            )
+        except Exception as e:
+            logger.warning("slack_app_reply_suggestions_post_failed", error=str(e))
+            return
+        if posted:
+            capture_slack_event(
+                integration,
+                "slack app reply suggestions posted",
+                slack_user_id=self.actor_slack_user_id,
+                suggestion_count=len(suggestions),
+                slack_session_id=slack_session_id(
+                    integration.integration_id, self.context.channel, self.context.thread_ts
+                ),
+                task_id=self.run_footer.task_id,
+                run_id=self.run_footer.run_id,
+            )
 
     def capture_reply_posted(self, reply_kind: ReplyKind, *, delivered: bool) -> None:
         """Capture a reply the run posted to this thread, so a mention can be followed to its answer.

@@ -310,3 +310,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
+
+    # Last, because the model call behind it is the slowest step and the answer must not wait for it.
+    if answer_delivered:
+        handler.offer_reply_suggestions(text)
