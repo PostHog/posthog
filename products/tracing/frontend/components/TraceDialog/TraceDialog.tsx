@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@postho
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { pluralize } from 'lib/utils/strings'
@@ -51,7 +52,8 @@ export function TraceDialog(): JSX.Element | null {
         traceSessionId,
     } = useValues(traceDialogLogic)
     const { closeTraceDialog, loadTraceSpans, setInspectorTab } = useActions(traceDialogLogic)
-    // The dialog sits above popovers, so the inspector's menus and drawers portal inside it instead.
+    // The dialog sits above popovers, so the inspector's menus and drawers, and the person popover,
+    // portal inside it instead.
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
     const floatingContainerRef = useCallback((el: HTMLDivElement | null) => setFloatingContainer(el), [])
 
@@ -108,6 +110,8 @@ export function TraceDialog(): JSX.Element | null {
                     <TraceIdentityChips
                         identity={traceIdentity}
                         timestamp={summary.rootSpan?.timestamp ?? trace.ts ?? null}
+                        // The player modal stacks below this dialog, so the recording opens in a new tab.
+                        openRecordingIn={RecordingPlayerType.NewTab}
                     />
                     {traceSpans?.truncated && (
                         <LemonBanner type="info">
