@@ -1472,6 +1472,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "model": ScannerModel.GEMINI_3_8_FLASH,
                     "sampling_rate": 0.25,
                     "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+                    "free_only": True,
                 },
                 format="json",
             )
@@ -1489,6 +1490,8 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertTrue(properties["has_filters"])
         self.assertFalse(properties["has_experiment_targeting"])
         self.assertFalse(properties["uses_template_prompt"])
+        self.assertTrue(properties["free_only"])
+        self.assertFalse(properties["has_credit_limit"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".

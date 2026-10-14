@@ -344,6 +344,9 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
         "uses_template_prompt": template_question(scanner.scanner_config) is not None,
+        # Spend choices, so the goal-flow experiment can count free-only scanners and capped ones.
+        "free_only": scanner.free_only,
+        "has_credit_limit": scanner.credit_limit is not None,
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
