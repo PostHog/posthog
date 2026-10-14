@@ -1164,6 +1164,52 @@ describe('taxonomicFilterLogic', () => {
             expect(nextLogic.values.activeTab).toBe(expectedTab)
             nextLogic.unmount()
         })
+
+        it.each([
+            {
+                description: 'reports a selection on the tab the memory restored',
+                reopenGroupType: undefined,
+                expectedWasOnLastCategory: true,
+            },
+            {
+                description: 'does not credit the memory when an edit flow reopens on its own tab',
+                reopenGroupType: TaxonomicFilterGroupType.HogQLExpression,
+                expectedWasOnLastCategory: false,
+            },
+        ])('$description', ({ reopenGroupType, expectedWasOnLastCategory }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY]: true,
+            })
+            const props: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'firstSeries',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.HogQLExpression],
+                rememberCategoryKey: 'series',
+            }
+            const firstLogic = taxonomicFilterLogic(props)
+            firstLogic.mount()
+            firstLogic.actions.setActiveTab(TaxonomicFilterGroupType.HogQLExpression)
+            firstLogic.unmount()
+
+            const nextLogic = taxonomicFilterLogic({
+                ...props,
+                taxonomicFilterLogicKey: 'nextSeries',
+                groupType: reopenGroupType,
+            })
+            nextLogic.mount()
+            expect(nextLogic.values.activeTab).toBe(TaxonomicFilterGroupType.HogQLExpression)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const hogQLGroup = nextLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
+            )!
+            nextLogic.actions.selectItem(hogQLGroup, 'count()', { name: 'count()' })
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'taxonomic filter item selected',
+                expect.objectContaining({ wasOnLastCategory: expectedWasOnLastCategory })
+            )
+            captureSpy.mockRestore()
+            nextLogic.unmount()
+        })
     })
 
     describe('searchPlaceholder', () => {

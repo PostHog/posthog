@@ -180,6 +180,11 @@ const PROMOTED_SHORTCUT_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.EmailAddresses,
 ]
 
+export interface ActiveTabResolution {
+    tab: TaxonomicFilterGroupType
+    source: 'explicit' | 'open-as-self' | 'last-category' | 'default'
+}
+
 function requestsGroup(props: TaxonomicFilterLogicProps, groupType: TaxonomicFilterGroupType): boolean {
     return !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(groupType)
 }
@@ -523,6 +528,7 @@ export interface taxonomicFilterLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     activeTab: TaxonomicFilterGroupType
+    activeTabResolution: ActiveTabResolution
     activeTaxonomicGroup: TaxonomicFilterGroup | undefined
     allowNonCapturedEvents: boolean
     anyGroupLoading: boolean
@@ -804,13 +810,14 @@ export interface taxonomicFilterLogicMeta {
             arg: any,
             featureFlags: FeatureFlagsSet
         ) => TaxonomicFilterGroupType | null
-        activeTab: (
+        activeTabResolution: (
             explicitActiveTab: TaxonomicFilterGroupType | null,
             groupType: any,
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             metaGroupTypes: Set<string>,
             lastCategory: TaxonomicFilterGroupType | null
-        ) => TaxonomicFilterGroupType
+        ) => ActiveTabResolution
+        activeTab: (activeTabResolution: ActiveTabResolution) => TaxonomicFilterGroupType
         currentTabIndex: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             activeTab: TaxonomicFilterGroupType
@@ -2445,7 +2452,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ? (lastCategories.categoryByKey[rememberCategoryKey] ?? null)
                     : null,
         ],
-        activeTab: [
+        activeTabResolution: [
             (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes, s.lastCategory],
             (
                 explicitActiveTab: TaxonomicFilterGroupType | null,
@@ -2453,9 +2460,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupTypes: TaxonomicFilterGroupType[],
                 metaGroupTypes: Set<string>,
                 lastCategory: TaxonomicFilterGroupType | null
-            ): TaxonomicFilterGroupType => {
+            ): ActiveTabResolution => {
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
-                    return explicitActiveTab
+                    return { tab: explicitActiveTab, source: 'explicit' }
                 }
                 // Config/edit flows have no simple category "value" to verify on the All
                 // surface — reopen them on their own tab: a SQL/HogQL expression lands in its
@@ -2465,24 +2472,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     OPEN_AS_SELF_ON_REOPEN.has(propsGroupType) &&
                     groupTypes.includes(propsGroupType)
                 ) {
-                    return propsGroupType
+                    return { tab: propsGroupType, source: 'open-as-self' }
                 }
                 // Reopen on the category last chosen on this page, so building several series
                 // from one category does not mean picking that category each time.
                 if (lastCategory && groupTypes.includes(lastCategory)) {
-                    return lastCategory
+                    return { tab: lastCategory, source: 'last-category' }
                 }
                 // Otherwise lead with the All (Suggested filters) surface so reopening on an
                 // existing selection still shows recents/pinned + a cross-category search,
                 // rather than jumping to the selected item's category.
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
-                    return TaxonomicFilterGroupType.SuggestedFilters
+                    return { tab: TaxonomicFilterGroupType.SuggestedFilters, source: 'default' }
                 }
                 if (propsGroupType && groupTypes.includes(propsGroupType)) {
-                    return propsGroupType
+                    return { tab: propsGroupType, source: 'default' }
                 }
-                return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
+                return { tab: groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0], source: 'default' }
             },
+        ],
+        activeTab: [
+            (s) => [s.activeTabResolution],
+            (activeTabResolution: ActiveTabResolution): TaxonomicFilterGroupType => activeTabResolution.tab,
         ],
         currentTabIndex: [
             (s) => [s.taxonomicGroupTypes, s.activeTab],
@@ -2671,7 +2682,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     query: values.searchQuery || undefined,
                     wasStale,
                     ...(props.rememberCategoryKey && {
-                        wasOnLastCategory: !values.explicitActiveTab && values.lastCategory === values.activeTab,
+                        wasOnLastCategory: values.activeTabResolution.source === 'last-category',
                     }),
                     ...(wasQuickFilter && {
                         filterName: item.name,
