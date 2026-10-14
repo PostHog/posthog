@@ -3,8 +3,11 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
+
+import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter } from '~/types'
+import { ActionFilter, HogQLMathType } from '~/types'
 
 import { InsightLabel } from './index'
 
@@ -20,6 +23,22 @@ function hogqlAction(overrides: Partial<ActionFilter> = {}): ActionFilter {
         math_hogql: HOGQL_EXPRESSION,
         ...overrides,
     } as ActionFilter
+}
+
+function hogqlSeries(overrides: Partial<EventsNode> = {}): ResultSeries {
+    const node: EventsNode = {
+        kind: NodeKind.EventsNode,
+        event: '$pageview',
+        name: '$pageview',
+        math: HogQLMathType.HogQL,
+        math_hogql: HOGQL_EXPRESSION,
+        ...overrides,
+    }
+    return {
+        order: 0,
+        node,
+        math: { math: node.math, math_property: node.math_property, math_hogql: node.math_hogql },
+    }
 }
 
 describe('InsightLabel — hideHogQLTagWhenCustomName', () => {
@@ -39,8 +58,11 @@ describe('InsightLabel — hideHogQLTagWhenCustomName', () => {
         )
     }
 
-    it('hides the SQL expression tag when the flag is on, the series is named, and math is hogql', () => {
-        renderLabel({ action: hogqlAction({ custom_name: 'Revenue' }), hideHogQLTagWhenCustomName: true })
+    it.each<[string, Parameters<typeof InsightLabel>[0]]>([
+        ['a custom name', { action: hogqlAction({ custom_name: 'Revenue' }) }],
+        ['a query series renamed through its name', { series: hogqlSeries({ name: 'Revenue' }) }],
+    ])('hides the SQL expression tag when the flag is on, the series has %s, and math is hogql', (_, props) => {
+        renderLabel({ ...props, hideHogQLTagWhenCustomName: true })
 
         expect(screen.queryByText(HOGQL_EXPRESSION)).not.toBeInTheDocument()
     })
