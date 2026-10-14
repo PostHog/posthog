@@ -41,7 +41,7 @@ class WebhookUrlTransport(ABC):
             raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
         self.check_url(url)
         post_json(
-            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for()
+            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for(target)
         )
         return None
 
@@ -49,7 +49,7 @@ class WebhookUrlTransport(ABC):
         """Refuses a URL this provider never issues. The SSRF check runs on every send regardless."""
         return None
 
-    def headers_for(self) -> dict[str, str]:
+    def headers_for(self, target: AlertDestinationData) -> dict[str, str]:
         return self.headers
 
     def send_url(self, url: str) -> str:
