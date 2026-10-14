@@ -20,7 +20,6 @@ import {
 } from 'lib/utils/product-intents'
 import { identifierToHuman } from 'lib/utils/strings'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import {
     CurrencyCode,
     CustomerAnalyticsConfig,
@@ -513,24 +512,17 @@ export const teamLogic = kea<teamLogicType>([
                     await api.update(`api/projects/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
-                 * A new intent can star products, so the sidebar reloads its stars afterwards.
                  */
                 addProductIntent: async (properties: ProductIntentProperties) => {
                     const result = await addProductIntent(properties)
-                    projectTreeDataLogic.findMounted()?.actions.loadShortcuts()
-
                     return withProductIntentsFrom(values.currentTeam, result)
                 },
                 addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) => {
                     const result = await addProductIntentForCrossSell(properties)
-                    projectTreeDataLogic.findMounted()?.actions.loadShortcuts()
-
                     return withProductIntentsFrom(values.currentTeam, result)
                 },
                 recordProductIntentOnboardingComplete: async (properties: ProductOnboardingCompleteProperties) => {
                     const result = await completeProductOnboarding(values.currentTeamIdStrict, properties)
-                    projectTreeDataLogic.findMounted()?.actions.loadShortcuts()
-
                     return withProductIntentsFrom(values.currentTeam, result)
                 },
             },
