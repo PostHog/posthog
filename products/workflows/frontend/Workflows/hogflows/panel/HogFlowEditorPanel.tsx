@@ -31,9 +31,10 @@ import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 export function HogFlowEditorPanel({
     layout = 'floating',
 }: { layout?: 'floating' | 'panel' } = {}): JSX.Element | null {
-    const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
+    const { panelWidth, selectedNode, mode, workflow, isPlacingNewStep } = useValues(hogFlowEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const opensStepPicker = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_STEP_PICKER]
+    const showsStepDetails = !!selectedNode && !isPlacingNewStep
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const panelRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -125,11 +126,11 @@ export function HogFlowEditorPanel({
                     </div>
                 </div>
 
-                {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
+                {showsStepDetails && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
                     <HogFlowEditorPanelSelectedStep />
                 )}
                 {mode === 'build' &&
-                    (selectedNode ? (
+                    (showsStepDetails ? (
                         <HogFlowEditorPanelBuildDetail />
                     ) : opensStepPicker ? (
                         <HogFlowEditorPanelAddStep />

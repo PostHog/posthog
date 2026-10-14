@@ -838,6 +838,57 @@ describe('hogFlowEditorLogic', () => {
         const newDelayStep: CreateActionType = DELAY_NODES_TO_SHOW[0]
 
         it.each([
+            { name: 'copy', start: () => logic.actions.startCopyingNode(delayNode()) },
+            { name: 'move', start: () => logic.actions.startMovingNode(delayNode()) },
+        ])('ends a pending $name when placement starts, and places the picked step', async ({ start }) => {
+            await setWorkflow(linearWithDelay.actions, linearWithDelay.edges)
+            start()
+
+            logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+
+            expect(logic.values.isCopyingNode).toBe(false)
+            expect(logic.values.isMovingNode).toBe(false)
+            logic.actions.placeNewStep(edge(delay.id, EXIT_NODE_ID, 'continue'))
+            const [added] = addedActions()
+            expect(added).toMatchObject({ config: { template_id: 'template-posthog-classify' } })
+            expect(logic.values.workflow.edges).toEqual([
+                edge(TRIGGER_NODE_ID, delay.id, 'continue'),
+                edge(delay.id, added.id, 'continue'),
+                edge(added.id, EXIT_NODE_ID, 'continue'),
+            ])
+        })
+
+        it.each([
+            {
+                name: 'copying a step',
+                start: () => logic.actions.startCopyingNode(delayNode()),
+                expectedNodeToBeAdded: () => delayNode().data,
+            },
+            {
+                name: 'moving a step',
+                start: () => logic.actions.startMovingNode(delayNode()),
+                expectedNodeToBeAdded: () => null,
+            },
+            {
+                name: 'duplicating a step',
+                start: () => logic.actions.duplicateNodeBelow(delay.id),
+                expectedNodeToBeAdded: () => null,
+            },
+        ])('cancels a pending placement when $name starts', async ({ start, expectedNodeToBeAdded }) => {
+            await setWorkflow(linearWithDelay.actions, linearWithDelay.edges)
+            logic.actions.startPlacingNewStep(CLASSIFY_ACTION_NODE)
+
+            start()
+
+            expect(logic.values.isPlacingNewStep).toBe(false)
+            expect(logic.values.nodeToBeAdded).toEqual(expectedNodeToBeAdded())
+            expect(addedActions().filter((action) => action.type === 'function')).toEqual([])
+            expect(capturedEvent('workflow step placement finished')).toEqual([
+                { step_id: 'template-posthog-classify', outcome: 'cancelled' },
+            ])
+        })
+
+        it.each([
             {
                 name: 'is dragged in',
                 add: () => {

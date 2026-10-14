@@ -28,6 +28,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     }, [id, isHighlighted, setHighlightedDropzoneNodeId])
 
     const handleClick = (): void => {
+        setHighlightedDropzoneNodeId(id)
         if (isCopyingNode) {
             copyNodeToHighlightedDropzone()
         } else if (isMovingNode) {
