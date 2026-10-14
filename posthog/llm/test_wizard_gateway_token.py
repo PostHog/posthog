@@ -10,7 +10,6 @@ from django.test import override_settings
 from django.utils import timezone
 
 import requests
-from posthoganalytics import FeatureFlagResult
 
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
@@ -512,16 +511,18 @@ class TestWizardGatewayPolicy:
     @staticmethod
     @contextmanager
     def _flags(prompt=PROMPT_PAYLOAD, allowlist=ALLOWLIST_PAYLOAD):
-        payloads = {WIZARD_SYSTEM_PROMPT_FLAG: prompt, WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}
+        def reader(payloads):
+            def read(key, *args, **kwargs):
+                value = payloads.get(key)
+                if isinstance(value, Exception):
+                    raise value
+                return value
 
-        def read(key, *args, **kwargs):
-            value = payloads.get(key)
-            if isinstance(value, Exception):
-                raise value
-            return None if value is None else FeatureFlagResult.from_value_and_payload(key, True, value)
+            return read
 
         with patch(
-            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_result", side_effect=read
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
+            side_effect=reader({WIZARD_SYSTEM_PROMPT_FLAG: prompt, WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}),
         ) as evaluated:
             yield evaluated
 
@@ -543,14 +544,27 @@ class TestWizardGatewayPolicy:
         assert policy.prompt is not None
         assert policy.prompt.text == text
 
-    def test_both_flags_are_read_with_the_override_flags_targeting_properties_and_send_their_events(self):
+    def test_both_flags_are_read_with_the_override_flags_targeting_properties(self):
         with self._flags() as evaluated:
             _policy()
 
         properties = {"email": "eng@posthog.com", "organization_id": "org_1", "team_id": "7"}
         assert evaluated.call_args_list == [
-            call(key, "d1", person_properties=properties)
-            for key in (WIZARD_SYSTEM_PROMPT_FLAG, WIZARD_GATEWAY_ALLOWLIST_FLAG)
+            # The prompt read sends its flag event and adds no network time to the mint.
+            call(
+                WIZARD_SYSTEM_PROMPT_FLAG,
+                "d1",
+                person_properties=properties,
+                only_evaluate_locally=True,
+                send_feature_flag_events=True,
+            ),
+            call(
+                WIZARD_GATEWAY_ALLOWLIST_FLAG,
+                "d1",
+                person_properties=properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            ),
         ]
 
     @pytest.mark.parametrize("missing", [None, RuntimeError("flags down")])
@@ -636,6 +650,7 @@ class TestWizardGatewayPolicy:
             # Off or unreadable is quiet: a flag outage is not a bad payload.
             (None, False),
             (RuntimeError("flags down"), False),
+            ("not json", True),
             ([], True),
             ({"version": 4}, True),
             ({"version": 4, "text": ""}, True),
@@ -672,6 +687,7 @@ class TestWizardGatewayPolicy:
         [
             (None, False),
             (RuntimeError("flags down"), False),
+            ("not json", True),
             ([], True),
             ({}, True),
             ({"models": [], "efforts": ["high"], "programs": ["integration"]}, True),

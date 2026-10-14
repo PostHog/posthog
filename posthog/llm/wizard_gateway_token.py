@@ -240,13 +240,29 @@ def wizard_gateway_policy(
     degrades that half of the policy and leaves the other alone. The allowlist sees
     the same person properties as the limit override, so it can be targeted."""
     properties = _targeting_properties(email=email, organization_id=organization_id, team_id=team_id)
-
-    def read(key: str) -> object:
-        result = posthoganalytics.get_feature_flag_result(key, distinct_id, person_properties=properties)
-        return result.payload if result else None
-
-    prompt_raw = _policy_payload(lambda: read(WIZARD_SYSTEM_PROMPT_FLAG), source="system prompt", field="system_prompt")
-    allowlist_raw = _policy_payload(lambda: read(WIZARD_GATEWAY_ALLOWLIST_FLAG), source="allowlist", field="allowlist")
+    prompt_raw = _policy_payload(
+        # Local evaluation only, so the prompt read adds no network time to the mint.
+        lambda: posthoganalytics.get_feature_flag_payload(
+            WIZARD_SYSTEM_PROMPT_FLAG,
+            distinct_id,
+            person_properties=properties,
+            only_evaluate_locally=True,
+            send_feature_flag_events=True,
+        ),
+        source="system prompt",
+        field="system_prompt",
+    )
+    allowlist_raw = _policy_payload(
+        lambda: posthoganalytics.get_feature_flag_payload(
+            WIZARD_GATEWAY_ALLOWLIST_FLAG,
+            distinct_id,
+            person_properties=properties,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ),
+        source="allowlist",
+        field="allowlist",
+    )
     prompt = _parse_system_prompt(prompt_raw) if prompt_raw is not None else None
     allowlist = _parse_allowlist(allowlist_raw) if allowlist_raw is not None else None
     allowlist = allowlist or _Allowlist(

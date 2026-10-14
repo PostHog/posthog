@@ -32,22 +32,25 @@ Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 | `system_prompt`   | The operator prompt text, sent only when the prompt flag is usable |
 
 The pins come from two flags in the PostHog internal project,
-read once per mint request after authentication with `get_feature_flag_result`, which sends `$feature_flag_called`.
-Both reads carry the `email`, `organization_id` and `team_id` person properties the limit-override flag gets.
+read once per mint request after authentication.
 
-- `wizard-ai-gateway-system-prompt`: `{"text": "<prompt>"}`, plus an optional `"version"` that is the operator's own label and that nothing reads.
+- `wizard-ai-gateway-system-prompt` is read from local evaluation only, so the read adds no network time to the mint.
+  The read sends `$feature_flag_called`.
+  The payload is `{"text": "<prompt>"}`, plus an optional `"version"` that is the operator's own label and that nothing reads.
   The text is non-empty, at most 16384 bytes, valid UTF-8 without U+FFFD, and contains `[posthog:abort]`.
   It goes to the gateway as `system_prompt`, byte for byte.
 - `wizard-gateway-allowlist`: `{"models": [...], "efforts": [...], "programs": [...]}`.
   All three lists are non-empty, and `efforts` come from the gateway's effort vocabulary.
   `models` holds at most 32 entries, and each one must still name a model after the mint strips the `openai/` prefix.
+  The read carries the `email`, `organization_id` and `team_id` person properties the limit-override flag gets.
+  They matter only if the allowlist is a regular boolean flag with release conditions instead.
 
 The mint response carries no prompt field at all, pinned or not: no text and no version.
 Nothing logs the prompt text, and no error returns it.
 A policy flag never refuses a mint:
 
 - A prompt flag that is missing, unreadable or out of contract mints an unpinned token. The mint body omits
-  `system_prompt`. Turning the flag off is the operator kill switch.
+  `system_prompt`. The operator kill switch is turning the flag off, clearing the payload, or deleting the flag.
 - An allowlist flag that is unreadable or out of contract falls back to `WIZARD_DEFAULT_MODELS`,
   `WIZARD_DEFAULT_EFFORTS` and `WIZARD_DEFAULT_PROGRAMS` in `wizard_gateway_token.py`.
 - Unreadable payloads, flags that return no payload, and out-of-contract payloads log a warning. The PostHog SDK

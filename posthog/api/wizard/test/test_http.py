@@ -11,7 +11,6 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from posthoganalytics import FeatureFlagResult
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, Throttled
@@ -267,20 +266,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
                 raise value
             return value
 
-        def read_result(key, *args, **kwargs):
-            value = read_payload(key)
-            return None if value is None else FeatureFlagResult.from_value_and_payload(key, True, value)
-
         payload_patch = patch(
             "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload", side_effect=read_payload
         )
         self.mock_flag_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
-        result_patch = patch(
-            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_result", side_effect=read_result
-        )
-        self.mock_flag_result = result_patch.start()
-        self.addCleanup(result_patch.stop)
         # Patched at the endpoint's seam: the feature_enabled patches below land on
         # the shared module object, so an SDK-level patch would read the rollout
         # flag's value as a ban.
@@ -289,8 +279,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self.addCleanup(blocklist_patch.stop)
 
     def _flag_reads(self, key: str) -> list:
-        calls = self.mock_flag_payload.call_args_list + self.mock_flag_result.call_args_list
-        return [call for call in calls if call.args[0] == key]
+        return [call for call in self.mock_flag_payload.call_args_list if call.args[0] == key]
 
     def _ordinary_account(self):
         """APIBaseTest's fresh org is the `new` posture, whose weekly ceiling is
