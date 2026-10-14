@@ -5,6 +5,8 @@
 
 import { urls } from 'scenes/urls'
 
+import { usableId } from './usableId'
+
 export interface TraceLinkParams {
     traceId: string
     spanId?: string | null
@@ -12,12 +14,17 @@ export interface TraceLinkParams {
     ts?: string | null
 }
 
+// The trace API returns hex ids in uppercase, and the viewer matches the URL ids against them exactly.
+// Other ids, such as the drawer's `ai:<uuid>` rows, keep their case.
+function inApiCase(id: string): string {
+    return usableId(id) ? id.toUpperCase() : id
+}
+
 /** Path + query for a trace view, relative to the app root. */
 export function traceUrl({ traceId, spanId, ts }: TraceLinkParams): string {
-    // The trace API returns ids as uppercase hex, and the viewer matches the URL ids against them exactly.
-    const params = new URLSearchParams({ trace: traceId.toUpperCase() })
+    const params = new URLSearchParams({ trace: inApiCase(traceId) })
     if (spanId) {
-        params.set('span', spanId.toUpperCase())
+        params.set('span', inApiCase(spanId))
     }
     if (ts) {
         params.set('ts', ts)
