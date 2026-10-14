@@ -37,8 +37,6 @@ export interface SpanInspectorProps {
     onSelectTab: (tab: SpanInspectorTab) => void
     /** Offer include, exclude and column actions on each attribute. Off where no span list can use them. */
     showFilterActions?: boolean
-    /** Lift the Logs tab's log details drawer above popovers, for an inspector inside a modal that sits there. */
-    logDetailsAbovePopovers?: boolean
 }
 
 export function SpanInspector({
@@ -52,7 +50,6 @@ export function SpanInspector({
     tab,
     onSelectTab,
     showFilterActions = true,
-    logDetailsAbovePopovers = false,
 }: SpanInspectorProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -114,13 +111,7 @@ export function SpanInspector({
                         // back to whole-trace, while selecting another span within the same trace
                         // re-queries in place (the embedded viewer and memoized pinned filter handle
                         // it) so we don't churn its logics or lose scroll.
-                        content: (
-                            <SpanLogsTab
-                                key={span.trace_id}
-                                span={span}
-                                logDetailsAbovePopovers={logDetailsAbovePopovers}
-                            />
-                        ),
+                        content: <SpanLogsTab key={span.trace_id} span={span} />,
                     },
                     // Conditional on its own flag. The tab is session-scoped, so it
                     // stays available on a trace that resolved no session and

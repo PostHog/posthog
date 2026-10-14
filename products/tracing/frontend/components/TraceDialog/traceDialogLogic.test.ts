@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -226,5 +227,13 @@ describe('traceDialogLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.selectSpan('child')
         }).toMatchValues({ missingParentSpanId: null })
+    })
+
+    it('closes when a recording opens, since the player sits behind the dialog', async () => {
+        logic.actions.openTraceDialog({ traceId: 'abc123' })
+
+        await expectLogic(logic, () => {
+            sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })
+        }).toMatchValues({ isOpen: false })
     })
 })

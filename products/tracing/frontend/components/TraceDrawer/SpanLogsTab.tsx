@@ -16,13 +16,7 @@ import type { Span } from '../../types'
 // pinned to a trace_id/span_id filter. Trace scope is the default because a single span often emits
 // no logs of its own; narrow to the span with the toggle when needed. The pinned filter fixes the
 // scope — the viewer's own filters can only narrow within it — and this toggle is the scope control.
-export function SpanLogsTab({
-    span,
-    logDetailsAbovePopovers = false,
-}: {
-    span: Span
-    logDetailsAbovePopovers?: boolean
-}): JSX.Element {
+export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
     const [scope, setScope] = useState<TraceLogScope>('trace')
     // An AI row has no OTel span id to match logs on, so it stays on the trace even when the
     // user picked "This span" on a real span. The pick comes back when they select a real span.
@@ -84,7 +78,6 @@ export function SpanLogsTab({
                 // Start with the facet/filter rail hidden — the drawer is narrow and the pinned
                 // scope already covers the common case; "Show filters" re-expands it.
                 defaultFacetRailCollapsed
-                logDetailsAbovePopovers={logDetailsAbovePopovers}
             />
         </div>
     )
