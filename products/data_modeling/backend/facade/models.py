@@ -35,7 +35,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
     DataWarehouseSavedQueryColumnAnnotation,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
-from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.edge import Edge, scheduling_edges
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
 
 __all__ = [
@@ -60,4 +60,5 @@ __all__ = [
     "aget_table_by_saved_query_id",
     "asave_saved_query",
     "validate_saved_query_name",
+    "scheduling_edges",
 ]

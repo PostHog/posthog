@@ -45,6 +45,14 @@ class DataModelingEdgeQuerySet(models.QuerySet):
         return super().bulk_update(objs, fields, *args, **kwargs)
 
 
+def scheduling_edges(edges: models.QuerySet["Edge"]) -> models.QuerySet["Edge"]:
+    """The edges that order runs and carry cadence: a managed view's readers do not schedule it."""
+    return edges.exclude(
+        source__saved_query__managed_viewset__isnull=False,
+        target__saved_query__managed_viewset__isnull=True,
+    )
+
+
 class DataModelingEdgeManager(models.Manager):
     def get_queryset(self):
         return DataModelingEdgeQuerySet(self.model, using=self._db)

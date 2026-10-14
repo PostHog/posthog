@@ -368,9 +368,11 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIn("table", response.json()["error"].lower())
 
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
-    def test_run_upstream_starts_workflow(self, mock_sync_connect):
+    def test_run_upstream_starts_workflow_without_the_managed_views_it_reads(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
+        managed_node = self._create_managed_node()
+        Edge.objects.create(team=self.team, dag=self.dag, source=managed_node, target=self.view_node)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
@@ -378,7 +380,7 @@ class TestNodeViewSet(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn(str(self.view_node.id), response.json()["node_ids"])
+        self.assertEqual(response.json()["node_ids"], [str(self.view_node.id)])
         mock_client.start_workflow.assert_called_once()
 
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")

@@ -286,6 +286,15 @@ def _get_upstream_nodes(
     return nodes
 
 
+def _managed_view_node_ids(team_id: int, node_ids: set[str]) -> set[str]:
+    return {
+        str(node_id)
+        for node_id in Node.objects.filter(
+            team_id=team_id, id__in=node_ids, saved_query__managed_viewset__isnull=False
+        ).values_list("id", flat=True)
+    }
+
+
 def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
     """Get all downstream (descendant) node IDs recursively, excluding TABLE nodes."""
     nodes: set[str] = set()
@@ -459,6 +468,8 @@ class NodeViewSet(
 
         if direction == "upstream":
             node_ids = _get_upstream_nodes(node)
+            if not node.belongs_to_managed_viewset:
+                node_ids -= _managed_view_node_ids(self.team_id, node_ids)
         else:
             node_ids = _get_downstream_nodes(node)
 

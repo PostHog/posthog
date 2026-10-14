@@ -11,6 +11,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
     NodeType,
+    scheduling_edges,
 )
 
 from .utils import is_node_suspended
@@ -54,7 +55,7 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     # the query is not. running it can only fail, so it must not reach the materialization activity.
     executable_nodes = nodes.filter(type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
     ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
-    edges = (
+    edges = scheduling_edges(
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
