@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
-
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import (
@@ -19,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationGroup,
     DestinationType,
 )
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 
 def insight_in_app_groups(
