@@ -41,7 +41,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
         assert res["RateLimit-Limit"]
 
     def test_client_authenticated_partner_sees_its_overrides(self):
-        self.partner.update_provisioning_rate_limits(resource_creates=7, wizard_runs=-1)
+        self.partner.update_provisioning_rate_limits(resource_creates=7, deep_links=-1)
 
         res = self.client.post(
             LIMITS_URL,
@@ -51,7 +51,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
         assert res.status_code == 200
         body = res.json()
         assert body["endpoints"]["resource_creates"]["per_hour"] == 7
-        assert body["endpoints"]["wizard_runs"] == {"unlimited": True}
+        assert body["endpoints"]["deep_links"] == {"unlimited": True}
 
     @parameterized.expand(
         [

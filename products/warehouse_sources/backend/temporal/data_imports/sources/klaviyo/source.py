@@ -1,6 +1,9 @@
 from datetime import date
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +45,43 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
+    codebase_detection = detect(
+        env=("^KLAVIYO_",),
+        script_hosts=(
+            "static.klaviyo.com",
+            "static-tracking.klaviyo.com",
+            "static-forms.klaviyo.com",
+            "fast.a.klaviyo.com",
+            "a.klaviyo.com",
+            "www.klaviyo.com",
+        ),
+        npm=("klaviyo-api", "klaviyo-react-native-sdk", "klaviyo-expo-plugin", "klaviyo-sdk", "node-klaviyo"),
+        pypi=("klaviyo-api", "klaviyo", "klaviyo-sdk", "headless-klaviyo", "klaviyo-mcp-server"),
+        cocoapods=("KlaviyoSwift", "KlaviyoCore", "KlaviyoForms", "KlaviyoSwiftExtension", "KlaviyoLocation"),
+        composer=(
+            "klaviyo/api",
+            "klaviyo/php-sdk",
+            "klaviyo/sdk",
+            "klaviyo/magento2-extension",
+            "klaviyo/shopware-klaviyo",
+        ),
+        go=("github.com/klaviyo/klaviyo-cli",),
+        hex=("klaviyo",),
+        maven=(
+            "com.github.klaviyo.klaviyo-android-sdk:analytics",
+            "com.github.klaviyo.klaviyo-android-sdk:push-fcm",
+            "com.github.klaviyo.klaviyo-android-sdk:forms",
+            "com.github.klaviyo.klaviyo-android-sdk:location",
+            "com.github.klaviyo.klaviyo-android-sdk:core",
+            "com.github.klaviyo.klaviyo-android-sdk:forms-core",
+            "com.github.klaviyo.klaviyo-android-sdk:location-core",
+        ),
+        pub=("klaviyo_flutter_sdk", "klaviyo_flutter"),
+        rubygems=("klaviyo-api-sdk", "klaviyo", "klaviyo_sdk"),
+        swiftpm=("github.com/klaviyo/klaviyo-swift-sdk",),
+        alternative_to=(ProductKey.WORKFLOWS,),
+    )
+
     supported_versions = (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2026_07_15)
     default_version = KLAVIYO_API_VERSION_2026_07_15
     api_docs_url = "https://developers.klaviyo.com"

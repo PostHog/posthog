@@ -1,10 +1,7 @@
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import pytest
-
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.fixtures import template_pagerduty
 
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
@@ -23,6 +20,8 @@ from products.alerts_platform.backend.facade.contracts import (
     EventKindSpec,
     IncidentAction,
 )
+from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
+from products.cdp.backend.templates.fixtures import template_pagerduty
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
@@ -226,6 +225,56 @@ def _pagerduty_config(spec: EventKindSpec, data: AlertDestinationData | None = N
         slack_context_elements=(),
     )
     return config.payload
+
+
+class TestWebhookDestination:
+    @pytest.mark.parametrize(
+        "headers,read",
+        [
+            ({"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}, None),
+            (
+                {"Content-Type": "application/json", "Authorization": "Bearer not-a-real-token"},
+                {"Authorization": "Bearer not-a-real-token"},
+            ),
+            ({"Authorization": "Bearer {inputs.token}"}, None),
+            ({"Authorization": " Bearer not-a-real-token "}, {"Authorization": "Bearer not-a-real-token"}),
+            (
+                {
+                    "": "orphaned value",
+                    "Host": "internal.example.com",
+                    "X-Note": "caf\u00e9 \u201cquoted\u201d",
+                    "X-Caf\u00e9": "ok",
+                    "X Bad": "ok",
+                    "X-Null": "ok\u0000bad",
+                },
+                None,
+            ),
+        ],
+        ids=["stock", "added_auth_header", "templated_value", "padded_value", "unsendable"],
+    )
+    def test_only_headers_a_user_added_as_plain_text_are_read(
+        self, headers: dict[str, str], read: dict[str, str] | None
+    ) -> None:
+        inputs = {"url": {"value": "https://hooks.example.com/hook"}, "headers": {"value": headers}}
+
+        data = DESTINATION_SPECS[DestinationType.WEBHOOK].read(inputs)
+
+        assert data.get("webhook_headers") == read
+
+    def test_a_read_response_never_shows_stored_headers(self) -> None:
+        data = cast(
+            AlertDestinationData,
+            {
+                "type": DestinationType.WEBHOOK,
+                "webhook_url": "https://hooks.example.com/hook",
+                "webhook_headers": {"Authorization": "Bearer not-a-real-token"},
+            },
+        )
+
+        redacted = DESTINATION_SPECS[DestinationType.WEBHOOK].redact(data)
+
+        assert "webhook_headers" not in redacted
+        assert "not-a-real-token" not in str(redacted)
 
 
 class TestPagerDutyDestination:

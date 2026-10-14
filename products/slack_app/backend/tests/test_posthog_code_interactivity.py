@@ -9,7 +9,7 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -1040,7 +1040,7 @@ class TestHandleInsightAlertSnoozeGuards(TestCase):
         mock_requests_post.assert_not_called()
 
 
-class TestExtractAlertSnoozeHints(TestCase):
+class TestExtractAlertSnoozeHints(SimpleTestCase):
     def _payload(self, value: str) -> dict:
         return {"actions": [{"action_id": "insight_alert_snooze", "value": value}]}
 

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,87 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^SPLITIO_",
+            "^SPLIT_IO_",
+            "^SPLIT_SYNC_",
+            "^SPLIT_EVALUATOR_",
+            "^SPLIT_PROXY_",
+            "^SPLITD_",
+            "^SPLIT_API_KEY$",
+            "^SPLIT_APIKEY$",
+            "^SPLIT_EVAL_KEY$",
+            "^SPLIT_IPC_SOCKET_ADDRESS$",
+        ),
+        script_hosts=("cdn.split.io",),
+        npm=(
+            "@splitsoftware/splitio",
+            "@splitsoftware/splitio-react",
+            "@splitsoftware/splitio-browserjs",
+            "@splitsoftware/splitio-commons",
+            "@splitsoftware/splitio-angular",
+            "@splitsoftware/splitio-react-native",
+            "@splitsoftware/splitio-redux",
+            "@splitsoftware/splitio-thin-client",
+            "@splitsoftware/browser-suite",
+            "@splitsoftware/browser-rum-agent",
+            "@splitsoftware/splitio-sync-tools",
+            "@splitsoftware/vercel-integration-utils",
+            "@splitsoftware/openfeature-js-split-provider",
+            "@splitsoftware/openfeature-web-split-provider",
+        ),
+        pypi=("splitio-client", "django-splitio", "split-openfeature-provider", "split-openfeature", "splitapiclient"),
+        cocoapods=("Split", "SplitRum"),
+        composer=(
+            "splitsoftware/split-sdk-php",
+            "splitsoftware/thin-sdk",
+            "splitsoftware/split-php-common",
+            "splitsoftware/split-api-client",
+        ),
+        go=(
+            "github.com/splitio/go-client",
+            "github.com/splitio/go-split-commons",
+            "github.com/splitio/split-openfeature-provider-go",
+        ),
+        hex=("split_thin_sdk",),
+        maven=(
+            "io.split.client:java-client",
+            "io.split.client:android-client",
+            "io.split.client:android-thin-client",
+            "io.split.client:android-suite",
+            "io.split.client:android-rum-agent",
+            "io.split.client:java-client-testing",
+            "io.split.client:redis-wrapper",
+            "io.split.client:pluggable-storage",
+            "io.split.client:okhttp-modules",
+            "io.split.openfeature:split-openfeature-provider",
+            "io.split.openfeature:split-openfeature-android",
+            "io.split.api:java-api",
+            "io.split:android-client",
+            "io.split.integrations.azure:azure-spring-cloud-feature-management",
+            "io.split.integrations.azure:azure-spring-cloud-feature-management-web",
+            "io.split.integrations.azure:impressions-listener",
+        ),
+        pub=(
+            "splitio",
+            "splitio_client_side",
+            "splitio_platform_interface",
+            "splitio_android",
+            "splitio_ios",
+            "splitio_web",
+        ),
+        rubygems=("splitclient-rb", "splitapi-rb"),
+        swiftpm=(
+            "github.com/splitio/ios-client",
+            "github.com/splitio/ios-thin-client",
+            "github.com/splitio/ios-suite",
+            "github.com/splitio/ios-rum",
+            "github.com/splitio/split-openfeature-provider-swift",
+        ),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.split.io/reference/introduction"
 

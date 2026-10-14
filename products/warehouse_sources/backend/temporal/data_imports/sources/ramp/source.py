@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
+    codebase_detection = detect(env=("^RAMP_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.ramp.com/developer-api/v1"
@@ -78,7 +81,7 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
 A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.""",
             iconPath="/static/services/ramp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ramp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

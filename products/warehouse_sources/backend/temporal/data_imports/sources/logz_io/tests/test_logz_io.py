@@ -4,35 +4,25 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
-import requests
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logzio import LogzIOSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.logz_io import (
     LogzIOResumeConfig,
     _build_log_query,
     _parse_scroll_hits,
-    get_rows,
-    logz_io_source,
     validate_credentials,
 )
-
-TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.logz_io"
-
-
-def _resp(json_body: Any, status: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = json_body
-    resp.status_code = status
-    resp.ok = status < 400
-    return resp
+from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source import LogzIOSource
 
 
-def _make_manager(resume_state: LogzIOResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(LogzIOSource(), LogzIOSourceConfig(api_token="token", region="us"))
 
 
 def _scroll_response(scroll_id: str | None, hits: list[dict[str, Any]]) -> dict[str, Any]:
@@ -70,126 +60,120 @@ class TestValidateCredentials:
             (500, None, False),
         ],
     )
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_status_mapping(
-        self, mock_session: mock.MagicMock, status_code: int, schema_name: str | None, expected_valid: bool
-    ) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=status_code)
-        is_valid, _ = validate_credentials("token", "us", schema_name)
-        assert is_valid is expected_valid
+    def test_status_mapping(self, status_code: int, schema_name: str | None, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            is_valid, _ = validate_credentials("token", "us", schema_name)
 
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_network_error_is_not_valid(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, message = validate_credentials("token", "us")
+        assert is_valid is expected_valid
+        assert network.requests_log[0].path == "/v2/alerts"
+
+    def test_network_error_is_not_valid(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, message = validate_credentials("token", "us")
+
         assert is_valid is False
         assert message is not None
 
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_token_registered_for_sample_redaction(self, mock_session: mock.MagicMock) -> None:
+    def test_token_registered_for_sample_redaction(self) -> None:
         # X-API-TOKEN isn't in the transport's auth-header denylist; dropping redact_values would
         # persist the raw token in captured HTTP samples, and following a redirect would replay the
         # token to another host.
-        mock_session.return_value.get.return_value = _resp({}, status=200)
-        validate_credentials("secret-token", "us")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            validate_credentials("secret-token", "us")
+
+        assert network.session_options[0]["redact_values"] == ("secret-token",)
+        assert network.session_options[0]["allow_redirects"] is False
 
 
 class TestSearchLogsScroll:
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_walks_scroll_cursor_until_empty(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.request.side_effect = [
-            _resp(_scroll_response("s1", [_hit("a", {"@timestamp": "t1"})])),
-            _resp(_scroll_response("s2", [_hit("b", {"@timestamp": "t2"})])),
-            _resp(_scroll_response("s2", [])),
-        ]
+    def test_walks_scroll_cursor_until_empty(self) -> None:
+        result = _driver().run(
+            "search_logs",
+            [
+                ScriptedResponse(json=_scroll_response("s1", [_hit("a", {"@timestamp": "t1"})])),
+                ScriptedResponse(json=_scroll_response("s2", [_hit("b", {"@timestamp": "t2"})])),
+                ScriptedResponse(json=_scroll_response("s2", [])),
+            ],
+        )
 
-        manager = _make_manager()
-        rows = [r for batch in get_rows("token", "us", "search_logs", mock.MagicMock(), manager) for r in batch]
-
-        assert [r["_id"] for r in rows] == ["a", "b"]
+        assert result.raised is None
+        assert [r["_id"] for r in result.rows] == ["a", "b"]
         # State is saved after each yielded batch that has a following cursor (never after the last).
-        saved_ids = [c.args[0].scroll_id for c in manager.save_state.call_args_list]
-        assert saved_ids == ["s1", "s2"]
+        assert result.saved_states == [LogzIOResumeConfig(scroll_id="s1"), LogzIOResumeConfig(scroll_id="s2")]
         # The sync session must register the token for redaction and refuse redirects (X-API-TOKEN
         # isn't in the transport's auth-header denylist, so a redirect would leak it to another host).
-        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        assert result.session_options[0]["redact_values"] == ("token",)
+        assert result.session_options[0]["allow_redirects"] is False
 
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_resumes_from_saved_scroll_cursor(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.request.side_effect = [
-            _resp(_scroll_response("s9", [_hit("r", {"@timestamp": "t"})])),
-            _resp(_scroll_response("s9", [])),
-        ]
+    def test_resumes_from_saved_scroll_cursor(self) -> None:
+        result = _driver().run(
+            "search_logs",
+            [
+                ScriptedResponse(json=_scroll_response("s9", [_hit("r", {"@timestamp": "t"})])),
+                ScriptedResponse(json=_scroll_response("s9", [])),
+            ],
+            resume_state=LogzIOResumeConfig(scroll_id="saved-cursor"),
+        )
 
-        manager = _make_manager(LogzIOResumeConfig(scroll_id="saved-cursor"))
-        rows = [r for batch in get_rows("token", "us", "search_logs", mock.MagicMock(), manager) for r in batch]
-
-        assert [r["_id"] for r in rows] == ["r"]
+        assert result.raised is None
+        assert [r["_id"] for r in result.rows] == ["r"]
         # The first request continues the saved cursor rather than starting a fresh search.
-        first_body = mock_session.return_value.request.call_args_list[0].kwargs["json"]
-        assert first_body == {"scroll_id": "saved-cursor"}
+        assert result.requests[0].json() == {"scroll_id": "saved-cursor"}
 
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_expired_cursor_restarts_search_from_watermark(self, mock_session: mock.MagicMock) -> None:
-        expired = requests.HTTPError("400 scroll expired", response=mock.MagicMock())
-        mock_session.return_value.request.side_effect = [
-            expired,
-            _resp(_scroll_response("s1", [_hit("a", {"@timestamp": "t"})])),
-            _resp(_scroll_response("s1", [])),
-        ]
+    def test_expired_cursor_restarts_search_from_watermark(self) -> None:
+        result = _driver().run(
+            "search_logs",
+            [
+                ScriptedResponse(status=400, json={}),
+                ScriptedResponse(json=_scroll_response("s1", [_hit("a", {"@timestamp": "t"})])),
+                ScriptedResponse(json=_scroll_response("s1", [])),
+            ],
+            resume_state=LogzIOResumeConfig(scroll_id="stale"),
+        )
 
-        manager = _make_manager(LogzIOResumeConfig(scroll_id="stale"))
-        rows = [r for batch in get_rows("token", "us", "search_logs", mock.MagicMock(), manager) for r in batch]
-
-        assert [r["_id"] for r in rows] == ["a"]
+        assert result.raised is None
+        assert [r["_id"] for r in result.rows] == ["a"]
         # After the stale cursor 400s, the restart posts the windowed search query, not the cursor.
-        restart_body = mock_session.return_value.request.call_args_list[1].kwargs["json"]
-        assert "query" in restart_body
+        assert result.requests[0].json() == {"scroll_id": "stale"}
+        assert "query" in result.requests[1].json()
 
 
 class TestPagedEndpoints:
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_walks_pages_until_short_page(self, mock_session: mock.MagicMock) -> None:
+    def test_walks_pages_until_short_page(self) -> None:
         full_page = [{"alertEventId": str(i)} for i in range(100)]
-        mock_session.return_value.request.side_effect = [
-            _resp({"results": full_page}),
-            _resp({"results": [{"alertEventId": "100"}]}),
-        ]
+        result = _driver().run(
+            "triggered_alerts",
+            [
+                ScriptedResponse(json={"results": full_page}),
+                ScriptedResponse(json={"results": [{"alertEventId": "100"}]}),
+            ],
+        )
 
-        manager = _make_manager()
-        rows = [r for batch in get_rows("token", "us", "triggered_alerts", mock.MagicMock(), manager) for r in batch]
+        assert result.raised is None
+        assert len(result.rows) == 101
+        assert [request.json()["pagination"]["pageNumber"] for request in result.requests] == [1, 2]
 
-        assert len(rows) == 101
-        page_numbers = [
-            c.kwargs["json"]["pagination"]["pageNumber"] for c in mock_session.return_value.request.call_args_list
-        ]
-        assert page_numbers == [1, 2]
+    def test_empty_first_page_yields_nothing(self) -> None:
+        result = _driver().run("triggered_alerts", [ScriptedResponse(json={"results": []})])
 
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_empty_first_page_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.request.return_value = _resp({"results": []})
-        manager = _make_manager()
-        assert list(get_rows("token", "us", "triggered_alerts", mock.MagicMock(), manager)) == []
+        assert result.raised is None
+        assert result.items == []
 
 
 class TestOffsetEndpoints:
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_audit_trail_walks_offsets_and_derives_distinct_ids(self, mock_session: mock.MagicMock) -> None:
+    def test_audit_trail_walks_offsets_and_derives_distinct_ids(self) -> None:
         full_page = [{"date": 1_700_000_000_000 + i, "auditEventTypeTitle": "Login"} for i in range(500)]
-        mock_session.return_value.request.side_effect = [
-            _resp({"results": full_page}),
-            _resp({"results": [{"date": 1_700_000_001_000, "auditEventTypeTitle": "Login"}]}),
-        ]
+        result = _driver().run(
+            "audit_trail",
+            [
+                ScriptedResponse(json={"results": full_page}),
+                ScriptedResponse(json={"results": [{"date": 1_700_000_001_000, "auditEventTypeTitle": "Login"}]}),
+            ],
+        )
 
-        manager = _make_manager()
-        rows = [r for batch in get_rows("token", "us", "audit_trail", mock.MagicMock(), manager) for r in batch]
-
-        assert len({r["audit_event_id"] for r in rows}) == 501
-        offsets = [c.kwargs["json"]["from"] for c in mock_session.return_value.request.call_args_list]
-        assert offsets == [0, 500]
+        assert result.raised is None
+        assert len({row["audit_event_id"] for row in result.rows}) == 501
+        assert [request.json()["from"] for request in result.requests] == [0, 500]
 
 
 class TestIncrementalRequestShaping:
@@ -230,42 +214,33 @@ class TestIncrementalRequestShaping:
         ],
     )
     @time_machine.travel(datetime.fromtimestamp(1_790_000_000, tz=UTC), tick=False)
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
     def test_time_range_in_request_body(
         self,
-        mock_session: mock.MagicMock,
         endpoint: str,
         use_incremental: bool,
         last_value: int | None,
         expected_fields: dict[str, Any],
     ) -> None:
-        mock_session.return_value.request.return_value = _resp({"results": []})
-        manager = _make_manager()
-        list(
-            get_rows(
-                "token",
-                "us",
-                endpoint,
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=use_incremental,
-                db_incremental_field_last_value=last_value,
-            )
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"results": []})],
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=last_value,
         )
 
-        body = mock_session.return_value.request.call_args.kwargs["json"]
+        assert result.raised is None
+        body = result.requests[0].json()
         assert {key: body.get(key) for key in expected_fields} == expected_fields
         if not use_incremental:
             assert "timeRange" not in body["filter"]
 
 
 class TestListEndpoints:
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_bare_array_response_is_yielded(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.request.return_value = _resp([{"id": "1"}, {"id": "2"}])
-        manager = _make_manager()
-        rows = [r for batch in get_rows("token", "us", "alerts", mock.MagicMock(), manager) for r in batch]
-        assert [r["id"] for r in rows] == ["1", "2"]
+    def test_bare_array_response_is_yielded(self) -> None:
+        result = _driver().run("alerts", [ScriptedResponse(json=[{"id": "1"}, {"id": "2"}])])
+
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["1", "2"]
 
 
 class TestSourceResponseShape:
@@ -281,7 +256,12 @@ class TestSourceResponseShape:
     def test_response_metadata_per_endpoint(
         self, endpoint: str, primary_keys: list[str], partition_key: str | None
     ) -> None:
-        response = logz_io_source("token", "us", endpoint, mock.MagicMock(), _make_manager())
+        payload = {"hits": ""} if endpoint == "search_logs" else []
+        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"

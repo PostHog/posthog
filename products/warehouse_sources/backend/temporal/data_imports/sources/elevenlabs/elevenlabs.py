@@ -1,6 +1,7 @@
 import dataclasses
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -9,7 +10,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    FanoutEndpointLike,
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -19,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
 )
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
+REDACTED = "[REDACTED]"
 
 
 @dataclasses.dataclass
@@ -52,6 +63,43 @@ def _to_unix_seconds(value: Any) -> int:
     return int(value)
 
 
+def _redact_header_values(headers: Any) -> Any:
+    if not isinstance(headers, dict):
+        return headers
+    # Non-string values are secret, env var, or dynamic variable references, not the secret itself.
+    return {name: REDACTED if isinstance(value, str) else value for name, value in headers.items()}
+
+
+def _redact_tool_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    tool_config = row.get("tool_config")
+    api_schema = tool_config.get("api_schema") if isinstance(tool_config, dict) else None
+    if isinstance(api_schema, dict) and "request_headers" in api_schema:
+        api_schema["request_headers"] = _redact_header_values(api_schema["request_headers"])
+    details = row.get("tool_call_details")
+    if isinstance(details, dict) and "headers" in details:
+        details["headers"] = _redact_header_values(details["headers"])
+    return row
+
+
+def _redact_phone_number_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    # `provider_config` is the deprecated alias of `outbound_trunk`, so both carry the same SIP headers.
+    for key in ("outbound_trunk", "provider_config"):
+        trunk = row.get(key)
+        if isinstance(trunk, dict) and "headers" in trunk:
+            trunk["headers"] = _redact_header_values(trunk["headers"])
+    return row
+
+
+# Webhook tools can carry literal credentials in their configured request headers, executions echo the
+# headers that were sent, and SIP trunks can send custom auth headers on each call. Warehouse readers
+# must not be able to read them back.
+SECRET_REDACTORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "tools": _redact_tool_secrets,
+    "tool_executions": _redact_tool_secrets,
+    "phone_numbers": _redact_phone_number_secrets,
+}
+
+
 def _build_params(
     config: ElevenLabsEndpointConfig,
     should_use_incremental_field: bool,
@@ -64,7 +112,7 @@ def _build_params(
     API keeps the time-window filter alongside the cursor), so pagination terminates at `has_more`
     rather than re-walking full history each incremental run.
     """
-    params: dict[str, Any] = {"page_size": config.page_size}
+    params: dict[str, Any] = {} if config.page_size is None else {config.page_size_param: config.page_size}
     params.update(config.extra_params)
 
     if (
@@ -130,6 +178,26 @@ class ElevenLabsCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _paginator(config: ElevenLabsEndpointConfig) -> BasePaginator:
+    if config.cursor_param is None or config.cursor_response_key is None:
+        return SinglePagePaginator()
+    return ElevenLabsCursorPaginator(config.cursor_param, config.cursor_response_key)
+
+
+def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
+    return {
+        "base_url": ELEVENLABS_BASE_URL,
+        # Only the non-secret Accept header is set here; the key is injected via `auth` so it's
+        # redacted from logs and captured HTTP samples.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "xi-api-key", "location": "header"},
+        "paginator": paginator,
+        # Redact the key and refuse redirects: requests preserves the custom `xi-api-key` header
+        # across a cross-origin 3xx, so following one could replay the key to another origin.
+        "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+    }
+
+
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Probe the API key. 200 => valid. 401 => invalid key. 403 => valid key missing a scope.
 
@@ -142,9 +210,12 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     validation fails rather than saving an unverified key as valid — the user can retry a transient blip.
     """
     config = ELEVENLABS_ENDPOINTS.get(schema_name) if schema_name else None
+    # A fan-out child's path needs a parent id, and the parent listing needs the same permission.
+    if config is not None and config.fanout is not None:
+        config = ELEVENLABS_ENDPOINTS[config.fanout.parent_name]
     probe_path = config.path if config else "/v1/user"
     # Bake the probe's page_size into the URL: validate_via_probe issues a bare GET with no params.
-    url = f"{ELEVENLABS_BASE_URL}{probe_path}{'?page_size=1' if config else ''}"
+    url = f"{ELEVENLABS_BASE_URL}{probe_path}{f'?{config.page_size_param}=1' if config and config.page_size else ''}"
 
     # Don't follow redirects: requests preserves the custom `xi-api-key` header across a cross-origin
     # 3xx, so a redirect off the fixed API host could replay the key to another origin.
@@ -192,18 +263,55 @@ def elevenlabs_source(
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
+    partition_kwargs: dict[str, Any] = {}
+    if config.partition_key is not None:
+        partition_kwargs = {
+            "partition_count": 1,
+            "partition_size": 1,
+            "partition_mode": "datetime",
+            "partition_format": "month",
+            "partition_keys": [config.partition_key],
+        }
+
+    if config.fanout is not None:
+        parent_config = ELEVENLABS_ENDPOINTS[config.fanout.parent_name]
+        resource = cast(
+            Resource,
+            build_dependent_resource(
+                # Both fan-out configs set page_size; only unpaginated endpoints leave it None.
+                endpoint_configs=cast(Mapping[str, FanoutEndpointLike], ELEVENLABS_ENDPOINTS),
+                child_endpoint=endpoint,
+                fanout=config.fanout,
+                client_config=_client_config(api_key, _paginator(config)),
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field=incremental_field,
+                # The server-side time filter is already in `params`, converted to Unix seconds.
+                incremental_config_factory=lambda _field: None,
+                parent_endpoint_extra={
+                    "paginator": _paginator(parent_config),
+                    "data_selector": parent_config.items_key,
+                },
+                child_endpoint_extra={"paginator": _paginator(config), "data_selector": config.items_key},
+                child_params_extra=params,
+                page_size_param=config.page_size_param,
+            ),
+        )
+        if endpoint in SECRET_REDACTORS:
+            resource.add_map(SECRET_REDACTORS[endpoint])
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=config.primary_keys,
+            sort_mode=config.sort_mode,  # type: ignore[arg-type]
+            **partition_kwargs,
+        )
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": ELEVENLABS_BASE_URL,
-            # Only the non-secret Accept header is set here; the key is injected via `auth` so it's
-            # redacted from logs and captured HTTP samples.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "xi-api-key", "location": "header"},
-            "paginator": ElevenLabsCursorPaginator(config.cursor_param, config.cursor_response_key),
-            # Redact the key and refuse redirects: requests preserves the custom `xi-api-key` header
-            # across a cross-origin 3xx, so following one could replay the key to another origin.
-            "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
-        },
+        "client": _client_config(api_key, _paginator(config)),
         "resources": [
             {
                 "name": endpoint,
@@ -238,15 +346,13 @@ def elevenlabs_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if endpoint in SECRET_REDACTORS:
+        resource.add_map(SECRET_REDACTORS[endpoint])
 
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,  # type: ignore[arg-type]
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime",
-        partition_format="month",
-        partition_keys=[config.partition_key],
+        **partition_kwargs,
     )

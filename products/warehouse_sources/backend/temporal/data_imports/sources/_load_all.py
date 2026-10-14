@@ -691,6 +691,7 @@ from .lago.source import LagoSource
 from .lambda_labs.source import LambdaLabsSource
 from .langfuse.source import LangfuseSource
 from .langsmith.source import LangSmithSource
+from .laravel_cloud.source import LaravelCloudSource
 from .latitude.source import LatitudeSource
 from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
@@ -839,6 +840,7 @@ from .nobl9.source import Nobl9Source
 from .nocrm.source import NoCRMSource
 from .nolt.source import NoltSource
 from .nops.source import NopsSource
+from .northbeam.source import NorthbeamSource
 from .northflank.source import NorthflankSource
 from .northpass_lms.source import NorthpassLMSSource
 from .notion.source import NotionSource
@@ -1324,6 +1326,7 @@ from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
+from .wise.source import WiseSource
 from .wisprflow.source import WisprFlowSource
 from .wistia.source import WistiaSource
 from .wix.source import WixSource

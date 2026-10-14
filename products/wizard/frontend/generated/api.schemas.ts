@@ -440,6 +440,78 @@ export interface UpdateWizardRunTaskListApi {
     tasks: UpdateWizardRunTaskApi[]
 }
 
+export interface WizardScanSignalApi {
+    /**
+     * Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.
+     * @maxLength 32
+     */
+    source: string
+    /**
+     * The package name, `.env` key name or script host that matched. Never a `.env` value.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Path of the file the signal came from, relative to the scanned directory.
+     * @maxLength 512
+     * @nullable
+     */
+    file?: string | null
+}
+
+export interface WizardScanToolApi {
+    /**
+     * The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`.
+     * @maxLength 64
+     */
+    kind: string
+    /**
+     * The signals that matched this tool.
+     * @maxItems 50
+     */
+    signals: WizardScanSignalApi[]
+}
+
+export interface RecordWizardScanRequestApi {
+    /**
+     * The wizard run that made the scan.
+     * @maxLength 255
+     */
+    session_id: string
+    /**
+     * The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.
+     * @maxLength 50
+     */
+    program: string
+    /**
+     * Version of the wizard that made the scan.
+     * @maxLength 32
+     */
+    wizard_version: string
+    /**
+     * sha256 hex digest that identifies the scanned repository without naming it.
+     * @maxLength 64
+     * @pattern ^[0-9a-f]{64}$
+     */
+    workspace_fingerprint: string
+    /** When the wizard scanned the codebase. */
+    scanned_at: string
+    /**
+     * Every tool the scan found. An empty list is a scan that found nothing.
+     * @maxItems 300
+     */
+    tools: WizardScanToolApi[]
+    /** False when the scan could not read the whole workspace. Tools it did not find are then kept. */
+    complete?: boolean
+}
+
+export interface WizardScanResultApi {
+    /** ID of the stored scan. */
+    id: string
+    /** False when this session had already reported its scan, so nothing changed. */
+    created: boolean
+}
+
 /**
  * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
  * widget renders is enforced at the edge instead of trusted from the producer.
@@ -619,6 +691,61 @@ export interface UpsertWizardSessionRequestApi {
      * @nullable
      */
     error?: UpsertWizardSessionRequestApiError
+}
+
+/**
+ * * `in-cli` - In the terminal
+ * * `deep-link` - In the app
+ */
+export type WizardSetupModeEnumApi = (typeof WizardSetupModeEnumApi)[keyof typeof WizardSetupModeEnumApi]
+
+export const WizardSetupModeEnumApi = {
+    InCli: 'in-cli',
+    DeepLink: 'deep-link',
+} as const
+
+/**
+ * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
+ */
+export type WizardCatalogToolSignalsApiPackages = { [key: string]: string[] }
+
+export interface WizardCatalogToolSignalsApi {
+    /** Anchored regexes matched against `.env` key names. Values are never read. */
+    env_key_patterns: string[]
+    /** Hosts matched against script URLs. A host also matches its subdomains. */
+    script_hosts: string[]
+    /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
+    packages: WizardCatalogToolSignalsApiPackages
+}
+
+export interface WizardCatalogToolApi {
+    /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
+    kind: string
+    /** Human-readable tool name. */
+    label: string
+    /**
+     * Data warehouse source type the tool imports as, or null for a tool with no warehouse source.
+     * @nullable
+     */
+    warehouse_source_type: string | null
+    /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
+     *
+     * * `in-cli` - In the terminal
+     * * `deep-link` - In the app */
+    wizard_setup_mode: WizardSetupModeEnumApi | null
+    /** PostHog products this tool is an alternative to. */
+    alternative_to: string[]
+    /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
+    superseded_by: string[]
+    /** How the wizard detects the tool in a codebase. */
+    signals: WizardCatalogToolSignalsApi
+}
+
+export interface WizardToolCatalogApi {
+    /** Bumped when the shape changes in a way an older wizard cannot read. */
+    schema_version: number
+    /** Every tool the wizard can detect. */
+    tools: WizardCatalogToolApi[]
 }
 
 /**

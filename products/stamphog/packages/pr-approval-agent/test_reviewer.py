@@ -143,6 +143,19 @@ def test_prompt_truncates_long_review_body() -> None:
     assert "X" * 2501 not in prompt
 
 
+_COMPLETED_REVIEW = {
+    "state": "completed",
+    "reviewer": "PostHog Review",
+    "review_kind": "Deep",
+    "findings_count": 0,
+    "published": False,
+    "head_sha": "abc123",
+    "base_ref": "master",
+    "base_sha": "mb1",
+    "skipped_paths": [],
+}
+
+
 @pytest.mark.parametrize(
     "assurance,expected",
     [
@@ -160,6 +173,30 @@ def test_prompt_truncates_long_review_body() -> None:
             {"head_approvals": [], "head_commented": 0, "unresolved_threads": 0, "discussion": 0},
             "Assurance: no reviews or comments yet",
             id="nothing-yet",
+        ),
+        pytest.param(
+            {
+                "head_approvals": [],
+                "head_commented": 0,
+                "unresolved_threads": 2,
+                "discussion": 0,
+                "head_review_evidence": [{**_COMPLETED_REVIEW, "findings_count": 2, "published": True}],
+            },
+            "Assurance: PostHog Review (Deep) reviewed the current head: 2 findings, posted on the PR; "
+            "2 unresolved inline threads",
+            id="completed-automated-review",
+        ),
+        pytest.param(
+            {
+                "head_approvals": [],
+                "head_commented": 0,
+                "unresolved_threads": 0,
+                "discussion": 0,
+                "head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["a.lock", "b.py", "c.py"]}],
+            },
+            "Assurance: PostHog Review (Deep) reviewed the current head (no findings) but skipped 3 changed "
+            "files, so it does not count as assurance",
+            id="automated-review-with-skipped-files",
         ),
     ],
 )
@@ -243,6 +280,32 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             False,
             "ESCALATE",
             id="claimed-review-github-does-not-show",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {"assurance": {"head_review_evidence": [_COMPLETED_REVIEW]}},
+            False,
+            "APPROVE",
+            id="completed-automated-review-assures",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {
+                "assurance": {
+                    "head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["posthog/models/team.py"]}]
+                }
+            },
+            False,
+            "ESCALATE",
+            id="automated-review-skipped-the-risky-file",
+        ),
+        # A risky area is free text, so a skipped file it does not name may still hold the risky part.
+        pytest.param(
+            _RISKY_FACTS,
+            {"assurance": {"head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["pnpm-lock.yaml"]}]}},
+            False,
+            "ESCALATE",
+            id="automated-review-skipped-any-file",
         ),
     ],
 )

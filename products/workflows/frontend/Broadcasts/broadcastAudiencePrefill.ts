@@ -4,6 +4,8 @@ import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { EMAIL_PREFILL_PARAM, MessageDraft } from '../MessageAudience/messageDrafts'
+
 // pinned: URL search params, other products link to /broadcasts/new with these
 export const AUDIENCE_PREFILL_PARAM = 'audience'
 export const NAME_PREFILL_PARAM = 'name'
@@ -14,13 +16,15 @@ export interface BroadcastPrefill {
     name?: string
     /** The product surface the person came from, reported on the launch event. */
     source?: string
+    email?: MessageDraft
 }
 
-export function urlForNewBroadcastWithAudience({ properties, name, source }: BroadcastPrefill): string {
+export function urlForNewBroadcastWithAudience({ properties, name, source, email }: BroadcastPrefill): string {
     return combineUrl(urls.broadcastNew(), {
         [AUDIENCE_PREFILL_PARAM]: JSON.stringify(properties),
         ...(name ? { [NAME_PREFILL_PARAM]: name } : {}),
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
+        ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
     }).url
 }
 

@@ -1,16 +1,26 @@
-import json
-from collections.abc import Iterable
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uppromote import (
+    UpPromoteSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.settings import UPPROMOTE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source import UpPromoteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.uppromote import (
     UpPromoteResumeConfig,
     _build_resource,
@@ -22,36 +32,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.
     delete_webhook,
     get_external_webhook_info,
     sync_webhook_events,
-    uppromote_source,
     validate_credentials,
 )
-
-TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.uppromote"
 
 WEBHOOK_URL = "https://hooks.posthog.com/uppromote"
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = "https://aff-api.uppromote.com/api/v2/test"
-    return resp
-
-
-def _page(rows: list[dict[str, Any]]) -> Response:
-    return _make_http_response({"status": 200, "message": "success", "data": rows})
+def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"status": 200, "message": "success", "data": rows})
 
 
 def _endpoint(resource: Any) -> dict[str, Any]:
     return cast(dict[str, Any], resource["endpoint"])
 
 
-def _make_webhook_manager(enabled: bool = False) -> MagicMock:
-    manager = MagicMock()
-    manager.webhook_enabled = AsyncMock(return_value=enabled)
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(UpPromoteSource(), UpPromoteSourceConfig(api_key="test-key"))
 
 
 class TestDatetimeHelpers:
@@ -94,67 +90,68 @@ class TestBuildResource:
 
 
 class TestUpPromoteSourcePagination:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
-        """Drive ``uppromote_source`` with a mocked HTTP session.
-
-        Returns ``(sent_params, yielded_pages)``. Params are captured at send-time because the
-        paginator mutates the Request in place between pages.
-        """
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        # The pull path builds its own capture-disabled session and hands it to RESTClient
-        # via config, so patch the factory where the source imports it.
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session") as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source = uppromote_source(
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                webhook_source_manager=_make_webhook_manager(enabled=False),
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-            pages = list(cast(Iterable[list[dict[str, Any]]], source.items()))
-            return sent_params, pages
-
     def test_resume_reuses_frozen_referral_window_end(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = UpPromoteResumeConfig(page=3, to_date="2026-02-01T00:00:00Z")
-
-        sent_params, _ = self._drive(
+        result = _driver().run(
             "referrals",
-            manager,
             [_page([{"id": 1}]), _page([])],
-            should_use_incremental_field=True,
+            resume_state=UpPromoteResumeConfig(page=3, to_date="2026-02-01T00:00:00Z"),
+            incremental_field="created_at",
             db_incremental_field_last_value="2026-01-01T00:00:10Z",
         )
 
-        assert [p.get("page") for p in sent_params] == [3, 4]
-        assert all(p.get("to_date") == "2026-02-01T00:00:00Z" for p in sent_params)
-        assert all(p.get("from_date") == "2026-01-01T00:00:09Z" for p in sent_params)
+        assert result.params("page") == ["3", "4"]
+        assert result.params("to_date") == ["2026-02-01T00:00:00Z"] * 2
+        assert result.params("from_date") == ["2026-01-01T00:00:09Z"] * 2
 
         # The frozen window end is carried into subsequent checkpoints too.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert all(state.to_date == "2026-02-01T00:00:00Z" for state in saved)
+        assert result.saved_states
+        assert all(state.to_date == "2026-02-01T00:00:00Z" for state in result.saved_states)
+
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _driver().run("referrals", [_page([])])
+
+        assert result.params("page") == ["1"]
+
+    @parameterized.expand(
+        [
+            # Both endpoints reject `from_date` without `to_date` with a 422.
+            ("referrals", "created_at", "2026-01-01T00:00:10Z", "2026-01-01T00:00:09Z", True),
+            ("connected_customers", "connection_date", "2026-01-01T00:00:10Z", "2026-01-01T00:00:09Z", True),
+            ("affiliates", "created_at", "2026-01-01T00:00:10Z", "2026-01-01T00:00:09Z", False),
+            # A first incremental run has no watermark and pulls everything.
+            ("connected_customers", "connection_date", None, None, False),
+        ]
+    )
+    def test_incremental_window_params(
+        self,
+        endpoint: str,
+        incremental_field: str,
+        last_value: str | None,
+        expected_from_date: str | None,
+        expects_to_date: bool,
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"id": 1}]), _page([])],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.params("page") == ["1", "2"]
+        assert result.params("from_date") == [expected_from_date] * 2
+        to_dates = result.params("to_date")
+        if expects_to_date:
+            assert to_dates[0] is not None
+            # The window end stays frozen across the pages of one run.
+            assert to_dates == [to_dates[0]] * 2
+        else:
+            assert to_dates == [None, None]
+
+    def test_full_refresh_sends_no_window(self) -> None:
+        result = _driver().run("connected_customers", [_page([{"affiliate_id": 1}]), _page([])])
+
+        assert result.params("from_date") == [None, None]
+        assert result.params("to_date") == [None, None]
 
     @parameterized.expand(
         [
@@ -167,40 +164,76 @@ class TestUpPromoteSourcePagination:
         ]
     )
     def test_source_response_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = _driver().run(endpoint, [_page([])])
 
-        source = uppromote_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            webhook_source_manager=_make_webhook_manager(enabled=False),
-        )
-
-        assert source.name == endpoint
-        assert source.primary_keys == expected_keys
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_keys
         # Ordering is undocumented, so the watermark must only commit on completed syncs.
-        assert source.sort_mode == "desc"
+        assert result.response.sort_mode == "desc"
 
     def test_webhook_enabled_run_reads_webhook_items_instead_of_pulling(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        webhook_manager = _make_webhook_manager(enabled=True)
+        webhook_manager = MagicMock(spec=WebhookSourceManager)
+        webhook_manager.webhook_enabled = AsyncMock(return_value=True)
 
-        source = uppromote_source(
-            api_key="test-key",
-            endpoint="referrals",
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            webhook_source_manager=webhook_manager,
-        )
-        source.items()
+        with patch.object(UpPromoteSource, "get_webhook_source_manager", return_value=webhook_manager):
+            result = _driver().run("referrals", [])
 
+        assert result.requests == []
         webhook_manager.get_items.assert_called_once()
         assert "table_transformer" in webhook_manager.get_items.call_args.kwargs
+
+
+class TestProgramExcludedFanout:
+    def test_fans_out_over_every_program_page_and_tags_rows_with_the_program(self) -> None:
+        result = _driver().run(
+            "program_excluded",
+            route(
+                {
+                    "/programs": [_page([{"id": 11}, {"id": 12}]), _page([{"id": 13}]), _page([])],
+                    "/programs/11/excluded": [
+                        ScriptedResponse(
+                            json={
+                                "status": 200,
+                                "message": "success",
+                                "data": {"apply_to": "products", "apply_to_ids": ["9001", "9002"]},
+                            }
+                        )
+                    ],
+                    # A program without exclusions returns no object and produces no row.
+                    "/programs/12/excluded": [_page([])],
+                    "/programs/13/excluded": [
+                        ScriptedResponse(
+                            json={
+                                "status": 200,
+                                "message": "success",
+                                "data": {"apply_to": "collections", "apply_to_ids": []},
+                            }
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted(result.rows, key=lambda row: row["program_id"]) == [
+            {"program_id": 11, "apply_to": "products", "apply_to_ids": ["9001", "9002"]},
+            {"program_id": 13, "apply_to": "collections", "apply_to_ids": []},
+        ]
+
+        child_requests = [request for request in result.requests if request.path.endswith("/excluded")]
+        assert [request.path for request in child_requests] == [
+            "/api/v2/programs/11/excluded",
+            "/api/v2/programs/12/excluded",
+            "/api/v2/programs/13/excluded",
+        ]
+        # The child endpoint is a single object, so it must not be paginated.
+        assert all(request.param("page") is None for request in child_requests)
+        assert all(request.param("per_page") is None for request in child_requests)
+
+        parent_requests = [request for request in result.requests if request.path == "/api/v2/programs"]
+        assert [request.param("page") for request in parent_requests] == ["1", "2", "3"]
+        assert all(request.headers["authorization"] == "test-key" for request in result.requests)
 
 
 class TestWebhookTableTransformer:
@@ -232,10 +265,7 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _label: str, status_code: int, body: dict[str, Any], expected_valid: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response(body, status_code=status_code)
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json=body))) as network:
             valid, error = validate_credentials("test-key")
 
         assert valid is expected_valid
@@ -243,12 +273,11 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error
+        assert network.requests_log[0].path == "/api/v2/affiliates"
+        assert network.requests_log[0].headers["authorization"] == "test-key"
 
     def test_network_failure_is_reported_not_raised(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             valid, error = validate_credentials("test-key")
 
         assert valid is False
@@ -265,98 +294,87 @@ def _subscription(event: str, target_url: str = WEBHOOK_URL, secret: str | None 
     }
 
 
+def _subscriptions_api(
+    listed: list[dict[str, Any]], created: dict[str, Any] | None = None, status: int = 200
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.method == "GET":
+            return ScriptedResponse(
+                status=status, json={"data": listed} if status == 200 else {"message": "Unauthorized"}
+            )
+        if request.method == "POST":
+            return ScriptedResponse(json={"data": created or {}})
+        return ScriptedResponse(json={"status": 200, "message": "success"})
+
+    return respond
+
+
+def _events_sent(requests_log: list[RecordedRequest], method: str) -> list[str]:
+    return [request.json()["event"] for request in requests_log if request.method == method]
+
+
 class TestWebhookManagement:
     def test_create_webhook_subscribes_every_desired_event(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response({"data": []})
-        session.post.return_value = _make_http_response({"data": {"secret_key": "sec-9"}})
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(_subscriptions_api([], created={"secret_key": "sec-9"})) as network:
             result = create_webhook("test-key", WEBHOOK_URL)
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "sec-9"}
         assert result.pending_inputs == []
 
-        posted_events = {call.kwargs["json"]["event"] for call in session.post.call_args_list}
-        assert posted_events == set(all_desired_webhook_events())
+        assert set(_events_sent(network.requests_log, "POST")) == set(all_desired_webhook_events())
 
     def test_create_webhook_fails_when_every_event_is_taken(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response(
-            {
-                "data": [
-                    _subscription(event, target_url="https://elsewhere.example")
-                    for event in all_desired_webhook_events()
-                ]
-            }
-        )
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        taken = [_subscription(event, target_url="https://elsewhere.example") for event in all_desired_webhook_events()]
+        with scripted_network(_subscriptions_api(taken)) as network:
             result = create_webhook("test-key", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and "one subscription per event" in result.error
-        session.post.assert_not_called()
+        assert _events_sent(network.requests_log, "POST") == []
 
     def test_create_webhook_without_secret_reports_pending_input(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response({"data": []})
-        session.post.return_value = _make_http_response({"data": {}})
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(_subscriptions_api([])):
             result = create_webhook("test-key", WEBHOOK_URL)
 
         assert result.success is True
         assert result.pending_inputs == ["signing_secret"]
 
     def test_create_webhook_surfaces_api_errors(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response({"message": "Unauthorized"}, status_code=401)
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(_subscriptions_api([], status=401)):
             result = create_webhook("test-key", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error == "Unauthorized"
 
     def test_sync_webhook_events_resubscribes_missing_events(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response({"data": [_subscription("referral.new")]})
-        session.post.return_value = _make_http_response({"data": {"secret_key": "sec-1"}})
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(
+            _subscriptions_api([_subscription("referral.new")], created={"secret_key": "sec-1"})
+        ) as network:
             result = sync_webhook_events("test-key", WEBHOOK_URL, ["referral.new", "referral.approved"])
 
         assert result.success is True
-        posted_events = {call.kwargs["json"]["event"] for call in session.post.call_args_list}
-        assert posted_events == {"referral.approved"}
+        assert set(_events_sent(network.requests_log, "POST")) == {"referral.approved"}
 
     def test_sync_webhook_events_reports_events_taken_by_other_urls(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response(
-            {"data": [_subscription("referral.new", target_url="https://elsewhere.example")]}
-        )
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(
+            _subscriptions_api([_subscription("referral.new", target_url="https://elsewhere.example")])
+        ):
             result = sync_webhook_events("test-key", WEBHOOK_URL, ["referral.new"])
 
         assert result.success is False
         assert result.error is not None and "referral.new" in result.error
 
     def test_get_external_webhook_info_reports_our_subscriptions(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response(
-            {
-                "data": [
+        with scripted_network(
+            _subscriptions_api(
+                [
                     _subscription("referral.new"),
                     _subscription("affiliate.new"),
                     _subscription("payment.paid", target_url="https://elsewhere.example"),
                 ]
-            }
-        )
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+            )
+        ):
             info = get_external_webhook_info("test-key", WEBHOOK_URL)
 
         assert info.exists is True
@@ -364,39 +382,28 @@ class TestWebhookManagement:
         assert info.status == "active"
 
     def test_get_external_webhook_info_when_nothing_points_at_us(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response({"data": []})
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(_subscriptions_api([])):
             info = get_external_webhook_info("test-key", WEBHOOK_URL)
 
         assert info.exists is False
 
     def test_delete_webhook_removes_only_our_subscriptions(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response(
-            {
-                "data": [
+        with scripted_network(
+            _subscriptions_api(
+                [
                     _subscription("referral.new"),
                     _subscription("payment.paid", target_url="https://elsewhere.example"),
                 ]
-            }
-        )
-        session.delete.return_value = _make_http_response({"status": 200, "message": "success"})
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+            )
+        ) as network:
             result = delete_webhook("test-key", WEBHOOK_URL)
 
         assert result.success is True
-        deleted_events = [call.kwargs["json"]["event"] for call in session.delete.call_args_list]
-        assert deleted_events == ["referral.new"]
+        assert _events_sent(network.requests_log, "DELETE") == ["referral.new"]
 
     def test_delete_webhook_with_no_matching_subscription_fails(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response({"data": []})
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
+        with scripted_network(_subscriptions_api([])) as network:
             result = delete_webhook("test-key", WEBHOOK_URL)
 
         assert result.success is False
-        session.delete.assert_not_called()
+        assert _events_sent(network.requests_log, "DELETE") == []

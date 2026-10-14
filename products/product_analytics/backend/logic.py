@@ -177,11 +177,12 @@ def get_or_create_saved_insight(
     description: str | None,
     query: dict[str, object] | None,
     revive_deleted: bool = True,
+    saved: bool = True,
 ) -> tuple[int, bool]:
     insight, created = Insight.objects_including_soft_deleted.get_or_create(
         team_id=team_id,
         short_id=short_id,
-        defaults={"created_by_id": user_id, "name": name, "description": description, "query": query, "saved": True},
+        defaults={"created_by_id": user_id, "name": name, "description": description, "query": query, "saved": saved},
     )
     if insight.deleted and revive_deleted:
         insight.deleted = False

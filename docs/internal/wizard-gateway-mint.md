@@ -12,24 +12,54 @@ Code: `posthog/api/wizard/http.py` (the endpoint and its gates),
 
 ## Mint request
 
+The CLI sends `program` and `reads_refusal_reason: true` to `POST /api/wizard/gateway_token/`.
+`reads_refusal_reason` controls whether a refusal that an older CLI absorbed uses 403 with a reason or the legacy 404 response.
+Django attaches the operator system prompt to the token whenever the prompt flag is usable.
+The client never sees the prompt and sends none: the gateway injects it into every model request.
+
 Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 `Authorization: Bearer {WIZARD_GATEWAY_MINT_KEY}`:
 
-| Field             | Meaning                                     |
-| ----------------- | ------------------------------------------- |
-| `cap_usd`         | Fixed-point spend ceiling for this token    |
-| `ttl_seconds`     | Token lifetime, clamped to 1800-86400       |
-| `product`         | Product node, `wizard:<program id>`         |
-| `obo`             | The organization the spend is attributed to |
-| `user`            | The user the run belongs to                 |
-| `allowed_models`  | Models this token may reach                 |
-| `allowed_efforts` | Reasoning efforts this token may declare    |
+| Field             | Meaning                                                            |
+| ----------------- | ------------------------------------------------------------------ |
+| `cap_usd`         | Fixed-point spend ceiling for this token                           |
+| `ttl_seconds`     | Token lifetime, clamped to 1800-86400                              |
+| `product`         | Product node, `wizard:<program id>`                                |
+| `obo`             | The organization the spend is attributed to                        |
+| `user`            | The user the run belongs to                                        |
+| `allowed_models`  | Models this token may reach                                        |
+| `allowed_efforts` | Reasoning efforts this token may declare                           |
+| `system_prompt`   | The operator prompt text, sent only when the prompt flag is usable |
 
-`allowed_models` and `allowed_efforts` come from `WIZARD_MODEL_ALLOWLIST`, which
-is the canonical table. The wizard CLI's own model constants follow that table
-rather than the other way round. A gateway that predates either field ignores it
-and mints an unpinned token, so Django can send both before the gateway enforces
-them.
+The pins come from two flags in the PostHog internal project,
+read once per mint request after authentication.
+
+- `wizard-ai-gateway-system-prompt` is read from local evaluation only, so the read adds no network time to the mint.
+  The read sends `$feature_flag_called`.
+  The payload is `{"text": "<prompt>"}`, plus an optional `"version"` that is the operator's own label and that nothing reads.
+  The text is non-empty, at most 16384 bytes, valid UTF-8 without U+FFFD, and contains `[posthog:abort]`.
+  It goes to the gateway as `system_prompt`, byte for byte.
+- `wizard-gateway-allowlist`: `{"models": [...], "efforts": [...], "programs": [...]}`.
+  All three lists are non-empty, and `efforts` come from the gateway's effort vocabulary.
+  `models` holds at most 32 entries, and each one must still name a model after the mint strips the `openai/` prefix.
+  The read carries the `email`, `organization_id` and `team_id` person properties the limit-override flag gets.
+  They matter only if the allowlist is a regular boolean flag with release conditions instead.
+
+The mint response carries no prompt field at all, pinned or not: no text and no version.
+Nothing logs the prompt text, and no error returns it.
+A policy flag never refuses a mint:
+
+- A prompt flag that is missing, unreadable or out of contract mints an unpinned token. The mint body omits
+  `system_prompt`. The operator kill switch is turning the flag off, clearing the payload, or deleting the flag.
+- An allowlist flag that is unreadable or out of contract falls back to `WIZARD_DEFAULT_MODELS`,
+  `WIZARD_DEFAULT_EFFORTS` and `WIZARD_DEFAULT_PROGRAMS` in `wizard_gateway_token.py`.
+- Unreadable payloads, flags that return no payload, and out-of-contract payloads log a warning. The PostHog SDK
+  swallows its own errors and returns no payload, so an outage reads the same as a flag with no payload.
+  Out-of-contract ones also count on
+  `posthog_wizard_gateway_config_rejects_total{field="system_prompt"|"allowlist"}`.
+
+A gateway that predates a field ignores it and mints a token without it.
+The `programs` list is authoritative: a program absent from it is refused as `program_unknown`.
 
 ## Limits
 

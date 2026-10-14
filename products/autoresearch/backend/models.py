@@ -115,6 +115,11 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         default="",
         help_text="Person property name for champion scores, e.g. 'predicted_p_pageview'",
     )
+    write_person_property = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether live scoring writes the champion's score to output_person_property on each scored person",
+    )
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -317,6 +322,7 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     summary = models.JSONField(default=dict, blank=True)
     # Written for people who read the Agent research tab. The agent's own notes stay in `summary`.
     reader_summary = models.TextField(null=True, blank=True)
+    headline = models.TextField(null=True, blank=True)
     next_steps = models.JSONField(null=True, blank=True)
 
     started_at = models.DateTimeField(null=True, blank=True)
@@ -363,6 +369,7 @@ class AutoresearchIteration(PipelineScopedModel):
     status = models.CharField(max_length=20, choices=Status.choices)
     agent_description = models.TextField(blank=True, default="")
     summary = models.TextField(null=True, blank=True)
+    headline = models.TextField(null=True, blank=True)
     agent_confidence = models.FloatField(
         null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -448,11 +455,12 @@ class AutoresearchSuggestion(PipelineScopedModel):
 
 
 class AutoresearchRun(PipelineScopedModel):
-    """Generic operational run: inference or validation."""
+    """Generic operational run: inference, validation, or person property cleanup."""
 
     class RunType(models.TextChoices):
         INFERENCE = "inference", "Inference"
         VALIDATION = "validation", "Validation"
+        PROPERTY_CLEANUP = "property_cleanup", "Property cleanup"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

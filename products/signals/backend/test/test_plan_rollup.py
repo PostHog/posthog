@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError, connection, transaction
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -43,7 +44,12 @@ class TestPlanRollup(BaseTest):
 
     def _close(self, report: SignalReport, status: str) -> None:
         with self.captureOnCommitCallbacks(execute=True):
-            report.save(update_fields=report.transition_to(SignalReport.Status(status)))
+            report.save(
+                update_fields=report.transition_to(
+                    SignalReport.Status(status),
+                    monitoring_started_at=timezone.now() if status == SignalReport.Status.MONITORING else None,
+                )
+            )
 
     def _attach_pull_request(self, report: SignalReport, number: int, state: str) -> SignalReportPullRequest:
         pr = SignalReportPullRequest.objects.create(
@@ -68,16 +74,25 @@ class TestPlanRollup(BaseTest):
             ("both_resolved", ["resolved", "resolved"], SignalReport.Status.RESOLVED),
             ("mixed_with_a_resolve", ["resolved", "suppressed"], SignalReport.Status.RESOLVED),
             ("all_suppressed", ["suppressed", "suppressed"], SignalReport.Status.SUPPRESSED),
+            (
+                "monitoring_parent_needs_manual_verification",
+                ["resolved"],
+                SignalReport.Status.MONITORING,
+                SignalReport.Status.MONITORING,
+            ),
         ]
     )
-    def test_a_plan_takes_the_verdict_of_its_steps(self, _name: str, child_statuses: list[str], expected: str):
-        parent = self._report("plan")
+    def test_a_plan_takes_the_verdict_of_its_steps(
+        self, _name: str, child_statuses: list[str], expected: str, parent_status: str = SignalReport.Status.READY
+    ) -> None:
+        parent = self._report("plan", status=parent_status)
         children = [self._report(f"step-{index}") for index in range(len(child_statuses))]
         for child in children:
             self._part_of(child, parent)
 
-        for child, status in zip(children, child_statuses):
-            self._close(child, status)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            for child, status in zip(children, child_statuses):
+                self._close(child, status)
 
         parent.refresh_from_db()
         assert parent.status == expected
@@ -92,6 +107,32 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [("enabled", True), ("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))]
+    )
+    def test_monitoring_steps_only_count_as_resolved_when_the_rollout_is_disabled(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        parent = self._report("plan")
+        children = [self._report(f"step {index}") for index in range(3)]
+        for child in children:
+            self._part_of(child, parent)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            for child in children:
+                self._close(child, SignalReport.Status.MONITORING)
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.READY
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ) as evaluate:
+            with self.captureOnCommitCallbacks(execute=True):
+                roll_up_plan_parents(team_id=self.team.id, report_id=str(children[0].id))
+        assert evaluate.call_count == 1
+        parent.refresh_from_db()
+        assert parent.status == (SignalReport.Status.READY if flag_result is True else SignalReport.Status.RESOLVED)
 
     def test_a_merged_pull_request_on_the_last_step_closes_the_plan(self):
         parent = self._report("plan")

@@ -12,8 +12,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -49,12 +48,13 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
-    get_or_mint_live_events_token,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
+    live_events_token_for_request,
     merge_conversations_settings_locked,
+    merge_modifiers,
     report_conversations_settings_changes,
     strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
@@ -543,6 +543,9 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     context_name = normalize_context_name(context_name)
     if not context_name:
         return response.Response({"error": "context_name is required"}, status=400)
+
+    if len(context_name) > 255:
+        return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
     hidden = request.method == "POST"
 
@@ -1038,10 +1041,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.passthrough_team
-        request = self.context.get("request")
-        user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        return get_or_mint_live_events_token(team, user_id)
+        return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
@@ -1370,11 +1370,8 @@ class ProjectBackwardCompatSerializer(
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
-            validated_data["modifiers"] = {
-                **(team.modifiers or {}),
-                **validated_data["modifiers"],
-            }
+        if "modifiers" in validated_data:
+            validated_data["modifiers"] = merge_modifiers(validated_data["modifiers"], team.modifiers)
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
@@ -2074,15 +2071,7 @@ class ProjectViewSet(
     )
     @extend_schema(
         methods=["DELETE"],
-        parameters=[
-            OpenApiParameter(
-                name="context_name",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description="Name of the evaluation context to restore to suggestions.",
-            )
-        ],
+        parameters=[EvaluationContextSuggestionRequestSerializer],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )

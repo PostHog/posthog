@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,12 +27,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
     monday_source,
     validate_credentials as validate_monday_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS, MONDAY_ENDPOINTS
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class MondaySource(SimpleSource[MondaySourceConfig]):
+    codebase_detection = detect(
+        env=("^MONDAY_TOKEN$", "^MONDAY_SIGNING_SECRET$"),
+        npm=("@mondaydotcomorg/api", "monday-sdk-js", "@mondaycom/apps-sdk"),
+    )
+
     supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07)
     default_version = MONDAY_VERSION_2026_07
     api_docs_url = "https://developer.monday.com/api-reference"
@@ -106,14 +112,14 @@ You can find your personal API token in monday.com under your avatar > Developer
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # GraphQL list queries have no honest updated-since filter (incremental
-        # would need the plan-limited activity log), so full refresh only.
+        # Only the board activity log has a server-side time filter; every other
+        # GraphQL list query is full refresh only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(MONDAY_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=MONDAY_ENDPOINTS[endpoint].incremental_fields,
             )
             for endpoint in ENDPOINTS
         ]
@@ -142,4 +148,6 @@ You can find your personal API token in monday.com under your avatar > Developer
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             api_version=self.resolve_api_version(inputs.api_version),
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

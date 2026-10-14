@@ -240,6 +240,9 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
+    from posthog.test import authentication_checks  # noqa: PLC0415 — deferred until pytest_configure
+
+    authentication_checks.install()
     if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
         from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
             EventsSchemaRecorder,
@@ -252,6 +255,23 @@ def pytest_configure(config) -> None:
 
 def pytest_collection_finish() -> None:
     _end_gc_boot_window()
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    from posthog.test import authentication_checks  # noqa: PLC0415
+
+    marker = item.get_closest_marker("covers_authentication")
+    authentication_checks.start_test(marker.args if marker else ())
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
+    from posthog.test import authentication_checks  # noqa: PLC0415
+
+    result = yield
+    if problems := authentication_checks.finish_test():
+        pytest.fail("\n".join(problems))
+    return result
 
 
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)

@@ -106,7 +106,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    identifier in the flow is the optional `featureFlag="dwh-{source_name}"`.)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
 6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
@@ -115,7 +115,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 10. **Add icon.** Place at `frontend/public/services/{source}.png` — **PNG is the repo convention** (~800 png vs ~58 svg, and `source.template` defaults to `.png`). SVG is accepted but not the norm; set `iconPath` to match whichever extension you commit. If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Logo.dev's image API returns PNG (not SVG). Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Regenerate frontend API types**: `hogli build:openapi`. This regenerates `products/warehouse_sources/frontend/generated/api.schemas.ts` from the source-config contract in `source_config.py` and makes the source appear in frontend dropdowns. Re-run whenever `source_config.py` or a source's fields change.
-13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
+13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `InlineSourceSetup.tsx` and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
     **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.ALPHA` is for (a soft "new, lightly tested" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
 
@@ -278,6 +278,14 @@ ad-hoc strings.
 `keywords` is an optional list of lowercase search aliases — only add when the source has a common acronym or
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
+
+## Codebase detection
+
+A released source (no `unreleasedSource=True`) must set the `codebase_detection` class attribute. The PostHog wizard uses it to tell that a customer's codebase uses the vendor, to suggest the source and to spot PostHog alternatives.
+Use `detect(...)` from `products/warehouse_sources/backend/facade/codebase_detection.py`. List the vendor's official SDK package names per ecosystem, the `.env` key names the vendor documents as anchored regexes, and any CDN host its script tag loads from.
+The wizard creates the source from the terminal unless the source's fields need OAuth, a file upload or an account picker. Set the class attribute `setup_requires_ui = True` when users should still go to the app, for example because a credential is hard to find.
+Use `NOT_DETECTABLE` when no package, key or script gives the vendor away. `tests/test_codebase_detection.py` fails for a released source without the attribute, and for an unreleased source with one.
+The image build renders the declarations into the catalog the wizard downloads, so there is no generated file to update.
 
 ## Self-driving Inbox candidacy (issues / tickets / conversations)
 

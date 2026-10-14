@@ -12,12 +12,15 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
@@ -75,6 +78,13 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
     def _notes(self) -> list[SignalScoutNote]:
         return list(SignalScoutNote.objects.filter(team=self.team).order_by("created_at"))
+
+    def _set_task_access(self, access_level: AccessControlLevel) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="task", access_level=access_level)
 
     def test_feedback_note_reaches_the_authoring_scout(self) -> None:
         self._create_scout_skill()
@@ -180,6 +190,89 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert action.count == 2
         assert action.metadata == {"sentiment": "negative"}
 
+    @parameterized.expand(
+        [
+            ("ready", "positive", "negative", SignalReport.Status.READY, False, True),
+            ("suppressed", "negative", "positive", SignalReport.Status.SUPPRESSED, False, True),
+            ("monitoring_disabled", "positive", "negative", SignalReport.Status.MONITORING, False, True),
+            ("monitoring_enabled", "positive", "negative", SignalReport.Status.MONITORING, True, True),
+        ]
+    )
+    def test_feedback_can_be_read_changed_and_cleared(
+        self, _name: str, first: str, second: str, report_status: str, flag_enabled: bool, visible: bool
+    ) -> None:
+        self._set_task_access("viewer")
+        report = self._create_report()
+        report.status = report_status
+        report.save(update_fields=["status"])
+        read_url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled):
+            initial = self.client.get(read_url)
+            if not visible:
+                assert initial.status_code == status.HTTP_404_NOT_FOUND
+                response = self.client.post(
+                    self._feedback_url(str(report.id)),
+                    {"sentiment": first, "note": "Useful evidence"},
+                    format="json",
+                )
+                assert response.status_code == status.HTTP_404_NOT_FOUND
+                assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
+            else:
+                assert initial.status_code == status.HTTP_200_OK
+                assert initial.json() == {"sentiment": None, "note": ""}
+
+                self._feedback(report, sentiment=first, note="Useful evidence")
+                assert self.client.get(read_url).json() == {"sentiment": first, "note": "Useful evidence"}
+
+                self._feedback(report, sentiment=second)
+                assert self.client.get(read_url).json() == {"sentiment": second, "note": ""}
+
+                self._feedback(report, sentiment=None)
+                assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+                self._feedback(report, sentiment=None)
+                action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
+                assert action.type == SignalReportAction.ActionType.FEEDBACK
+                assert action.count == 2
+
+        report.refresh_from_db()
+        assert report.status == report_status
+
+    def test_feedback_is_private_to_each_user(self) -> None:
+        report = self._create_report()
+        self._feedback(report, sentiment="positive", note="Useful evidence")
+        other_user = User.objects.create_and_join(self.organization, "reader@example.com", "test-password")
+        self.client.force_login(other_user)
+        read_url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
+        assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+        self._feedback(report, sentiment="negative")
+        self._feedback(report, sentiment=None)
+        self.client.force_login(self.user)
+        assert self.client.get(read_url).json() == {"sentiment": "positive", "note": "Useful evidence"}
+
+    def test_feedback_cannot_be_read_from_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
+        url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
+        assert self.client.get(url).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_feedback_requires_report_access(self) -> None:
+        self._set_task_access("none")
+        report = self._create_report()
+        url = self._feedback_url(str(report.id))
+
+        assert self.client.get(url.replace("/feedback/", "/feedback_state/")).status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.post(url, {"sentiment": "positive"}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
+
+    def test_clearing_feedback_does_not_forward_a_note(self) -> None:
+        report = self._create_report()
+        response = self.client.post(
+            self._feedback_url(str(report.id)), {"sentiment": None, "note": "A note"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
+
     def test_a_note_following_a_rating_counts_as_one_interaction(self) -> None:
         # The inbox posts the bare rating on click and the optional note afterwards — one thumb
         # choice. The note request must amend the action row, not count a second interaction.
@@ -192,7 +285,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
         action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 1
-        assert action.metadata == {"sentiment": "positive"}
+        assert action.metadata == {"sentiment": "positive", "note": "the staging spike is a known issue"}
         assert len(self._notes()) == 1
 
     def test_a_note_carrying_rating_with_no_prior_row_still_records_the_action(self) -> None:
@@ -204,7 +297,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
         action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
         assert action.count == 1
-        assert action.metadata == {"sentiment": "negative"}
+        assert action.metadata == {"sentiment": "negative", "note": "not useful"}
 
     def test_feedback_still_succeeds_when_the_note_cannot_be_written(self) -> None:
         self._create_scout_skill()
@@ -236,9 +329,10 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert body["forwarded"] is False
         assert not SignalScoutNote.all_teams.exists()
 
-    def test_no_note_when_the_token_lacks_the_note_scopes(self) -> None:
+    @parameterized.expand([(["task:read"],), (["task:read", "task:write"],)])
+    def test_no_note_when_the_token_lacks_the_note_scopes(self, scopes: list[str]) -> None:
         # The feedback text has no second path to a run, so — like a discussion — forwarding demands
-        # the note-write key scopes on top of the `task:write` the action itself needs.
+        # the note-write key scopes on top of the `task:read` the action itself needs.
         self._create_scout_skill()
         report = self._create_report()
         self._create_run(emitted_report_ids=[str(report.id)])
@@ -247,7 +341,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
             label="Task-only key",
             user=self.user,
             secure_value=hash_key_value(raw_key),
-            scopes=["task:write", "task:read"],
+            scopes=scopes,
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
@@ -261,6 +355,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
         # Forwarding re-checks the `llm_skill` editor bar the notes API requires, so a member barred
         # from skill editing can't reach the steering channel through feedback.
         self._create_scout_skill()
+        self._set_task_access("viewer")
         report = self._create_report()
         self._create_run(emitted_report_ids=[str(report.id)])
 

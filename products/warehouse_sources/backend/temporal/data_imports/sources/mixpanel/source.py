@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.s
     DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MIXPANEL_ENDPOINTS,
     SUPPORTED_API_VERSIONS,
     SUPPORTS_INCREMENTAL,
 )
@@ -38,6 +42,59 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
+    codebase_detection = detect(
+        env=("^MIXPANEL_", "^NEXT_PUBLIC_MIXPANEL_TOKEN$", "^NEXT_PUBLIC_MIXPANEL_API_HOST$"),
+        script_hosts=("mxpnl.com",),
+        npm=(
+            "mixpanel",
+            "mixpanel-browser",
+            "mixpanel-react-native",
+            "@mixpanel/react-native-session-replay",
+            "@mixpanel/openfeature-web-provider",
+            "@mixpanel/openfeature-server-provider",
+            "@mixpanel/mixpanel-wizard",
+            "@types/mixpanel-browser",
+            "@types/mixpanel",
+            "@analytics/mixpanel",
+        ),
+        pypi=("mixpanel", "mixpanel-openfeature", "mixpanel-headless", "mixpanel-utils", "mixpanel-api", "mixpanel-py"),
+        cargo=("mixpanel-rs",),
+        cocoapods=("Mixpanel-swift", "Mixpanel", "MixpanelSessionReplay", "MixpanelSwiftCommon"),
+        composer=(
+            "mixpanel/mixpanel-php",
+            "genealabs/laravel-mixpanel",
+            "mike-bronner/laravel-mixpanel",
+            "gordalina/mixpanel-bundle",
+        ),
+        go=(
+            "github.com/mixpanel/mixpanel-go",
+            "github.com/mixpanel/mixpanel-go/openfeature",
+            "github.com/dukex/mixpanel",
+        ),
+        hex=("mixpanel_api_ex",),
+        maven=(
+            "com.mixpanel.android:mixpanel-android",
+            "com.mixpanel:mixpanel-java",
+            "com.mixpanel.android:mixpanel-android-session-replay",
+            "com.mixpanel.android:mixpanel-android-openfeature",
+            "com.mixpanel.android:mixpanel-android-common",
+            "com.mixpanel.android:mixpanel-android-experimental",
+            "com.mixpanel.android:mparticle-android-integration-mixpanel",
+            "com.mixpanel:mixpanel-java-openfeature",
+            "com.mixpanel:mixpanel-java-extension-jackson",
+        ),
+        pub=("mixpanel_flutter", "mixpanel_flutter_session_replay", "mixpanel_flutter_common"),
+        rubygems=("mixpanel-ruby", "mixpanel-ruby-openfeature", "mixpanel_client"),
+        swiftpm=(
+            "github.com/mixpanel/mixpanel-swift",
+            "github.com/mixpanel/mixpanel-iphone",
+            "github.com/mixpanel/mixpanel-swift-openfeature",
+            "github.com/mixpanel/mixpanel-ios-session-replay-package",
+            "github.com/mixpanel/mixpanel-swift-common",
+        ),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
+    )
+
     api_docs_url = "https://developer.mixpanel.com/reference/raw-data-export-api"
 
     supported_versions = SUPPORTED_API_VERSIONS
@@ -61,7 +118,7 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
             name=ExternalDataSourceType.MIXPANEL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mixpanel",
-            caption="""Connect your Mixpanel project to pull events, user profiles, cohorts and annotations into the PostHog Data warehouse.
+            caption="""Connect your Mixpanel project to pull events, user profiles, cohorts, annotations, funnels and retention into the PostHog Data warehouse.
 
 Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/reference/service-accounts). In Mixpanel, go to **Organization Settings → Service Accounts → Create Service Account** and grant it access to the project you want to sync. You'll need:
 
@@ -136,7 +193,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 supports_incremental=endpoint in SUPPORTS_INCREMENTAL,
                 supports_append=endpoint in SUPPORTS_INCREMENTAL,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Only syncs the last 365 days on initial sync" if endpoint == "export" else None,
+                description=MIXPANEL_ENDPOINTS[endpoint].description,
             )
             for endpoint in ENDPOINTS
         ]

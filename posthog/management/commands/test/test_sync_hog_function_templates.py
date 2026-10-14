@@ -6,7 +6,6 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.management.commands.sync_hog_function_templates import (
     TEST_INCLUDE_NODEJS_TEMPLATE_IDS,
     TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
@@ -14,6 +13,7 @@ from posthog.management.commands.sync_hog_function_templates import (
 )
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
 
 pytestmark = pytest.mark.django_db
 

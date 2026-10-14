@@ -136,6 +136,18 @@ def decode_slack_entities(text: str) -> str:
     return text.replace("&gt;", ">").replace("&amp;", "&")
 
 
+_RE_SLACK_LINK = re.compile(r"<(https?://[^|>\s]+)(?:\|[^>]*)?>")
+
+
+def unwrap_slack_links(text: str) -> str:
+    """Rewrite Slack's `<url>` and `<url|label>` link tokens to the bare URL, for a reader that wants plain text.
+
+    Run it on wire text, before ``decode_slack_entities``: only there are `<` and `>` Slack's own
+    delimiters and never text the user typed.
+    """
+    return _RE_SLACK_LINK.sub(r"\1", text)
+
+
 def _resolve_and_decode(
     slack: SlackIntegration,
     integration: Integration,

@@ -37,6 +37,13 @@ from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import (
+    RESOLUTION_COMPLETED,
+    RESOLUTION_RESOLVING,
+    RESOLUTION_STOPPED,
+    ResolutionRunState,
+    ResolutionSummary,
+)
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
     RUN_OUTCOME_NOTE_AUTHOR,
@@ -50,7 +57,7 @@ from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBE
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
@@ -59,27 +66,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
-REVIEW_STAGES = [
-    "fetching",
-    "chunking",
-    "selecting",
-    "reviewing",
-    "deduplicating",
-    "validating",
-    "finalizing",
-    # The single-agent design writes no chunk, selection, or validator state, so it has its own shorter sequence.
-    "single_agent_preparing",
-    "single_agent_reviewing",
-    "single_agent_finalizing",
-]
-
 # Artefacts and activity heartbeats keep active reviews fresh; stopped runs must age out so the UI
 # does not show a live spinner forever. A resolution run with no closing note then reads as stopped.
 IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
-RESOLUTION_RESOLVING = "resolving"
-RESOLUTION_STOPPED = "stopped"
-RESOLUTION_COMPLETED = "completed"
 # The `author` the resolution stage stamps on its closing run `note` — the completion marker the
 # state derivation looks for. Kept here so the writer (temporal/resolution.py) and this reader
 # can't drift apart.
@@ -289,12 +279,13 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
 
 @frozen
 class TurnMarker:
-    """The mode and head of one executed turn, from its `turn_marker` artefact."""
+    """The mode, design and head of one executed turn, from its `turn_marker` artefact."""
 
     review_mode: str
     head_sha: str | None
     # When the marker row was written, which is just before the turn's review sessions start.
     started_at: datetime
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
@@ -308,16 +299,34 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
         .annotate(
             marker_run_index=KeyTextTransform("run_index", _content_json()),
             marker_review_mode=KeyTextTransform("review_mode", _content_json()),
+            marker_review_design=KeyTextTransform("review_design", _content_json()),
+            fingerprint_review_design=KeyTextTransform(
+                "review_design", KeyTransform("fingerprint_inputs", _content_json())
+            ),
         )
         .order_by("created_at", "id")
-        .values("report_id", "head_sha", "marker_run_index", "marker_review_mode", "created_at")
+        .values(
+            "report_id",
+            "head_sha",
+            "marker_run_index",
+            "marker_review_mode",
+            "marker_review_design",
+            "fingerprint_review_design",
+            "created_at",
+        )
     )
     markers: dict[tuple[str, int], TurnMarker] = {}
     for row in rows:
         if row["marker_run_index"] is None or row["marker_review_mode"] is None:
             continue
+        # Markers written before the explicit field carry the design only in a single-agent
+        # fingerprint. The pipeline fingerprint never had it.
+        review_design = row["marker_review_design"] or row["fingerprint_review_design"] or REVIEW_DESIGN_PIPELINE
         markers[(str(row["report_id"]), int(row["marker_run_index"]))] = TurnMarker(
-            review_mode=row["marker_review_mode"], head_sha=row["head_sha"], started_at=row["created_at"]
+            review_mode=row["marker_review_mode"],
+            head_sha=row["head_sha"],
+            started_at=row["created_at"],
+            review_design=review_design,
         )
     return markers
 
@@ -406,30 +415,6 @@ def run_outcome_markers(
             )
         )
     return markers
-
-
-@frozen
-class ResolutionRunState:
-    """The report's latest resolution run, as the list row and the drawer render it."""
-
-    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED
-    done: int = 0
-    total: int = 0
-    fixed: int = 0
-    needs_attention: int = 0
-
-
-@frozen
-class ResolutionSummary:
-    """The report's latest resolution run, completed runs included, as an API reader reports it."""
-
-    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED | RESOLUTION_COMPLETED
-    started_at: datetime
-    completed_at: datetime | None
-    total: int
-    fixed: int
-    needs_attention: int
-    commits: tuple[str, ...]
 
 
 @frozen

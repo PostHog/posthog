@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
+    codebase_detection = detect(env=("^(OPEN_WEATHER|OPENWEATHER)_",), pypi=("pyowm",))
+
     supported_versions = (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
     default_version = API_VERSION_4_0
     api_docs_url = "https://openweathermap.org/api"

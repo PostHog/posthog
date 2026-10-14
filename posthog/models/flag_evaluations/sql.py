@@ -7,7 +7,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
     ttl_period,
 )
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
@@ -24,7 +24,7 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 # what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
-#   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
+#   * `sharded_flag_evaluations` — sharded ReplicatedReplacingMergeTree on DATA nodes.
 #   * `writable_flag_evaluations` — Distributed write path on the ingestion layer,
 #     fans rows out to shards by the distinct_id hash.
 #   * `flag_evaluations` — Distributed read path on DATA nodes. This is the name
@@ -57,11 +57,15 @@ FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 # is monthly — without it, a one-day query for one flag would read that flag's
 # whole month. flag_key is a DEFAULT column; ClickHouse fills column defaults at
 # insert, before it sorts a part, so one can carry a sort key, though a key
-# column can never be ALTER UPDATEd, whatever its kind. The trailing hash intentionally
+# column can never be ALTER UPDATEd, whatever its kind. cityHash64(distinct_id) intentionally
 # differs from the sharding key — cityHash64 is the events table's convention for
 # within-shard ordering — and a MergeTree ORDER BY is immutable once data exists,
-# so the two must not silently move together.
-FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))"
+# so the two must not silently move together. cityHash64(uuid) comes last, as on the
+# events table, so that the sort key identifies one flag call. The ReplacingMergeTree
+# collapses only rows whose whole sort key matches. Copies of a call that straddle UTC
+# midnight get different toDate(timestamp) values. They never collapse, in either
+# table.
+FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))"
 
 # One canonical column list, rendered in a Kafka, a Distributed and a storage
 # variant. Column order follows the events table so converging the two schemas
@@ -107,6 +111,10 @@ FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(perso
 _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
     person_properties_default=" DEFAULT '{}'", ts_default=" DEFAULT timestamp"
 )
+
+# A DEFAULT fills only a column the insert omits. A writer that copies person_properties
+# from a source that can hold '' maps it to '{}' with this expression.
+FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR = "if(empty(person_properties), '{}', person_properties)"
 
 # Typed copies of properties the hot path cannot afford to parse per row. A
 # property earns one only when queries filter or group on it across many rows
@@ -181,9 +189,11 @@ _FLAG_EVALUATIONS_INDEXES = """
 
 
 def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
-    # Plain (non-replacing) MergeTree: Kafka replay duplicates are accepted for
-    # this telemetry, matching heatmaps. ZK path uses the base table name.
-    return MergeTreeEngine(FLAG_EVALUATIONS_TABLE, replication_scheme=ReplicationScheme.SHARDED)
+    # Ingestion can receive one flag call more than once. The copies collapse to one
+    # row when their parts merge. Queries see every copy until then. The version
+    # is _timestamp, as on the events table, so both tables keep the same copy of a
+    # call. ZK path uses the base table name.
+    return ReplacingMergeTree(FLAG_EVALUATIONS_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED)
 
 
 # The actual data lives on the sharded main cluster.
@@ -300,7 +310,7 @@ FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
     created_at,
     person_id,
     -- The Kafka engine rejects DEFAULT, so an omitted person_properties arrives as ''.
-    if(empty(person_properties), '{{}}', person_properties) AS person_properties,
+    {FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR} AS person_properties,
     person_created_at,
     -- inserted_at is the time this view processes the row, as in the native-JSON
     -- events MV. The sync_feature_flag_last_called checkpoint and the deletion

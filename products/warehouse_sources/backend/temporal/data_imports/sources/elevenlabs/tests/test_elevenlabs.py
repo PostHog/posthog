@@ -1,72 +1,33 @@
 import os
-import json
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.elevenlabs import (
     ElevenLabsResumeConfig,
     _build_params,
     _to_unix_seconds,
-    elevenlabs_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import ELEVENLABS_ENDPOINTS
-
-# The RESTClient uses the session built by make_tracked_session in the elevenlabs module (passed via
-# the client config's `session` slot), and validate_credentials builds its probe session there too.
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.elevenlabs.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.source import ElevenLabsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
+    ElevenLabsSourceConfig,
 )
 
 
-def _response(body: dict[str, Any], status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    resp.url = "https://api.elevenlabs.io/v1/history"
-    return resp
-
-
-def _make_manager(resume_state: ElevenLabsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages (the paginator injects the next
-    cursor into it), so inspecting it after the run shows only the final state — snapshot a copy when
-    each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **incremental: Any):
-    return elevenlabs_source("k", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **incremental)
+def _driver() -> SourceDriver:
+    return SourceDriver(ElevenLabsSource(), ElevenLabsSourceConfig(api_key="k"))
 
 
 class TestToUnixSeconds:
@@ -104,7 +65,7 @@ class TestBuildParams:
         assert params["call_start_after_unix"] == 1700000000
         assert params["summary_mode"] == "include"
 
-    @parameterized.expand([("agents",), ("voices",), ("triage_tickets",)])
+    @parameterized.expand([("agents",), ("voices",), ("triage_tickets",), ("tools",)])
     def test_full_refresh_endpoints_never_send_a_time_filter(self, endpoint: str) -> None:
         # Full-refresh endpoints have no server-side updated-since filter; sending one would 4xx.
         params = _build_params(ELEVENLABS_ENDPOINTS[endpoint], True, 1700000000, "created_at_unix")
@@ -112,50 +73,224 @@ class TestBuildParams:
 
 
 class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_walks_cursor_pages_and_saves_state_after_each_yield(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    @parameterized.expand(
+        [
+            (
+                "history",
+                "history",
+                "history_item_id",
+                "start_after_history_item_id",
+                "last_history_item_id",
+                "page_size",
+                "1000",
+            ),
+            ("batch_calls", "batch_calls", "id", "last_doc", "next_doc", "limit", "100"),
+        ]
+    )
+    def test_walks_cursor_pages_and_saves_state_after_each_yield(
+        self,
+        endpoint: str,
+        items_key: str,
+        id_key: str,
+        cursor_param: str,
+        cursor_response_key: str,
+        page_size_param: str,
+        page_size: str,
+    ) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _response({"history": [{"history_item_id": "a"}], "has_more": True, "last_history_item_id": "a"}),
-                _response({"history": [{"history_item_id": "b"}], "has_more": False, "last_history_item_id": "b"}),
+                ScriptedResponse(json={items_key: [{id_key: "a"}], "has_more": True, cursor_response_key: "a"}),
+                ScriptedResponse(json={items_key: [{id_key: "b"}], "has_more": False, cursor_response_key: "b"}),
             ],
         )
-        manager = _make_manager()
-        rows = _rows(_source("history", manager))
 
-        assert rows == [{"history_item_id": "a"}, {"history_item_id": "b"}]
+        assert result.raised is None
+        assert result.rows == [{id_key: "a"}, {id_key: "b"}]
         # Page 1 sends no cursor; page 2 sends the cursor from page 1 under the endpoint's cursor param.
-        assert "start_after_history_item_id" not in params[0]
-        assert params[0]["page_size"] == 1000
-        assert params[1]["start_after_history_item_id"] == "a"
+        assert result.params(cursor_param) == [None, "a"]
+        assert result.params(page_size_param) == [page_size, page_size]
         # Saved only once (after page 1, since page 2 is terminal) so a crash re-yields the last page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == ElevenLabsResumeConfig(cursor="a")
+        assert result.saved_states == [ElevenLabsResumeConfig(cursor="a")]
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [_response({"conversations": [{"conversation_id": "x"}], "has_more": False, "next_cursor": None})],
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "conversations",
+            [
+                ScriptedResponse(
+                    json={"conversations": [{"conversation_id": "x"}], "has_more": False, "next_cursor": None}
+                )
+            ],
+            resume_state=ElevenLabsResumeConfig(cursor="C1"),
         )
-        manager = _make_manager(ElevenLabsResumeConfig(cursor="C1"))
-        rows = _rows(_source("conversations", manager))
 
-        assert rows == [{"conversation_id": "x"}]
+        assert result.raised is None
+        assert result.rows == [{"conversation_id": "x"}]
         # The resumed run starts at the saved cursor, sent under the conversations cursor param.
-        assert params[0]["cursor"] == "C1"
+        assert result.params("cursor") == ["C1"]
 
-    @mock.patch(SESSION_PATCH)
-    def test_credential_error_fails_loud(self, MockSession) -> None:
+    def test_credential_error_fails_loud(self) -> None:
         # A 401 is a doomed credential problem; it must raise (feeding get_non_retryable_errors), not retry.
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=401)])
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("history", _make_manager()))
-        assert session.send.call_count == 1
+        result = _driver().run("history", [ScriptedResponse(status=401, json={})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+
+
+class TestFanOut:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental", True, 1700000000.5),
+        ]
+    )
+    def test_tool_executions_walk_every_tool_and_page(self, _name: str, use_incremental: bool, last_value: Any) -> None:
+        result = _driver().run(
+            "tool_executions",
+            [
+                ScriptedResponse(json={"tools": [{"id": "t1"}, {"id": "t2"}], "has_more": False, "next_cursor": None}),
+                ScriptedResponse(
+                    json={"executions": [{"id": "e1", "tool_id": "t1"}], "has_more": True, "next_cursor": "c1"}
+                ),
+                ScriptedResponse(
+                    json={"executions": [{"id": "e2", "tool_id": "t1"}], "has_more": False, "next_cursor": None}
+                ),
+                ScriptedResponse(
+                    json={"executions": [{"id": "e3", "tool_id": "t2"}], "has_more": False, "next_cursor": None}
+                ),
+            ],
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=last_value,
+            incremental_field="timestamp" if use_incremental else None,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e1", "e2", "e3"]
+        assert result.requests[0].param("sort_by") == "created_at"
+        assert result.requests[0].param("start_time") is None
+        assert result.requests[2].param("cursor") == "c1"
+        # The time filter binds every child page, so incremental runs never re-walk full history.
+        expected_start = ["1700000000"] * 3 if use_incremental else [None] * 3
+        assert result.params("start_time")[1:] == expected_start
+
+
+class TestSecretRedaction:
+    @parameterized.expand(
+        [
+            (
+                "tool_config_headers",
+                "tools",
+                [
+                    {
+                        "tools": [
+                            {
+                                "id": "t1",
+                                "tool_config": {
+                                    "api_schema": {
+                                        "request_headers": {
+                                            "Authorization": "Bearer sk_fake",
+                                            "X-Ref": {"secret_id": "s1"},
+                                        }
+                                    }
+                                },
+                            }
+                        ],
+                        "has_more": False,
+                    }
+                ],
+                lambda row: row["tool_config"]["api_schema"]["request_headers"],
+            ),
+            (
+                "execution_sent_headers",
+                "tool_executions",
+                [
+                    {"tools": [{"id": "t1"}], "has_more": False},
+                    {
+                        "executions": [
+                            {
+                                "id": "e1",
+                                "tool_id": "t1",
+                                "tool_call_details": {
+                                    "headers": {"Authorization": "Bearer sk_fake", "X-Ref": {"secret_id": "s1"}}
+                                },
+                            }
+                        ],
+                        "has_more": False,
+                    },
+                ],
+                lambda row: row["tool_call_details"]["headers"],
+            ),
+            *[
+                (
+                    f"sip_trunk_{trunk_key}_headers",
+                    "phone_numbers",
+                    [
+                        [
+                            {
+                                "phone_number_id": "p1",
+                                "provider": "sip_trunk",
+                                trunk_key: {
+                                    "address": "sip.example.com",
+                                    "headers": {"Authorization": "Bearer sk_fake", "X-Ref": {"secret_id": "s1"}},
+                                },
+                            }
+                        ]
+                    ],
+                    lambda row, key=trunk_key: row[key]["headers"],
+                )
+                for trunk_key in ("outbound_trunk", "provider_config")
+            ],
+        ]
+    )
+    def test_literal_header_values_never_reach_the_warehouse(
+        self, _name: str, endpoint: str, bodies: list[Any], headers_of: Callable[[Any], Any]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body) for body in bodies])
+
+        assert result.raised is None
+        # A secret reference is safe to keep and tells the reader which secret the tool uses.
+        assert headers_of(result.rows[0]) == {"Authorization": "[REDACTED]", "X-Ref": {"secret_id": "s1"}}
+
+
+class TestUnpaginatedEndpoints:
+    @parameterized.expand(
+        [
+            ("models_bare_array", "models", [{"model_id": "m1"}, {"model_id": "m2"}], ["m1", "m2"], "model_id"),
+            (
+                "groups_keyed_by_id",
+                "workspace_groups",
+                {"g1": {"id": "g1", "name": "a"}, "g2": {"id": "g2", "name": "b"}},
+                ["g1", "g2"],
+                "id",
+            ),
+            # jsonpath unwraps a single match, so a one-group body must still come back as one row.
+            ("single_group", "workspace_groups", {"g1": {"id": "g1", "name": "a"}}, ["g1"], "id"),
+            ("no_groups", "workspace_groups", {}, [], "id"),
+            (
+                "phone_numbers_bare_array",
+                "phone_numbers",
+                [{"phone_number_id": "p1", "provider": "twilio"}, {"phone_number_id": "p2", "provider": "exotel"}],
+                ["p1", "p2"],
+                "phone_number_id",
+            ),
+            # The subscription is one object, not a list, and must land as a single snapshot row.
+            (
+                "subscription_single_object",
+                "subscription",
+                {"tier": "creator", "character_count": 1200, "character_limit": 100000},
+                ["creator"],
+                "tier",
+            ),
+        ]
+    )
+    def test_whole_collection_becomes_rows(
+        self, _name: str, endpoint: str, body: Any, expected_ids: list[str], id_key: str
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert [row[id_key] for row in result.rows] == expected_ids
+        assert len(result.requests) == 1
+        assert result.params("page_size") == [None]
 
 
 class TestValidateCredentials:
@@ -172,36 +307,51 @@ class TestValidateCredentials:
             ("server_error_at_create", 500, None, False),
         ]
     )
-    @mock.patch(SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool, mts) -> None:
-        mts.return_value.get.return_value = mock.MagicMock(status_code=status)
-        ok, _msg = validate_credentials("k", schema_name)
+    def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
+        answer = ScriptedResponse(status=status)
+        with scripted_network(always(answer) if status in (429, 500) else [answer]) as network:
+            ok, _msg = validate_credentials("k", schema_name)
         assert ok is expected_ok
+        assert network.requests_log[0].headers["xi-api-key"] == "k"
 
-    @mock.patch(SESSION_PATCH)
-    def test_network_error_is_not_valid(self, mts) -> None:
-        mts.return_value.get.side_effect = requests.ConnectionError("boom")
-        ok, msg = validate_credentials("k")
+    @parameterized.expand(
+        [
+            ("fan_out_child_probes_parent", "tool_executions", "https://api.elevenlabs.io/v1/convai/tools?page_size=1"),
+            ("unpaginated_sends_no_page_size", "workspace_members", "https://api.elevenlabs.io/v1/workspace/members"),
+            (
+                "custom_page_size_param",
+                "batch_calls",
+                "https://api.elevenlabs.io/v1/convai/batch-calling/workspace?limit=1",
+            ),
+        ]
+    )
+    def test_schema_probe_url(self, _name: str, schema_name: str, expected_url: str) -> None:
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("k", schema_name) == (True, None)
+        assert [request.url for request in network.requests_log] == [expected_url]
+
+    def test_network_error_is_not_valid(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            ok, msg = validate_credentials("k")
         assert ok is False
         assert msg is not None
 
-    @mock.patch(SESSION_PATCH)
-    def test_session_does_not_follow_redirects(self, mts) -> None:
+    def test_session_does_not_follow_redirects(self) -> None:
         # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would
         # replay the key to the redirect target, so the credentialed session must refuse redirects.
-        mts.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("k")
-        assert mts.call_args.kwargs["allow_redirects"] is False
+        with scripted_network([ScriptedResponse()]) as network:
+            validate_credentials("k")
+        assert network.session_options[0]["allow_redirects"] is False
 
 
 class TestSyncSecurity:
-    @mock.patch(SESSION_PATCH)
-    def test_sync_session_does_not_follow_redirects(self, MockSession) -> None:
+    def test_sync_session_does_not_follow_redirects(self) -> None:
         # Same key-leak boundary as validation: the sync session must not forward xi-api-key on a 3xx.
-        session = MockSession.return_value
-        _wire(session, [_response({"history": [], "has_more": False, "last_history_item_id": None})])
-        _rows(_source("history", _make_manager()))
-        assert any(call.kwargs.get("allow_redirects") is False for call in MockSession.call_args_list)
+        result = _driver().run(
+            "history", [ScriptedResponse(json={"history": [], "has_more": False, "last_history_item_id": None})]
+        )
+        assert result.raised is None
+        assert any(options.get("allow_redirects") is False for options in result.session_options)
 
 
 class TestSourceResponse:
@@ -212,15 +362,31 @@ class TestSourceResponse:
             ("agents", ["agent_id"], "asc", "created_at_unix_secs"),
             ("voices", ["voice_id"], "asc", "created_at_unix"),
             ("triage_tickets", ["agentqa_ticket_id"], "desc", "created_at_unix_secs"),
+            ("models", ["model_id"], "asc", None),
+            ("workspace_members", ["user_id"], "asc", None),
+            ("workspace_groups", ["id"], "asc", None),
+            ("tools", ["id"], "asc", None),
+            # Executions from different tools interleave in time, so the watermark must wait for job end.
+            ("tool_executions", ["tool_id", "id"], "desc", None),
+            ("phone_numbers", ["phone_number_id"], "asc", None),
+            ("batch_calls", ["id"], "asc", "created_at_unix"),
+            # A single snapshot row has no unique column to merge on; full refresh replaces it.
+            ("subscription", None, "asc", None),
         ]
     )
-    @mock.patch(SESSION_PATCH)
     def test_response_shape_per_endpoint(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str, _mts
+        self, endpoint: str, primary_keys: list[str] | None, sort_mode: str, partition_key: str | None
     ) -> None:
         # sort_mode="asc" on a newest-first endpoint corrupts the watermark; the pk must be table-unique.
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json={})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"
+        if partition_key is None:
+            # A float or missing timestamp would bucket every row into one bogus 1970 partition.
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"

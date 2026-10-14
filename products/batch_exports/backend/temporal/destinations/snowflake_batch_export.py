@@ -34,7 +34,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -1284,7 +1283,7 @@ class MergeSettings(typing.NamedTuple):
 
 
 def _get_merge_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
 ) -> MergeSettings | None:
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
@@ -1416,11 +1415,7 @@ async def insert_into_snowflake_activity_from_stage(
 
         integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+        model = inputs.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1624,7 +1619,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=snowflake_default_fields(),
         )

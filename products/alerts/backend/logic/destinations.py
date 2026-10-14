@@ -15,7 +15,6 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
@@ -31,6 +30,11 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.cdp.backend.facade.api import create_hog_functions
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.internal_events import (
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -67,8 +71,20 @@ def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | No
     if spec is None:
         return AlertDestinationGroupKey(template_id, None)
     data = spec.read(inputs or {})
-    config = {key: value for key, value in data.items() if key != "type"}
+    config = {key: _hashable(value) for key, value in data.items() if key != "type"}
     return AlertDestinationGroupKey(template_id, tuple(sorted(config.items())) if config else None)
+
+
+class _FrozenMapping(tuple):
+    """A dict value, such as added webhook headers, held as sorted pairs so a group key stays hashable."""
+
+
+def _hashable(value: Any) -> Any:
+    return _FrozenMapping(sorted(value.items())) if isinstance(value, dict) else value
+
+
+def _thawed(value: Any) -> Any:
+    return dict(value) if isinstance(value, _FrozenMapping) else value
 
 
 def group_alert_destination_rows(rows: Collection[AlertDestinationRow]) -> dict[AlertDestinationGroupKey, set[UUID]]:
@@ -109,7 +125,9 @@ def list_alert_destination_groups(
         spec = SPEC_BY_TEMPLATE_ID.get(key.template_id)
         if spec is None:
             continue
-        data = cast(AlertDestinationData, {"type": spec.type, **dict(key.config or ())})
+        data = cast(
+            AlertDestinationData, {"type": spec.type, **{name: _thawed(value) for name, value in key.config or ()}}
+        )
         groups.append(
             AlertDestinationGroup(
                 hog_function_ids=tuple(sorted(ids)),

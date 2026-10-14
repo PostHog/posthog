@@ -1,4 +1,5 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { UUIDT } from '~/common/utils/utils'
@@ -109,6 +110,7 @@ export async function buildHogFunctionInvocations(
             const globalsWithSource = {
                 ...triggerGlobals,
                 source: {
+                    id: hogFunction.id,
                     name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                     url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                 },
@@ -122,6 +124,11 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            // A dependency outage, such as Postgres refusing an integration lookup, is not this
+            // function's fault. Rethrowing fails the batch, so the offsets stay put and it retries.
+            if (error?.isRetriable === true) {
+                throw error
+            }
             const errorClass = classifyHogError(error, {
                 bytecodeContract: bytecodeContractOf(error),
                 runtimeContract: currentRuntimeContractHash(),
@@ -236,6 +243,26 @@ export function cloneInvocation<T extends CyclotronJobInvocation>(
         queuePriority: params.queuePriority ?? 0,
         queueParameters: params.queueParameters ?? undefined,
     }
+}
+
+export function createInputsFailureResult(
+    hogFunction: HogFunctionType,
+    globals: HogFunctionInvocationGlobals,
+    error: Error,
+    invocationId?: string
+): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+    const invocation = createInvocation({ ...globals, inputs: {} }, hogFunction)
+    if (invocationId) {
+        invocation.id = invocationId
+    }
+    return createInvocationResult<CyclotronJobInvocationHogFunction>(
+        invocation,
+        {},
+        {
+            error: error.message,
+            logs: [{ level: 'error', timestamp: DateTime.now(), message: `Error building inputs: ${error.message}` }],
+        }
+    )
 }
 
 /**

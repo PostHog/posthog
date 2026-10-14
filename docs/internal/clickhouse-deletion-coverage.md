@@ -95,7 +95,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, deferred event removal, and property removal of event `properties` (below). Not immediate event removal, and not property removal with a HogQL predicate. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal skips it when the request carries a HogQL predicate. Deferred event removal with a predicate reaches only the rows that have an events copy (below). Property removal with a predicate does not sweep it. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
@@ -156,8 +156,7 @@ That works because `materialize()` creates columns as `DEFAULT <expr>`, so an in
 `group0..group4_properties` no longer exist on the table: no Insight or Hog function used them as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them. Event `properties` and `person_id` are still sent.
 `person_properties` is on the table again, so test-account filters can read person properties off the row the way they do on `events`.
 The column defaults to `'{}'`, and no row holds real person properties until the producer sends them.
-Until then `DeletionTarget.stores_person_properties` stays `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
-`stores_person_properties` has to turn on before or with the producer change, or a person-property removal skips real values on this table and still reports success.
+Property removal treats `person_properties` here as it does on `events`: the gate counts it, the copy drops the named keys from it, and the per-shard verify, the final verify and the admin Verify count all check it.
 
 #### Typed columns
 
@@ -171,12 +170,16 @@ A request naming `$feature_flag` therefore completes: the cleaned row goes back 
 The same names on `sharded_events` (`$session_id`, `$window_id`, `$group_0..4`) are true `MATERIALIZED` columns with that comment.
 The copy reads the `SELECT *` shape of the table, which leaves `MATERIALIZED` columns out, and the reingest recomputes them from the cleaned `properties`.
 
-#### Replay duplicates
+#### Duplicate rows
 
-`sharded_flag_evaluations` is a plain `MergeTree` that keeps Kafka replay duplicates, so one uuid can have several identical rows.
-The staged files keep every physical row, so the reingest puts every duplicate back, cleaned.
-The copy, the delete's count, the reingest and the shard verify count each uuid once, so duplicates do not block the request.
-The same counting covers unmerged `ReplacingMergeTree` duplicates on events.
+`sharded_flag_evaluations` is a `ReplacingMergeTree` on `_timestamp`, like `sharded_events`, so the copies of one flag call collapse when their parts merge.
+Until a merge, one uuid can have several rows.
+The staged files keep every physical row.
+The copy, the delete's count, the reingest and the shard verify count each uuid once, so unmerged duplicates do not block the request.
+The reingest bumps `_timestamp` past the original's on both tables, so a merge that meets a cleaned row and a surviving original keeps the cleaned row.
+A request that removes `$feature_flag` empties `flag_key`, which is in the sort key.
+That cleaned row therefore never collapses with an original.
+A table created before the switch to `ReplacingMergeTree` keeps every duplicate, and the job leaves its `_timestamp` as it is, because the job reads the engine from `system.tables` on each run.
 
 #### Rows past the TTL
 
@@ -210,21 +213,49 @@ The copy carries every other column through unchanged.
 `flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.
 The job finds typed columns through their comments in `system.columns`, not through that set, and adding the table there enrolls it in `materialize()` and the HogQL property planner, which is a separate change.
 
-### Immediate event removal skips `flag_evaluations`
+### Immediate event removal with a HogQL predicate skips `flag_evaluations`
 
-`get_event_removal_shards` leaves `flag_evaluations` out of its targets, so an immediate request neither sweeps the table nor checks it for matching rows.
+`get_event_removal_shards` leaves `flag_evaluations` out of an immediate request that carries a HogQL predicate, so the request neither sweeps the table nor checks it for matching rows.
 The rows age out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL.
-Deferred event removal still queues the table's uuids, and `deletes_job` removes them.
-The skip exists because of the HogQL gap below: before it, the gate refused every immediate request with a predicate whose team had matching `$feature_flag_called` rows.
+The skip exists because of the HogQL gap below: without it, the gate refuses every immediate request with a predicate whose team has matching `$feature_flag_called` rows.
+The events copies that a deferred request deletes through do not help here, because the immediate path deletes the events rows without queueing their uuids.
+An immediate request without a predicate sweeps the table and verifies it like the events tables, because its delete predicate names only `team_id`, `timestamp` and `event`.
 
-### Event removal with a HogQL predicate does not reach `flag_evaluations`
+### Event removal with a HogQL predicate reaches `flag_evaluations` only through events copies
 
 `compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
 Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
 Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
-The dag refuses rather than guessing.
+The dag does not guess.
+It never runs a fragment against the table.
+An immediate request with a predicate skips the table (above).
 A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
-Deferred requests without a predicate are swept normally; deferred requests with one are refused if the table holds matching rows.
+
+A deferred request with a predicate reaches the table through `events` instead.
+A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
+`DeletionTarget.copied_from` records that relationship.
+The queue fill reads uuids from `sharded_events` with the full predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.
+A flag row whose event the predicate does not name keeps its events copy and stays.
+
+That only works for a row that has an events copy.
+An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
+The gate therefore counts the matching rows that have no copy in `sharded_events`, shard-locally, and refuses the request when it finds any.
+Requests without a predicate, immediate or deferred, are swept normally.
+A deferred one reads the table's own uuids into the queue.
+
+Verification of a deferred request with a predicate, when the table holds rows in the request's window, makes two counts: the request's queue rows that the drain has not marked deleted, and the table's rows with no copy in `sharded_events`.
+The queue rows hold the request until `deletes_job` drains them, including a queued row whose event a property removal changed so that the predicate no longer matches it.
+The rows with no copy hold the request after the drain.
+A flag row stamped after its uuid was queued falls outside the drain's `inserted_at` bound, so it survives the drain.
+The drain still deletes its events copy.
+The rows with no copy therefore include it and keep the request in QUEUED.
+A re-filed request does not reach that row.
+The gate refuses one with the predicate, because the row has no events copy.
+A deferred one without the predicate queues the uuid, but the drain skips it while the first drain's `is_deleted` marker lasts, which is 3 months.
+Only an immediate request without the predicate deletes the row, and it also deletes every other row in its window that its event filter names.
+The verify sweep therefore keeps checking a deferred request with a predicate for `lookback_days` after its window falls behind the table's TTL horizon, so the request moves to COMPLETED once the TTL drops the row.
+The rows with no copy also keep a request the gate refused, which queued nothing, from passing verification as a FAILED request.
+Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
 
 ## Producer prerequisite: person_id parity
 
@@ -274,7 +305,7 @@ A manual run can narrow the plan with `team_ids` and `partitions`. A listed team
 
 ## Adding a table
 
-Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table that rewrites event properties without person properties.
+Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` makes the property-removal job sweep the table, so it needs a rewrite that cleans every copy the table keeps, not just assignable columns, and a `person_properties` column, because the job reads and rewrites that column on every table it sweeps.
 Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
 A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.

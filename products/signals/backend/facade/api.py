@@ -473,7 +473,7 @@ def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
     """
     return SignalReport.objects.filter(
         team__organization_id=organization_id,
-        status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED],
+        status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING, SignalReport.Status.SUPPRESSED],
     ).exists()
 
 
@@ -1369,6 +1369,14 @@ def repair_report_actionability_cache(
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
 
 
+def resolve_audit_actor_for_team(team_id: int) -> int | None:
+    from products.signals.backend.temporal.agentic import (
+        resolve_acting_user_id_for_team,  # noqa: PLC0415 — keeps Temporal agent dependencies off the facade import path
+    )
+
+    return resolve_acting_user_id_for_team(team_id)
+
+
 def retract_source_signals(*, team: "Team", source_product: str, source_type: str, source_id: str) -> int:
     """Replace a source record's signal embeddings with an empty deleted row.
 
@@ -1421,14 +1429,16 @@ def enable_scout_for_product(
 
     The project gets that one skill and an enabled config the product owns. `acting_user` becomes
     the person the runs act as, because they turned the feature on. `write_scopes` is limited to
-    `SCOUT_GRANTABLE_WRITE_SCOPES`. The caller must already have checked that this person may
-    grant those scopes. It applies the same rules as the scout config API: the person needs editor
-    access to skills, a new scout must fit the project's enabled-scout limit, and only a project
-    admin or the person the runs act as may give a new scout write scopes or widen an existing grant.
+    `SCOUT_GRANTABLE_WRITE_SCOPES`, and a new scout holds them on top of `SCOUT_DEFAULT_WRITE_SCOPES`.
+    The caller must already have checked that this person may grant those scopes. It applies the
+    same rules as the scout config API: the person needs editor access to skills, a new scout must
+    fit the project's enabled-scout limit, and only a project admin or the person the runs act as
+    may give a new scout more than the default scopes or widen an existing grant.
     Returns False without writing when a rule refuses, when the organization has not approved AI data processing, when the scout
     is paused by a person or by the system, or when another product owns its config.
     """
     from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
+        SCOUT_DEFAULT_WRITE_SCOPES,
         SCOUT_GRANTABLE_WRITE_SCOPES,
     )
 
@@ -1461,7 +1471,7 @@ def enable_scout_for_product(
     defaults: dict[str, Any] = {
         "source_product": source_product,
         "enabled": True,
-        "write_scopes": scopes,
+        "write_scopes": sorted(SCOUT_DEFAULT_WRITE_SCOPES | set(scopes)),
         "created_by": acting_user,
         "enabled_by": acting_user,
     }
@@ -1478,7 +1488,7 @@ def enable_scout_for_product(
         if config is None:
             if enabled_scout_count(team.id, exclude_skill=skill_name) >= max_enabled_scouts:
                 return False
-            if scopes and not _may_grant_scout_scopes(
+            if set(scopes) - SCOUT_DEFAULT_WRITE_SCOPES and not _may_grant_scout_scopes(
                 team=team, skill_name=skill_name, config=None, acting_user=acting_user
             ):
                 return False

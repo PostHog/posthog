@@ -1,7 +1,3 @@
-from urllib.parse import urlparse
-
-from unittest import mock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
@@ -9,6 +5,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.source import CircleCISource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
     CircleCISourceConfig,
 )
@@ -65,18 +66,13 @@ class TestCircleCISource:
             (None, "/api/v3/projects"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.make_tracked_session"
-    )
-    def test_validate_credentials_probes_the_pinned_api(self, api_version, expected_org_probe_path, mock_session):
-        collaborations = mock.MagicMock(status_code=200)
-        collaborations.json.return_value = [{"id": "org-uuid", "slug": "gh/posthog"}]
-        ok = mock.MagicMock(status_code=200)
-        mock_session.return_value.get.side_effect = lambda url, **kwargs: (
-            collaborations if "/me/collaborations" in url else ok
-        )
+    def test_validate_credentials_probes_the_pinned_api(self, api_version, expected_org_probe_path):
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v2/me/collaborations":
+                return ScriptedResponse(json=[{"id": "org-uuid", "slug": "gh/posthog"}])
+            return ScriptedResponse(json={})
 
-        assert self.source.validate_credentials(self.config, self.team_id, api_version=api_version) == (True, None)
+        with scripted_network(answer) as network:
+            assert self.source.validate_credentials(self.config, self.team_id, api_version=api_version) == (True, None)
 
-        last_url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(last_url).path == expected_org_probe_path
+        assert network.requests_log[-1].path == expected_org_probe_path

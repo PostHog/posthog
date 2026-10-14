@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,7 +19,7 @@ from posthog.models.signals import model_activity_signal
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 
-class TestUserActivityLoggingConfiguration(BaseTest):
+class TestUserActivityLoggingConfiguration(SimpleTestCase):
     """Tests for User activity logging configuration dictionaries."""
 
     @parameterized.expand(

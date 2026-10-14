@@ -13,7 +13,6 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 
-from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
@@ -45,6 +44,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
 )
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.cdp.backend.validation import compile_hog
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 

@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import get_args
+from typing import Any, get_args
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -15,8 +15,8 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
-from products.review_hog.backend.api.reviews import ReviewDropDisposition
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.presentation.views.reviews import ReviewDropDisposition
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
     FindingOutcomeArtefact,
@@ -51,7 +51,7 @@ from products.review_hog.backend.reviewer.progress import (
     RESOLUTION_RUN_NOTE_AUTHOR,
     record_run_outcome,
 )
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
@@ -167,7 +167,16 @@ class TestRecentReviewsAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-    def _turn_marker(self, report: ReviewReport, *, run_index: int, review_mode: str, head_sha: str) -> None:
+    def _turn_marker(
+        self,
+        report: ReviewReport,
+        *,
+        run_index: int,
+        review_mode: str,
+        head_sha: str,
+        review_design: str | None = None,
+        fingerprint_inputs: dict[str, Any] | None = None,
+    ) -> None:
         ReviewReportArtefact.add_turn_marker(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -177,26 +186,71 @@ class TestRecentReviewsAPI(APIBaseTest):
                 review_mode=review_mode,
                 reviewhog_version="v",
                 reviewhog_fingerprint="f",
+                fingerprint_inputs=fingerprint_inputs or {},
+                review_design=review_design,
             ),
             attribution=ArtefactAttribution.system(),
         )
 
-    @parameterized.expand([("flash", REVIEW_MODE_FLASH), ("full", REVIEW_MODE_FULL), ("no_marker", None)])
-    def test_review_mode_comes_from_the_completed_turns_marker(self, _name: str, review_mode: str | None) -> None:
+    @parameterized.expand(
+        [
+            ("flash", REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT, {}, REVIEW_DESIGN_SINGLE_AGENT),
+            (
+                "flash_marker_before_design_field",
+                REVIEW_MODE_FLASH,
+                None,
+                {"review_design": REVIEW_DESIGN_SINGLE_AGENT},
+                REVIEW_DESIGN_SINGLE_AGENT,
+            ),
+            ("full", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE, {}, REVIEW_DESIGN_PIPELINE),
+            ("full_marker_before_design_field", REVIEW_MODE_FULL, None, {}, REVIEW_DESIGN_PIPELINE),
+            ("no_marker", None, None, {}, REVIEW_DESIGN_PIPELINE),
+        ]
+    )
+    def test_review_mode_and_design_come_from_the_completed_turns_marker(
+        self,
+        _name: str,
+        review_mode: str | None,
+        marker_design: str | None,
+        fingerprint_inputs: dict[str, Any],
+        expected_design: str,
+    ) -> None:
         # A clean, unpublished Standard turn has no findings to carry its mode, which the findings-based
         # fallback reads as Deep. The marker is the only source that tells the two apart. The older
         # turn's marker and the in-flight turn's marker must not leak onto the completed turn.
-        report = self._report(pr_number=1, acting_user=self.user, run_count=2, head_sha="c3")
-        self._turn_marker(report, run_index=1, review_mode=REVIEW_MODE_FULL, head_sha="c1")
+        report = self._report(pr_number=1, acting_user=self.user, run_count=2, head_sha="c2", completed_head_sha="c2")
+        report_id = str(report.id)
+        self._turn_marker(
+            report, run_index=1, review_mode=REVIEW_MODE_FLASH, head_sha="c1", review_design=REVIEW_DESIGN_SINGLE_AGENT
+        )
+        for design in (REVIEW_DESIGN_SINGLE_AGENT, REVIEW_DESIGN_PIPELINE):
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha="c2",
+                pr_metadata=_pr_metadata("c2", "title"),
+                pr_comments=[],
+                pr_files=[],
+                review_design=design,
+            )
         if review_mode is not None:
-            self._turn_marker(report, run_index=2, review_mode=review_mode, head_sha="c2")
-        self._turn_marker(report, run_index=3, review_mode=REVIEW_MODE_FULL, head_sha="c3")
+            self._turn_marker(
+                report,
+                run_index=2,
+                review_mode=review_mode,
+                head_sha="c2",
+                review_design=marker_design,
+                fingerprint_inputs=fingerprint_inputs,
+            )
+        self._turn_marker(
+            report, run_index=3, review_mode=REVIEW_MODE_FULL, head_sha="c2", review_design=REVIEW_DESIGN_PIPELINE
+        )
 
         row = self.client.get(self.url).json()["results"][0]
         detail = self.client.get(f"{self.url}{report.id}/").json()
 
-        assert row["review_mode"] == review_mode
-        assert detail["review_mode"] == review_mode
+        assert (row["review_mode"], row["review_design"]) == (review_mode, expected_design)
+        assert (detail["review_mode"], detail["review_design"]) == (review_mode, expected_design)
 
     @parameterized.expand(
         [
@@ -1171,7 +1225,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             last_run_at=datetime(2026, 8, 1, tzinfo=UTC)
         )
 
-        with patch("products.review_hog.backend.api.reviews.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
+        with patch("products.review_hog.backend.review_listing.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
             res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
 
         assert res.status_code == 200
