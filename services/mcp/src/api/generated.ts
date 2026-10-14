@@ -2665,6 +2665,8 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
       mergeFederatedAggregateJoins?: boolean | null;
+      /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+      negatedPersonFiltersNotIn?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -66678,6 +66680,26 @@ export namespace Schemas {
       error?: string | null;
     }
 
+    export interface NotebookCellVisualization {
+      /** Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'. */
+      display: string;
+      /**
+         * Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y series do not use when there is no date column.
+         * @nullable
+         */
+      x_axis: string | null;
+      /**
+         * Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list means the author removed every series, so the chart plots nothing.
+         * @nullable
+         */
+      y_axis: string[] | null;
+      /**
+         * Column that splits the Y series into one series per value, or null.
+         * @nullable
+         */
+      series_breakdown: string | null;
+    }
+
     export interface NotebookCellState {
       /** Durable cell identity, used by the cell run and edit endpoints. */
       node_id: string;
@@ -66699,6 +66721,8 @@ export namespace Schemas {
       dependents: string[];
       /** Summary of the most recent run; null when never run. */
       last_run?: NotebookCellLastRun | null;
+      /** SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of notebooks-add-cell. Null when the cell opens on its results table. */
+      visualization?: NotebookCellVisualization | null;
     }
 
     export interface NotebookCollabCursor {

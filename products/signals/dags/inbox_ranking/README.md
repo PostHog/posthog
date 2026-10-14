@@ -339,7 +339,7 @@ Nothing here touches the prod bucket: the reader credential is read-only and the
 
 `multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up.
 
-The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. No image installs the group.
+The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. Only `Dockerfile.dagster-ml`, the image of the `signals_ml` code location, installs the group.
 
 ```bash
 uv sync --group inbox-ranking
