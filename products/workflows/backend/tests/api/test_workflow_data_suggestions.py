@@ -10,7 +10,6 @@ from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
 from posthog.errors import InternalCHQueryError
-from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -21,7 +20,6 @@ from products.messaging.backend.facade.testing import create_message_template_fo
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
 from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
@@ -456,7 +454,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
 
-    def test_a_built_branch_cannot_be_enabled_before_its_conditions_are_set(self, _flag) -> None:
+    def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self, _flag) -> None:
         built = build_workflow(
             _idea("trial_started"),
             PlannedWorkflow(
@@ -480,13 +478,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert built is not None
 
-        enabled = HogFlowSerializer(
-            data={**built.workflow, "status": "active"},
-            context={"team_id": self.team.id, "get_team": lambda: self.team, "event_source": EventSource.API},
-        )
-
-        assert not enabled.is_valid()
-        assert "conditional_branch condition must wrap its filters" in str(enabled.errors)
+        branch = next(action for action in built.workflow["actions"] if action["type"] == "conditional_branch")
+        # The editor's schema rejects null filters, so a suggested branch must look like one added by hand.
+        assert branch["config"]["conditions"] == [{"filters": {}, "name": "Is on a paid plan"}]
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
