@@ -168,6 +168,7 @@ from products.signals.backend.report_claims import (
     get_active_claims,
     reports_with_active_claim,
 )
+from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
@@ -1417,11 +1418,28 @@ class SignalReportViewSet(
         SignalReportBulkStateOutcome.NOT_FOUND: "No report with this id is visible to you.",
     }
 
+    _MONITORING_FALLBACK_READ_ACTIONS = frozenset(
+        {"list", "retrieve", "signals", "viewed", "feedback_state", "feedback", "pr_checks", "pr_comments"}
+    )
+
+    @cached_property
+    def _report_monitoring_enabled(self) -> bool:
+        return organization_report_monitoring_enabled(self.organization.id)
+
+    def _resolved_read_statuses(self) -> frozenset[str]:
+        statuses = frozenset({SignalReport.Status.RESOLVED})
+        if self.action in self._MONITORING_FALLBACK_READ_ACTIONS and not self._report_monitoring_enabled:
+            return statuses | {SignalReport.Status.MONITORING}
+        return statuses
+
     def _apply_signal_report_status_filter(self, queryset):
         # Always a positive `status__in`, never a negated equality: Postgres can put an IN into the
         # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
         # status as a filter that runs on rows the index already made it read.
-        return queryset.filter(status__in=sorted(self._visible_statuses()))
+        statuses = self._visible_statuses()
+        if SignalReport.Status.RESOLVED in statuses:
+            statuses |= self._resolved_read_statuses()
+        return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
         status_filter = self.request.query_params.get("status")
@@ -1576,7 +1594,9 @@ class SignalReportViewSet(
             return queryset
         has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
-            ~Q(status=SignalReport.Status.RESOLVED) & ~reports_with_active_claim(team_id=self.team_id) & ~has_review_pr
+            ~Q(status__in=self._resolved_read_statuses())
+            & ~reports_with_active_claim(team_id=self.team_id)
+            & ~has_review_pr
         )
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
 
@@ -1777,7 +1797,7 @@ class SignalReportViewSet(
         if inbox_view == "monitoring":
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
-            return queryset.filter(status=SignalReport.Status.RESOLVED)
+            return queryset.filter(status__in=self._resolved_read_statuses())
         if inbox_view in {"dismissed", "held_back"}:
             # Every path that suppresses a report on someone's behalf writes a dismissal artefact: a
             # person or agent dismissing it, a merge, a closed pull request. A suppressed report with
@@ -1806,7 +1826,7 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
-                When(status=SignalReport.Status.RESOLVED, then=Value(7)),
+                When(status__in=self._resolved_read_statuses(), then=Value(7)),
                 When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
                 When(status=SignalReport.Status.DELETED, then=Value(9)),
                 default=Value(50),
@@ -2094,6 +2114,11 @@ class SignalReportViewSet(
         return {
             **super().get_serializer_context(),
             "team": self.team,
+            **(
+                {"report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled}}
+                if self.action in self._MONITORING_FALLBACK_READ_ACTIONS
+                else {}
+            ),
             # For the serializer's refund_ineligibility_reason field — computed once per request,
             # not per report (the bounds are org-level).
             "billing_period_bounds": current_billing_period_bounds(self.organization),
