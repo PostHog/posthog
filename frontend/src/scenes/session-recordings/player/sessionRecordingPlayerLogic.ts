@@ -125,6 +125,7 @@ export const ONE_SECOND_MS = 1000
 // shows its error.
 const MAX_PLAYER_FRAME_LOAD_RETRIES = 2
 const PLAYER_FRAME_RETRY_DELAY_MS = 1000
+const LIVE_EDGE_OFFSET_MS = 5000
 
 export type { ResourceErrorDetails, GroupedAssetErrors, DoctorDiagnostics } from './utils/asset-error-grouping'
 
@@ -769,6 +770,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
+    followLive: boolean // snapshotDataLogic
     isSnapshotUnauthorized: boolean // snapshotDataLogic
     replayProxyToken: string | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
@@ -1010,6 +1012,9 @@ export interface sessionRecordingPlayerLogicActions {
     } // snapshotDataLogic
     retrySnapshotLoading: () => {
         value: true
+    } // snapshotDataLogic
+    setFollowLive: (followLive: boolean) => {
+        followLive: boolean
     } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
@@ -1504,6 +1509,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotSources',
                 'snapshotStore',
                 'allSourcesLoaded',
+                'followLive',
                 'storeVersion',
                 'isSnapshotUnauthorized',
             ],
@@ -1547,6 +1553,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setTargetTimestamp',
                 'updatePlaybackPosition',
                 'setPlayerActive',
+                'setFollowLive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
@@ -3321,6 +3328,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
+        setFollowLive: ({ followLive }) => {
+            posthog.capture('recording follow live toggled', { follow_live: followLive })
+            const end = values.sessionPlayerData.end?.valueOf()
+            if (followLive && end) {
+                const start = values.sessionPlayerData.start?.valueOf() ?? end
+                actions.setCurrentTimestamp(Math.max(start, end - LIVE_EDGE_OFFSET_MS))
+                actions.setEndReached(false)
+                actions.setPlay()
+            }
+        },
         setEndReached: ({ reached }) => {
             if (reached) {
                 actions.endBuffer()
@@ -3948,6 +3965,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+
+                const endGrew = (value?.end?.valueOf() ?? 0) > (oldValue?.end?.valueOf() ?? 0)
+                if (values.followLive && values.endReached && endGrew) {
+                    // resume from the old end, not from the start as setPlay does after endReached
+                    actions.setEndReached(false)
+                    actions.setPlay()
+                }
             }
         },
         timestampChangeTracking: (value) => {

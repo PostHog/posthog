@@ -38,6 +38,7 @@ import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
 const MAX_V2_POLLING_INTERVAL_MS = 60000
 const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
+const LIVE_POLLING_INTERVAL_MS = 5000
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -51,6 +52,7 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
+    followLive: boolean
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
@@ -155,6 +157,9 @@ export interface snapshotDataLogicActions {
     }
     retrySnapshotLoading: () => {
         value: true
+    }
+    setFollowLive: (followLive: boolean) => {
+        followLive: boolean
     }
     setPlayerActive: (active: boolean) => {
         active: boolean
@@ -268,6 +273,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         maybeStartPolling: true,
         startPolling: true,
         stopPolling: true,
+        setFollowLive: (followLive: boolean) => ({ followLive }),
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
         setTargetTimestamp: (timestamp: number | null, windowId?: number) => ({ timestamp, windowId }),
@@ -317,6 +323,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             {
                 setPollingInterval: (_, { intervalMs }) => intervalMs,
                 resetPollingInterval: () => DEFAULT_V2_POLLING_INTERVAL_MS,
+            },
+        ],
+        followLive: [
+            false,
+            {
+                setFollowLive: (_, { followLive }) => followLive,
             },
         ],
         isPolling: [
@@ -632,7 +644,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
 
             actions.startPolling()
-            actions.loadSnapshotSources(values.pollingInterval)
+            actions.loadSnapshotSources(values.followLive ? LIVE_POLLING_INTERVAL_MS : values.pollingInterval)
+        },
+
+        setFollowLive: ({ followLive }) => {
+            if (followLive) {
+                cache.lastSourcesChangeTime = Date.now()
+                // replaces a poll that may be waiting out a long backoff
+                actions.stopPolling()
+                actions.maybeStartPolling()
+            }
         },
 
         loadNextSnapshotSource: async (_, breakpoint) => {

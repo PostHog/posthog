@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconCamera, IconLive, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -67,6 +68,32 @@ function PlayPauseButton(): JSX.Element {
             ) : (
                 getPlayIcon()
             )}
+        </LemonButton>
+    )
+}
+
+function FollowLive(): JSX.Element | null {
+    const { followLive, sessionPlayerMetaData, featureFlags } = useValues(sessionRecordingPlayerLogic)
+    const { setFollowLive } = useActions(sessionRecordingPlayerLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE] || !sessionPlayerMetaData?.ongoing) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            size="xsmall"
+            active={followLive}
+            onClick={() => setFollowLive(!followLive)}
+            tooltip={
+                followLive
+                    ? 'Stop following live'
+                    : 'Follow live. New activity plays as it arrives, about 30 seconds behind.'
+            }
+            icon={<IconLive className={cn('text-xl', followLive && 'text-danger motion-safe:animate-pulse')} />}
+            data-attr={followLive ? 'recording-follow-live-stop' : 'recording-follow-live-start'}
+        >
+            Live
         </LemonButton>
     )
 }
@@ -241,6 +268,7 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                     <SkipToNext />
                     <Timestamp size={size} />
+                    <FollowLive />
                 </div>
                 <div className="flex gap-0.5 justify-end items-center">
                     {ModesWithInteractions.includes(playerMode) && (
