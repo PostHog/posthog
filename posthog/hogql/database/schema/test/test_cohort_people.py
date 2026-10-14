@@ -115,8 +115,14 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             self.team,
         ).results
 
+        positional_aliases = execute_hogql_query(
+            f"SELECT c.cohort FROM cohort_membership AS c(cohort, person) WHERE c.cohort = {cohort.pk}",
+            self.team,
+        ).results
+
         assert members is not None and len(members) == 2
         assert legacy_name == members
+        assert positional_aliases == [(cohort.pk,), (cohort.pk,)]
         assert both_names == members
         assert qualified_name == members
 

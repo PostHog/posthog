@@ -116,11 +116,15 @@ class CohortMembership(CohortPeople):
     It is a subclass so `person_id` keeps the legacy UUID type, which makes the resolver trim
     and canonicalize UUID literals compared to it."""
 
+    # The legacy table listed `cohort_id` before `person_id`. Keep that order, because `SELECT *`
+    # and positional column aliases such as `AS c(cohort, person)` map columns by position.
     fields: dict[str, FieldOrTable] = {
-        **COHORT_PEOPLE_FIELDS,
+        "cohort_id": COHORT_PEOPLE_FIELDS["cohort_id"],
         "person_id": UUIDDatabaseField(
             name="person_id", nullable=False, description="Person who is a member of the cohort; join to `persons.id`."
         ),
+        "team_id": COHORT_PEOPLE_FIELDS["team_id"],
+        "person": COHORT_PEOPLE_FIELDS["person"],
     }
 
     def to_printed_hogql(self):
