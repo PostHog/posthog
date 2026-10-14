@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
 import {
     marketingAnalyticsLogic,
@@ -117,6 +119,23 @@ it.each([
         planLoading.mockRestore()
         planFailed.mockRestore()
         unmountSetup()
+        unmountFlags()
+    }
+})
+
+it('opens the feedback form from the source onboarding header', async () => {
+    initKeaTests()
+    const unmountFlags = featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true })
+    try {
+        render(<MarketingAnalyticsScene />)
+        fireEvent.click(screen.getByText('Send feedback'))
+        await waitFor(() => {
+            expect(supportLogic.values.sendSupportRequest.kind).toBe('feedback')
+            expect(supportLogic.values.isEmailFormOpen).toBe(true)
+        })
+    } finally {
+        cleanup()
         unmountFlags()
     }
 })
