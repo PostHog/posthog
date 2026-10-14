@@ -467,7 +467,7 @@ export interface PointActors {
      * the first. Resolves with the rows, or null when it failed or the sheet closed.
      */
     load: (input: ActorsAtPointInput) => Promise<ActorRow[] | null>
-    /** Closing the sheet aborts the running query. */
+    /** Closing the sheet drops a query that has not started. A running one finishes and fills the cache. */
     close: () => void
 }
 

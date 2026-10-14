@@ -41,7 +41,7 @@ OAuth requests skip the server's DRF throttles, so the app holds itself to the p
 - **Automatic reads never force.** On open, screen focus and app foreground, an item reads with `blocking`, which computes only past `cache_target_age`. An item is due when it has no good value, its `cache_target_age` has passed, or its last read is 5 minutes old, and never within a minute of its last read.
 - **Dashboards open like the web:** a `force_cache` dashboard read, then `blocking` for each visible tile with no result or a passed `cache_target_age`.
 - **The button and pull force only what the server allows:** `force_blocking` for each visible item past its `next_allowed_client_refresh` (in server time, from the `Date` header, plus 2 s) and a minute past its last read. The list and each dashboard also allow one forced pass per 5 minutes. When nothing may be forced, the button shows a check, and a tap shows "Up to date. You can refresh again in N min." for 3 s.
-- **One queue** (`refreshQueue.ts`): 2 requests in flight, one request per freshness key (a second caller joins it), one request per item per minute, a pause per budget family after a 429 or 503 (`Retry-After`, else 30 s), and one retry 5 s after a rate-limited answer. A screen that loses focus drops its queued jobs and aborts its running ones. An aborted read that was not forced does not start the minute, so the screen reads the item again when it comes back.
+- **One queue** (`refreshQueue.ts`): 2 requests in flight, one request per freshness key (a second caller joins it), one request per item per minute, a pause per budget family after a 429 or 503 (`Retry-After`, else 30 s), and one retry 5 s after a rate-limited answer. A screen that loses focus drops its queued jobs. Its running reads go on, because the server finishes a started compute anyway: the answer fills the cache, the read keeps its minute, and a screen that comes back joins the read or finds its result. That way the app never has more than 2 computes running on the server.
 - **Hard caps** (`src/api/budget.ts`): token buckets at 25% of each published budget, counted in `send()` for every request of the family, including the report metrics. An empty bucket sends nothing.
 - **Freshness only from good responses.** A rate-limited insight answer carries `last_refresh: now()` with no result. Freshness and values change only on a response with a result and no error.
 
@@ -140,7 +140,7 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 | Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does. |
 
 A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and every series value, "Watch recordings", "View people", "Open on web", "About this chart" and "Copy value".
-People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet aborts it. In demo, rows that open the web say "Not available in the demo".
+People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet drops a query that has not started. In demo, rows that open the web say "Not available in the demo".
 An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides; see [Kinds that still open the web](#kinds-that-still-open-the-web).
 
 ## Date range control

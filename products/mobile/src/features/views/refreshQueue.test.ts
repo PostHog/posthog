@@ -119,17 +119,14 @@ describe('RefreshQueue', () => {
         expect(calls).toHaveLength(0)
     })
 
-    test('drops and aborts what only the screen that left wanted', async () => {
+    test('drops the queued jobs of a screen that left and lets its running reads finish', async () => {
         let signal: AbortSignal | undefined
         const running = queue.enqueue(
             request('a', {
-                run: (_mode, abortSignal) => {
+                run: (mode, abortSignal) => {
                     signal = abortSignal
-                    return new Promise<ReadResult>((_resolve, reject) =>
-                        abortSignal.addEventListener('abort', () =>
-                            reject(Object.assign(new Error(), { name: 'AbortError' }))
-                        )
-                    )
+                    calls.push({ key: 'a', mode })
+                    return new Promise<ReadResult>((resolve, reject) => pending.set('a', { resolve, reject }))
                 },
             })
         )
@@ -139,13 +136,17 @@ describe('RefreshQueue', () => {
 
         queue.leave('list')
 
-        expect(signal?.aborted).toBe(true)
-        await expect(running).resolves.toMatchObject({ status: 'aborted' })
+        expect(signal?.aborted).toBe(false)
         await expect(queued).resolves.toMatchObject({ status: 'aborted' })
+        // The screen comes back while the server still computes: it joins the running read.
+        expect(queue.enqueue(request('a'))).toBe(running)
+        await settle('a', OK)
+        await expect(running).resolves.toMatchObject({ status: 'ok' })
         await settle('b', OK)
         await expect(shared).resolves.toMatchObject({ status: 'ok' })
 
-        void queue.enqueue(request('a'))
-        expect(calls.map((call) => call.key)).toContain('a')
+        // The finished read keeps its minute, so a return right after it sends nothing.
+        await expect(queue.enqueue(request('a'))).resolves.toMatchObject({ status: 'skipped' })
+        expect(calls.map((call) => call.key)).toEqual(['a', 'b'])
     })
 })

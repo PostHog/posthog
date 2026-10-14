@@ -15,7 +15,7 @@ export interface ReadResult {
 
 /**
  * `skipped`: the item had a request in the last minute. `capped`: its budget bucket was empty, so nothing went out.
- * `aborted`: every screen that wanted it went away.
+ * `aborted`: every screen that wanted it went away before it was sent, or the session ended.
  */
 export type JobStatus = 'ok' | 'failed' | 'skipped' | 'capped' | 'aborted'
 
@@ -30,7 +30,7 @@ export interface JobRequest {
     /** The freshness key: one cache entry, such as an insight with its dashboard and override. */
     key: string
     family: BudgetFamily
-    /** The screen that asks, such as `list` or `dashboard:12`. Leaving the screen drops its jobs. */
+    /** The screen that asks, such as `list` or `dashboard:12`. Leaving the screen drops its queued jobs. */
     group: string
     mode: RefreshMode
     run: (mode: RefreshMode, signal: AbortSignal) => Promise<ReadResult>
@@ -65,9 +65,8 @@ export interface RefreshQueueOptions {
 
 /**
  * The one queue every Views data read goes through: at most 2 requests in flight, one queued or running request per
- * freshness key (a second caller joins the first), at most one request per item per minute (an aborted read that was
- * not forced does not count), a pause per budget family after a 429 or 503, and one retry 5 s after a rate-limited
- * answer. It never polls.
+ * freshness key (a second caller joins the first), at most one request per item per minute, a pause per budget family
+ * after a 429 or 503, and one retry 5 s after a rate-limited answer. It never polls.
  */
 export class RefreshQueue {
     private readonly maxInFlight: number
@@ -132,17 +131,18 @@ export class RefreshQueue {
         return promise
     }
 
-    /** Drops what only this screen wanted: queued jobs leave the queue and running ones are aborted. */
+    /**
+     * Drops the queued jobs that only this screen wanted. A running read goes on: the server finishes a started compute
+     * anyway, so the answer still fills the cache, its minute floor holds, and a screen that comes back joins it or
+     * finds the result instead of sending the same compute again. It also keeps its in-flight slot, so the app never
+     * has more than 2 computes running on the server.
+     */
     leave(group: string): void {
         for (const job of [...this.jobs.values()]) {
-            if (!job.groups.delete(group) || job.groups.size > 0) {
+            if (!job.groups.delete(group) || job.groups.size > 0 || job.state === 'running') {
                 continue
             }
-            if (job.state === 'running') {
-                job.controller?.abort()
-            } else {
-                this.finish(job, 'aborted', false)
-            }
+            this.finish(job, 'aborted', false)
         }
         this.notify()
     }
@@ -268,11 +268,6 @@ export class RefreshQueue {
         }
         this.running -= 1
         job.controller = null
-        if (outcome !== 'retry' && outcome.status === 'aborted' && job.mode !== 'force_blocking') {
-            // A screen that left aborted the read, so no answer came back while the server still fills its shared
-            // cache. With the floor kept, that screen would find the item skipped on return and show stale values.
-            this.lastSent.delete(job.key)
-        }
         if (outcome === 'retry') {
             this.scheduleRetry(job)
         } else {
