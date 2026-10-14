@@ -82,6 +82,7 @@ export interface ArtifactHtmlPreview {
     expiresAt: number
     scriptsEnabled: boolean
     scriptsAvailable: boolean
+    scriptsError: string | null
     left: boolean
 }
 
@@ -413,6 +414,7 @@ function emptyHtmlPreview(artifactId: string): ArtifactHtmlPreview {
         expiresAt: 0,
         scriptsEnabled: false,
         scriptsAvailable: false,
+        scriptsError: null,
         left: false,
     }
 }
@@ -661,8 +663,20 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     return preview
                 },
                 runHtmlPreviewScripts: async (artifact: RunArtifact, breakpoint): Promise<ArtifactHtmlPreview> => {
+                    const previous = values.htmlPreview
                     const preview = await requestHtmlPreview(values.currentProjectId, props.taskId, artifact, true)
                     breakpoint()
+                    if (
+                        preview.url === null &&
+                        previous !== null &&
+                        previous.artifactId === artifact.id &&
+                        previous.url
+                    ) {
+                        return {
+                            ...previous,
+                            scriptsError: "Scripts didn't start. Try again, or keep using the page with scripts off.",
+                        }
+                    }
                     return preview
                 },
             },
@@ -671,8 +685,10 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     reducers({
         htmlPreview: {
             loadHtmlPreview: (_, artifact: RunArtifact): ArtifactHtmlPreview => emptyHtmlPreview(artifact.id ?? ''),
-            runHtmlPreviewScripts: (_, artifact: RunArtifact): ArtifactHtmlPreview =>
-                emptyHtmlPreview(artifact.id ?? ''),
+            runHtmlPreviewScripts: (state, artifact: RunArtifact): ArtifactHtmlPreview =>
+                state !== null && state.artifactId === artifact.id && state.url
+                    ? { ...state, scriptsError: null }
+                    : emptyHtmlPreview(artifact.id ?? ''),
             leaveHtmlPreview: (state) => (state ? { ...state, url: null, left: true } : state),
         },
         activeTab: [
