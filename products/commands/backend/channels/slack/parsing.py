@@ -42,8 +42,7 @@ def parse_slack_command(text: str) -> SlackPullRequestCommand | None:
     if len(words) < 2:
         return None
     if _PULL_REQUEST_URL_RE.fullmatch(words[0]):
-        url_index, verb = 0, words[1]
-        argument_words = words[2:]
+        url, verb, argument_words = words[0], words[1], words[2:]
     else:
         verb = words[0]
         url_index = next(
@@ -51,8 +50,9 @@ def parse_slack_command(text: str) -> SlackPullRequestCommand | None:
         )
         if url_index is None:
             return None
+        url = words[url_index]
         argument_words = [*words[1:url_index], *words[url_index + 1 :]]
-    match = _PULL_REQUEST_URL_RE.fullmatch(words[url_index])
+    match = _PULL_REQUEST_URL_RE.fullmatch(url)
     if match is None or not _VERB_RE.fullmatch(verb):
         return None
     repository = match.group("repository")
