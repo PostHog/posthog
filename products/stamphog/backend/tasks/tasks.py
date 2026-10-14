@@ -24,6 +24,7 @@ from celery import Task, shared_task
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
@@ -1390,11 +1391,15 @@ def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig
 
 
 def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
-    """The projects among ``team_ids`` where a manual review of ``repository`` would find its config."""
-    # One query for every candidate project, so the caller's choice of project costs no loop.
-    configs = StamphogRepoConfig.objects.unscoped().filter(team_id__in=team_ids)
+    """The teams among ``team_ids``, environments included, where a manual review of ``repository``
+    would find its config."""
+    # Configs live on the parent project. One query for the projects and one for every candidate
+    # config, so the caller's choice of project costs no loop.
+    rows = Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
+    project_ids = {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
+    configs = StamphogRepoConfig.objects.unscoped().filter(team_id__in=set(project_ids.values()))
     reviewing = set(_reviewable(configs, repository).values_list("team_id", flat=True))
-    return [team_id for team_id in team_ids if team_id in reviewing]
+    return [team_id for team_id in team_ids if project_ids.get(team_id) in reviewing]
 
 
 def _reviewed_base_ref(run: ReviewRun) -> str:

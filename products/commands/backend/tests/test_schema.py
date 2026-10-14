@@ -39,6 +39,7 @@ _MODE = CommandDeclaration(verb="mode", summary="Test command.", args=_ModeArgs,
     [
         (REVIEW, "", ReviewArgs(deep=False)),
         (REVIEW, "--deep", ReviewArgs(deep=True)),
+        (REVIEW, "\u2014deep", ReviewArgs(deep=True)),
         (STAMP, "", StampArgs()),
         # Prose keeps its apostrophes and words, because nothing splits it like a shell.
         (

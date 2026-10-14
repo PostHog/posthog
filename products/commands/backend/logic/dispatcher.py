@@ -3,13 +3,14 @@
 Every command passes the same steps, in this order, before its handler runs:
 
 1. The channel admits the request: its rollout, deduplication, rate limit and its own check of who
-   may ask. People who fail it get no answer at all, so the bot gives outsiders nothing to probe
-   and no way to make it post. Everyone past it gets a reply that says what happened.
+   may ask. A refusal here gets no answer, so the bot gives outsiders nothing to probe and no way
+   to make it post, unless the channel answers it: a Slack command that skipped the agent must
+   not leave the person waiting. Everyone past it gets a reply that says what happened.
 2. The request holds exactly one command, the command exists, and its arguments match its grammar.
 3. The command's product names the projects it acts in, out of the rolled-out candidates: for
    ``review``, the project that owns the repository in PostHog Review. Membership and access are
    checked only there, and the requester's linked accounts must include a member of one of them.
-   With several linked accounts, the most recently linked member acts.
+   With several linked accounts, the member the channel lists first acts.
 4. The subject allows the command, for example the pull request is open, and the command allows
    forks if the head is a fork.
 5. The account has the access the command declares on the project, in PostHog access control.
@@ -29,7 +30,7 @@ from posthog.models.user import User
 from posthog.permissions import UserAccessControl
 
 from .commands import Answer, CommandContext, CommandRequest, DispatchOutcome, ProjectMember
-from .github import CommandGitHub, InstallationGitHub
+from .github import CommandGitHub
 from .identity import Requester, resolve_requester
 from .registry import COMMANDS, CommandSpec, Invocation, help_text
 from .schema import HELP_VERB, ArgumentError, ResourceAccess, resolve_verb, usage
@@ -51,8 +52,7 @@ class Admission:
     # Projects on the installation in the channel's rollout, oldest integration first. A command
     # runs only in one of them.
     team_ids: tuple[int, ...]
-    # A channel that already called GitHub passes its client. Otherwise dispatch makes one.
-    github: CommandGitHub | None = None
+    github: CommandGitHub
 
 
 class CommandChannel(Protocol):
@@ -62,12 +62,13 @@ class CommandChannel(Protocol):
     request: CommandRequest
     unlinked_message: str
 
-    def admit(self) -> Admission | DispatchOutcome:
-        """The checks that stay silent: nobody who fails one hears from the bot."""
+    def admit(self) -> Admission | Answer | DispatchOutcome:
+        """The channel's own checks. A bare outcome refuses in silence, and an ``Answer`` refuses
+        with a reply."""
         ...
 
     def linked_users(self) -> list[User]:
-        """The active PostHog users linked to the requester, most recently linked first."""
+        """The active PostHog users the requester may act as, the channel's first choice first."""
         ...
 
     def reply(self, message: str) -> None: ...
@@ -98,27 +99,25 @@ class CommandDispatcher:
 
     def _dispatch(self, spec: CommandSpec[Any] | None) -> DispatchOutcome:
         admission = self._channel.admit()
+        if isinstance(admission, Answer):
+            self._channel.reply(admission.message)
+            return admission.outcome
         if not isinstance(admission, Admission):
             return admission
-        github = admission.github or InstallationGitHub.for_installation(
-            self._channel.request.subject.installation_id, admission.team_ids
-        )
-        if github is None:
-            return "no_installation"
 
         command = self._runnable_command(spec)
         if isinstance(command, Answer):
             self._channel.reply(command.message)
             return command.outcome
 
-        return self._run(command, admission.team_ids, github)
+        return self._run(command, admission.team_ids, admission.github)
 
     def _runnable_command(self, spec: CommandSpec[Any] | None) -> Invocation[Any] | Answer:
         """The command to run, or the answer to a request that needs no PostHog account: help, and
         requests with no runnable command."""
         request = self._channel.request
         if request.ambiguous:
-            return Answer(outcome="ambiguous", message="Put one command in a comment, so it is clear which one to run.")
+            return Answer(outcome="ambiguous", message="Send one command at a time, so it is clear which one to run.")
         if request.verb == HELP_VERB:
             return Answer(outcome="help", message=help_text())
         if spec is None:

@@ -10,6 +10,8 @@ Grammar:
 - Option scanning stops at the first token that does not start with `--`. The rest of the comment
   line is the command's one free-text field, kept as typed.
 - A lone `--` also stops option scanning, so free text can start with `--`.
+- An option typed with one dash, such as `—deep`, counts as `--deep`: text editors such as macOS
+  autocorrect turn a typed `--` into a dash.
 - Comment text is never split with `shlex`, because apostrophes and unbalanced quotes are normal
   in prose.
 
@@ -20,6 +22,7 @@ outside Django.
 import re
 import types
 import dataclasses
+import unicodedata
 from collections.abc import Mapping
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
@@ -31,6 +34,7 @@ SCHEMA_VERSION = 1
 MENTION = "@posthog"
 # A line with the bare mention asks for help, so the grammar owns this verb.
 HELP_VERB = "help"
+MAX_ARGUMENT_LENGTH = 200
 
 AccessLevel = Literal["viewer", "editor", "manager"]
 OptionKind = Literal["flag", "value"]
@@ -42,6 +46,7 @@ _NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
 _VERB_RE = re.compile(r"[a-z][a-z0-9-]*")
 _TOKEN_RE = re.compile(r"\S+")
 _END_OF_OPTIONS = "--"
+_DASHED_OPTION_RE = re.compile(r"^[\u2013\u2014](?=[a-z])")
 
 
 def flag(help: str) -> Any:
@@ -57,6 +62,18 @@ def option(help: str, *, default: str | None = None) -> Any:
 def text(help: str, *, required: bool = False) -> Any:
     """The free text after the options, kept as typed. A command has at most one."""
     return dataclasses.field(default="", metadata={_ROLE: "text", _HELP: help, _REQUIRED: required})
+
+
+def sanitize_argument(raw: str) -> str:
+    """Make the free text after the verb safe to store, log and hand to a product.
+
+    Drops control and format characters, which removes bidirectional overrides and zero-width
+    characters that can make text read differently than it runs. Collapses whitespace and caps
+    the length, so an argument stays one short line.
+    """
+    kept = "".join(char for char in raw if unicodedata.category(char)[0] != "C" or char in " \t\r\n")
+    collapsed = " ".join(kept.split())
+    return collapsed[:MAX_ARGUMENT_LENGTH]
 
 
 @frozen
@@ -310,7 +327,7 @@ def parse_arguments[A](declaration: CommandDeclaration[A], raw: str) -> A | Argu
     index = 0
     while index < len(tokens):
         token = tokens[index]
-        word = token.group()
+        word = _DASHED_OPTION_RE.sub(_END_OF_OPTIONS, token.group())
         if word == _END_OF_OPTIONS:
             remainder = raw[token.end() :].strip()
             break

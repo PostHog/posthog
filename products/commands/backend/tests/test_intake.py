@@ -5,12 +5,12 @@ import pytest
 
 from products.commands.backend.channels.github.intake import CommentCommandRequest, Dropped, read_comment_command
 from products.commands.backend.channels.github.parsing import (
-    MAX_ARGUMENT_LENGTH,
     MAX_BODY_LENGTH,
     AmbiguousCommand,
     ParsedCommand,
     parse_command,
 )
+from products.commands.backend.logic.schema import MAX_ARGUMENT_LENGTH
 
 
 def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:

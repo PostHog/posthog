@@ -12,7 +12,6 @@ from collections.abc import Collection
 
 import structlog
 
-from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
@@ -57,13 +56,11 @@ def review_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarg
 
 def stamp_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
     """The projects where Stamphog reviews the repository, and their environments."""
-    # Stamphog keeps its repositories on the parent project.
-    project_ids = _project_ids(team_ids)
-    reviewing = set(stamphog_requests.reviewing_team_ids(ref.repository, set(project_ids.values())))
+    reviewing = stamphog_requests.reviewing_team_ids(ref.repository, team_ids)
     if not reviewing:
         return Answer(outcome="refused", message="Stamphog is not set up for this repository.")
     return CommandTarget(
-        team_ids=tuple(team_id for team_id in team_ids if project_ids.get(team_id) in reviewing),
+        team_ids=tuple(reviewing),
         not_member_message="You aren't a member of the PostHog project where Stamphog reviews this repository.",
     )
 
@@ -74,7 +71,7 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     member = context.members[0]
     try:
         result = stamphog_requests.request_review(
-            resolve_effective_team_id(member.team_id),
+            member.team_id,
             user_id=member.user_id,
             repository=pull_request.repository,
             pr_number=pull_request.number,

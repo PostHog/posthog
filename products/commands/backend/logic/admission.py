@@ -25,11 +25,17 @@ _REQUESTER_BUDGET = Budget(burst=5, per_hour=30)
 
 
 def rolled_out_team_ids(
-    flag: str, installation_id: str, organization_ids: Collection[str] | None = None
+    flag: str,
+    installation_id: str,
+    organization_ids: Collection[str] | None = None,
+    *,
+    only_evaluate_locally: bool = False,
 ) -> tuple[int, ...]:
     """Projects on the installation whose organization is in the rollout, oldest integration first.
 
-    ``organization_ids`` narrows them, for a channel that may reach only some organizations.
+    ``organization_ids`` narrows them, for a channel that may reach only some organizations. A caller
+    inside a webhook passes ``only_evaluate_locally``, so a flag that cannot be evaluated locally
+    reads as off instead of costing a remote call per project.
     """
     team_ids = list(
         dict.fromkeys(
@@ -50,6 +56,7 @@ def rolled_out_team_ids(
             f"{flag}-installation-{installation_id}",
             organization_id=team.organization_id,
             team_id=team.id,
+            only_evaluate_locally=only_evaluate_locally,
         )
     }
     return tuple(team_id for team_id in team_ids if team_id in rolled_out)

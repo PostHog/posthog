@@ -9,16 +9,14 @@ command text they answer.
 """
 
 import re
-import unicodedata
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from posthog.dataclasses import frozen
 
-from ...logic.schema import HELP_VERB, MENTION
+from ...logic.schema import HELP_VERB, MENTION, sanitize_argument
 
-MAX_ARGUMENT_LENGTH = 200
 # A command comment is short, and the CommonMark parse of the largest comment GitHub allows costs
 # most of a second inside the webhook request.
 MAX_BODY_LENGTH = 10_000
@@ -81,18 +79,6 @@ def parse_command(body: str) -> ParseResult:
     if len(commands) > 1:
         return AmbiguousCommand(count=len(commands))
     return commands[0] if commands else None
-
-
-def sanitize_argument(raw: str) -> str:
-    """Make the free text after the verb safe to store, log and hand to a product.
-
-    Drops control and format characters, which removes bidirectional overrides and zero-width
-    characters that can make text read differently than it runs. Collapses whitespace and caps
-    the length, so an argument stays one short line.
-    """
-    kept = "".join(char for char in raw if unicodedata.category(char)[0] != "C" or char in " \t")
-    collapsed = " ".join(kept.split())
-    return collapsed[:MAX_ARGUMENT_LENGTH]
 
 
 def _paragraph_lines(inline: Token) -> list[str]:

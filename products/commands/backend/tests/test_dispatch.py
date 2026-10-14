@@ -28,10 +28,14 @@ from posthog.token_bucket import BucketDecision
 from products.access_control.backend.facade.testing import create_access_control
 from products.commands.backend.channels.github.comments import GitHubCommentChannel, dispatch_comment_command
 from products.commands.backend.channels.github.intake import CommentCommandRequest
+from products.commands.backend.channels.slack.mentions import read_slack_command
+from products.commands.backend.facade.api import accept_slack_mention
+from products.commands.backend.facade.contracts import SlackMention
 from products.commands.backend.logic.commands import CommandContext, CommandRequest, ProjectMember, PullRequestFacts
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
 from products.commands.backend.logic.handlers import handle_loop, handle_qa
 from products.commands.backend.logic.schema import LoopArgs, QaArgs
+from products.commands.backend.tasks.tasks import run_slack_command
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -54,6 +58,9 @@ OWNING_TEAM_ID = "products.commands.backend.logic.handlers.review_hog_github.own
 CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
 CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
+RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.delay"
+SLACK_INSTALLATION_GITHUB = "products.commands.backend.channels.slack.mentions.InstallationGitHub.for_installation"
+SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -478,6 +485,90 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert outcome == "no_project"
         request_review.assert_not_called()
+
+    def _connect_github_account(self, account: str) -> None:
+        Integration.objects.filter(team=self.team, kind="github", integration_id=INSTALLATION_ID).update(
+            config={"account": {"name": account}}
+        )
+
+    def _slack_mention(self, text: str, organization_ids: tuple[str, ...], integration_id: int = 0) -> SlackMention:
+        return SlackMention(
+            text=f"{text} https://github.com/{REPOSITORY}/pull/7",
+            slack_team_id="T1",
+            slack_user_id="U1",
+            channel="C1",
+            thread_ts="100.1",
+            message_ts=str(self.github_id),
+            integration_id=integration_id,
+            integration_team_id=self.team.id,
+            user_ids=(self.user.id,),
+            organization_ids=organization_ids,
+        )
+
+    @parameterized.expand(
+        [
+            ("exact_command", "review --deep", True, True, "review"),
+            ("free_text", "can you review this deeply", True, True, None),
+            ("mistyped_option", "review --depp", True, True, None),
+            ("outside_the_rollout", "review", True, False, None),
+            ("organization_without_this_workspace", "review", False, True, None),
+        ]
+    )
+    def test_a_slack_message_skips_the_agent_only_for_an_exact_rolled_out_command(
+        self, _name: str, command_text: str, connected: bool, rolled_out: bool, expected_verb: str | None
+    ) -> None:
+        self._connect_github_account("acme")
+        self.flag.return_value = rolled_out
+        organization_ids = (
+            (str(self.organization.id),) if connected else (str(Organization.objects.create(name="Else").id),)
+        )
+
+        command = read_slack_command(self._slack_mention(command_text, organization_ids))
+
+        assert (command.verb if command else None) == expected_verb
+        if command is not None:
+            assert (command.installation_id, command.team_ids) == (INSTALLATION_ID, (self.team.id,))
+        # Inside the Slack webhook, a flag that needs a remote call reads as off.
+        assert all(call.kwargs["only_evaluate_locally"] for call in self.flag.call_args_list)
+
+    @parameterized.expand(
+        [
+            ("accepted", True, True, "PostHog Review is reviewing this pull request."),
+            # The message already skipped the agent, so a refusal must still answer.
+            ("over_the_rate_limit", False, True, "You've sent a lot of commands in a short time."),
+            ("github_unreachable", True, False, "I couldn't reach GitHub for this repository."),
+        ]
+    )
+    def test_a_slack_command_answers_in_the_thread_it_came_from(
+        self, _name: str, within_budget: bool, github_reachable: bool, expected_answer: str
+    ) -> None:
+        self._connect_github_account("acme")
+        slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
+        )
+        mention = self._slack_mention("review", (str(self.organization.id),), integration_id=slack.id)
+        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        budget = BucketDecision(allowed=within_budget, remaining=0, limit=5, retry_after=60, reset=600)
+
+        with (
+            # The task runs in place, so the test covers the facade, the task and the channel together.
+            patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
+            patch(SLACK_INSTALLATION_GITHUB, return_value=FakeGitHub() if github_reachable else None),
+            patch(SLACK_POST) as post,
+            patch(CONSUME_BUDGET, return_value=budget),
+            patch(OWNING_TEAM_ID, return_value=self.team.id),
+            patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
+        ):
+            verb = accept_slack_mention(mention)
+
+        assert verb == "review"
+        assert post.call_args.kwargs["thread_ts"] == "100.1"
+        answer = post.call_args.args[3]
+        assert answer.startswith(expected_answer)
+        if within_budget and github_reachable:
+            assert request_pr_review.call_args.kwargs["requester_id"] == self.user.id
+        else:
+            request_pr_review.assert_not_called()
 
     @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
     def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:
