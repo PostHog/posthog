@@ -180,6 +180,46 @@ async fn test_get_group() {
 }
 
 #[tokio::test]
+async fn test_create_group_returns_existing_group_on_duplicate_key() {
+    let ctx = TestContext::new().await;
+    let first_properties = serde_json::json!({"name": "First"});
+    let first_created_at = chrono::Utc::now() - chrono::Duration::hours(1);
+
+    let first = ctx
+        .storage
+        .create_group(
+            ctx.team_id,
+            0,
+            "company_dup",
+            &first_properties,
+            first_created_at,
+        )
+        .await
+        .expect("first create failed");
+
+    let second = ctx
+        .storage
+        .create_group(
+            ctx.team_id,
+            0,
+            "company_dup",
+            &serde_json::json!({"name": "Second"}),
+            chrono::Utc::now(),
+        )
+        .await
+        .expect("a duplicate create should return the existing group");
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.created_at, first.created_at);
+    assert_eq!(second.version, first.version);
+    let second_props: serde_json::Value =
+        serde_json::from_str(second.group_properties.as_deref().unwrap()).unwrap();
+    assert_eq!(second_props, first_properties);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_group_type_mappings() {
     let ctx = TestContext::new().await;
 

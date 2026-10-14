@@ -533,7 +533,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key_via_personhog(self, mock_capture):
-        """Personhog upserts on duplicate so the pre-check must catch it."""
+        """Personhog returns the existing group on a duplicate, so the pre-check must catch it."""
 
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -564,6 +564,28 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["detail"], "A group with this key already exists")
         create_calls = [c for c in fake.calls if c.method == "create_group"]
         self.assertEqual(len(create_calls), 0, "create_group should not be called for duplicates")
+        mock_capture.assert_not_called()
+
+    @mock.patch("products.groups.backend.presentation.views.capture_internal")
+    @mock.patch("products.groups.backend.presentation.views.get_group_by_key", return_value=None)
+    def test_create_group_duplicate_created_after_the_pre_check(self, _mock_pre_check, mock_capture):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+
+        with fake_personhog_client() as fake:
+            fake.add_group(team_id=self.team.pk, group_type_index=0, group_key="raced-key", id=1)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups",
+                {"group_key": "raced-key", "group_type_index": 0, "group_properties": {}},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "A group with this key already exists")
         mock_capture.assert_not_called()
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
