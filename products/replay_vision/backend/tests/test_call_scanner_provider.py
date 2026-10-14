@@ -150,6 +150,37 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
 
 
 @pytest.mark.asyncio
+async def test_gateway_mode_deletes_its_cache_before_closing_the_gateway() -> None:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    scanner.assemble.return_value = (MagicMock(), [])
+    order: list[str] = []
+    gateway = MagicMock(spec=GatewayGeminiClient)
+    gateway.aio = MagicMock()
+    gateway.aio.caches.create = AsyncMock(return_value=MagicMock(name="cache"))
+    gateway.aio.caches.delete = AsyncMock(side_effect=lambda **_: order.append("delete"))
+    gateway.aclose = AsyncMock(side_effect=lambda: order.append("aclose"))
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch(f"{module}.replay_gateway_client", return_value=gateway),
+        patch(f"{module}._run_mission_attempts", new=AsyncMock(return_value={})),
+        patch(f"{module}.build_events_index", return_value={}),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=_gateway_scan_snapshot(),
+            video_part=types.Part(text="video"),
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+
+    assert order == ["delete", "aclose"]
+
+
+@pytest.mark.asyncio
 async def test_gateway_off_runs_the_scan_direct() -> None:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
@@ -661,6 +692,7 @@ class TestRunPass:
         [
             APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}),
             httpx.ConnectError("connection reset by peer"),
+            APIError(402, {"error": {"code": 402, "details": [{"domain": "posthog.com", "reason": "cap_exceeded"}]}}),
         ],
     )
     async def test_transient_provider_error_is_not_retried_inline(self, error: Exception) -> None:
@@ -708,6 +740,15 @@ async def test_video_cache_creation_is_best_effort() -> None:
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
     result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
     assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [429, 503])
+async def test_a_transient_cache_failure_retries_the_activity_instead_of_running_uncached(code: int) -> None:
+    client = MagicMock()
+    client.aio.caches.create = AsyncMock(side_effect=APIError(code, {"error": {"code": code}}))
+    with pytest.raises(APIError):
+        await _maybe_create_video_cache(client, "models/gemini-3-flash-preview", types.Part(text="video"), "PRE")
 
 
 @pytest.mark.asyncio

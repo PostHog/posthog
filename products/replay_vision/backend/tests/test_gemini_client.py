@@ -19,12 +19,13 @@ from products.replay_vision.backend.gemini_client import (
     GATEWAY_FLAG,
     GatewayGeminiClient,
     _send_before,
+    _with_headers,
     assemble_stream,
     replay_gateway_client,
 )
 from products.replay_vision.backend.temporal import pii_check
 from products.replay_vision.backend.temporal.errors import FailureKind
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error
 
 _GATEWAY = {
     "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
@@ -158,17 +159,48 @@ class TestReplayGatewayClient:
 
         assert len(asyncio.run(call_after_collection())) == 1
 
-    @pytest.mark.parametrize("code", [400, 401, 402, 403])
-    def test_a_gateway_refusal_is_a_non_retryable_rejection(self, code: int) -> None:
-        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json={"error": {"code": code}}))
+    @pytest.mark.parametrize("code", [401, 402, 403])
+    def test_the_gateways_own_refusal_is_ours_and_retryable(self, code: int) -> None:
+        body = {
+            "error": {
+                "code": code,
+                "details": [
+                    {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "x", "domain": "posthog.com"}
+                ],
+            }
+        }
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=body))
 
         with pytest.raises(genai_errors.ClientError) as exc_info:
             asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
 
-        assert exc_info.value.code == code
+        assert classify_gemini_error(exc_info.value) == FailureKind.INFRA_TRANSIENT
+        assert describe_gemini_error(exc_info.value).startswith("PostHog's AI gateway returned HTTP")
+
+    @pytest.mark.parametrize("code", [400, 401, 403])
+    def test_a_refusal_google_wrote_stays_a_rejection(self, code: int) -> None:
+        body = {
+            "error": {
+                "code": code,
+                "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "domain": "googleapis.com"}],
+            }
+        }
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=body))
+
+        with pytest.raises(genai_errors.ClientError) as exc_info:
+            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+
         kind = classify_gemini_error(exc_info.value)
         assert kind == FailureKind.PROVIDER_REJECTED
         assert kind is not None and not kind.is_retryable
+        assert describe_gemini_error(exc_info.value).startswith("The AI provider returned HTTP")
+
+    def test_request_headers_keep_the_callers_other_http_options(self) -> None:
+        config = types.GenerateContentConfig(http_options=types.HttpOptions(timeout=5000, headers={"a": "1"}))
+        merged = _with_headers(config, {"b": "2"})
+        assert merged is not None and merged.http_options is not None
+        assert merged.http_options.timeout == 5000
+        assert merged.http_options.headers == {"a": "1", "b": "2"}
 
 
 def test_pii_rewrite_uses_the_gateway_when_configured_and_closes_it() -> None:
@@ -394,6 +426,26 @@ class TestGatewayFilesAndCaches:
             with pytest.raises(httpx.WriteTimeout):
                 next(chunks)
         assert classify_gemini_error(httpx.WriteTimeout("deadline")) == FailureKind.PROVIDER_TRANSIENT
+
+    def test_upload_sends_through_its_deadline(self) -> None:
+        client = _gateway_client()
+        real_client = httpx.Client
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            request.read()
+            return httpx.Response(200, json={"file": {"name": "files/abc"}})
+
+        clock = iter([0.0, 1.0, 1000.0])
+        with (
+            patch(
+                "products.replay_vision.backend.gemini_client.httpx.Client",
+                lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+            ),
+            patch("products.replay_vision.backend.gemini_client.time.monotonic", lambda: next(clock)),
+            pytest.raises(httpx.WriteTimeout) as exc_info,
+        ):
+            client.upload_file(b"x" * (2 << 20), mime_type="video/mp4", display_name="wf-1")
+        assert classify_gemini_error(exc_info.value) == FailureKind.PROVIDER_TRANSIENT
 
     def test_upload_raises_the_gateways_status(self) -> None:
         client = _gateway_client()

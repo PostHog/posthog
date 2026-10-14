@@ -25,7 +25,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.gemini_client import replay_gateway_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
 
 logger = structlog.get_logger(__name__)
 
@@ -206,6 +206,10 @@ async def keep_unrequested_pii_out(
         )
     except Exception as e:
         record_pii_check("failed", scanner_type)
+        # A rate limit or outage is not a verdict on the answer; the activity boundary classifies and retries it.
+        kind = classify_gemini_error(e)
+        if kind is not None and kind.is_retryable:
+            raise
         raise ScannerFailureError(
             "The answer included personal data the scanner didn't ask for, and it could not be removed.",
             kind=FailureKind.PII_DETECTED,

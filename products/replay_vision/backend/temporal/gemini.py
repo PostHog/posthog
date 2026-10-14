@@ -28,6 +28,16 @@ _PROVIDER_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+_GATEWAY_INFRA_CODES = frozenset({401, 402, 403})
+
+
+def _gateway_authored(error: APIError) -> bool:
+    """The AI gateway marks its own errors with a `google.rpc.ErrorInfo` in the posthog.com domain."""
+    body = error.details.get("error") if isinstance(error.details, dict) else None
+    details = body.get("details") if isinstance(body, dict) else None
+    return isinstance(details, list) and any(isinstance(d, dict) and d.get("domain") == "posthog.com" for d in details)
+
+
 def describe_gemini_error(error: BaseException) -> str:
     """Fixed-shape summary for user-visible error reasons.
 
@@ -36,7 +46,8 @@ def describe_gemini_error(error: BaseException) -> str:
     """
     if isinstance(error, APIError):
         status = f" {error.status}" if error.status else ""
-        return f"The AI provider returned HTTP {error.code}{status}"
+        source = "PostHog's AI gateway" if _gateway_authored(error) else "The AI provider"
+        return f"{source} returned HTTP {error.code}{status}"
     return f"PostHog could not reach the AI provider ({type(error).__name__})"
 
 
@@ -54,6 +65,9 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
         return None
     if error.code in _TRANSIENT_STATUS_CODES:
         return FailureKind.PROVIDER_TRANSIENT
+    # The gateway's own refusal of our key, binding or budget is a PostHog-side fault, not the input's.
+    if error.code in _GATEWAY_INFRA_CODES and _gateway_authored(error):
+        return FailureKind.INFRA_TRANSIENT
     # A 4xx we didn't list is the provider refusing this input (unsupported video, too large, safety block).
     if isinstance(error.code, int) and 400 <= error.code < 500:
         return FailureKind.PROVIDER_REJECTED

@@ -735,10 +735,11 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     except ScannerFailureError:
         raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
-        # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
+        # Retryable errors (provider or gateway) belong to the Temporal activity retry, which backs off across the quota
         # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
         # still rate-limiting or down, and would multiply with the other retry layers.
-        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
+        kind = classify_gemini_error(exc)
+        if kind is not None and kind.is_retryable:
             raise
         # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
         # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
@@ -1070,6 +1071,10 @@ async def _maybe_create_video_cache(
             ),
         )
     except Exception as e:
+        # A rate limit or outage retries the activity before any generate spend, rather than running uncached.
+        kind = classify_gemini_error(e)
+        if kind is not None and kind.is_retryable:
+            raise
         logger.info("replay_vision.video_cache.skipped", error=str(e))
         return None
 

@@ -57,3 +57,48 @@ async def test_answer_still_flagged_after_the_rewrite_fails_the_observation() ->
         await _check(f"(t 12) {_SUBJECT} paid.", False, rewrite_to=f"(t 12) {_SUBJECT} paid, again.")
     assert raised.value.kind == FailureKind.PII_DETECTED
     assert raised.value.non_retryable
+
+
+@parameterized.expand([("rate_limited", 429), ("unavailable", 503)])
+@pytest.mark.asyncio
+async def test_a_transient_rewrite_failure_reaches_the_activity_retry(_name: str, code: int) -> None:
+    from google.genai import errors as genai_errors
+
+    error = genai_errors.APIError(code, {"error": {"code": code}})
+    with (
+        patch.object(pii_check, "asks_for_identity", return_value=False),
+        patch.object(pii_check, "contains_pii", side_effect=_detector),
+        patch.object(pii_check, "rewrite_without_pii", new=AsyncMock(side_effect=error)),
+        pytest.raises(genai_errors.APIError) as raised,
+    ):
+        await pii_check.keep_unrequested_pii_out(
+            MonitorOutput(verdict="yes", reasoning=f"(t 12) {_SUBJECT} paid.", confidence=0.9),
+            team_id=1,
+            question="What happened?",
+            identity_values=[],
+            scanner_type="monitor",
+            trace_id="t",
+        )
+    assert raised.value.code == code
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_rewrite_still_fails_as_pii_detected() -> None:
+    from google.genai import errors as genai_errors
+
+    error = genai_errors.APIError(400, {"error": {"code": 400}})
+    with (
+        patch.object(pii_check, "asks_for_identity", return_value=False),
+        patch.object(pii_check, "contains_pii", side_effect=_detector),
+        patch.object(pii_check, "rewrite_without_pii", new=AsyncMock(side_effect=error)),
+        pytest.raises(ScannerFailureError) as raised,
+    ):
+        await pii_check.keep_unrequested_pii_out(
+            MonitorOutput(verdict="yes", reasoning=f"(t 12) {_SUBJECT} paid.", confidence=0.9),
+            team_id=1,
+            question="What happened?",
+            identity_values=[],
+            scanner_type="monitor",
+            trace_id="t",
+        )
+    assert raised.value.kind == FailureKind.PII_DETECTED

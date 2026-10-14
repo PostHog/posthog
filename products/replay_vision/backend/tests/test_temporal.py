@@ -3749,6 +3749,31 @@ class TestUploadThroughTheGateway:
         assert [call.args[0] for call in sleep.await_args_list] == [0.5, 1.0, 5.0]
 
     @pytest.mark.asyncio
+    async def test_a_poll_refusal_other_than_a_rate_limit_fails_at_once(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        gateway = MagicMock()
+        gateway.aclose = AsyncMock()
+        gateway.upload_file.return_value = types.File(name="files/abc", state=types.FileState.PROCESSING)
+        gateway.files.get.side_effect = [ClientError(403, {"error": {"code": 403, "status": "PERMISSION_DENIED"}})]
+        sleep = AsyncMock()
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        with (
+            patch(f"{module}.replay_gateway_client", return_value=gateway),
+            patch(f"{module}.RawGenAIClient"),
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+            patch(f"{module}.asyncio.sleep", sleep),
+            pytest.raises(ScannerFailureError) as raised,
+        ):
+            await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        assert raised.value.kind == FailureKind.PROVIDER_REJECTED
+        assert gateway.files.get.call_count == 1
+        assert [call.args[0] for call in sleep.await_args_list] == [0.5]
+
+    @pytest.mark.asyncio
     async def test_flag_off_uploads_direct_with_the_gateway_configured(self) -> None:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")

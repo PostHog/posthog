@@ -245,5 +245,6 @@ def _with_headers(
     if not headers:
         return config
     config = config or types.GenerateContentConfig()
-    existing = config.http_options.headers if config.http_options and config.http_options.headers else {}
-    return config.model_copy(update={"http_options": types.HttpOptions(headers={**existing, **headers})})
+    options = config.http_options or types.HttpOptions()
+    merged = options.model_copy(update={"headers": {**(options.headers or {}), **headers}})
+    return config.model_copy(update={"http_options": merged})
