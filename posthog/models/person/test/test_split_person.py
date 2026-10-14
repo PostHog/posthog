@@ -1,9 +1,8 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import grpc
 from parameterized import parameterized
 
 from posthog.models import Person
@@ -313,41 +312,6 @@ class TestSplitPerson(BaseTest):
 
         assert mock_create_person.call_count == 5
         assert mock_create_pdi.call_count == 5
-
-    @parameterized.expand(
-        [
-            ("db_timeout_then_ok", 1, (("x-db-timeout", "lock_timeout"),), 2, True),
-            ("db_timeout_every_attempt", 99, (("x-db-timeout", "lock_timeout"),), 3, False),
-            ("other_deadline_exceeded", 1, (), 1, False),
-        ]
-    )
-    def test_split_retries_a_batch_only_after_a_database_timeout(
-        self, mock_create_pdi, mock_create_person, _name, failures, metadata, expected_calls, succeeds
-    ):
-        with fake_personhog_client() as fake, patch("posthog.models.person.person.time.sleep"):
-            person = self._setup_person(fake, ["id1", "id2"], mock_create_pdi, mock_create_person)
-            real_split = fake.split_person
-            calls = []
-
-            def flaky_split(request, timeout=None):
-                calls.append(request)
-                if len(calls) <= failures:
-                    error = grpc.RpcError()
-                    error.code = MagicMock(return_value=grpc.StatusCode.DEADLINE_EXCEEDED)
-                    error.details = MagicMock(return_value="timeout")
-                    error.trailing_metadata = MagicMock(return_value=metadata)
-                    raise error
-                return real_split(request, timeout=timeout)
-
-            fake.split_person = flaky_split
-            if succeeds:
-                person.split_person(main_distinct_id="id1")
-            else:
-                with self.assertRaises(grpc.RpcError):
-                    person.split_person(main_distinct_id="id1")
-
-        assert len(calls) == expected_calls
-        assert mock_create_pdi.call_count == (1 if succeeds else 0)
 
     def test_split_raises_when_rpc_fails(self, mock_create_pdi, mock_create_person):
         # No ORM fallback: an RPC failure propagates and nothing is published.

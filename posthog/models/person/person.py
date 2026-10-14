@@ -1,4 +1,3 @@
-import time
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, Optional
 from uuid import UUID
@@ -20,8 +19,6 @@ MAX_LIMIT_DISTINCT_IDS = 2500
 
 # Mirrors MAX_SPLIT_BATCH_SIZE enforced by the personhog SplitPerson RPC.
 PERSONHOG_SPLIT_BATCH_SIZE = 250
-SPLIT_DB_TIMEOUT_ATTEMPTS = 3
-SPLIT_DB_TIMEOUT_BACKOFF_SECONDS = 0.5
 
 
 class SplitOutcome(NamedTuple):
@@ -396,10 +393,7 @@ class Person(models.Model):
         posthog/models/person/util.py (_delete_person) and
         rust/personhog-replica/src/storage/postgres/person.rs (SPLIT_VERSION_OFFSET).
         """
-        import grpc
-
         from posthog.personhog_client.client import get_personhog_client
-        from posthog.personhog_client.interceptor import is_db_timeout_error
         from posthog.personhog_client.proto import SplitPersonRequest
 
         client = get_personhog_client()
@@ -408,16 +402,13 @@ class Person(models.Model):
                 "split_person requires personhog, but the client is not configured (PERSONHOG_ADDR is unset)"
             )
 
-        request = SplitPersonRequest(team_id=self.team_id, person_id=self.pk, distinct_ids_to_split=distinct_ids)
-        for attempt in range(1, SPLIT_DB_TIMEOUT_ATTEMPTS + 1):
-            try:
-                response = client.split_person(request)
-                break
-            except grpc.RpcError as exc:
-                # A database timeout rolled the whole batch back, often behind a merge of the same person.
-                if attempt == SPLIT_DB_TIMEOUT_ATTEMPTS or not is_db_timeout_error(exc):
-                    raise
-                time.sleep(SPLIT_DB_TIMEOUT_BACKOFF_SECONDS * attempt)
+        response = client.split_person(
+            SplitPersonRequest(
+                team_id=self.team_id,
+                person_id=self.pk,
+                distinct_ids_to_split=distinct_ids,
+            )
+        )
         if len(response.splits) != len(distinct_ids):
             logger.error(
                 "split_person RPC returned unexpected number of splits",
