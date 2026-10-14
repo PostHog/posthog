@@ -9,7 +9,8 @@ review again, and the workflow removes the label when the run ends.
 - A person can add the label, and so can Stamphog, which hands a refused or escalated pull request to
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
 - The `posthog-review-deep` label needs the same access as `@posthog review --deep`: the labeler is an
-  active member with the PostHog Review flag and editor access. Anyone else gets the `posthog-review` review.
+  active member of the project with the PostHog Review flag and editor access. Anyone else gets the
+  `posthog-review` review.
 - The review runs in the owning project.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
@@ -147,7 +148,9 @@ class LabelReview:
         ):
             return False
         access_control = UserAccessControl(user=labeler, team=team, organization_id=str(team.organization_id))
-        return access_control.check_access_level_for_resource("review_hog", "editor")
+        return access_control.has_project_access and access_control.check_access_level_for_resource(
+            "review_hog", "editor"
+        )
 
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)

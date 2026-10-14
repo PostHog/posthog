@@ -542,7 +542,9 @@ class TestLabelReviewTask(BaseTest):
 
         assert self.start.call_args.kwargs["review_mode"] == "full"
 
-    @parameterized.expand([("no_posthog_account",), ("review_hog_flag_off",), ("no_editor_access",)])
+    @parameterized.expand(
+        [("no_posthog_account",), ("review_hog_flag_off",), ("no_project_access",), ("no_editor_access",)]
+    )
     def test_a_full_label_without_review_access_runs_standard(self, case: str) -> None:
         sender = "OctoCat"
         if case == "no_posthog_account":
@@ -554,7 +556,12 @@ class TestLabelReviewTask(BaseTest):
                 {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
             ]
             self.organization.save()
-            create_access_control(team_id=self.team.id, resource="review_hog", access_level="none")
+            if case == "no_project_access":
+                create_access_control(
+                    team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
+                )
+            else:
+                create_access_control(team_id=self.team.id, resource="review_hog", access_level="none")
 
         self._run(_label_payload(label="posthog-review-deep", sender=sender))
 
