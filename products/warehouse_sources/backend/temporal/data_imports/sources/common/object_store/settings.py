@@ -17,6 +17,8 @@ JSONL_CHUNK_BYTES = 64 * 1024 * 1024
 # One JSON Lines record, or the first line of a CSV file, is held whole in memory to be parsed. A gzip
 # file can expand far past its stored size, so reads stop at this many decompressed bytes.
 MAX_RECORD_BYTES = 32 * 1024 * 1024
+# The first record of a CSV file names the columns, and is read whole before the streaming reader starts.
+MAX_FIRST_CSV_RECORD_BYTES = 1024 * 1024
 # A gzipped Parquet file is unpacked to local disk to be read, so the unpacked size is capped too.
 MAX_UNPACKED_PARQUET_BYTES = 2 * 1024 * 1024 * 1024
 PARQUET_BATCH_ROWS = 10_000

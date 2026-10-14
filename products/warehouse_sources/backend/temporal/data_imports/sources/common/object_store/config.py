@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, get_args
 
 from posthog.dataclasses import frozen
 
@@ -85,6 +85,11 @@ class DiscoveryOptions:
     file_pattern: str | None = None
     allow_double_quotes: bool = True
     combined_table_name: str | None = None
+
+    def __post_init__(self) -> None:
+        # The API checks the shape of a payload, not that a `Literal` field holds one of its values.
+        if self.file_format not in get_args(FileFormatChoice):
+            raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: '{self.file_format}' isn't a supported file format.")
 
 
 def normalize_prefix(path: str | None) -> str:

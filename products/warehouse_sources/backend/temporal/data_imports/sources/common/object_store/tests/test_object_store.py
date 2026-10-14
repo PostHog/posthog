@@ -227,6 +227,17 @@ class TestGroupTables:
 
 
 class TestTableLimit:
+    def test_names_that_sanitize_alike_get_increasing_suffixes(self) -> None:
+        objects = [stored(f"{name}.csv") for name in ("a-b", "a_b", "a b", "a.b")]
+
+        names = [table.name for table in group_tables(objects, DiscoveryOptions(), root_name="root")]
+
+        assert sorted(names) == ["a_b", "a_b_2", "a_b_3", "a_b_4"]
+
+    def test_an_unknown_file_format_is_an_invalid_config(self) -> None:
+        with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
+            DiscoveryOptions(file_format="avro")  # type: ignore[arg-type]
+
     def test_discovery_stops_at_the_table_limit_but_resolving_a_table_does_not(self) -> None:
         objects = [stored(f"file_{index:05d}.csv") for index in range(MAX_TABLES + 1)]
 
@@ -356,7 +367,7 @@ class TestCsv:
     def test_an_unterminated_quote_in_the_first_record_stays_within_the_record_limit(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(formats, "MAX_RECORD_BYTES", 64)
+        monkeypatch.setattr(formats, "MAX_FIRST_CSV_RECORD_BYTES", 64)
         content = b'1,"open\n' + b"line\n" * 100
 
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
@@ -392,6 +403,10 @@ class TestJsonl:
             {"id": None, "value": 4},
             {"value": "five"},
         ]
+
+    def test_a_too_deeply_nested_record_is_a_parse_error(self) -> None:
+        with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+            list(iter_jsonl_tables(io.BytesIO(b"[" * 100_000 + b"]" * 100_000 + b"\n"), "deep.jsonl"))
 
     def test_invalid_line_names_the_file_and_line(self) -> None:
         with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'x.jsonl' as JSON Lines: line 2"):

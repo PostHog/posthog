@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     CSV_BLOCK_SIZE_BYTES,
     JSONL_CHUNK_BYTES,
     JSONL_CHUNK_ROWS,
+    MAX_FIRST_CSV_RECORD_BYTES,
     MAX_RECORD_BYTES,
     MAX_UNPACKED_PARQUET_BYTES,
     PARQUET_BATCH_ROWS,
@@ -106,11 +107,9 @@ def _read_first_csv_record(
     The CSV reader pulls lines until the record is complete, so a quoted field that spans lines is
     one record, and a stray quote inside an unquoted field is not mistaken for the start of one.
     """
-    consumed: list[bytes] = []
-    total = 0
+    consumed = bytearray()
 
     def lines() -> Iterator[str]:
-        nonlocal total
         while True:
             line = _read_bounded_line(stream, file_path, "CSV")
             if not line:
@@ -119,13 +118,12 @@ def _read_first_csv_record(
                 if not line.strip():
                     continue
                 line = line.removeprefix(UTF8_BOM)
-            total += len(line)
-            if total > MAX_RECORD_BYTES:
+            if len(consumed) + len(line) > MAX_FIRST_CSV_RECORD_BYTES:
                 raise ObjectStorageError(
                     f"{FILE_PARSE_ERROR} '{file_path}' as CSV: the first record is longer than "
-                    f"{MAX_RECORD_BYTES:,} bytes."
+                    f"{MAX_FIRST_CSV_RECORD_BYTES:,} bytes."
                 )
-            consumed.append(line)
+            consumed.extend(line)
             yield line.decode("utf-8", errors="replace")
 
     if allow_double_quotes:
@@ -136,7 +134,7 @@ def _read_first_csv_record(
         fields = next(reader, [])
     except csv.Error as e:
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as CSV: the first record is invalid ({e}).") from e
-    return b"".join(consumed), fields
+    return bytes(consumed), fields
 
 
 def iter_csv_tables(
@@ -232,7 +230,7 @@ def iter_jsonl_tables(
             continue
         try:
             parsed = json.loads(line)
-        except ValueError as e:
+        except (ValueError, RecursionError) as e:
             raise ObjectStorageError(
                 f"{FILE_PARSE_ERROR} '{file_path}' as JSON Lines: line {line_number} isn't valid JSON ({e})."
             ) from e

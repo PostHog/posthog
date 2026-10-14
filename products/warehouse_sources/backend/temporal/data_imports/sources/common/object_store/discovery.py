@@ -286,13 +286,15 @@ def group_tables(
 
     tables: list[TableDefinition] = []
     taken: set[str] = set()
+    next_suffix: dict[str, int] = {}
     for candidate in candidates:
         base = sanitize_table_name(candidate.name) or "data"
         name = base
-        suffix = 2
+        suffix = next_suffix.get(base, 2)
         while name in taken:
             name = f"{base}_{suffix}"
             suffix += 1
+        next_suffix[base] = suffix
         taken.add(name)
         tables.append(dataclasses.replace(candidate, name=name))
 
