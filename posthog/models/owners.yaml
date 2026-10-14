@@ -11,8 +11,6 @@ rules:
       owners: team-ai-observability
     - match: '/channel_type/'
       owners: team-web-analytics
-    - match: '/cohortmembership/'
-      owners: team-feature-flags
     - match: '/comment/'
       owners: conversations
     - match: '/messaging.py'
