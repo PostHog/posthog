@@ -315,8 +315,6 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                         {
                             state: values.state,
                             team_id: formValues.scoped_teams[0],
-                            // The server refuses the confirm when the terms this page showed changed
-                            // while it was open, so the user approves only what they saw.
                             pays_for_customers: values.paysForCustomers,
                             partner_organization_id: values.pendingAuth?.partner_organization_id ?? null,
                         },

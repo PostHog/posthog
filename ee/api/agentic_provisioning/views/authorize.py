@@ -216,9 +216,6 @@ class AuthorizeConfirmView(APIView):
         confirm_partner = resolve_pending_partner(pending.get("partner_id", ""))
         paying_partner = _paying_partner(confirm_partner)
 
-        # The consent page sends back what it showed: whether the partner pays, and the partner
-        # organization. Both can change while the page is open, and the user approved only what
-        # the page showed.
         if (request.data.get("pays_for_customers") is True) != (paying_partner is not None):
             return _consent_changed_response(confirm_partner)
 
