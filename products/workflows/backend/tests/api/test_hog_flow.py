@@ -5237,10 +5237,11 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
-    def test_bulk_delete_archived_workflows(self):
-        ids = [self._create_flow(name=f"Flow {i}") for i in range(3)]
-        for fid in ids:
-            self._archive_flow(fid)
+    def test_bulk_delete_workflows_of_any_status(self):
+        ids = [self._create_flow(name=f"Flow {status}", flow_status=status) for status in ("draft", "active")]
+        archived_id = self._create_flow(name="Flow archived", flow_status="draft")
+        self._archive_flow(archived_id)
+        ids.append(archived_id)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
@@ -5289,37 +5290,6 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{response.json()['id']}")
         assert response.status_code == 204
         assert [c.args[1] for c in mock_report.call_args_list].count("hog_flow_deleted") == 1
-
-    @parameterized.expand(
-        [
-            ("draft",),
-            ("active",),
-        ]
-    )
-    def test_bulk_delete_skips_non_archived_workflows(self, flow_status):
-        flow_id = self._create_flow(flow_status=flow_status)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
-            {"ids": [flow_id]},
-        )
-        assert response.status_code == 200, response.json()
-        assert response.json()["deleted"] == 0
-        assert HogFlow.objects.filter(id=flow_id).exists()
-
-    def test_bulk_delete_mixed_statuses_only_deletes_archived(self):
-        draft_id = self._create_flow(name="Draft", flow_status="draft")
-        archived_id = self._create_flow(name="Archived", flow_status="draft")
-        self._archive_flow(archived_id)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
-            {"ids": [draft_id, archived_id]},
-        )
-        assert response.status_code == 200, response.json()
-        assert response.json()["deleted"] == 1
-        assert HogFlow.objects.filter(id=draft_id).exists()
-        assert not HogFlow.objects.filter(id=archived_id).exists()
 
     def test_bulk_delete_rejects_empty_ids(self):
         response = self.client.post(

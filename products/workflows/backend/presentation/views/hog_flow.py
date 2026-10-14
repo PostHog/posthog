@@ -127,7 +127,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     validate_skill_names,
 )
 from products.workflows.backend.facade.activity import (
-    bulk_delete_archived_workflows,
+    bulk_delete_workflows,
     log_workflow_activity,
     resume_workflow_email_sending,
 )
@@ -5949,7 +5949,7 @@ class HogFlowViewSet(
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        deleted = bulk_delete_archived_workflows(
+        deleted = bulk_delete_workflows(
             team_id=self.team_id,
             workflow_ids=validated_ids,
             user_access_control=self.user_access_control,

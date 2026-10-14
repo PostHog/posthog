@@ -124,9 +124,9 @@ export function WorkflowsTable(): JSX.Element {
         workflows,
         pagination,
         filters,
-        selectedArchivedWorkflowIds,
-        allArchivedSelected,
-        selectedArchivedCount,
+        selectedWorkflowIds,
+        allWorkflowsSelected,
+        selectedWorkflowCount,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
@@ -145,9 +145,9 @@ export function WorkflowsTable(): JSX.Element {
         deleteSelectedWorkflows,
         setFilters,
         selectTypeTab,
-        toggleArchivedWorkflowSelection,
-        selectAllArchivedWorkflows,
-        clearArchivedWorkflowSelection,
+        toggleWorkflowSelection,
+        selectAllWorkflows,
+        clearWorkflowSelection,
     } = useActions(logic)
 
     useOnMountEffect(() => {
@@ -163,32 +163,24 @@ export function WorkflowsTable(): JSX.Element {
         loadWorkflows()
     })
 
-    const isArchived = filters.status === 'archived'
-
     const columns: LemonTableColumns<HogFlow> = [
-        ...(isArchived
-            ? [
-                  {
-                      title: (
-                          <LemonCheckbox
-                              checked={allArchivedSelected ? true : selectedArchivedCount > 0 ? 'indeterminate' : false}
-                              onChange={(checked: boolean) =>
-                                  checked
-                                      ? selectAllArchivedWorkflows(workflows.results.map((w) => w.id))
-                                      : clearArchivedWorkflowSelection()
-                              }
-                          />
-                      ),
-                      width: 0,
-                      render: (_: any, item: HogFlow) => (
-                          <LemonCheckbox
-                              checked={selectedArchivedWorkflowIds.has(item.id)}
-                              onChange={() => toggleArchivedWorkflowSelection(item.id)}
-                          />
-                      ),
-                  },
-              ]
-            : []),
+        {
+            title: (
+                <LemonCheckbox
+                    checked={allWorkflowsSelected ? true : selectedWorkflowCount > 0 ? 'indeterminate' : false}
+                    onChange={(checked: boolean) =>
+                        checked ? selectAllWorkflows(workflows.results.map((w) => w.id)) : clearWorkflowSelection()
+                    }
+                />
+            ),
+            width: 0,
+            render: (_: any, item: HogFlow) => (
+                <LemonCheckbox
+                    checked={selectedWorkflowIds.has(item.id)}
+                    onChange={() => toggleWorkflowSelection(item.id)}
+                />
+            ),
+        },
         {
             title: 'Name',
             key: 'name',
@@ -460,10 +452,10 @@ export function WorkflowsTable(): JSX.Element {
                     </div>
                 </div>
 
-                {isArchived && selectedArchivedCount > 0 && (
+                {selectedWorkflowCount > 0 && (
                     <div className="flex items-center gap-2 mb-2">
                         <span className="text-muted text-sm">
-                            {selectedArchivedCount} workflow{selectedArchivedCount !== 1 ? 's' : ''} selected
+                            {selectedWorkflowCount} workflow{selectedWorkflowCount !== 1 ? 's' : ''} selected
                         </span>
                         <LemonButton type="secondary" status="danger" size="small" onClick={deleteSelectedWorkflows}>
                             Delete selected
