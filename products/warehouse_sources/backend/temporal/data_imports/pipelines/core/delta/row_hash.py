@@ -29,7 +29,7 @@ def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -
     The hash covers the non-null values of every column outside `exclude_columns`. It does not
     depend on column order, on a numeric, decimal or temporal column changing width or unit, or on
     a column that holds null, so a schema change alone does not change the hash of a row.
-    Values inside nested columns are not normalized.
+    Values inside nested columns are not normalized beyond key order.
     """
     pieces = [
         _named_values(name, table.column(name)) for name in sorted(table.column_names) if name not in exclude_columns

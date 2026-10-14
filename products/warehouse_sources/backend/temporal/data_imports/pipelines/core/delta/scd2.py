@@ -62,7 +62,10 @@ class Scd2DeltaWriter:
         self._valid_from_column = valid_from_column
         self._valid_to_column = valid_to_column
         self._row_hash_column = row_hash_column
-        self._unhashed_columns = {valid_from_column, valid_to_column, *row_hash_exclude_columns}
+        # Batch columns arrive normalized, so a raw source name here would never match and every
+        # row would read as changed.
+        excluded = {normalize_column_name(name) for name in row_hash_exclude_columns}
+        self._unhashed_columns = {valid_from_column, valid_to_column, *excluded}
         if row_hash_column is not None:
             self._unhashed_columns.add(row_hash_column)
 
@@ -108,7 +111,9 @@ class Scd2DeltaWriter:
             stale_keys = rows.filter(is_stale).select(primary_keys)
             stale_rows = dataset.to_table(filter=self._current_rows_filter(dataset, stale_keys, primary_keys))
             stale_hashes = compute_row_hashes(stale_rows, self._unhashed_columns).to_pylist()
-            current_hashes.update(zip(_key_tuples(stale_rows, primary_keys), stale_hashes))
+            for key, row_hash in zip(_key_tuples(stale_rows, primary_keys), stale_hashes):
+                if not is_current_row_hash(current_hashes.get(key)):
+                    current_hashes[key] = row_hash
 
         return current_hashes
 
@@ -151,6 +156,10 @@ class Scd2DeltaWriter:
         data = relax_batch_nullability(data)
 
         if self._row_hash_column is not None:
+            if self._row_hash_column in data.column_names:
+                raise ValueError(
+                    f"Source column {self._row_hash_column!r} collides with the history table's row hash column"
+                )
             data = data.append_column(self._row_hash_column, compute_row_hashes(data, self._unhashed_columns))
 
         delta_table = await self._table.get_delta_table()

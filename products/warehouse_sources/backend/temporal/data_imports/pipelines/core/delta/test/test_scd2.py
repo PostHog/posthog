@@ -31,7 +31,8 @@ def _make_skip_unchanged_writer(delta_uri: str) -> Scd2DeltaWriter:
         valid_from_column="valid_from",
         valid_to_column="valid_to",
         row_hash_column="row_hash",
-        row_hash_exclude_columns=["synced_at"],
+        # The raw source name, which the writer has to normalize to match the batch column.
+        row_hash_exclude_columns=["syncedAt"],
     )
 
 
@@ -211,6 +212,15 @@ class TestScd2SkipUnchanged:
             ("b", "pro", ts2, None),
             ("c", "free", ts2, None),
         ]
+
+    @pytest.mark.asyncio
+    async def test_source_column_named_like_the_hash_column_is_rejected(self, tmp_path: Path) -> None:
+        batch = _history_batch([("a", "free", 1, datetime(2026, 1, 1, tzinfo=UTC))])
+
+        with pytest.raises(ValueError, match="row_hash"):
+            await _make_skip_unchanged_writer(str(tmp_path / "scd2_table")).write(
+                data=batch.append_column("row_hash", pa.array(["from the source"])), primary_keys=["id"]
+            )
 
     @pytest.mark.asyncio
     async def test_composite_key_compares_each_row_with_its_own_key(self, tmp_path: Path) -> None:
