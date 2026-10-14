@@ -16,6 +16,7 @@ import { LemonButton, LemonCard, LemonDialog, LemonTag, LemonTextArea } from '@p
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import type { SuggestionCard, SuggestionStepKind } from './suggestionCards'
 import { WorkflowDataSuggestionsSurface, workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
@@ -78,6 +79,7 @@ export function WorkflowSuggestionCard({
                 <LemonTag type="highlight" icon={<IconSparkles />}>
                     Made for your data
                 </LemonTag>
+                {card.draftWorkflowId && <LemonTag type="completion">In draft</LemonTag>}
                 <span className="inline-flex min-w-0 items-center gap-1 text-xs text-secondary">
                     <code className="truncate text-primary">{card.triggerEvent}</code>
                     <span translate="no">{humanFriendlyNumber(card.weeklyCount)}</span>
@@ -102,38 +104,52 @@ export function WorkflowSuggestionCard({
                     <li className="text-xs text-secondary">+{card.steps.length - MAX_STEP_CHIPS} more</li>
                 )}
             </ol>
-            <div className="mt-auto flex flex-wrap gap-2">
-                <LemonButton
-                    type={primary ? 'primary' : 'secondary'}
-                    size="small"
-                    loading={building}
-                    disabledReason={
-                        buildingKey && !building
-                            ? 'Another workflow is being built'
-                            : dismissingKey === card.key
-                              ? 'This suggestion is being dismissed'
-                              : undefined
-                    }
-                    onClick={() => startSuggestion(card)}
-                    // pinned: data-attr - autocapture dashboards read it
-                    data-attr="workflows-data-suggestion-ai"
-                >
-                    {building ? 'Building your workflow' : 'Create workflow'}
-                </LemonButton>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    loading={dismissingKey === card.key}
-                    disabledReason={
-                        buildingKey || (dismissingKey && dismissingKey !== card.key) ? 'Wait a moment' : undefined
-                    }
-                    onClick={openDismiss}
-                    // pinned: data-attr - autocapture dashboards read it
-                    data-attr="workflows-data-suggestion-dismiss"
-                >
-                    Dismiss
-                </LemonButton>
-            </div>
+            {card.draftWorkflowId ? (
+                <div className="mt-auto flex">
+                    <LemonButton
+                        type={primary ? 'primary' : 'secondary'}
+                        size="small"
+                        to={urls.workflow(card.draftWorkflowId, 'workflow')}
+                        // pinned: data-attr - autocapture dashboards read it
+                        data-attr="workflows-data-suggestion-continue"
+                    >
+                        Continue setup
+                    </LemonButton>
+                </div>
+            ) : (
+                <div className="mt-auto flex flex-wrap gap-2">
+                    <LemonButton
+                        type={primary ? 'primary' : 'secondary'}
+                        size="small"
+                        loading={building}
+                        disabledReason={
+                            buildingKey && !building
+                                ? 'Another workflow is being built'
+                                : dismissingKey === card.key
+                                  ? 'This suggestion is being dismissed'
+                                  : undefined
+                        }
+                        onClick={() => startSuggestion(card)}
+                        // pinned: data-attr - autocapture dashboards read it
+                        data-attr="workflows-data-suggestion-ai"
+                    >
+                        {building ? 'Building your workflow' : 'Create workflow'}
+                    </LemonButton>
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        loading={dismissingKey === card.key}
+                        disabledReason={
+                            buildingKey || (dismissingKey && dismissingKey !== card.key) ? 'Wait a moment' : undefined
+                        }
+                        onClick={openDismiss}
+                        // pinned: data-attr - autocapture dashboards read it
+                        data-attr="workflows-data-suggestion-dismiss"
+                    >
+                        Dismiss
+                    </LemonButton>
+                </div>
+            )}
         </LemonCard>
     )
 }

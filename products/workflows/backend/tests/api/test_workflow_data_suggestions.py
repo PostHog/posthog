@@ -567,8 +567,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status_code
-        assert StoredIdea.objects.for_team(self.team.id).get(id=suggestion["id"]).status == idea_status
-        assert (self._list()["suggestions"] == []) is (idea_status == "accepted")
+        idea = StoredIdea.objects.for_team(self.team.id).get(id=suggestion["id"])
+        assert idea.status == idea_status
+        expected_draft = str(flow.id) if idea_status == "accepted" else None
+        assert [(s["id"], s["draft_workflow_id"]) for s in self._list()["suggestions"]] == [
+            (suggestion["id"], expected_draft)
+        ]
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_used_suggestion_leaves_once_its_draft_is_turned_on(self, suggest_ideas: MagicMock, _flag) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        [suggestion] = self._list()["suggestions"]
+        flow = HogFlow.objects.create(team=self.team, name="Draft", origin_product="ideas")
+        self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/accept/",
+            {"suggestion_id": suggestion["id"], "hog_flow_id": str(flow.id)},
+            format="json",
+        )
+        HogFlow.objects.filter(id=flow.id).update(status=HogFlow.State.ACTIVE)
+
+        assert self._list()["suggestions"] == []
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

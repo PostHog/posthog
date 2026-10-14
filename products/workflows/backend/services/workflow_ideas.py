@@ -54,6 +54,14 @@ def get_open_idea(*, team_id: int, idea_id: str, source: str) -> WorkflowIdeaRec
     return _record(row) if row is not None else None
 
 
+def list_ideas_in_draft(*, team_id: int, source: str) -> list[WorkflowIdeaRecord]:
+    """Used ideas from `source` whose workflow is still a draft, oldest first."""
+    rows = WorkflowIdea.objects.for_team(team_id).filter(
+        status=WorkflowIdea.Status.ACCEPTED, source=source, hog_flow__status=HogFlow.State.DRAFT
+    )
+    return [_record(row) for row in rows.order_by("created_at")]
+
+
 def create_ideas(
     *, team_id: int, items: Iterable[NewWorkflowIdea], source: str, source_ref: str | None = None
 ) -> list[WorkflowIdeaRecord]:

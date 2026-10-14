@@ -30162,6 +30162,11 @@ export namespace Schemas {
       stage: DataSuggestionStageEnum;
       /** The main planned step kinds after the trigger, in order. */
       step_outline: DataSuggestionStepKindEnum[];
+      /**
+         * The draft made from this suggestion while it is still a draft, or null when none was made.
+         * @nullable
+         */
+      draft_workflow_id: string | null;
     }
 
     export interface DataSuggestionAcceptRequest {
