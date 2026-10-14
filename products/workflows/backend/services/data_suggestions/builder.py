@@ -266,8 +266,9 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
                 return None
             return _action(step, action_id, "wait_until_condition", _wait_config(step))
         case "conditional_branch":
-            # Empty filters match everyone. Null filters make enabling fail until the team sets each condition.
-            conditions = [{"filters": None, "name": clean_copy(branch.label)[:60]} for branch in step.branches or []]
+            # Empty filters, like a branch added in the editor, which rejects null filters. The step's note asks the
+            # team to set each condition.
+            conditions = [{"filters": {}, "name": clean_copy(branch.label)[:60]} for branch in step.branches or []]
             return _action(step, action_id, "conditional_branch", {"conditions": conditions})
         case "random_split":
             branches = step.branches or []
