@@ -108,8 +108,8 @@ pub struct State {
     /// the kafka sink can route to the replay overflow topic. Same rationale
     /// as `overflow_limiter` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
-    /// Whether the AI overflow valve is armed (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
-    /// set). Gates overflow stamping for the AI lane in both pipelines: when
+    /// Whether the AI overflow valve is armed (`AI_EVENTS_OVERFLOW_ENABLED`).
+    /// Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
     pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,

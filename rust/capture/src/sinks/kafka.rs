@@ -2203,12 +2203,12 @@ mod tests {
 
         #[tokio::test]
         async fn ai_events_unarmed_never_overflows() {
-            // Without CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC the lane never
-            // overflows: force_overflow and any stamped reason (which the
-            // gated pipeline would not produce anyway) are ignored.
+            // Without AI_EVENTS_OVERFLOW_ENABLED the lane never overflows:
+            // force_overflow and any stamped reason (which the gated pipeline
+            // would not produce anyway) are ignored.
             let producer = MockKafkaProducer::new();
             let mut topics = test_outputs();
-            topics.ai_overflow = None;
+            topics.ai_events_overflow_enabled = false;
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let mut event = create_test_event(&EventInput {
