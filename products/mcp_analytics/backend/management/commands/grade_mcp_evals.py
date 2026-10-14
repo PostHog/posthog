@@ -85,7 +85,7 @@ class Command(BaseCommand):
 
         models = {"expected_tools": "deterministic", "judge": judge_model, "jev": JEV_LATEST}
         report = GradedReport(
-            server_url=run.server_url,
+            server_origin=run.server_origin,
             model=run.model,
             effort=run.effort,
             started_at=run.started_at,

@@ -235,7 +235,7 @@ def _grade(scenario_id: str, trial: int, outcome: str = "answered", **passed: bo
 class TestSummary(SimpleTestCase):
     def test_pass_rates_errors_and_disagreement_over_answered_trials_only(self) -> None:
         report = GradedReport(
-            server_url="u", model="m", effort="low", started_at="t",
+            server_origin="u", model="m", effort="low", started_at="t",
             grader_models={"expected_tools": "deterministic", "judge": "claude-sonnet-5-5", "jev": "jev-latest"},
             grades=(
                 _grade("a", 1, expected_tools=True, judge=True, jev=False),
@@ -259,7 +259,7 @@ def _report_json(scenario_id: str) -> str:
         _trial(outcome="turn_limit", scenario_id=scenario_id),
     )
     return AgentRunReport(
-        server_url="http://x/mcp", header_names=(), tool_names=("exec",), scenarios=(SCENARIO,), model="m",
+        server_origin="http://x", header_names=(), tool_names=("exec",), scenarios=(SCENARIO,), model="m",
         effort="low", system_prompt="s", trials_per_scenario=1, max_turns=3, max_tokens=10, started_at="t0",
         finished_at="t1", trials=trials,
     ).to_json()  # fmt: skip

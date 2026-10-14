@@ -89,7 +89,7 @@ class TrialGrade:
 
 @frozen
 class GradedReport:
-    server_url: str
+    server_origin: str
     model: str
     effort: str | None
     started_at: str
