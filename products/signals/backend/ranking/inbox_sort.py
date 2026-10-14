@@ -1,6 +1,6 @@
 """Resolve the `recommended` inbox sort to a ranker, and give each row a coarse merge key.
 
-A multivariate flag keyed by team picks the ranker. `control`, an unknown variant, or a flag that is
+A multivariate flag keyed by the requesting user picks the ranker. `control`, an unknown variant, or a flag that is
 off or fails to evaluate gives the priority order. `test` orders by the served `fixed` head first.
 
 The merge key lets a client merge rows from the two rankers without the raw score. It is the score
@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.signals.backend.models import AutonomyPriority
 
@@ -37,17 +38,18 @@ _DECILES = 10
 _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
 
 
-def resolve_recommended_ranker(team: Team) -> InboxRanker:
+def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
     try:
         variant = posthoganalytics.get_feature_flag(
             RECOMMENDED_INBOX_SORT_FLAG,
-            str(team.uuid),
+            # Keyed by user so the exposure joins to the user's inbox events in the experiment.
+            user.distinct_id,
             # The web and desktop clients register the project group by uuid, so all clients get the same variant.
             groups={"project": str(team.uuid)},
             group_properties={"project": {"id": team.id, "uuid": str(team.uuid)}},
         )
     except Exception:
-        logger.exception("signals.inbox_sort.flag_failed", team_id=team.id)
+        logger.exception("signals.inbox_sort.flag_failed", team_id=team.id, user_id=user.id)
         return "priority"
     return "fixed" if variant == "test" else "priority"
 

@@ -1134,7 +1134,7 @@ class SignalReportViewSet(
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _INBOX_SORT_ORDERINGS = {
         "priority": PRIORITY_ORDERING,
-        # A feature flag resolves this preset per team. See `_inbox_ranker`.
+        # A feature flag resolves this preset per user. See `_inbox_ranker`.
         "recommended": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
@@ -2003,7 +2003,7 @@ class SignalReportViewSet(
         params = self.request.query_params
         if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
-        return resolve_recommended_ranker(self.team)
+        return resolve_recommended_ranker(self.team, cast(User, self.request.user))
 
     def _parse_signal_report_ordering(self) -> list[str]:
         ranker = self._inbox_ranker

@@ -1318,10 +1318,11 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value="test"
-        ):
+        ) as get_flag:
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
+        assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
         assert body["ranker"] == "fixed"
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
