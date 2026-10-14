@@ -29,6 +29,7 @@ export function TraceDialog(): JSX.Element | null {
                     type="secondary"
                     icon={<IconExternal />}
                     to={traceUrl(trace)}
+                    onClick={closeTraceDialog}
                     data-attr="trace-dialog-open-in-tracing"
                 >
                     Open in Tracing
