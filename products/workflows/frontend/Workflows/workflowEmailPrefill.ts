@@ -60,10 +60,14 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
     }
 }
 
-export function prefilledEmailContent(workflow: HogFlow): { subject: string; html: string; text: string } | null {
+export function prefilledEmailContent(
+    workflow: HogFlow
+): { subject: string; preheader: string; html: string; text: string } | null {
     const action = workflow.actions.find((action) => action.id === EMAIL_ACTION_ID)
     const value = (action?.config as Record<string, any> | undefined)?.inputs?.email?.value
-    return value ? { subject: value.subject, html: value.html, text: value.text } : null
+    return value
+        ? { subject: value.subject, preheader: value.preheader ?? '', html: value.html, text: value.text }
+        : null
 }
 
 export function withPrefilledEmail(workflow: HogFlow, email: MessageDraft): HogFlow {

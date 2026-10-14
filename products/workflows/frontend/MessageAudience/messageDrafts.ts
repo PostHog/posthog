@@ -153,7 +153,8 @@ export function messageDraftEmail(untrusted: MessageDraft): MessageDraftEmail {
         .join('')
     return {
         subject: draft.subject,
-        preheader: literalLiquid(untrusted.preheader ?? ''),
+        // The preheader is inserted into the sent HTML as is, so it must not carry markup.
+        preheader: literalLiquid((untrusted.preheader ?? '').replace(/[<>]/g, '')),
         html: `<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head><body style="margin: 0; padding: 0; background-color: #F7F8F9; color: #000000;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #F7F8F9;"><tr><td align="center"><table role="presentation" width="500" cellpadding="0" cellspacing="0" border="0" style="max-width: 500px; width: 100%;"><tr><td>${body}</td></tr></table></td></tr></table></body></html>`,
         text: draft.paragraphs.join('\n\n'),
         design: textBlocksDesign(draft.paragraphs),

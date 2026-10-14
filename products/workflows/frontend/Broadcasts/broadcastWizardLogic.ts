@@ -1378,7 +1378,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             let skipped: 'edited' | 'saved' | null = null
             if (aiEmailDraft.draft) {
                 // Once the person edits the email or a draft broadcast exists, their version wins.
-                if (values.broadcastId) {
+                if (
+                    values.broadcastId ||
+                    values.saving ||
+                    values.launching ||
+                    getSaveQueue(cache, values).inFlight > 0
+                ) {
                     skipped = 'saved'
                 } else if (!prefilledEmailUnchanged(cache.prefilledEmail ?? DEFAULT_BROADCAST_EMAIL, values.email)) {
                     skipped = 'edited'
@@ -2324,5 +2329,10 @@ export function buildBroadcastPayload(values: {
 }
 
 function prefilledEmailUnchanged(prefilled: BroadcastEmailValue, current: BroadcastEmailValue): boolean {
-    return prefilled.subject === current.subject && prefilled.html === current.html && prefilled.text === current.text
+    return (
+        prefilled.subject === current.subject &&
+        (prefilled.preheader ?? '') === (current.preheader ?? '') &&
+        prefilled.html === current.html &&
+        prefilled.text === current.text
+    )
 }
