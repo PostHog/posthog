@@ -1407,13 +1407,6 @@ export interface eventUsageLogicActions {
         error: string
         kind: string
     }
-    reportIntegrationScopeShortfallShown: (
-        kind: string,
-        missingScopes: string[]
-    ) => {
-        kind: string
-        missingScopes: string[]
-    }
     reportIntegrationLinkExistingOffered: (
         kind: string,
         surface: IntegrationConnectSurface,
@@ -1422,6 +1415,13 @@ export interface eventUsageLogicActions {
         counts: IntegrationLinkExistingCounts
         kind: string
         surface: IntegrationConnectSurface
+    }
+    reportIntegrationScopeShortfallShown: (
+        kind: string,
+        missingScopes: string[]
+    ) => {
+        kind: string
+        missingScopes: string[]
     }
     reportInviteMembersButtonClicked: () => {
         value: true
