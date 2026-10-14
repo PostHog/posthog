@@ -48,7 +48,12 @@ import {
     type EventIngestResult,
     type SandboxEventIngestTokenPayload,
 } from '../lib/types.js'
-import { observeIngestClientDisconnect, observeStreamIngestEvents, observeStreamWriteSkipped } from './metrics.js'
+import {
+    observeIngestClientDisconnect,
+    observeIngestRequest,
+    observeStreamIngestEvents,
+    observeStreamWriteSkipped,
+} from './metrics.js'
 
 // Diagnostic (temporary): records when request-body chunks arrive at the Node
 // process, to tell a live upload (chunks spread across the request lifetime)
@@ -103,6 +108,9 @@ export async function handleIngest(
         return c.json({ error: 'Token does not match run' }, 403)
     }
 
+    const agentSendsCallbacks = c.req.header(AGENT_CALLBACKS_HEADER) === '1'
+    observeIngestRequest(agentSendsCallbacks ? 'agent' : 'ingest', claims.originProduct)
+
     // No run-existence check. The run-scoped sandbox_event_ingest JWT is the
     // authorization — Django minted it for this exact run/task/team. Keeping the
     // ingest plane free of a per-request Django round-trip is the whole point of
@@ -126,15 +134,7 @@ export async function handleIngest(
 
     let result: EventIngestResult
     try {
-        result = await ingestEventLines(
-            redisStream,
-            claims,
-            token,
-            config,
-            c.req.raw,
-            bodyTiming,
-            c.req.header(AGENT_CALLBACKS_HEADER) === '1'
-        )
+        result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming, agentSendsCallbacks)
     } catch (err: unknown) {
         if (err instanceof ClientDisconnected) {
             const classification = await classifyDisconnect(redisStream)

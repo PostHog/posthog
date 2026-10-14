@@ -39,7 +39,11 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
-from products.tasks.backend.metrics import observe_sandbox_process_killed, observe_stream_write_skipped
+from products.tasks.backend.metrics import (
+    observe_ingest_request,
+    observe_sandbox_process_killed,
+    observe_stream_write_skipped,
+)
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.turn_completed import dispatch_turn_completed
 
@@ -158,13 +162,15 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         thin_tail=claims.thin_tail,
         origin_product=claims.origin_product,
     )
+    agent_sends_callbacks = _get_header(scope, AGENT_CALLBACKS_HEADER) == "1"
+    observe_ingest_request("agent" if agent_sends_callbacks else "ingest", claims.origin_product)
 
     try:
         result = await _ingest_event_lines(
             redis_stream,
             claims,
             receive,
-            agent_sends_callbacks=_get_header(scope, AGENT_CALLBACKS_HEADER) == "1",
+            agent_sends_callbacks=agent_sends_callbacks,
         )
     except ClientDisconnected:
         logger.info("task_run_event_ingest_client_disconnected", run_id=claims.run_id)
