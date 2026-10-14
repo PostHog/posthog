@@ -94,6 +94,8 @@ tools:
             - save_draft
         inject_body:
             save_draft: true
+        response:
+            include: [status, workflow_id, missing_inputs, uses_saved_template]
     workflows-data-suggestions-get:
         operation: workflow_data_suggestions_current
         enabled: true

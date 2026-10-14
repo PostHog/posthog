@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const BroadcastsCreateSchema = () => {
@@ -142,7 +142,13 @@ const workflowsDataSuggestionsCreate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
             body,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'status',
+            'workflow_id',
+            'missing_inputs',
+            'uses_saved_template',
+        ]) as typeof result
+        return filtered
     },
 })
 
