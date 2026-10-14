@@ -249,7 +249,8 @@ def rows_without_events_copy_criteria(obj, target: "DeletionTarget") -> list[tup
 
     Returns one ``(predicate, params)`` pair per window of ``obj``'s range. A row and its events copy
     carry the same timestamp, so a window holds the copies of its own rows. The range before the TTL
-    horizon stays one window, because the copy subquery reads no events there.
+    horizon stays one window, because the copy subquery reads no events there. The range after now
+    stays one window too, because few events carry a future timestamp.
     """
     assert target.copied_from is not None
     predicate, params = portable_event_removal_where(obj)
@@ -274,9 +275,11 @@ def rows_without_events_copy_criteria(obj, target: "DeletionTarget") -> list[tup
     if horizon is not None and start < horizon:
         windows.append((start, min(horizon, end)))
         start = horizon
-    while start < end:
+    while start < min(end, timezone.now()):
         windows.append((start, min(start + _COPY_CHECK_WINDOW, end)))
         start += _COPY_CHECK_WINDOW
+    if start < end:
+        windows.append((start, end))
     return [(predicate, {**params, "start_time": s, "end_time": e}) for s, e in windows]
 
 

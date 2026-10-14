@@ -689,7 +689,7 @@ def test_query_backed_deletion_stats_are_rejected():
 
 
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)
-@pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0)])
+@pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0), (15, -27_000)])
 def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days_ago: int) -> None:
     now = timezone.now()
     horizon = ddr._ttl_horizon(FLAG_EVALUATIONS)
@@ -708,8 +708,9 @@ def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days
     assert windows[0][0] == request.start_time
     assert windows[-1][1] == request.end_time
     assert all(end == next_start for (_, end), (next_start, _) in pairwise(windows))
-    # Only a window before the TTL horizon may span more than 7 days, because its copy subquery reads no events.
-    assert all(end - start <= timedelta(days=7) for start, end in windows if end > horizon)
+    # Only a window before the TTL horizon or after now may span more than 7 days.
+    assert all(end - start <= timedelta(days=7) for start, end in windows if end > horizon and start < now)
+    assert len(windows) <= 20
 
 
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)
