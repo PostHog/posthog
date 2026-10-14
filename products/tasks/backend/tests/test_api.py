@@ -16691,14 +16691,17 @@ class TestGetPosthogCodeUsage(TestCase):
         self.assertIsNone(get_posthog_code_usage(self.team.id + 10_000))
 
 
-class TestUsageLimitResponse(TestCase):
+class TestUsageLimitResponse(SimpleTestCase):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_over_limit_response_is_structured(self, mock_usage):
         mock_usage.return_value = CodeUsageStatus(
             is_rate_limited=True, limit_type="burst", reset_at="2026-06-09T00:00:00Z", is_pro=False
         )
 
-        response = usage_limit_response(MagicMock(), 1)
+        with patch(
+            "products.tasks.backend.logic.services.code_usage_gate.organization_deactivated", return_value=False
+        ):
+            response = usage_limit_response(MagicMock(), 1)
 
         assert response is not None
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
