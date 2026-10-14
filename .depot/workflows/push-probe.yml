@@ -10,5 +10,15 @@ jobs:
         name: Push probe passes
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
+        permissions:
+            pull-requests: read
+            contents: read
         steps:
-            - run: echo "sha=$GITHUB_SHA ref=$GITHUB_REF event=$GITHUB_EVENT_NAME"
+            - name: Resolve the pull request for this branch
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  BRANCH: ${{ github.ref_name }}
+              run: |
+                  echo "sha=$GITHUB_SHA ref=$GITHUB_REF event=$GITHUB_EVENT_NAME actor=$GITHUB_ACTOR"
+                  gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number,isDraft,baseRefName,baseRefOid,labels,isCrossRepository --jq '.[0]'
