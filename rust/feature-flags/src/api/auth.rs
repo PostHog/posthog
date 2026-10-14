@@ -133,11 +133,17 @@ pub async fn validate_secret_api_token(
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let token_owned = token.to_string();
     let hash_for_loader = token_hash.clone();
+    let accept_team_secret_tokens = *state.config.accept_team_secret_tokens;
 
     let result = state
         .auth_token_cache
         .get_or_load(&token_hash, |_key| {
-            load_token_from_pg(pg_reader, &token_owned, &hash_for_loader)
+            load_token_from_pg(
+                pg_reader,
+                &token_owned,
+                &hash_for_loader,
+                accept_team_secret_tokens,
+            )
         })
         .await?;
 
@@ -175,28 +181,33 @@ pub async fn validate_secret_api_token(
     }
 }
 
-/// Load token auth data from PostgreSQL, trying Team secret tokens first then ProjectSecretAPIKeys.
+/// Load token auth data from PostgreSQL: posthog_team secret tokens first when
+/// `accept_team_secret_tokens` is true (see `Config::accept_team_secret_tokens`), then
+/// ProjectSecretAPIKeys.
 ///
 /// Extracted from `validate_secret_api_token_for_team` for testability.
 async fn load_token_from_pg(
     pg_reader: PostgresReader,
     plaintext_token: &str,
     hashed_token: &str,
+    accept_team_secret_tokens: bool,
 ) -> Result<Option<TokenAuthData>, FlagError> {
     use sqlx::Row;
 
-    // Try Team.secret_api_token / secret_api_token_backup first.
-    // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
-    // to avoid doubling DB work during outages.
-    match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
-        Ok(team) => {
-            return Ok(Some(TokenAuthData::Secret {
-                team_id: team.id,
-                api_token: Some(team.api_token),
-            }))
+    if accept_team_secret_tokens {
+        // Try Team.secret_api_token / secret_api_token_backup first.
+        // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
+        // to avoid doubling DB work during outages.
+        match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
+            Ok(team) => {
+                return Ok(Some(TokenAuthData::Secret {
+                    team_id: team.id,
+                    api_token: Some(team.api_token),
+                }))
+            }
+            Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
+            Err(e) => return Err(e),
         }
-        Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
-        Err(e) => return Err(e),
     }
 
     // Try ProjectSecretAPIKey (JOIN with posthog_team to get api_token for HyperCache lookups)
@@ -235,7 +246,10 @@ async fn load_token_from_pg(
             }))
         }
         None => {
-            warn!("phs_ token not found in team or project secret API key tables");
+            warn!(
+                checked_posthog_team = accept_team_secret_tokens,
+                "phs_ token not found in project secret API key table"
+            );
             Ok(None)
         }
     }
@@ -1062,7 +1076,7 @@ mod tests {
         let client = Arc::new(FailingClient::new());
         let pg_reader: common_database::PostgresReader = client.clone();
 
-        let result = load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake").await;
+        let result = load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake", true).await;
 
         // The first query (Team::from_pg_by_secret_token) should fail with DatabaseUnavailable.
         // The function should propagate that error immediately, NOT fall through to the

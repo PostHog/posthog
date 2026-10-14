@@ -15,11 +15,13 @@ vector at scoring time and needs nothing else from the report.
 
 import abc
 import datetime
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
+
+from posthog.dataclasses import frozen
 
 # Side inputs a set may read next to the report-state rows, keyed by name and indexed by
 # report_id.
@@ -40,6 +42,14 @@ EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 # The width of text-embedding-3-small-1536, the model the report documents are embedded with. A
 # row whose vector is a different length is not this model's, so it is treated as missing.
 EMBEDDING_DIMENSIONS = 1536
+
+# The team's project-vector kinds, in the order a network that reads them takes them. The dataset
+# dag's `inbox_project_vectors` writes one row per (team, kind), and the training and serving
+# inputs both read these names, so the two sides cannot order the kinds differently.
+PROJECT_VECTOR_KINDS = ("typical", "open", "action", "dismiss")
+# Below this many reports, a kind's mean is mostly one report's text, so the row keeps an all-zero
+# vector and the kind has no history.
+MIN_PROJECT_HISTORY_REPORTS = 5
 
 # How many rows one report contributes to a head's examples. The default is `birth`, one row per
 # report at the snapshot of the day it was created; `examples.py` holds the reasoning.
@@ -207,6 +217,43 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
         TITLE_EMBEDDINGS_FEATURE_SET.name: TITLE_EMBEDDINGS_FEATURE_SET,
     }
 )
+
+
+@frozen
+class ProjectInputs:
+    """The project vectors of some teams, one row per team in the order the caller asked for."""
+
+    # (teams, kinds, EMBEDDING_DIMENSIONS) float32, in `PROJECT_VECTOR_KINDS` order. All zero where
+    # the team has no row for the kind or its history is too thin.
+    vectors: np.ndarray
+    # (teams, kinds) float32, 1.0 where the kind had at least `MIN_PROJECT_HISTORY_REPORTS` reports.
+    has_history: np.ndarray
+
+
+def project_inputs(project_vectors: pd.DataFrame, team_ids: Sequence[int]) -> ProjectInputs:
+    """The project vectors of `team_ids` from one day of `inbox_project_vectors`.
+
+    `project_vectors` carries the `team_id`, `kind`, `vector` and `n_reports` columns of that table.
+    Training and serving both build the network's `project` and `has_history` inputs here, so a
+    team without a row, a kind without a row and a thin kind read the same on both sides.
+    """
+    position = {int(team_id): index for index, team_id in enumerate(team_ids)}
+    vectors = np.zeros((len(team_ids), len(PROJECT_VECTOR_KINDS), EMBEDDING_DIMENSIONS), dtype=np.float32)
+    has_history = np.zeros((len(team_ids), len(PROJECT_VECTOR_KINDS)), dtype=np.float32)
+    for team_id, kind, vector, n_reports in zip(
+        project_vectors["team_id"],
+        project_vectors["kind"],
+        project_vectors["vector"],
+        project_vectors["n_reports"],
+        strict=True,
+    ):
+        team = position.get(int(team_id))
+        if team is None or kind not in PROJECT_VECTOR_KINDS:
+            continue
+        kind_index = PROJECT_VECTOR_KINDS.index(kind)
+        vectors[team, kind_index] = vector
+        has_history[team, kind_index] = float(int(n_reports) >= MIN_PROJECT_HISTORY_REPORTS)
+    return ProjectInputs(vectors=vectors, has_history=has_history)
 
 
 def feature_set_by_name(name: str | None) -> FeatureSet | None:

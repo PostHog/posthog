@@ -13,8 +13,10 @@ import { urls } from 'scenes/urls'
 
 import { HogQLFilters } from '~/queries/schema/schema-general'
 
-import { isFoldedModelsLabel } from '../aiLabs'
+import { isFoldedModelsLabel, seriesLab } from '../aiLabs'
+import { labMark } from '../brandMarks'
 import { modelColors } from '../colors'
+import { BrandMark } from '../components/BrandMark'
 import { type ModelRow } from '../mcpDashboardOverviewLogic'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
@@ -68,13 +70,17 @@ export function ModelBarChart({
             theme,
             sortedRows.map((row) => row.model)
         )
-        return sortedRows.map((row) => ({
-            key: row.model,
-            label: row.model,
-            value: row.total_calls,
-            color: colorOf ? colorOf(row.model) : ownColors.get(row.model),
-            meta: row,
-        }))
+        return sortedRows.map((row) => {
+            const lab = seriesLab(row.model)
+            return {
+                key: row.model,
+                label: row.model,
+                value: row.total_calls,
+                color: colorOf ? colorOf(row.model) : ownColors.get(row.model),
+                icon: <BrandMark name={labMark(lab)} />,
+                meta: row,
+            }
+        })
     }, [sortedRows, theme, colorOf])
 
     return (

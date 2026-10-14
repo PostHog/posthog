@@ -47,12 +47,12 @@ from products.signals.backend.enums import ReportPriority
 _PR_URL = "https://github.com/o/r/pull/7"
 
 
-def _pr_metadata() -> PRMetadata:
+def _pr_metadata(*, draft: bool = False) -> PRMetadata:
     return PRMetadata(
         number=7,
         title="t",
         state="open",
-        draft=False,
+        draft=draft,
         created_at="",
         updated_at="",
         author="octocat",
@@ -135,7 +135,8 @@ class TestTrackReviewCompleted(BaseTest):
             team_id=self.team.id,
             report_id=report_id,
             head_sha="sha1",
-            pr_metadata=_pr_metadata(),
+            # The report row says not a draft, so the draft property must come from the turn's snapshot.
+            pr_metadata=_pr_metadata(draft=True),
             pr_comments=[],
             # One reviewable file: raw PR additions (120) vs reviewable additions (80) must diverge
             # so the assertions below can't pass with the two properties swapped.
@@ -198,6 +199,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_changed_files"] == 7
         assert props["pr_commits"] == 3
         assert props["pr_reviewable_additions"] == 80
+        assert props["pr_draft"] is True
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
@@ -255,6 +257,8 @@ class TestTrackReviewCompleted(BaseTest):
         props = capture.call_args.kwargs["properties"]
         assert props["pr_additions"] is None
         assert props["pr_reviewable_additions"] is None
+        # Unknown is not "not a draft": a False here would count the turn as a ready PR.
+        assert props["pr_draft"] is None
         assert props["findings_total"] == 0
         # A turn without a marker ran on an unknown release; the current deploy's version would mislabel it.
         assert props["reviewhog_version"] is None
@@ -312,12 +316,12 @@ class TestTrackReviewCompleted(BaseTest):
         # A skipped turn ends before any stage that returns the report to rest, and a skipped turn
         # keeps the next turn's run_index, so a run_index-keyed event would merge two skipped pushes.
         report_id = self._review_report()
-        for head_sha in ("sha1", "sha2"):
+        for head_sha, draft in (("sha1", True), ("sha2", False)):
             persist_pr_snapshot(
                 team_id=self.team.id,
                 report_id=report_id,
                 head_sha=head_sha,
-                pr_metadata=_pr_metadata(),
+                pr_metadata=_pr_metadata(draft=draft),
                 pr_comments=[],
                 pr_files=[],
             )
@@ -364,6 +368,8 @@ class TestTrackReviewCompleted(BaseTest):
             14,
         )
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
+        # Each push reports the draft state of its own head.
+        assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any
@@ -452,6 +458,9 @@ class TestTrackReviewCompleted(BaseTest):
         assert completed.kwargs["properties"]["turn_trigger_source"] == "label"
         assert failed.kwargs["properties"]["turn_trigger_source"] == "inbox"
         assert started.kwargs["properties"]["turn_trigger_source"] == "inbox"
+        # No snapshot for this head, so the draft state is unknown on both events that carry it.
+        assert completed.kwargs["properties"]["pr_draft"] is None
+        assert started.kwargs["properties"]["pr_draft"] is None
         # Three events per turn, three uuid namespaces: a shared one would dedupe a start or a
         # failure against the completion of the same turn.
         assert len({call.kwargs["uuid"] for call in (completed, failed, started)}) == 3
