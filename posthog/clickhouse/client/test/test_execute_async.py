@@ -23,6 +23,7 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
@@ -30,7 +31,7 @@ from posthog.direct_query_cancellation import (
     is_direct_query_cancellation_requested,
 )
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, QueryRanConcurrently
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -72,24 +73,86 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_process_query_task_on_failure_marks_status_errored(self):
+    @parameterized.expand(
+        [
+            (ClickHouseAtCapacity, 3),
+            (ConcurrencyLimitExceeded, 11),
+            (QueryRanConcurrently, 11),
+            (RuntimeError, 1),
+        ]
+    )
+    def test_process_query_task_on_failure_marks_status_errored(self, error_type, attempts):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
 
-        process_query_task.on_failure(
-            exc=ClickHouseAtCapacity(),
-            task_id="celery-task-id",
-            args=(self.team_id, None, self.query_id),
-            kwargs={},
-            einfo=None,
-        )
+        with (
+            patch("posthog.clickhouse.client.execute_process_query", side_effect=error_type()) as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            task_result = process_query_task.apply(
+                args=(self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False), throw=False
+            )
+
+        self.assertTrue(task_result.failed())
+        self.assertIsInstance(task_result.result, error_type)
+        self.assertEqual(execute.call_count, attempts)
 
         result = self.manager.get_query_status()
         self.assertTrue(result.complete)
         self.assertTrue(result.error)
-        self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
+        self.assertEqual(result.error_message, getattr(error_type, "default_detail", None))
         self.assertIsNotNone(result.end_time)
+
+    @parameterized.expand([0, 1, 2])
+    def test_process_query_task_recovers_from_capacity_errors(self, failures):
+        from posthog.tasks.tasks import process_query_task
+
+        error = ClickHouseAtCapacity()
+        with (
+            patch(
+                "posthog.clickhouse.client.execute_process_query", side_effect=[error] * failures + [None]
+            ) as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+            patch.object(process_query_task, "retry", wraps=process_query_task.retry) as retry,
+        ):
+            result = process_query_task.apply(
+                args=(self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False), throw=False
+            )
+
+        self.assertTrue(result.successful())
+        self.assertEqual(execute.call_count, failures + 1)
+        self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
+
+    @parameterized.expand([False, True])
+    def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):
+        from posthog.tasks.tasks import process_query_task
+
+        self.manager.store_query_status(self.query_status)
+        get_client().zadd(
+            f"celery_running_tasks:{process_query_task.name}:{self.team_id}",
+            {f"occupied-{i}": datetime.datetime.now(datetime.UTC).timestamp() for i in range(10)},
+        )
+        arguments = {
+            "team_id": self.team_id,
+            "user_id": None,
+            "query_id": self.query_id,
+            "query_json": build_query("SELECT 1"),
+            "query_tags": {},
+            "is_query_service": False,
+        }
+        with (
+            patch("posthog.clickhouse.client.execute_process_query") as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                **({"kwargs": arguments} if keyword_args else {"args": tuple(arguments.values())}), throw=False
+            )
+
+        self.assertTrue(result.failed())
+        self.assertIsInstance(result.result, ConcurrencyLimitExceeded)
+        execute.assert_not_called()
+        self.assertTrue(self.manager.get_query_status().complete)
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
