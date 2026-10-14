@@ -5497,6 +5497,7 @@ export type GraphDataset = Partial<
         | 'status'
         | 'action'
         | 'actions'
+        | 'order'
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'

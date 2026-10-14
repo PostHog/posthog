@@ -21,6 +21,7 @@ import type { DataColorTheme } from '../../../lib/colors'
 import type { FunnelStepWithConversionMetrics } from '../../../types'
 import type {
     InsightFilter,
+    InsightQueryNode,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
 } from '../../schema/schema-general'
@@ -35,6 +36,7 @@ export interface resultCustomizationsModalLogicValues {
     isFunnels: boolean // insightVizDataLogic
     isStickiness: boolean // insightVizDataLogic
     isTrends: boolean // insightVizDataLogic
+    querySource: InsightQueryNode | null // insightVizDataLogic
     getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null] // trendsDataLogic
     resultCustomizationBy: ResultCustomizationBy // trendsDataLogic
     trendsResultCustomizations:
@@ -128,7 +130,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic,
-            ['isTrends', 'isStickiness', 'isFunnels', 'insightFilter'],
+            ['isTrends', 'isStickiness', 'isFunnels', 'insightFilter', 'querySource'],
             trendsDataLogic(props),
             ['resultCustomizationBy', 'resultCustomizations as trendsResultCustomizations', 'getTrendsColorToken'],
             funnelDataLogic(props),
@@ -256,12 +258,14 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             if (values.isTrends || values.isStickiness) {
                 const resultCustomizationKey = getTrendResultCustomizationKey(
                     values.resultCustomizationBy,
-                    values.dataset as IndexedTrendResult
+                    values.dataset as IndexedTrendResult,
+                    values.querySource
                 )
                 const resultCustomization = getTrendResultCustomization(
                     values.resultCustomizationBy,
                     values.dataset as IndexedTrendResult,
-                    values.resultCustomizations
+                    values.resultCustomizations,
+                    values.querySource
                 )
                 actions.updateInsightFilter({
                     resultCustomizations: {
