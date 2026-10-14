@@ -1,4 +1,4 @@
-import { type ReactElement, useCallback, useRef, useState } from 'react'
+import { type ReactElement, useRef } from 'react'
 import { StyleSheet } from 'react-native'
 
 import { toError } from '@/lib/errors'
@@ -9,8 +9,8 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors } from '@/ui/tokens'
 
 import { usePinActions, usePins } from './pinHooks'
-import { ViewToast, type ViewToastMessage } from './screen/ViewToast'
 import type { PinTarget } from './shortcutInput'
+import { useToasts, ViewsToast } from './ViewsToast'
 
 export interface PinMatch {
     kind: 'dashboard' | 'insight' | 'web_analytics'
@@ -35,17 +35,10 @@ export function PinButton({ target, match }: PinButtonProps): ReactElement {
     const key = shortcutMatchKey(match.kind, match.ref)
     const pinView = pins.data?.find((pin) => shortcutMatchKey(pin.type, pin.ref) === key)
     const pinned = Boolean(pinView)
-    const [toast, setToast] = useState<ViewToastMessage | null>(null)
-    const toastId = useRef(0)
+    const { toast, show, hide } = useToasts()
     // Undo runs after the list changed, so it reads the latest pin, not the one from the render that showed the toast.
     const latest = useRef<{ pinView: PinView | undefined; target: PinTarget | null }>({ pinView, target })
     latest.current = { pinView, target }
-
-    const show = useCallback((text: string, undo?: () => void) => {
-        toastId.current += 1
-        setToast({ id: toastId.current, text, actionLabel: undo ? 'Undo' : undefined, onAction: undo })
-    }, [])
-    const hide = useCallback(() => setToast(null), [])
 
     const pin = async (): Promise<void> => {
         const current = latest.current.target
@@ -90,7 +83,7 @@ export function PinButton({ target, match }: PinButtonProps): ReactElement {
             >
                 <PinIcon size={22} filled={pinned} color={pinned ? colors.blue : colors.secondary} />
             </Pressable44>
-            <ViewToast toast={toast} onDone={hide} />
+            <ViewsToast toast={toast} onHide={hide} bottom={34} />
         </>
     )
 }

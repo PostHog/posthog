@@ -6,8 +6,8 @@ import { LockIcon } from '@/ui/icons/LockIcon'
 import { StateView } from '@/ui/StateView'
 import { colors, radii } from '@/ui/tokens'
 
-import { trackViewsReauthShown } from '../analytics'
-import type { ViewsAccess } from '../useViewsAccess'
+import { trackViewsReauthShown } from './analytics'
+import type { ViewsAccess } from './useViewsAccess'
 
 /**
  * Views needs scopes that an older sign-in did not grant, and a token refresh never adds them. One new sign-in fixes

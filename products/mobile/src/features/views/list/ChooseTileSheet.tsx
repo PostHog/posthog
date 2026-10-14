@@ -10,9 +10,9 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors, motion, radii, type } from '@/ui/tokens'
 
 import { insightQueryKey, tileTarget } from '../items'
+import { snapshotFormatter } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { useSnapshot } from '../viewsCache'
-import { snapshotFormatter } from './pinChart'
 import { useDashboardTiles } from './useDashboardTiles'
 
 export interface ChooseTileTarget {

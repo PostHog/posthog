@@ -16,7 +16,6 @@ import { PinButton } from '../PinButton'
 import { useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
-import { ViewAccessState } from '../screen/ViewAccessState'
 import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
@@ -34,6 +33,7 @@ import {
     valueAtText,
 } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
+import { ViewsReauthState } from '../ViewsReauthState'
 import { type InsightScreenState, useInsightScreen } from '../viewHooks'
 import { useSnapshot } from '../viewsCache'
 import { viewWebUrl } from '../webLinks'
@@ -76,7 +76,7 @@ export function InsightScreen({
             {allowed ? (
                 <InsightBody screen={screen} shortId={shortId} dashboardRef={fromDashboard} onBack={back} />
             ) : (
-                <ViewAccessState access={screen.access} />
+                <ViewsReauthState access={screen.access} />
             )}
             <ViewMoreSheet
                 visible={moreOpen}

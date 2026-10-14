@@ -10,7 +10,6 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { DeltaPill } from '../DeltaPill'
 import { PinButton } from '../PinButton'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
-import { ViewAccessState } from '../screen/ViewAccessState'
 import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
@@ -20,6 +19,7 @@ import { ViewSkeleton } from '../screen/ViewSkeleton'
 import { ViewTitle } from '../screen/ViewTitle'
 import { resolvedRangeText } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
+import { ViewsReauthState } from '../ViewsReauthState'
 import { useWebAnalyticsScreen, type WebAnalyticsScreenState } from '../viewHooks'
 import { viewWebUrl } from '../webLinks'
 
@@ -40,7 +40,7 @@ export function WebAnalyticsScreen({ from }: { from: ViewEntry }): ReactElement 
                 />
             }
         >
-            {allowed ? <WebAnalyticsBody screen={screen} onBack={back} /> : <ViewAccessState access={screen.access} />}
+            {allowed ? <WebAnalyticsBody screen={screen} onBack={back} /> : <ViewsReauthState access={screen.access} />}
             <ViewMoreSheet
                 visible={moreOpen}
                 onClose={() => setMoreOpen(false)}

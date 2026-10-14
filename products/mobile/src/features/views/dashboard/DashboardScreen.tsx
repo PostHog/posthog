@@ -17,7 +17,6 @@ import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { PinButton } from '../PinButton'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
-import { ViewAccessState } from '../screen/ViewAccessState'
 import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
@@ -27,6 +26,7 @@ import { ViewSkeleton } from '../screen/ViewSkeleton'
 import { ViewTitle } from '../screen/ViewTitle'
 import { resolvedRangeText } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
+import { ViewsReauthState } from '../ViewsReauthState'
 import { type DashboardScreenState, type DashboardTileState, useDashboardScreen, useTileData } from '../viewHooks'
 import { viewWebUrl } from '../webLinks'
 import { InsightTile } from './DashboardTile'
@@ -65,7 +65,7 @@ export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardSc
                     <DashboardBody screen={screen} dashboardRef={dashboardRef} onBack={back} />
                 </ChartCanvasBudget>
             ) : (
-                <ViewAccessState access={screen.access} />
+                <ViewsReauthState access={screen.access} />
             )}
             <ViewMoreSheet
                 visible={moreOpen}

@@ -1,6 +1,6 @@
 import type { Href } from 'expo-router'
 
-import type { PinDisplayMode, ViewEntry } from '@/model/views'
+import type { PinDisplayMode, ViewEntry, ViewRef } from '@/model/views'
 
 const ENTRIES: readonly ViewEntry[] = ['pinned', 'recent', 'browse', 'search', 'deep_link', 'dashboard']
 const MODES: readonly PinDisplayMode[] = ['row', 'number', 'chart']
@@ -42,6 +42,20 @@ export function insightHref(shortId: string, params: InsightRouteParams = {}): H
 
 export function webAnalyticsHref(open: ViewOpenParams = {}): Href {
     return { pathname: '/views/web-analytics', params: openParams(open) }
+}
+
+/** The route of a native view, from a pin, Recent, Browse or search row. Null for kinds that open on the web. */
+export function viewHref(view: Pick<ViewRef, 'kind' | 'ref'>, open: ViewOpenParams = {}): Href | null {
+    switch (view.kind) {
+        case 'dashboard':
+            return view.ref ? dashboardHref(view.ref, open) : null
+        case 'insight':
+            return view.ref ? insightHref(view.ref, open) : null
+        case 'web_analytics':
+            return webAnalyticsHref(open)
+        default:
+            return null
+    }
 }
 
 /** A deep link names no entry, so a missing or unknown `from` counts as `deep_link`. */

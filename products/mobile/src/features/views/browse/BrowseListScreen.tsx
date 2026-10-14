@@ -19,12 +19,13 @@ import { type BrowseListState, useBrowseDashboards, useBrowseInsights, useBrowse
 import { usePinFlows } from '../list/usePinFlows'
 import { groupPosition, ViewRow } from '../list/ViewRow'
 import { RowMenu } from '../list/ViewsMenu'
-import { ViewsReauthState } from '../list/ViewsReauthState'
 import { ViewsSearchField } from '../list/ViewsSearchField'
-import { ViewsToast } from '../list/ViewsToast'
-import { relativeDay, viewHref } from '../list/viewMeta'
+import { relativeDay } from '../list/viewMeta'
 import { usePinActions, usePinnedKeys } from '../pinHooks'
 import { useViewsAccess } from '../useViewsAccess'
+import { ViewsReauthState } from '../ViewsReauthState'
+import { ViewsToast } from '../ViewsToast'
+import { viewHref } from '../viewRoutes'
 
 export type BrowseKind = 'dashboards' | 'insights'
 
@@ -120,7 +121,7 @@ function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState })
 
     const open = useCallback(
         (row: BrowseRow) => {
-            const href = viewHref(row, search.active ? 'search' : 'browse')
+            const href = viewHref(row, { from: search.active ? 'search' : 'browse' })
             if (href) {
                 latest.current.router.push(href)
             }

@@ -2,6 +2,7 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from 'rea
 import { AccessibilityInfo, StyleSheet, Text } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 
+import { OverlayPortal } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, shadows } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -49,6 +50,10 @@ interface ViewsToastProps {
     bottom?: number
 }
 
+/**
+ * A dark pill that confirms a pin change and can undo it. It draws through the nearest `OverlayHost`, so a toast from
+ * a view's header still sits at the bottom of the screen, above the tab bar and any open sheet.
+ */
 export function ViewsToast({ toast, onHide, bottom = 114 }: ViewsToastProps): ReactElement | null {
     const insets = useScreenInsets()
     if (!toast) {
@@ -56,32 +61,39 @@ export function ViewsToast({ toast, onHide, bottom = 114 }: ViewsToastProps): Re
     }
     const { undo } = toast
     return (
-        <Animated.View
-            key={toast.id}
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(180)}
-            style={[styles.toast, shadows.card, { bottom: bottomOffset(insets, bottom) }, undo ? null : styles.solo]}
-            accessibilityLiveRegion="polite"
-            testID="views-toast"
-        >
-            <Text style={styles.text} numberOfLines={1}>
-                {toast.text}
-            </Text>
-            {undo ? (
-                <Pressable44
-                    onPress={() => {
-                        onHide()
-                        undo()
-                    }}
-                    accessibilityLabel="Undo"
-                    pressedBackground={colors.inkHover}
-                    style={styles.undo}
-                    testID="views-toast-undo"
-                >
-                    <Text style={styles.undoText}>Undo</Text>
-                </Pressable44>
-            ) : null}
-        </Animated.View>
+        <OverlayPortal>
+            <Animated.View
+                key={toast.id}
+                entering={FadeIn.duration(180)}
+                exiting={FadeOut.duration(180)}
+                style={[
+                    styles.toast,
+                    shadows.card,
+                    { bottom: bottomOffset(insets, bottom) },
+                    undo ? null : styles.solo,
+                ]}
+                accessibilityLiveRegion="polite"
+                testID="views-toast"
+            >
+                <Text style={styles.text} numberOfLines={1}>
+                    {toast.text}
+                </Text>
+                {undo ? (
+                    <Pressable44
+                        onPress={() => {
+                            onHide()
+                            undo()
+                        }}
+                        accessibilityLabel="Undo"
+                        pressedBackground={colors.inkHover}
+                        style={styles.undo}
+                        testID="views-toast-undo"
+                    >
+                        <Text style={styles.undoText}>Undo</Text>
+                    </Pressable44>
+                ) : null}
+            </Animated.View>
+        </OverlayPortal>
     )
 }
 

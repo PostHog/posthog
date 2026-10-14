@@ -22,6 +22,9 @@ import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { pinModes, usePinActions, usePinData, useViewsList } from '../pinHooks'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
+import { ViewsReauthState } from '../ViewsReauthState'
+import { ViewsToast } from '../ViewsToast'
+import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
 import { recordingsWebUrl, viewWebUrl } from '../webLinks'
 import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, WebNote } from './BrowseEntryRow'
@@ -34,11 +37,9 @@ import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
 import { VIEWS_HEADER_BOTTOM, ViewsHeader } from './ViewsHeader'
 import { MenuCard, MenuItem, PinMenu, RowMenu } from './ViewsMenu'
-import { ViewsReauthState } from './ViewsReauthState'
 import { ViewsSearchField } from './ViewsSearchField'
 import { ViewsSkeleton } from './ViewsSkeleton'
-import { ViewsToast } from './ViewsToast'
-import { pinTargetFor, relativeDay, viewHref, viewTypeLabel } from './viewMeta'
+import { pinTargetFor, relativeDay, viewTypeLabel } from './viewMeta'
 
 type ListView = RecentView | BrowseRow
 
@@ -148,7 +149,7 @@ function ViewsBody(): ReactElement {
     const openPin = useCallback((pin: PinView) => {
         const { router: nav, scope } = latest.current
         if (pin.native) {
-            const href = viewHref(pin, 'pinned', pin.display.mode)
+            const href = viewHref(pin, { from: 'pinned', mode: pin.display.mode })
             if (href) {
                 nav.push(href)
             }
@@ -161,7 +162,7 @@ function ViewsBody(): ReactElement {
         }
     }, [])
     const openView = useCallback((view: ListView, entry: ViewEntry) => {
-        const href = viewHref(view, entry)
+        const href = viewHref(view, { from: entry })
         if (href) {
             latest.current.router.push(href)
         }
@@ -173,7 +174,7 @@ function ViewsBody(): ReactElement {
             return
         }
         if (entry === 'web') {
-            const href = viewHref({ kind: 'web_analytics', ref: null }, 'browse')
+            const href = viewHref({ kind: 'web_analytics', ref: null }, { from: 'browse' })
             if (href) {
                 nav.push(href)
             }

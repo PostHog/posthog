@@ -1,9 +1,7 @@
 import type { ReactElement } from 'react'
 
 import { calendarDaysBetween, formatMonthDay } from '@/lib/dates'
-import { formatMetricValue } from '@/model/adapters/metric'
-import type { MetricFormat } from '@/model/types'
-import type { NumberDelta, PinDisplayMode, ViewEntry, ViewKind, ViewRef } from '@/model/views'
+import type { ViewKind, ViewRef } from '@/model/views'
 import { CanvasIcon } from '@/ui/icons/CanvasIcon'
 import { DashboardIcon } from '@/ui/icons/DashboardIcon'
 import { DocumentIcon } from '@/ui/icons/DocumentIcon'
@@ -47,21 +45,6 @@ export function ViewIcon({ kind, size = 18, color = colors.muted }: ViewIconProp
             return <CanvasIcon size={size} color={color} />
         case 'web_link':
             return <ExternalLinkIcon size={size} color={color} />
-    }
-}
-
-/** The app route of a native view. The other kinds open on the web. */
-export function viewHref(view: Pick<ViewRef, 'kind' | 'ref'>, entry: ViewEntry, mode?: PinDisplayMode): string | null {
-    const query = `?from=${entry}${mode ? `&mode=${mode}` : ''}`
-    switch (view.kind) {
-        case 'dashboard':
-            return view.ref ? `/views/dashboard/${encodeURIComponent(view.ref)}${query}` : null
-        case 'insight':
-            return view.ref ? `/views/insight/${encodeURIComponent(view.ref)}${query}` : null
-        case 'web_analytics':
-            return `/views/web-analytics${query}`
-        default:
-            return null
     }
 }
 
@@ -115,41 +98,4 @@ export function relativeDay(iso: string, now: Date): string {
         return 'last week'
     }
     return formatMonthDay(at)
-}
-
-export interface DeltaText {
-    text: string
-    direction: 'up' | 'down' | 'flat'
-    /** Spoken text, such as "Down 5.7% from the previous period". */
-    label: string
-}
-
-const MINUS = '−'
-
-function signed(value: number, text: string): string {
-    return value > 0 ? `+${text}` : value < 0 ? `${MINUS}${text}` : text
-}
-
-/** The neutral change pill: the app cannot tell whether up is good for a metric someone else built. */
-export function deltaText(delta: NumberDelta, format: MetricFormat): DeltaText {
-    let text: string
-    let size: number
-    if (delta.unit === 'points') {
-        size = Math.round(delta.change * 10) / 10
-        text = signed(size, `${Math.abs(size).toFixed(1)} pts`)
-    } else if (delta.percent !== null) {
-        size = Math.round(delta.percent * 10) / 10
-        const magnitude = Math.abs(size)
-        text = signed(size, `${magnitude >= 10 ? Math.round(magnitude) : magnitude.toFixed(1)}%`)
-    } else {
-        size = delta.change
-        text = signed(size, formatMetricValue(Math.abs(size), format.valueFormat, format.unit))
-    }
-    const direction = size > 0 ? 'up' : size < 0 ? 'down' : 'flat'
-    const against =
-        delta.basis === 'compare' || !delta.previousAt
-            ? 'from the previous period'
-            : `from ${formatMonthDay(new Date(delta.previousAt))}`
-    const spoken = direction === 'flat' ? 'No change' : `${direction === 'up' ? 'Up' : 'Down'} ${text.slice(1)}`
-    return { text: direction === 'flat' ? 'No change' : text, direction, label: `${spoken} ${against}` }
 }

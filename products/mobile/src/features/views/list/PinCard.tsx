@@ -17,21 +17,21 @@ import { MetricChart } from '@/ui/chart/MetricChart'
 import { Sparkline } from '@/ui/chart/Sparkline'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
 import { COMPACT_CHART_HEIGHT } from '@/ui/chart/variant'
-import { ArrowDownIcon } from '@/ui/icons/ArrowDownIcon'
-import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
 
+import { DeltaPill, deltaSpoken } from '../DeltaPill'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { type PinData, usePinData } from '../pinHooks'
+import { deltaBasisText, snapshotFormatter } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { itemErrorMessage } from '../viewHooks'
 import { useSnapshot } from '../viewsCache'
-import { dataUntil, pinChartSeries, snapshotFormatter } from './pinChart'
+import { dataUntil, pinChartSeries } from './pinChart'
 import { useMenuTrigger } from './useMenuTrigger'
-import { deltaText, ViewIcon, viewTypeLabel } from './viewMeta'
+import { ViewIcon, viewTypeLabel } from './viewMeta'
 
 // Fixed card heights per mode, so the list never jumps when a value arrives or a chart's canvas mounts in place of its
 // sparkline placeholder. Each one is the rendered height of the layout below, borders included.
@@ -204,10 +204,11 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
     const menu = useMenuTrigger(pin, onMenu)
     const { snapshot } = data
     const second = dataSecondLine(pin, data)
-    const value = snapshot && snapshot.value !== null ? snapshotFormatter(snapshot)(snapshot.value) : null
-    const delta = snapshot?.delta ? deltaText(snapshot.delta, snapshot.format) : null
+    const format = snapshot ? snapshotFormatter(snapshot) : null
+    const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
+    const delta = snapshot && format ? pinDelta(snapshot, format) : null
     const values = (snapshot?.series?.points ?? []).slice(-SPARKLINE_BUCKETS).map((point) => point.value)
-    const label = [pin.name, value, delta?.label, second].filter(Boolean).join(', ')
+    const label = [pin.name, value, delta?.spoken, second].filter(Boolean).join(', ')
     return (
         <View ref={menu.ref} style={[styles.card, { height: PIN_NUMBER_HEIGHT }]} testID={pinTestId(pin)}>
             <Pressable44
@@ -229,7 +230,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
                                 {value ?? '–'}
                             </Text>
                             <View style={styles.deltaRow}>
-                                {delta ? <DeltaPill delta={delta} /> : null}
+                                {delta ? <DeltaPill {...delta.props} /> : null}
                                 {snapshot?.valueAt ? (
                                     <Text style={styles.meta}>{formatMonthDay(new Date(snapshot.valueAt))}</Text>
                                 ) : null}
@@ -254,7 +255,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     const second = dataSecondLine(pin, data)
     const format = snapshot ? snapshotFormatter(snapshot) : null
     const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
-    const delta = snapshot?.delta ? deltaText(snapshot.delta, snapshot.format) : null
+    const delta = snapshot && format ? pinDelta(snapshot, format) : null
     const series = snapshot ? pinChartSeries(snapshot) : []
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
@@ -265,7 +266,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                 onLongPress={menu.onLongPress}
                 accessibilityActions={menu.accessibilityActions}
                 onAccessibilityAction={menu.onAccessibilityAction}
-                accessibilityLabel={[pin.name, value, delta?.label, second].filter(Boolean).join(', ')}
+                accessibilityLabel={[pin.name, value, delta?.spoken, second].filter(Boolean).join(', ')}
                 accessibilityHint="Opens the view"
                 pressedBackground={colors.sunken}
                 style={styles.chartTop}
@@ -282,7 +283,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                             {snapshot?.valueAt ? (
                                 <Text style={styles.meta}>{formatMonthDay(new Date(snapshot.valueAt))}</Text>
                             ) : null}
-                            {delta ? <DeltaPill delta={delta} /> : null}
+                            {delta ? <DeltaPill {...delta.props} /> : null}
                         </>
                     ) : (
                         <View style={[styles.skeleton, styles.skeletonValue]} />
@@ -369,14 +370,18 @@ function DataState({ data, capable, onUnpin, chart = false, children }: DataStat
     )
 }
 
-function DeltaPill({ delta }: { delta: ReturnType<typeof deltaText> }): ReactElement {
-    const Arrow = delta.direction === 'up' ? ArrowUpIcon : delta.direction === 'down' ? ArrowDownIcon : null
-    return (
-        <View style={styles.delta} accessibilityLabel={delta.label} accessibilityRole="text">
-            {Arrow ? <Arrow size={10} color={colors.muted} strokeWidth={3.6} /> : null}
-            <Text style={styles.deltaText}>{delta.text}</Text>
-        </View>
-    )
+interface PinDelta {
+    props: { delta: NonNullable<InsightSnapshot['delta']>; formatValue: (value: number) => string; basis: string }
+    spoken: string
+}
+
+function pinDelta(snapshot: InsightSnapshot, formatValue: (value: number) => string): PinDelta | null {
+    const { delta } = snapshot
+    if (!delta) {
+        return null
+    }
+    const basis = deltaBasisText(delta, snapshot.interval)
+    return { props: { delta, formatValue, basis }, spoken: deltaSpoken(delta, formatValue, basis) }
 }
 
 /** The thin bar at the bottom of a Number or Chart pin while its request runs. */
@@ -498,22 +503,6 @@ const styles = StyleSheet.create({
     },
     stale: {
         opacity: 0.45,
-    },
-    delta: {
-        height: 22,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 3,
-        paddingLeft: 7,
-        paddingRight: 8,
-        borderRadius: radii.pill,
-        backgroundColor: colors.sunken,
-    },
-    deltaText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: colors.muted,
-        fontVariant: ['tabular-nums'],
     },
     stateRow: {
         flex: 1,

@@ -6,7 +6,7 @@ import type { PinView, ViewRef } from '@/model/views'
 import type { PinSource } from '../analytics'
 import type { PinActions } from '../pinHooks'
 import type { PinTarget } from '../shortcutInput'
-import { type ToastMessage, useToasts } from './ViewsToast'
+import { type ToastMessage, useToasts } from '../ViewsToast'
 import { pinTargetFor } from './viewMeta'
 
 export interface PinFlows {
