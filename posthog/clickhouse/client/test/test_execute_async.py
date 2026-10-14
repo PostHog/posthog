@@ -129,9 +129,10 @@ class TestQueryStatusManager(SimpleTestCase):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
+        expires_at = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5)).timestamp()
         get_client().zadd(
             f"celery_running_tasks:{process_query_task.name}:{self.team_id}",
-            {f"occupied-{i}": datetime.datetime.now(datetime.UTC).timestamp() for i in range(10)},
+            {f"occupied-{i}": expires_at for i in range(10)},
         )
         arguments = {
             "team_id": self.team_id,
