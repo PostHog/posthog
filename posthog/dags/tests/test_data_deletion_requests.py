@@ -2560,7 +2560,9 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
 
 
 def _delete_uuid(table: str, uuid: UUID, client: Client) -> None:
-    client.execute(f"ALTER TABLE {table} DELETE WHERE uuid = %(uuid)s", {"uuid": uuid}, settings={"mutations_sync": 2})
+    client.execute(
+        f"DELETE FROM {table} WHERE uuid = %(uuid)s", {"uuid": uuid}, settings={"lightweight_deletes_sync": 2}
+    )
 
 
 def _deferred_hogql_flag_request(name: str) -> tuple[DataDeletionRequest, DeletionRequestContext]:

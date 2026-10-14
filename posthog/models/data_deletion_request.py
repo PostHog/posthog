@@ -254,7 +254,8 @@ def rows_without_events_copy_criteria(obj, target: "DeletionTarget") -> list[tup
     """
     assert target.copied_from is not None
     predicate, params = portable_event_removal_where(obj)
-    copies = _EVENT_REMOVAL_TIME_PREDICATE
+    # A copy that a lightweight delete hid counts as missing, as in surviving_rows_sql.
+    copies = f"{_EVENT_REMOVAL_TIME_PREDICATE} AND _row_exists = 1"
     horizon = _ttl_horizon(target)
     if horizon is not None:
         # The target holds no row older than its TTL horizon. A row older than the bound reads as
