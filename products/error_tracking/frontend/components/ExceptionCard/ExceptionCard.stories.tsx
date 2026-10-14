@@ -628,6 +628,16 @@ const HEADER_WIDTHS: { width: number; caption: string }[] = [
     { width: 900, caption: '900px — roomy: symmetric gutters, tab bar dead centre' },
 ]
 
+// Both actions outgrow a 1fr gutter just above @xl, so this matrix also covers the band up to where they fit.
+const HEADER_WIDTHS_WITH_ACTION: typeof HEADER_WIDTHS = [
+    ...HEADER_WIDTHS.filter(({ width }) => width < 576),
+    { width: 576, caption: '576px — @xl boundary: actions keep their width, tab bar scrolls' },
+    { width: 600, caption: '600px — logo kept, tab bar scrolls' },
+    { width: 640, caption: '640px — tab bar sits off-centre to clear the actions' },
+    { width: 700, caption: '700px — label is back, tab bar still off-centre' },
+    { width: 800, caption: '800px — room for both: tab bar centred' },
+]
+
 function HeaderWidthMatrix({
     widths = HEADER_WIDTHS,
     children,
@@ -668,15 +678,16 @@ export function ExceptionCardHeaderWidths(): JSX.Element {
 ExceptionCardHeaderWidths.parameters = { mockDate: HEADER_WIDTHS_MOCK_DATE }
 
 /*
- * Worst case: the right-hand cell is occupied too, so the tab bar has the least room it ever gets in
- * production. The action has to survive at every width — the label is the only thing allowed to go.
+ * Worst case: the right-hand cell holds both actions, so the tab bar has the least room it ever gets in
+ * production. The actions have to survive at every width — the label is the only thing allowed to go.
  */
 export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
-    const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+    const baseEvent = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+    const event = { ...baseEvent, properties: { ...baseEvent.properties, $trace_id: LOGS_STORY_TRACE_ID } }
 
     return (
         <div className="[&_[data-attr=session-timeline-scroll-container]]:overflow-clip">
-            <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
+            <HeaderWidthMatrix widths={HEADER_WIDTHS_WITH_ACTION}>
                 {(width) => (
                     <OpenTab tab="timeline" issueId={`header-action-${width}`}>
                         <ExceptionCard
