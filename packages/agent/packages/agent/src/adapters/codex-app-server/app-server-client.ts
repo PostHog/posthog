@@ -71,7 +71,7 @@ export class AppServerClient implements AppServerRpc {
         reject,
       });
     });
-    this.write({ id, method, params }).catch((err) => {
+    this.send({ id, method, params }, (err) => {
       const call = this.pending.get(id);
       if (!call) return;
       this.pending.delete(id);
@@ -108,17 +108,18 @@ export class AppServerClient implements AppServerRpc {
     }
   }
 
-  private send(message: JsonRpcMessage): void {
-    this.write(message).catch((err) => {
-      if (!this.closed) {
+  private send(
+    message: JsonRpcMessage,
+    onError?: (err: unknown) => void,
+  ): void {
+    const line = `${JSON.stringify(message)}\n`;
+    this.writer.write(this.encoder.encode(line)).catch((err) => {
+      if (onError) {
+        onError(err);
+      } else if (!this.closed) {
         this.logger.error("Failed to write app-server message", err);
       }
     });
-  }
-
-  private write(message: JsonRpcMessage): Promise<void> {
-    const line = `${JSON.stringify(message)}\n`;
-    return this.writer.write(this.encoder.encode(line));
   }
 
   private async readLoop(readable: StreamPair["readable"]): Promise<void> {
