@@ -45,6 +45,8 @@ const staticFileNames = {}
 const snappyWasmFileName = copySnappyWASMFile(__dirname, undefined, { contentHash: !isDev })
 if (snappyWasmFileName) {
     staticFileNames['snappy_bg.wasm'] = snappyWasmFileName
+} else if (!isDev) {
+    throw new Error('Could not copy snappy_bg.wasm. Session replay decompression needs it.')
 }
 let markWorkersBuilt
 const workersBuilt = new Promise((resolve) => {
