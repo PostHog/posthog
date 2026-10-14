@@ -79,6 +79,7 @@ from products.cdp.backend.validation import (
     added_duplicate_input_keys,
     compile_hog,
     generate_template_bytecode,
+    masked_dictionary_secret,
     masked_secret_input_keys,
     reserved_functions_used,
 )
@@ -171,13 +172,14 @@ def mask_config_secrets(content: dict) -> dict:
             continue
         schemas = config.get("inputs_schema") or []
         secret_keys = {schema["key"] for schema in schemas if schema.get("secret") and "key" in schema}
+        dictionary_keys = {schema.get("key") for schema in schemas if schema.get("type") == "dictionary"}
         for schema in schemas:
             if schema.get("key") in secret_keys:
                 schema.pop("default", None)
         inputs = config.get("inputs") or {}
         for key in secret_keys:
             if key in inputs:
-                inputs[key] = {"secret": True}
+                inputs[key] = masked_dictionary_secret(inputs[key]) if key in dictionary_keys else {"secret": True}
         if secret_keys and "transpiled" in content:
             content["transpiled"] = None
     return content
@@ -861,7 +863,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 has_value = encrypted_inputs.get(schema["key"]) or inputs.get(schema["key"])
                 if has_value:
                     # Marker to indicate to the user that a secret is set
-                    inputs[schema["key"]] = {"secret": True}
+                    inputs[schema["key"]] = (
+                        masked_dictionary_secret(has_value) if schema.get("type") == "dictionary" else {"secret": True}
+                    )
 
         data["inputs"] = inputs
         data["draft"] = self._mask_draft_secrets(data.get("draft"), draft_encrypted_inputs, encrypted_inputs)
