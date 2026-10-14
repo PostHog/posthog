@@ -314,9 +314,12 @@ the prompt tells the session to read those files at the head. There is no team s
 DevEx-owned prompts.
 
 Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
-and 2002) and its part. On a follow-up turn, a P3 finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
-lines from any code that changed since `completed_head_sha` drops as `old_code` first (`ChangedSinceReview`). The two
-heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. P0 to P2
+and 2002) and its part. On a follow-up turn, a finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3) lines
+from any code that changed since `completed_head_sha` drops as `old_code` first (`ChangedSinceReview`). An automatic turn
+after run `FLASH_WHOLE_PR_TURNS` (2) drops every P2 and P3 finding there, so a fix only draws findings about the fix:
+one run finds only part of what is there, so the first two runs review the whole pull request, and later ones review
+the push. Earlier runs and requested turns drop only P3 findings there. The
+two heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. Must-fix
 findings, files whose patch GitHub left out, a first review, and a re-run at the reviewed head skip the check. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
 `run_oneshot_openai_review`): the main findings against earlier turns, and the lens findings against the same plus
@@ -336,7 +339,9 @@ repeat, and findings of this turn never drop each other. The turn logs it, marks
 `compose_flash_findings` then ranks the findings highest priority first, a reported P0 before a P1 of the same stored
 priority, and the main session first on ties, before anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per
-lens part past the first, up to 10). No validator runs, so dedup writes an
+lens part past the first, up to 10). The first review (run 1) gets `FLASH_FIRST_REVIEW_CAP_MULTIPLIER` (2) times that
+cap: a cut finding is recorded only as a `dropped_finding`, not as a finding later turns dedup against, so a later turn
+would find it again and post it on its own. No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
 finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. One exception: a dedup survivor takes a more severe duplicate's level when both fold into the same stored priority (a P0 merged into a P1); the `dropped_finding` record keeps the duplicate's own level. Findings publish
 inline. An
@@ -346,13 +351,27 @@ Standard turn posts a short review with it next to the 👍. That review has its
 marker, so a pull request gets it once and re-reviews do not repeat it. It does not set the published watermark, so a
 later turn on the head still publishes its findings.
 
+The finding budget (`reviewer/finding_budget.py`) caps what automatic Standard reviews post on one pull request in
+total. It counts every valid finding that published turns let through their urgency threshold, from every mode and
+trigger. Once the pull request has `FINDING_BUDGET` (20) posted findings, `compose_flash_findings` keeps only the
+must-fix findings of an automatic turn: they count toward the budget but always post. Automatic reviews run on every
+pull request as a safeguard, so past the budget they only raise what must be fixed. A review someone asks for (a
+comment, the label, the UI) is not limited, and `SandboxStageInput.trigger_source` tells the dedup stage which kind ran.
+A finding that fits under the turn's cap but not under the budget drops as `budget`. A review that still posts ends
+with one line that says how many it left out and, where comment commands run, offers `@posthog review --deep`: the head
+already has its Standard review, so only a Deep review runs on it again. A turn that keeps nothing stays silent. Fixing or resolving a finding gives no budget back, because a coding agent that fixes and resolves
+everything would otherwise refill it. Pull requests split into two arms by a hash of the repository and number
+(`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
+`reviewhog_finding_outcome` splits the measurement.
+
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
 with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,
-`dedup_anchor`, `dedup_sibling`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
+`dedup_anchor`, `dedup_sibling`, `cap`, or `budget`), `duplicate_of` (an issue key, or `comment:<id>`), the
 rank in the composed order for a cut finding, the cap, and the lens part count. A retried turn replaces its rows by
-`run_index`. Only analysis reads them: publishing, the status comment, outcome classification, `load_prior_findings`,
-and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor suppress a later finding.
+`run_index`. Only analysis reads them, and publishing counts the `budget` drops for its note: the status comment, outcome
+classification, `load_prior_findings`, and the reviews API read `issue_finding` rows, so a dropped finding can neither post
+nor suppress a later finding.
 
 A Flash turn of any size runs the single-agent design. The **pipeline design** (`reviewhog-flash-1-1`), the steps
 below, runs a Flash turn only when the `reviewhog-flash-pipeline-kill-switch` feature flag is on (organization-keyed,
@@ -469,6 +488,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     When a publishing turn ends, after publish or after the failure is recorded, `nudge_stamphog_activity` calls stamphog's `request_rereview_after_external_review` (behind the `reviewhog-nudge-stamphog-2026-10` patch, fail-open). Stamphog decides whether a WAIT at that head runs again.
     **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
     A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`). The 👍 does not come back: a clean turn adds it only while no turn of the PR published findings (`published_head_sha` unset).
+    A clean Standard turn that a person asked for (`REQUESTED_TRIGGERS`: the label, a comment, the UI, or the CLI) also posts a one-line review that says it found nothing, because the 👍 is easy to miss next to other bots' reactions. It has a hidden `reviewhog:clean-reply:<report>:<head>` marker, so each head gets one reply, also when a workflow retry starts a new turn. A second request on the same head reuses the findings stored for that head (`load_perspective_results`), runs no sandbox and posts nothing new, because the first reply already answers it. Automatic and inbox turns keep only the 👍.
     Status comments that earlier turns left on the PR stay as they are, and a Standard turn never refreshes them.
     On the publish path of a **Deep** turn a live **status comment**
     (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design,
@@ -501,7 +521,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     A single-agent turn's completed event also carries its finding funnel and session health: `flash_cap`,
     `flash_lens_parts`, `flash_reviewable_lines`, per session (`main` or a lens name) `flash_candidates`,
     `flash_must_fix` (P0/P1 as the session reported them) and `flash_must_fix_share`, then `flash_after_dedup`,
-    `flash_dropped` per disposition, `flash_kept`, `flash_lens_failures`, `flash_lens_timeouts`, and
+    `flash_dropped` per disposition, `flash_kept`, `flash_budget_left` (null outside the finding budget), `flash_lens_failures`, `flash_lens_timeouts`, and
     `flash_slowest_session_seconds`. The dedup activity returns the counts on `DedupResult.flash_stats`, and the
     workflow measures the sessions in workflow time. Cost stays on `$ai_generation`, per `ai_stage`.
     Flash finding outcomes use the mode and model configurations saved in the finding's `validation_context`,

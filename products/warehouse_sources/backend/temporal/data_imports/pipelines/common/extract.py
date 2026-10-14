@@ -291,6 +291,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
+def count_worker_deaths(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> int:
+    """Times a worker died on this run without raising. `report_heartbeat_timeout` records each one."""
+    try:
+        from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSchemaOOMEvent,
+        )
+
+        return (
+            ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id)
+            .filter(schema_id=inputs.schema_id, run_id=inputs.run_id)
+            .count()
+        )
+    except Exception as e:
+        # The count only makes a read more careful, so a read of it that fails must not fail the sync.
+        logger.debug(f"Could not count worker deaths for schema {inputs.schema_id}: {e}", exc_info=e)
+        return 0
+
+
 async def handle_non_retryable_error(
     team_id: int,
     source_id: str,

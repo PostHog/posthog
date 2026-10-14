@@ -620,11 +620,44 @@ describe("PiAgentServer", () => {
       };
       server.session = {
         runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
+        providerRoute: { isAiGateway: false },
       };
 
       await server.executeCommand("set_config_option", { configId, value });
 
       expect(sendCommand).toHaveBeenCalledWith(command);
+    },
+  );
+
+  it.each([
+    { isAiGateway: true, modelId: "zai-org/glm-5.2" },
+    { isAiGateway: false, modelId: "@cf/zai-org/glm-5.2" },
+  ])(
+    "switches to GLM under the route's spelling (Go: $isAiGateway)",
+    async ({ isAiGateway, modelId }) => {
+      const sendCommand = vi.fn(async () => ({ success: true }));
+      const server = new PiAgentServer(config()) as unknown as {
+        session: unknown;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      server.session = {
+        runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
+        providerRoute: { isAiGateway },
+      };
+
+      await server.executeCommand("set_config_option", {
+        configId: "model",
+        value: "@cf/zai-org/glm-5.2",
+      });
+
+      expect(sendCommand).toHaveBeenCalledWith({
+        type: "set_model",
+        provider: "posthog",
+        modelId,
+      });
     },
   );
 

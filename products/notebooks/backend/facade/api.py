@@ -16,6 +16,8 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 
 from .. import logic, markdown_migration
@@ -196,13 +198,15 @@ def create_notebook(
         last_modified_by_id=last_modified_by_id,
         visibility=visibility,
     )
-    capture_notebook_created(
-        short_id=notebook.short_id,
-        creation_source=creation_source,
-        team_id=team_id,
-        created_by_id=created_by_id,
-        visibility=notebook.visibility,
-        node_count=notebook_node_count(notebook.content),
+    transaction.on_commit(
+        lambda: capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+        )
     )
     return _to_notebook_data(notebook)
 

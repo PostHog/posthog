@@ -1426,6 +1426,37 @@ def team_api_test_factory():
 
         @parameterized.expand(
             [
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                ("environments", True, None, None),
+                ("projects", ["useNewEventsSchema"], None, None),
+                ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
+            ]
+        )
+        def test_patching_modifiers_over_a_stored_value(
+            self, prefix: str, stored: object, patched: dict | None, expected: dict | None
+        ) -> None:
+            self.team.modifiers = stored
+            self.team.save()
+
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": patched}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self.team.refresh_from_db()
+            assert self.team.modifiers == expected
+
+        @parameterized.expand(
+            [
                 (1, True),
                 (-1, False),
                 (60, True),

@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -73,6 +74,8 @@ class AppleSearchAdsSource(
     CredentialAccountsMixin[AppleSearchAdsSourceConfig],
     OAuthMixin,
 ):
+    codebase_detection = detect(env=("^(APPLE_SEARCH_ADS|APPLESEARCHADS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (APPLE_SEARCH_ADS_API_VERSION_V5, APPLE_ADS_API_VERSION_V1)

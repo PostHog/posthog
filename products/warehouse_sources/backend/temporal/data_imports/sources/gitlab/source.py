@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
+    codebase_detection = detect(
+        env=("^GITLAB_",),
+        npm=("@gitbeaker/rest", "@gitbeaker/core", "@gitbeaker/node"),
+        pypi=("python-gitlab",),
+        composer=("m4tthumphrey/php-gitlab-api",),
+        go=("gitlab.com/gitlab-org/api/client-go", "github.com/xanzy/go-gitlab"),
+        maven=("org.gitlab4j:gitlab4j-api", "org.gitlab4j:gitlab4j-models"),
+        rubygems=("gitlab",),
+    )
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://docs.gitlab.com/ee/api/rest/"

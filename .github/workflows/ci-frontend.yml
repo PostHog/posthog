@@ -1,8 +1,9 @@
 name: Frontend CI
 on:
     pull_request:
-        # PRs run a narrowed jest selection, draft or ready, over three shards. The
-        # merge queue's trunk-merge/** run is the full matrix that gates master.
+        # PRs run a narrowed jest selection, draft or ready, on as many shards as
+        # the selection needs. The merge queue's trunk-merge/** run is the full
+        # matrix that gates master.
         # When selection can't be trusted, a ready PR falls back to the full matrix
         # and a draft skips jest instead, deferring to its ready run. To force the
         # full matrix on a PR, add the `run-ci-frontend` label. The `no-ci` label
@@ -142,6 +143,7 @@ jobs:
                           - 'products/**/*.tsx'
                       frontend:
                         - '.github/scripts/jest-retries.cjs'
+                        - '.github/scripts/jest-select.js'
                         - 'patches/jest-junit@16.0.0.patch'
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
@@ -191,6 +193,7 @@ jobs:
                       # when only markdown or YAML files change.
                       frontend_code:
                         - '.github/scripts/jest-retries.cjs'
+                        - '.github/scripts/jest-select.js'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'bin/**'
                         - 'frontend/**'
@@ -274,7 +277,8 @@ jobs:
     select-jest-tests:
         name: Select jest tests
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        # Installs the frontend workspace to list the related tests.
+        timeout-minutes: 10
         needs: changes
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
@@ -292,6 +296,7 @@ jobs:
             # fallback rate can be read per reason rather than inferred from mode alone.
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_file_count: ${{ steps.classify.outputs.selected_file_count }}
+            related_test_count: ${{ steps.classify.outputs.related_test_count }}
             shard_count: ${{ steps.classify.outputs.shard_count }}
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
@@ -314,8 +319,8 @@ jobs:
                   git diff --name-only "origin/$BASE_REF...HEAD" > /tmp/changed.txt
                   wc -l < /tmp/changed.txt
 
-            - name: Build narrowed matrix
-              id: classify
+            - name: Classify changed files
+              id: prepare
               env:
                   DIFF_OUTCOME: ${{ steps.diff.outcome }}
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
@@ -353,7 +358,7 @@ jobs:
                           echo "shard_count=$shards"
                           echo "full_run_reason_category=$1"
                           echo "full_run_reason_detail=$2"
-                      } >> "$GITHUB_OUTPUT"
+                      } > /tmp/jest-selection-fallback
                   }
 
                   if [[ "$DIFF_OUTCOME" != "success" ]] || [[ ! -s /tmp/changed.txt ]]; then
@@ -369,19 +374,20 @@ jobs:
                   fi
 
                   # Skip selection when jest config / build / lock files change, or
-                  # when replay-shared source changes: that package sits outside
-                  # the frontend jest roots, so --findRelatedTests misses its
-                  # frontend consumers. Pattern matches mirror the frontend_code
+                  # when a file changes whose consumers --findRelatedTests misses.
+                  # replay-shared sits outside the frontend jest roots. Jest loads
+                  # the MSW mocks for every test through a setup file, so no test
+                  # has to import them. Pattern matches mirror the frontend_code
                   # paths-filter in `changes`.
                   while IFS= read -r f; do
                       case "$f" in
-                          jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
+                          frontend/jest.*|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
-                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
+                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|.github/scripts/jest-select.js|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
                               exit 0
                               ;;
-                          common/replay-shared/src/*)
+                          common/replay-shared/src/*|frontend/src/mocks/*|frontend/src/lib/api.mock.ts)
                               fall_back unindexed_dependency "$f"
                               exit 0
                               ;;
@@ -408,41 +414,48 @@ jobs:
                       ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
                   )
 
-                  if [[ -z "$CHANGED_FILES" ]]; then
-                      # No frontend source changes (e.g. PR only edits backend or docs)
-                      # but `frontend_code` paths-filter still flagged the PR. Skip jest.
-                      {
-                          echo "mode=selective"
-                          echo 'matrix={"include":[]}'
-                          echo "should_run=false"
-                          echo "changed_files="
-                          echo "changed_file_count=$changed_count"
-                          echo "selected_file_count=0"
-                          echo "shard_count=0"
-                          echo "full_run_reason_category="
-                          echo "full_run_reason_detail="
-                      } >> "$GITHUB_OUTPUT"
-                      echo "Selective mode: no frontend source files changed, skipping jest"
-                      exit 0
-                  fi
-
-                  # Selective mode uses three shards because a widely imported source file
-                  # can make --findRelatedTests approach a full suite. --findRelatedTests
-                  # walks jest's import graph from these files and runs the matching
-                  # *.test.* files.
-                  SELECTED_COUNT=$(echo "$CHANGED_FILES" | wc -w | tr -d ' ')
+                  # Preserve the same fallback if dependency installation or test listing fails.
+                  fall_back selector_crash "Jest selection unavailable" > /dev/null
                   {
-                      echo "mode=selective"
-                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":3},{"segment":"app","chunk":2,"shard_count":3},{"segment":"app","chunk":3,"shard_count":3}]}'
-                      echo "should_run=true"
+                      echo "selective=true"
                       echo "changed_files=$CHANGED_FILES"
                       echo "changed_file_count=$changed_count"
-                      echo "selected_file_count=$SELECTED_COUNT"
-                      echo "shard_count=3"
-                      echo "full_run_reason_category="
-                      echo "full_run_reason_detail="
                   } >> "$GITHUB_OUTPUT"
-                  echo "Selective mode: $SELECTED_COUNT frontend source files"
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: steps.prepare.outputs.selective == 'true' && steps.prepare.outputs.changed_files != '' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Install pnpm dependencies
+              id: selector-install
+              if: steps.prepare.outputs.selective == 'true' && steps.prepare.outputs.changed_files != ''
+              timeout-minutes: 5
+              # Allow the final step to publish the prepared fallback if setup fails.
+              continue-on-error: true
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Build narrowed matrix
+              id: classify
+              env:
+                  SELECTIVE: ${{ steps.prepare.outputs.selective }}
+                  INSTALL_OUTCOME: ${{ steps.selector-install.outcome }}
+                  CHANGED_FILES: ${{ steps.prepare.outputs.changed_files }}
+                  CHANGED_FILE_COUNT: ${{ steps.prepare.outputs.changed_file_count }}
+              run: |
+                  if [[ "$SELECTIVE" == "true" ]] && [[ -z "$CHANGED_FILES" || "$INSTALL_OUTCOME" == "success" ]]; then
+                      node .github/scripts/jest-select.js && exit 0
+                      echo "::notice::Test selection failed; using the prepared fallback"
+                  fi
+                  cat /tmp/jest-selection-fallback >> "$GITHUB_OUTPUT"
 
     frontend-format:
         name: Frontend formatting
@@ -866,8 +879,9 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run three selective shards over the tests reachable from the changed
-        # files. The merge queue runs the full four-shard fanout.
+        # PRs run as many selective shards as the tests reachable from the changed
+        # files need under the file limit in .github/scripts/jest-select.js. The
+        # merge queue runs the full four-shard fanout.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on the
@@ -901,6 +915,11 @@ jobs:
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["app"],"chunk":[1,2,3,4]}') }}
 
         steps:
+            # ubuntu-24.04 hands out several CPU models, and the same shard runs up to
+            # 1.4x slower on one than another, so timings are only comparable per model.
+            - name: Print runner CPU
+              run: lscpu | grep 'Model name' || true
+
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Mint setup-action GitHub token
@@ -1233,6 +1252,7 @@ jobs:
                         "selection_eligible": ${{ needs.select-jest-tests.result == 'success' }},
                         "changed_file_count": ${{ needs.select-jest-tests.outputs.changed_file_count || 'null' }},
                         "selected_file_count": ${{ needs.select-jest-tests.outputs.selected_file_count || 'null' }},
+                        "related_test_count": ${{ needs.select-jest-tests.outputs.related_test_count || 'null' }},
                         "shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_category || '') }},
                         "full_run_reason_detail": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_detail || '') }},
