@@ -106,6 +106,14 @@ class TestDestinationEligibility(APIBaseTest):
                 (),
             ),
             (
+                "slack_text_moved_to_liquid",
+                "template-slack",
+                SLACK_INPUTS,
+                "text",
+                None,
+                (DestinationHoldBack.MESSAGE,),
+            ),
+            (
                 "an_added_templated_header",
                 "template-webhook",
                 WEBHOOK_INPUTS,
@@ -125,7 +133,10 @@ class TestDestinationEligibility(APIBaseTest):
         expected: tuple[DestinationHoldBack, ...],
     ) -> None:
         function = self._function(template_id, inputs)
-        self._edited(function, inputs=_with(inputs, key, value))
+        edited = (
+            {**inputs, key: {**inputs[key], "templating": "liquid"}} if value is None else _with(inputs, key, value)
+        )
+        self._edited(function, inputs=edited)
 
         assert self._classify() == expected
 
@@ -166,10 +177,22 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert self._classify() == ((DestinationHoldBack.UNTRACKED_EDIT,) if held_back else ())
 
-    def test_a_templated_address_is_held_back(self) -> None:
-        self._function(
-            "template-webhook", _with(WEBHOOK_INPUTS, "url", "https://hooks.example.com/{event.properties.alert_id}")
-        )
+    @parameterized.expand(
+        [
+            ("webhook_url", "template-webhook", WEBHOOK_INPUTS, "url", frozenset()),
+            (
+                "secret_pagerduty_routing_key",
+                "template-pagerduty",
+                {"routing_key": {"value": "key"}, "severity": {"value": "critical"}},
+                "routing_key",
+                frozenset({"routing_key"}),
+            ),
+        ]
+    )
+    def test_a_templated_address_is_held_back(
+        self, _name: str, template_id: str, inputs: dict[str, Any], key: str, secret_keys: frozenset[str]
+    ) -> None:
+        self._function(template_id, _with(inputs, key, "{event.properties.alert_id}"), secret_keys=secret_keys)
 
         assert self._classify() == (DestinationHoldBack.TEMPLATED_ADDRESS,)
 

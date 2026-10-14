@@ -97,7 +97,9 @@ def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | Non
     # A secret input is not in `inputs` or in a snapshot, so it is read where it is stored.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "signing_secret"):
         found.append(DestinationHoldBack.WEBHOOK_SIGNING)
-    if any(_has_template(input_value(function.inputs or {}, key)) for key in spec.address_input_keys):
+    # A secret address, such as a PagerDuty routing key, is stored in `encrypted_inputs`.
+    stored_inputs = {**(function.inputs or {}), **(function.encrypted_inputs or {})}
+    if any(_has_template(input_value(stored_inputs, key)) for key in spec.address_input_keys):
         found.append(DestinationHoldBack.TEMPLATED_ADDRESS)
 
     # The first revision holds the config as it stood at the first tracked edit, so an earlier
@@ -135,13 +137,19 @@ def _input_hold_backs(
             if value != first_value and _has_template(value):
                 found.append(DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER)
             continue
-        if value == first_value:
+        if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
             continue
         if is_webhook and key in _WEBHOOK_INPUT_HOLD_BACKS:
             found.append(_WEBHOOK_INPUT_HOLD_BACKS[key])
         else:
             found.append(DestinationHoldBack.MESSAGE)
     return found
+
+
+def _templating(inputs: dict[str, Any], key: str) -> Any:
+    # The renderer follows this mode, so the same value renders differently under another one.
+    entry = inputs.get(key)
+    return entry.get("templating") if isinstance(entry, dict) else None
 
 
 def _has_template(value: Any) -> bool:
