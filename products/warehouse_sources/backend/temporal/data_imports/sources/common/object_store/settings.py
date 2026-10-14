@@ -14,6 +14,9 @@ MAX_REQUEST_ATTEMPTS = 3
 CSV_BLOCK_SIZE_BYTES = 4 * 1024 * 1024
 JSONL_CHUNK_ROWS = 5_000
 JSONL_CHUNK_BYTES = 64 * 1024 * 1024
+# One JSON Lines record, or the first line of a CSV file, is held whole in memory to be parsed. A gzip
+# file can expand far past its stored size, so reads stop at this many decompressed bytes.
+MAX_RECORD_BYTES = 32 * 1024 * 1024
 PARQUET_BATCH_ROWS = 10_000
 DELTA_BATCH_ROWS = 16_384
 

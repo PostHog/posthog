@@ -78,7 +78,7 @@ def source_feature_flag_missing(source: AnySource, team: Team) -> bool:
     return not feature_enabled_or_false(
         flag,
         organization_id,
-        groups={"organization": organization_id},
+        groups={"organization": organization_id, "project": str(team.id)},
         group_properties={"organization": {"id": organization_id}},
     )
 

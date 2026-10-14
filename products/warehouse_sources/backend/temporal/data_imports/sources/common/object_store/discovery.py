@@ -200,6 +200,7 @@ def group_tables(
     options: DiscoveryOptions,
     root_name: str,
     logger: FilteringBoundLogger | None = None,
+    max_tables: int | None = MAX_TABLES,
 ) -> list[TableDefinition]:
     """Turn a bucket listing into tables.
 
@@ -290,10 +291,10 @@ def group_tables(
         taken.add(name)
         tables.append(dataclasses.replace(candidate, name=name))
 
-    if len(tables) > MAX_TABLES:
+    if max_tables is not None and len(tables) > max_tables:
         if logger is not None:
-            logger.warning("Reached the object storage table limit; later tables are ignored", max_tables=MAX_TABLES)
-        tables = tables[:MAX_TABLES]
+            logger.warning("Reached the object storage table limit; later tables are ignored", max_tables=max_tables)
+        tables = tables[:max_tables]
     return tables
 
 
@@ -323,7 +324,7 @@ def resolve_table_files(
         allow_double_quotes=table.csv.allow_double_quotes,
         combined_table_name=table.name if table.scope == "all" else None,
     )
-    for candidate in group_tables(objects, options, root_name=table.name, logger=logger):
+    for candidate in group_tables(objects, options, root_name=table.name, logger=logger, max_tables=None):
         # A combined table keeps its identity when a new file changes which formats it mixes.
         if candidate.same_location(table) or (table.scope == "all" and candidate.scope == "all"):
             return dataclasses.replace(candidate, name=table.name)

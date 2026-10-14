@@ -20,7 +20,7 @@ from posthog.models.user import User
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-from . import base
+from . import base, helpers
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -165,6 +165,11 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
 
         source_type_model = ExternalDataSourceType(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
 
         error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None:

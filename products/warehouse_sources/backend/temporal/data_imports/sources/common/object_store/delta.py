@@ -18,6 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 _ACCESS_DENIED_MARKERS = ("403", "AccessDenied", "Forbidden", "InvalidAccessKeyId", "SignatureDoesNotMatch")
 
 
+def _raise_if_access_denied(error: Exception, table_name: str) -> None:
+    # delta-rs reports object store failures as text, so a rejected credential shows only as the
+    # HTTP status or the S3 error code inside the message.
+    if any(marker in str(error) for marker in _ACCESS_DENIED_MARKERS):
+        raise ObjectStorageError(
+            f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that the key can read its folder."
+        ) from error
+
+
 def iter_delta_tables(
     uri: str,
     storage_options: dict[str, str],
@@ -41,18 +50,24 @@ def iter_delta_tables(
             f"{NO_TABLE_FILES_ERROR} '{table_name}'. The Delta table is no longer at its folder in the bucket."
         ) from e
     except (DeltaError, OSError) as e:
-        # delta-rs reports object store failures as text, so a rejected credential shows only as the
-        # HTTP status or the S3 error code inside the message.
-        if any(marker in str(e) for marker in _ACCESS_DENIED_MARKERS):
-            raise ObjectStorageError(
-                f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that the key can read its folder."
-            ) from e
+        _raise_if_access_denied(e, table_name)
         raise
 
     if logger is not None:
         logger.info("Reading Delta table snapshot", table=table_name, delta_version=version)
 
     scanner = dataset.scanner(batch_size=batch_rows, batch_readahead=1, fragment_readahead=1, use_threads=False)
-    for batch in scanner.to_batches():
-        if batch.num_rows:
-            yield pa.Table.from_batches([batch])
+    yielded = False
+    try:
+        for batch in scanner.to_batches():
+            if batch.num_rows:
+                yielded = True
+                yield pa.Table.from_batches([batch])
+    except (DeltaError, OSError) as e:
+        # The scan reads the data files lazily, so a key that can read the log but not the data fails here.
+        _raise_if_access_denied(e, table_name)
+        raise
+    if not yielded:
+        # An empty snapshot still has to reach the pipeline as a schema, or the table is dropped and
+        # never recreated.
+        yield dataset.schema.empty_table()

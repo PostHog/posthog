@@ -9301,6 +9301,8 @@ class TestExternalDataSource(APIBaseTest):
             ("database_schema_with_flag", "database_schema/", True),
             ("setup_without_flag", "setup/", False),
             ("setup_with_flag", "setup/", True),
+            ("store_credentials_without_flag", "store_credentials/", False),
+            ("store_credentials_with_flag", "store_credentials/", True),
         ]
     )
     def test_source_behind_a_team_feature_flag(self, _name: str, path: str, flag_enabled: bool) -> None:

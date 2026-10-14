@@ -3,6 +3,8 @@ import csv
 import gzip
 import json
 import zlib
+import shutil
+import tempfile
 from collections.abc import Iterator
 from typing import IO, Any, Literal, cast
 
@@ -30,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     CSV_BLOCK_SIZE_BYTES,
     JSONL_CHUNK_BYTES,
     JSONL_CHUNK_ROWS,
+    MAX_RECORD_BYTES,
     PARQUET_BATCH_ROWS,
 )
 
@@ -87,7 +90,37 @@ def _parse_csv_line(line: bytes, delimiter: str, allow_double_quotes: bool) -> l
         reader = csv.reader([text], delimiter=delimiter)
     else:
         reader = csv.reader([text], delimiter=delimiter, quoting=csv.QUOTE_NONE)
-    return next(reader, [])
+    try:
+        return next(reader, [])
+    except csv.Error as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} the first row of the CSV file: {e}") from e
+
+
+def _read_bounded_line(stream: IO[bytes], file_path: str, kind: str) -> bytes:
+    """Read one line, refusing a line longer than `MAX_RECORD_BYTES` rather than holding it in memory."""
+    line = stream.readline(MAX_RECORD_BYTES + 1)
+    if len(line) > MAX_RECORD_BYTES:
+        raise ObjectStorageError(
+            f"{FILE_PARSE_ERROR} '{file_path}' as {kind}: a line is longer than {MAX_RECORD_BYTES:,} bytes."
+        )
+    return line
+
+
+def _read_first_csv_record(stream: IO[bytes], allow_double_quotes: bool, file_path: str) -> bytes:
+    """The first non-blank record, joining lines while a quoted field is still open."""
+    record = _read_bounded_line(stream, file_path, "CSV")
+    while record and not record.strip():
+        record = _read_bounded_line(stream, file_path, "CSV")
+    while record and allow_double_quotes and record.count(b'"') % 2 == 1:
+        more = _read_bounded_line(stream, file_path, "CSV")
+        if not more:
+            break
+        record += more
+        if len(record) > MAX_RECORD_BYTES:
+            raise ObjectStorageError(
+                f"{FILE_PARSE_ERROR} '{file_path}' as CSV: the first record is longer than {MAX_RECORD_BYTES:,} bytes."
+            )
+    return record
 
 
 def iter_csv_tables(
@@ -103,9 +136,7 @@ def iter_csv_tables(
     later value that does not fit would fail the whole file mid-stream, and two files of one table
     could disagree on a type. Empty unquoted fields are null.
     """
-    first_line = stream.readline()
-    while first_line and not first_line.strip():
-        first_line = stream.readline()
+    first_line = _read_first_csv_record(stream, options.allow_double_quotes, file_path)
     if not first_line:
         return
     first_line = first_line.removeprefix(UTF8_BOM)
@@ -121,6 +152,7 @@ def iter_csv_tables(
         skipped_rows += 1
         return "skip"
 
+    yielded = False
     try:
         reader = pa_csv.open_csv(
             body,
@@ -141,8 +173,13 @@ def iter_csv_tables(
         )
         for batch in reader:
             if batch.num_rows:
+                yielded = True
                 yield pa.Table.from_batches([batch])
     except pa.ArrowInvalid as e:
+        if options.has_header and not yielded and "Empty CSV file" in str(e):
+            # The file holds only its header. It is a table with no rows, not a broken file.
+            yield pa.table({name: pa.array([], pa.string()) for name in names})
+            return
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as CSV: {e}") from e
 
     if skipped_rows and logger is not None:
@@ -172,7 +209,12 @@ def iter_jsonl_tables(
 ) -> Iterator[pa.Table]:
     rows: list[dict[str, Any]] = []
     pending_bytes = 0
-    for line_number, line in enumerate(stream, start=1):
+    line_number = 0
+    while True:
+        line = _read_bounded_line(stream, file_path, "JSON Lines")
+        if not line:
+            break
+        line_number += 1
         if not line.strip():
             continue
         try:
@@ -216,6 +258,19 @@ def with_file_columns(table: pa.Table, stored: StoredObject) -> pa.Table:
     )
 
 
+def _iter_gzipped_parquet(stream: IO[bytes], stored: StoredObject) -> Iterator[pa.Table]:
+    """Parquet readers seek to the footer, which a gzip stream can't, so the file is unpacked to disk first."""
+    with tempfile.TemporaryFile() as unpacked:
+        try:
+            with gzip.GzipFile(fileobj=stream) as compressed:
+                shutil.copyfileobj(compressed, unpacked)
+        except (gzip.BadGzipFile, zlib.error, EOFError) as e:
+            raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{stored.path}' as gzip: {e}") from e
+        unpacked.seek(0)
+        for table in iter_parquet_tables(cast(IO[bytes], unpacked), stored.path):
+            yield with_file_columns(table, stored)
+
+
 def iter_file_tables(
     stream: IO[bytes],
     stored: StoredObject,
@@ -225,6 +280,9 @@ def iter_file_tables(
 ) -> Iterator[pa.Table]:
     """Read one file as Arrow tables of bounded size, each carrying the `_file_*` columns."""
     if file_format == "parquet":
+        if is_compressed(stored.path):
+            yield from _iter_gzipped_parquet(stream, stored)
+            return
         tables = iter_parquet_tables(stream, stored.path)
     else:
         binary = cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if is_compressed(stored.path) else stream

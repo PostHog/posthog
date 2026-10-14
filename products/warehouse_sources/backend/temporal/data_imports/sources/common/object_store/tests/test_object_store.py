@@ -17,6 +17,7 @@ from deltalake import write_deltalake
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import formats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
@@ -50,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     iter_csv_tables,
     iter_jsonl_tables,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import MAX_TABLES
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     iter_table,
     validate_store_location,
@@ -223,6 +225,14 @@ class TestGroupTables:
         assert TableDefinition.from_schema_metadata("a", metadata) is None
 
 
+class TestTableLimit:
+    def test_discovery_stops_at_the_table_limit_but_resolving_a_table_does_not(self) -> None:
+        objects = [stored(f"file_{index:05d}.csv") for index in range(MAX_TABLES + 1)]
+
+        assert len(group_tables(objects, DiscoveryOptions(), root_name="root")) == MAX_TABLES
+        assert len(group_tables(objects, DiscoveryOptions(), root_name="root", max_tables=None)) == MAX_TABLES + 1
+
+
 class TestResolveTableFiles:
     def test_a_folder_table_leaves_out_subfolders_that_are_tables_of_their_own(self, tmp_path: Path) -> None:
         for path in ("events/a.csv", "events/year=2024/b.csv", "events/clicks/c.csv"):
@@ -317,12 +327,29 @@ class TestCsv:
                 [{"id": "1", "id_2": "2", "c3": "3"}],
             ),
             ("empty_file", b"", CsvOptions(), []),
+            (
+                "headerless_first_record_spans_lines",
+                b'1,"line one\nline two",3\n4,5,6\n',
+                CsvOptions(has_header=False),
+                [{"c1": "1", "c2": "line one\nline two", "c3": "3"}, {"c1": "4", "c2": "5", "c3": "6"}],
+            ),
         ]
     )
     def test_csv_rows(self, _name: str, content: bytes, options: CsvOptions, expected: list[dict]) -> None:
         rows = [row for table in iter_csv_tables(io.BytesIO(content), options) for row in table.to_pylist()]
 
         assert rows == expected
+
+    def test_a_header_only_file_is_a_table_with_no_rows(self) -> None:
+        tables = list(iter_csv_tables(io.BytesIO(b"id,name\n"), CsvOptions()))
+
+        assert [(table.column_names, table.num_rows) for table in tables] == [(["id", "name"], 0)]
+
+    def test_an_oversized_first_row_field_is_a_parse_error(self) -> None:
+        content = b"a," + b"x" * (200 * 1024) + b"\n"
+
+        with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+            list(iter_csv_tables(io.BytesIO(content), CsvOptions(has_header=False), file_path="big.csv"))
 
 
 class TestJsonl:
@@ -344,6 +371,12 @@ class TestJsonl:
         with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'x.jsonl' as JSON Lines: line 2"):
             list(iter_jsonl_tables(io.BytesIO(b'{"id": 1}\n{oops\n'), "x.jsonl"))
 
+    def test_a_line_over_the_record_limit_is_a_parse_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(formats, "MAX_RECORD_BYTES", 16)
+
+        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'x.jsonl' as JSON Lines"):
+            list(iter_jsonl_tables(io.BytesIO(b'{"id": 1}\n{"id": "' + b"x" * 64 + b'"}\n'), "x.jsonl"))
+
 
 class TestReadTable:
     def test_reads_each_format_and_tags_rows_with_their_file(self, tmp_path: Path) -> None:
@@ -364,6 +397,15 @@ class TestReadTable:
             ("3", "mixed/c.parquet"),
         ]
         assert all(row["_file_modified_at"].tzinfo is not None for row in rows)
+
+    def test_gzipped_parquet_is_unpacked_before_it_is_read(self, tmp_path: Path) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        (tmp_path / "orders.parquet.gz").write_bytes(gzip.compress(buffer.getvalue()))
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        assert [row["id"] for row in read_rows(store, table)] == ["1", "2"]
 
     def test_corrupt_gzip_is_a_parse_error(self, tmp_path: Path) -> None:
         (tmp_path / "bad.csv.gz").write_bytes(b"not gzip")
@@ -387,6 +429,16 @@ class TestReadTable:
         rest = list(batches)
 
         assert sorted(row["id"] for batch in [first, *rest] for row in batch.to_pylist()) == [1, 2]
+
+    def test_an_empty_delta_snapshot_still_yields_its_schema(self, tmp_path: Path) -> None:
+        table_path = tmp_path / "sales"
+        write_deltalake(str(table_path), pa.table({"id": [1]}))
+        write_deltalake(str(table_path), pa.table({"id": pa.array([], pa.int64())}), mode="overwrite")
+        store = local_store(tmp_path)
+
+        tables = list(iter_delta_tables(store.delta_uri("sales"), {}, "sales"))
+
+        assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
 
 
 class TestLocationAndErrors:
