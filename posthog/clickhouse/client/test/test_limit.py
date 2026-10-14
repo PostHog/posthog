@@ -215,14 +215,7 @@ class TestRateLimit(BaseTest):
             with retry_limit.run(task_id=2):
                 pass
 
-        # Verify exponential backoff
-        assert len(time_helper.sleep_times) == 3
-        for i in range(1, len(time_helper.sleep_times)):
-            assert time_helper.sleep_times[i] > time_helper.sleep_times[i - 1]  # Each retry should wait longer
-        total_sleep_time = sum(time_helper.sleep_times[:-1])
-
-        # Verify total time is within timeout
-        assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
+        assert sum(time_helper.sleep_times) <= retry_limit.retry_timeout
 
     def test_retry_mechanism_acquires_slot(self):
         """

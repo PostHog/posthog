@@ -1,5 +1,6 @@
 import time
 import uuid
+import random
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -116,6 +117,7 @@ class RateLimit:
     allow_team_bypass: bool = True
     get_time: Callable[[], float] = lambda: time.time()
     sleep: Callable[[float], None] = lambda d: sleep(d)
+    retry_jitter: bool = False
 
     @contextmanager
     def run(self, *args, **kwargs):
@@ -206,6 +208,10 @@ class RateLimit:
                     product=product_label,
                 ).inc()
                 wait_sec = backoff(count)
+                if self.retry_jitter:
+                    # Spread retries so released slots do not sit idle between synchronized polls.
+                    wait_sec = random.uniform(wait_sec / 2, wait_sec)
+                wait_sec = min(wait_sec, max(0.0, wait_deadline - self.get_time()))
                 self.sleep(wait_sec)
                 wait_total += wait_sec
                 tag_queries(rate_limit_wait_ms=int(1000 * wait_total))
@@ -274,6 +280,7 @@ def get_api_team_rate_limiter():
             # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
             # the slot is free.
             retry=0.134,
+            retry_jitter=True,
             # The default timeout for an API query on ClickHouse is 10s. p99 duration is 19s,
             # 15 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
             # the user should contact us about increasing the quota.
