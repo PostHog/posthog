@@ -20,6 +20,7 @@ object HedgehogRenderer {
 
     private const val FALLBACK_SPRITE = "hog_idle_00"
     private const val REQUEST_POKE = 1
+    private const val REQUEST_OPEN = 2
     private const val REQUEST_ADVANCE = 3
 
     // A 4x2 widget on a phone, used when the launcher has not reported a size yet.
@@ -113,6 +114,7 @@ object HedgehogRenderer {
 
         val loop = choreography.loopAt(now)
         val ticks = (if (reacting) reactionInPlace(choreography, loop.first()) else loop).take(Choreography.MAX_TICKS)
+        val poke = pokeIntent(context)
         val root = RemoteViews(pkg, R.layout.hedgehog_widget)
         root.removeAllViews(R.id.hedgehog_flipper)
         for (tick in ticks) {
@@ -121,11 +123,14 @@ object HedgehogRenderer {
             val left = (tick.x * widthPx - spritePx / 2f).coerceIn(0f, maxLeft).roundToInt()
             val bottom = (floorPx + tick.y * (heightPx - floorPx)).coerceIn(minBottom, maxBottom).roundToInt()
             frame.setViewPadding(R.id.hedgehog_frame, left, 0, 0, bottom)
+            // The flipper hides every frame except the one on screen, so a tap reaches the sprite where it is now.
+            frame.setOnClickPendingIntent(R.id.hedgehog_sprite, poke)
             root.addView(R.id.hedgehog_flipper, frame)
         }
         root.setInt(R.id.hedgehog_flipper, "setFlipInterval", choreography.tickMs)
         root.setDisplayedChild(R.id.hedgehog_flipper, 0)
-        root.setOnClickPendingIntent(R.id.hedgehog_root, pokeIntent(context))
+        // A tap that misses the sprite falls through the frames, which are not clickable, to the root.
+        openAppIntent(context)?.let { root.setOnClickPendingIntent(R.id.hedgehog_root, it) }
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
             val parcel = Parcel.obtain()
@@ -155,6 +160,16 @@ object HedgehogRenderer {
             Intent(context, HedgehogWidgetProvider::class.java).setAction(ACTION_POKE),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+
+    private fun openAppIntent(context: Context): PendingIntent? {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return null
+        return PendingIntent.getActivity(
+            context,
+            REQUEST_OPEN,
+            launch,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
 
     private fun advanceIntent(context: Context): PendingIntent =
         PendingIntent.getBroadcast(

@@ -56,13 +56,18 @@ struct HedgehogView: View {
 
                 // Each move has its own animation, so a jump travels at an even speed while it rises fast and
                 // falls faster. The innermost animation wins for the values it watches.
-                sprite
-                    .rotationEffect(.degrees(reduceMotion ? 0 : entry.spin), anchor: Self.spinAnchor)
-                    .animation(spinAnimation, value: entry.spin)
-                    .offset(y: floorY - spriteSize - lift)
-                    .animation(liftAnimation, value: lift)
-                    .offset(x: feetX - spriteSize / 2)
-                    .animation(travelAnimation, value: feetX)
+                // Only the hedgehog is a button. A tap anywhere else falls through to the widget, which opens the app.
+                Button(intent: PokeHedgehogIntent(family: String(describing: family))) {
+                    sprite
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hedgehog")
+                .rotationEffect(.degrees(reduceMotion ? 0 : entry.spin), anchor: Self.spinAnchor)
+                .animation(spinAnimation, value: entry.spin)
+                .offset(y: floorY - spriteSize - lift)
+                .animation(liftAnimation, value: lift)
+                .offset(x: feetX - spriteSize / 2)
+                .animation(travelAnimation, value: feetX)
 
                 ZStack {
                     if let bubble = entry.tick.bubble, !bubble.isEmpty {
@@ -73,14 +78,8 @@ struct HedgehogView: View {
                 }
                 .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.4), value: entry.tick.bubble)
                 .animation(travelAnimation, value: feetX)
-
-                // The button covers the whole widget, so a tap anywhere pokes the hedgehog and the tap target
-                // does not move with the sprite.
-                Button(intent: PokeHedgehogIntent(family: String(describing: family))) {
-                    Color.clear.contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Hedgehog")
+                // The bubble overlaps the empty top of the sprite cell and must not block a poke there.
+                .allowsHitTesting(false)
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
@@ -91,9 +90,9 @@ struct HedgehogView: View {
             .interpolation(.none)
             .resizable()
             .frame(width: spriteSize, height: spriteSize)
+            .contentShape(Rectangle())
             .scaleEffect(x: entry.tick.facing == .left ? -1 : 1, y: 1)
             .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.2), value: entry.tick.facing)
-            .accessibilityHidden(true)
     }
 
     private var travelAnimation: Animation? {

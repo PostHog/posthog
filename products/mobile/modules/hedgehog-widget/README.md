@@ -18,10 +18,12 @@ So the app's JavaScript plans the choreography and the widget plays it back:
      Each move has its own animation: travel lasts until the next beat, a jump rises slowly and falls fast, and a flip turns with the jump.
      WidgetKit reportedly shows entries no faster than about every 2 seconds and stops updating a timeline of more than about 400 entries, so a timeline holds about 10 minutes of beats (identical keyframes merge into one entry).
      After them comes one entry a minute for 40 minutes, so the hedgehog keeps moving if the system delays the next reload to save its daily budget.
-     The whole widget is an interactive `Button(intent:)`: a tap anywhere plays a reaction right away. The widget never opens the app; the app has no hedgehog surface to open.
+     The hedgehog is an interactive `Button(intent:)` that moves with the sprite: a tap on it plays a reaction right away.
+     A tap anywhere else opens the app.
    - **Android (RemoteViews)** supports `ViewFlipper` with `autoStart`, which is real frame animation inside a widget.
      It uses the script's *loops*: a closed cycle of ticks (pose frame + position) that it flips through every `tickMs`.
      The provider picks the loop for the current ten-minute slot, so the routine changes over the day.
+     Each frame's sprite sends the poke broadcast, and a tap anywhere else opens the app.
 4. With no script in shared storage (the app was never opened) each platform plays a small built-in fallback.
 
 ## Choreography JSON (version 1)
@@ -92,4 +94,5 @@ The sprite's feet sit about 4px above the bottom of the 160px cell (opaque body 
 | --- | --- | --- |
 | Widget | kind `HedgehogWidget`, target `HedgehogWidget`, bundle id `com.posthog.code.mobile.HedgehogWidget` | receiver `HedgehogWidgetProvider` |
 | App Group | `group.com.posthog.code.mobile` | n/a |
-| Tap anywhere on the widget | `PokeHedgehogIntent` (AppIntent) | broadcast `com.posthog.code.mobile.HEDGEHOG_POKE` |
+| Tap on the hedgehog | `PokeHedgehogIntent` (AppIntent) | broadcast `com.posthog.code.mobile.HEDGEHOG_POKE` |
+| Tap anywhere else | opens the app (default widget tap) | launch intent on `hedgehog_root` |
