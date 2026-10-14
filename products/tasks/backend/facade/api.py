@@ -517,6 +517,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "claude_subscription_user_id",
         "codex_max_subagents",
         "codex_model_access",
+        "codex_shared_prompt_cache",
         "codex_subscription_user_id",
         "context_window",
         "custom_image_id",
