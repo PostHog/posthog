@@ -54,9 +54,10 @@ function parseJsonFields(obj: unknown): unknown {
 
 interface LogDetailsModalProps {
     timezone: string
+    forceAbovePopovers?: boolean
 }
 
-export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
+export function LogDetailsModal({ timezone, forceAbovePopovers = false }: LogDetailsModalProps): JSX.Element | null {
     const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId, relatedErrorsInitialScope } =
         useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
@@ -87,6 +88,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
             resizable
             hideCloseButton
             overlayTransparent
+            forceAbovePopovers={forceAbovePopovers}
             aria-label="Log details"
         >
             <div className="flex flex-col h-full">

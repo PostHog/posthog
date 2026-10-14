@@ -212,4 +212,19 @@ describe('traceDialogLogic', () => {
             .toDispatchActions(['loadTraceSpansSuccess'])
             .toMatchValues({ activeInspectorTab: 'errors' })
     })
+
+    it('treats a missing parent row as its own selection, not the root span', async () => {
+        const orphan = { ...span('child'), parent_span_id: 'GONE' }
+        getTraceSpy.mockResolvedValueOnce({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+        await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.selectSpan('GONE')
+        }).toMatchValues({ missingParentSpanId: 'GONE' })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectSpan('child')
+        }).toMatchValues({ missingParentSpanId: null })
+    })
 })

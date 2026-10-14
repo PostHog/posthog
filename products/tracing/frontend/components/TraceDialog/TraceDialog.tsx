@@ -7,6 +7,7 @@ import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { pluralize } from 'lib/utils/strings'
 
 import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
+import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import { traceDialogLogic } from './traceDialogLogic'
@@ -22,6 +23,7 @@ export function TraceDialog(): JSX.Element | null {
         summary,
         timeline,
         selectedSpan,
+        missingParentSpanId,
         serviceColorMap,
         activeInspectorTab,
         sessionErrorBadgesEnabled,
@@ -94,30 +96,42 @@ export function TraceDialog(): JSX.Element | null {
                         No spans found for this trace. Open it in Tracing to search other time ranges.
                     </div>
                 ) : (
-                    <div className="flex flex-1 min-h-0">
-                        <div className="flex-1 min-w-0">
-                            <TraceDialogSpanTree />
-                        </div>
-                        {selectedSpan && (
-                            <div
-                                className="w-2/5 shrink-0 min-h-0 overflow-y-auto border-l pl-4"
-                                data-attr="trace-dialog-inspector"
-                            >
-                                <SpanInspector
-                                    span={selectedSpan}
-                                    serviceColorMap={serviceColorMap}
-                                    traceTimestamp={summary.rootSpan?.timestamp ?? selectedSpan.timestamp}
-                                    sessionId={null}
-                                    showErrorsTab={sessionErrorBadgesEnabled}
-                                    errorsScope="span"
-                                    resolving={false}
-                                    tab={activeInspectorTab}
-                                    onSelectTab={setInspectorTab}
-                                    // The dialog has no span list for an attribute filter to narrow.
-                                    showFilterActions={false}
-                                />
+                    // Side by side where both panes fit, stacked where the dialog is narrower.
+                    <div className="@container/trace-dialog flex flex-1 min-h-0">
+                        <div className="flex flex-1 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
+                            <div className="flex-1 min-w-0 min-h-0">
+                                <TraceDialogSpanTree />
                             </div>
-                        )}
+                            {(missingParentSpanId || selectedSpan) && (
+                                <div
+                                    className="flex-1 min-h-0 overflow-y-auto border-t pt-4 @min-[56rem]/trace-dialog:flex-none @min-[56rem]/trace-dialog:w-2/5 @min-[56rem]/trace-dialog:border-t-0 @min-[56rem]/trace-dialog:border-l @min-[56rem]/trace-dialog:pt-0 @min-[56rem]/trace-dialog:pl-4"
+                                    data-attr="trace-dialog-inspector"
+                                >
+                                    {missingParentSpanId ? (
+                                        <MissingParentSpanNotice
+                                            traceId={trace.traceId}
+                                            parentSpanId={missingParentSpanId}
+                                        />
+                                    ) : selectedSpan ? (
+                                        <SpanInspector
+                                            span={selectedSpan}
+                                            serviceColorMap={serviceColorMap}
+                                            traceTimestamp={summary.rootSpan?.timestamp ?? selectedSpan.timestamp}
+                                            sessionId={null}
+                                            showErrorsTab={sessionErrorBadgesEnabled}
+                                            errorsScope="span"
+                                            resolving={false}
+                                            tab={activeInspectorTab}
+                                            onSelectTab={setInspectorTab}
+                                            // The dialog has no span list for an attribute filter to narrow.
+                                            showFilterActions={false}
+                                            // The dialog sits above popovers, so a log's details must too.
+                                            logDetailsAbovePopovers
+                                        />
+                                    ) : null}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
