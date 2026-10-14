@@ -27,6 +27,7 @@ describe('TraceDrawer', () => {
                     errorsScope={null}
                     onSelectInspectorTab={jest.fn()}
                     loading={false}
+                    loadFailed={false}
                     selectedSpanId={null}
                     onSelectSpan={jest.fn()}
                     onClose={jest.fn()}
@@ -44,5 +45,18 @@ describe('TraceDrawer', () => {
         renderDrawer({ loading })
 
         expect(screen.queryByText('Trace unavailable') !== null).toBe(showsNotice)
+    })
+
+    // A failed fetch must read as an error, not as "this trace has no spans" — the two share the
+    // same empty `spans` array but mean opposite things to the user.
+    it('shows a retryable error instead of the unavailable notice when the trace failed to load', () => {
+        const onRetry = jest.fn()
+        renderDrawer({ loading: false, loadFailed: true, onRetry })
+
+        expect(screen.queryByText("Couldn't load trace")).not.toBeNull()
+        expect(screen.queryByText('Trace unavailable')).toBeNull()
+
+        screen.getByText('Try again').click()
+        expect(onRetry).toHaveBeenCalledTimes(1)
     })
 })

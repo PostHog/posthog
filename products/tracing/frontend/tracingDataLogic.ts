@@ -194,6 +194,7 @@ export interface tracingDataLogicValues {
     } | null
     traceSpans: Span[]
     traceSpansHasMore: boolean
+    traceSpansLoadFailed: boolean
     traceSpansLoading: boolean
     traceSpansLoadingMore: boolean
     traceSpansNextOffset: number
@@ -368,18 +369,10 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[],
+        rawLatencyHeatmap: LatencyHeatmapRow[],
         payload?: any
     ) => {
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[]
+        rawLatencyHeatmap: LatencyHeatmapRow[]
         payload?: any
     }
     fetchMatchingCounts: () => any
@@ -480,18 +473,10 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        rawSparklineData: {
-            count: number
-            service: string
-            time: string
-        }[],
+        rawSparklineData: SparklineRow[],
         payload?: any
     ) => {
-        rawSparklineData: {
-            count: number
-            service: string
-            time: string
-        }[]
+        rawSparklineData: SparklineRow[]
         payload?: any
     }
     handleFilterChange: (
@@ -861,6 +846,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             {
                 setTracePagination: (_, { hasMore }) => hasMore,
                 loadTraceSpans: () => false,
+            },
+        ],
+        // Whether the last full-trace fetch failed, so the drawer can show a retryable error state
+        // instead of reading a failed request as a trace that genuinely has no spans.
+        traceSpansLoadFailed: [
+            false as boolean,
+            {
+                loadTraceSpans: () => false,
+                loadTraceSpansSuccess: () => false,
+                loadTraceSpansFailure: () => true,
+                clearSpans: () => false,
             },
         ],
         // Offset to request for the next waterfall page (count of spans already loaded for the trace).

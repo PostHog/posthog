@@ -484,6 +484,16 @@ describe('tracingDataLogic', () => {
 
             expect(logic.values.spansError).toBeNull()
         })
+
+        it('flags a failed trace load and clears the flag once the next trace load starts', () => {
+            logic = mountWithSpans([])
+            logic.actions.loadTraceSpansFailure('boom')
+            expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+            // Reopening a trace (even a different one) must not inherit the previous failure.
+            logic.actions.loadTraceSpans({ traceId: 'trace-1' })
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+        })
     })
 
     describe('cancelled requests', () => {

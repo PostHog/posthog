@@ -33,6 +33,7 @@ import { TraceAiEventsCapNotice } from './TraceAiEventsCapNotice'
 import { traceAiEventsLogic } from './traceAiEventsLogic'
 import { TraceErrorsTab } from './TraceErrorsTab'
 import { TraceIdentityChips } from './TraceIdentityChips'
+import { TraceLoadErrorNotice } from './TraceLoadErrorNotice'
 import { TraceUnavailableNotice } from './TraceUnavailableNotice'
 
 // Below this the inspector's content (the attribute KVP tables) stops being readable; clamp so a
@@ -57,6 +58,10 @@ export interface TraceDrawerProps {
     errorsScope: ErrorScope | null
     onSelectInspectorTab: (tab: SpanInspectorTab) => void
     loading: boolean
+    /** The last full-trace fetch failed (network, 4xx, 5xx) — shows a retryable error instead of the empty-trace notice. */
+    loadFailed: boolean
+    /** Re-fetches the open trace. Omit to hide the retry button (e.g. no clean reload path). */
+    onRetry?: () => void
     /** The open trace has more spans than the loaded pages — drives the waterfall's infinite scroll. */
     hasMoreSpans?: boolean
     /** A next page of spans is being fetched (shows a bottom spinner without the full overlay). */
@@ -83,6 +88,8 @@ export function TraceDrawer({
     errorsScope,
     onSelectInspectorTab,
     loading,
+    loadFailed,
+    onRetry,
     hasMoreSpans = false,
     loadingMoreSpans = false,
     onLoadMoreSpans,
@@ -183,7 +190,9 @@ export function TraceDrawer({
             }
         >
             <TraceIdentityChips identity={identity} timestamp={rootSpan?.timestamp ?? ts} />
-            {traceId && !loading && spans.length === 0 ? (
+            {traceId && !loading && loadFailed ? (
+                <TraceLoadErrorNotice onRetry={onRetry} loading={loading} />
+            ) : traceId && !loading && spans.length === 0 ? (
                 <TraceUnavailableNotice traceId={traceId} />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">

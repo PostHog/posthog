@@ -103,6 +103,7 @@ function TracingSceneContents(): JSX.Element {
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
+        traceSpansLoadFailed,
         aggregation,
         aggregationLoading,
         filters,
@@ -137,6 +138,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         fetchSpans,
         fetchSparkline,
+        loadTraceSpans,
         loadMoreTraceSpans,
         setVisibleRowRange,
         selectInspectorTab,
@@ -362,6 +364,12 @@ function TracingSceneContents(): JSX.Element {
                 errorsScope={errorsScope}
                 onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
+                loadFailed={traceSpansLoadFailed}
+                onRetry={
+                    selectedTraceId
+                        ? () => loadTraceSpans({ traceId: selectedTraceId, ts: selectedTraceTs })
+                        : undefined
+                }
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}
                 onLoadMoreSpans={loadMoreTraceSpans}

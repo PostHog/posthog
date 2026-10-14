@@ -121,6 +121,7 @@ export interface tracingSceneLogicValues {
     sessionErrorBadgesEnabled: boolean // tracingViewerLogic
     traceIdentity: TraceIdentity // tracingViewerLogic
     traceSessionId: string | null // tracingViewerLogic
+    traceSpansLoadFailed: boolean // tracingViewerLogic
     activeSceneTab: TracingSceneTab
     activeTracingTab: 'operations' | 'traces'
     breadcrumbs: Breadcrumb[]
@@ -365,6 +366,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'canLoadMoreTraceSpans',
                 'compareFlameSpanName',
                 'compareFlameServiceName',
+                'traceSpansLoadFailed',
             ],
         ],
         actions: [

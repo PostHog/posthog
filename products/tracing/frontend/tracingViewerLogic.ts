@@ -28,6 +28,7 @@ export interface tracingViewerLogicValues {
     spans: Span[] // tracingDataLogic
     traceSpans: Span[] // tracingDataLogic
     traceSpansHasMore: boolean // tracingDataLogic
+    traceSpansLoadFailed: boolean // tracingDataLogic
     traceSpansLoading: boolean // tracingDataLogic
     traceSpansLoadingMore: boolean // tracingDataLogic
     hasDeferredFilterRefresh: boolean // tracingFiltersLogic
@@ -160,7 +161,14 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
     connect(({ id }: TracingViewerLogicProps) => ({
         values: [
             tracingDataLogic({ id }),
-            ['spans', 'traceSpans', 'traceSpansLoading', 'traceSpansLoadingMore', 'traceSpansHasMore'],
+            [
+                'spans',
+                'traceSpans',
+                'traceSpansLoading',
+                'traceSpansLoadingMore',
+                'traceSpansHasMore',
+                'traceSpansLoadFailed',
+            ],
             tracingFiltersLogic({ id }),
             ['hasDeferredFilterRefresh'],
             tracingCorrelationConfigLogic,
