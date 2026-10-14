@@ -6,7 +6,8 @@ from uuid import UUID
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.dashboards.backend.facade.authorization import insight_dashboard_ids
+from products.product_analytics.backend.facade.contracts import AuthorizationInsight, InsightVariableDefinition
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -91,6 +92,23 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
+
+
+def authorization_insights(team_id: int, insight_ids: Collection[int] | None = None) -> list[AuthorizationInsight]:
+    insights = Insight.objects_including_soft_deleted.filter(team_id=team_id)
+    if insight_ids is not None:
+        insights = insights.filter(id__in=insight_ids)
+    insights = insights.values_list("id", "created_by_id", "deleted")
+    dashboards_by_insight = insight_dashboard_ids(team_id, insight_ids)
+    return [
+        AuthorizationInsight(
+            id=insight_id,
+            created_by_id=created_by_id,
+            deleted=deleted,
+            dashboard_ids=tuple(dashboards_by_insight.get(insight_id, ())),
+        )
+        for insight_id, created_by_id, deleted in insights
+    ]
 
 
 def recent_viewers_by_insight(

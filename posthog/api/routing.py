@@ -27,7 +27,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.authz import filter_dashboard_queryset
+from posthog.authz import filter_dashboard_queryset, filter_resource_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -40,7 +40,6 @@ from posthog.permissions import (
     APIScopePermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
-    SharingTokenPermission,
     TeamMemberAccessPermission,
     VerifiedDomainEnforcementPermission,
     is_service_auth,
@@ -51,6 +50,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authz.backend.facade import api as authz
+from products.authz.backend.facade.enums import ResourceType
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -278,7 +278,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         ):
-            return [SharingTokenPermission()]
+            return [AccessControlPermission()]
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
@@ -394,17 +394,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         if self.scope_object == "dashboard":
             return filter_dashboard_queryset(self.request.user, queryset)
+        if self.scope_object == "insight":
+            return filter_resource_queryset(self.request.user, queryset, ResourceType.INSIGHT)
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
         # Projects, dashboards, feature flags: org admins have implicit access; list must match retrieve (see issue #44364).
         if self.scope_object in ("project", "dashboard", "feature_flag"):
-            include_all_if_admin = True
-
-        # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
-        # individual insights are retrieved
-        if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(

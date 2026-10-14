@@ -1,14 +1,20 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.authz import check_object_access
 from posthog.models import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
 
+from products.authz.backend.facade.enums import Action
+from products.authz.backend.facade.testing import mock_share_link_authorization
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
     extract_inline_query_nodes,
@@ -17,6 +23,12 @@ from products.notebooks.backend.util import (
     iter_prosemirror_nodes,
 )
 from products.product_analytics.backend.facade.models import Insight
+
+
+@pytest.fixture(autouse=True)
+def share_link_authorization() -> Iterator[None]:
+    with mock_share_link_authorization():
+        yield
 
 
 def _saved_insight_query_node(short_id: str) -> dict[str, Any]:
@@ -656,9 +668,10 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
     def test_get_connected_insight_ids_excludes_unreferenced_insight(self) -> None:
         self.assertNotIn(self.unreferenced_insight.id, self.config.get_connected_insight_ids())
 
-    def test_can_access_object_for_referenced_insight(self) -> None:
-        self.assertTrue(self.config.can_access_object(self.referenced_insight))
-        self.assertFalse(self.config.can_access_object(self.unreferenced_insight))
+    def test_share_link_access_for_referenced_insight(self) -> None:
+        viewer = SharedLinkUser(self.config)
+        self.assertTrue(check_object_access(viewer, self.referenced_insight, Action.VIEW))
+        self.assertFalse(check_object_access(viewer, self.unreferenced_insight, Action.VIEW))
 
     def test_deleted_referenced_insight_drops_from_grant(self) -> None:
         self.referenced_insight.deleted = True

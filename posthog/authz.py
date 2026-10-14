@@ -5,6 +5,7 @@ from django.db.models import Model, Q, QuerySet
 
 from posthog.models import Team, User
 from posthog.models.access_filter import filter_q
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -14,6 +15,8 @@ from products.authz.backend.facade.contracts import Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
 
 if TYPE_CHECKING:
+    from posthog.models import SessionRecording
+
     from products.dashboards.backend.models.dashboard import Dashboard
 
 M = TypeVar("M", bound=Model)
@@ -28,7 +31,15 @@ def resource_for_object(obj: Model | ObjectAccessRef) -> Resource:
         raise ValueError("Object has no authorization resource type")
     if resource_type == "project":
         return Resource(type=ResourceType.PROJECT, id=str(obj.pk), organization_id=cast(Team, obj).organization_id)
-    return Resource(type=ResourceType(resource_type), id=str(obj.pk), project_id=cast("Dashboard", obj).team_id)
+    id = str(cast("SessionRecording", obj).session_id) if resource_type == "session_recording" else str(obj.pk)
+    return Resource(type=ResourceType(resource_type), id=id, project_id=cast("Dashboard", obj).team_id)
+
+
+def subject_for_user(user: User | SyntheticUser | AnonymousUser) -> Subject | None:
+    if isinstance(user, SharedLinkUser):
+        id = user.sharing_configuration.pk
+        return Subject(share_link_id=id) if id is not None else None
+    return Subject(user_id=user.pk) if user.is_authenticated and not isinstance(user, SyntheticUser) else None
 
 
 def check_object_access(
@@ -37,9 +48,19 @@ def check_object_access(
     if isinstance(user, SyntheticUser):
         # API scopes and project membership gate service credentials; authz has no service principals yet.
         return True
-    if not user.is_authenticated:
+    subject = subject_for_user(user)
+    if subject is None:
         return False
-    return api.check(resource=resource_for_object(obj), action=action, subject=Subject(user_id=user.pk))
+    return api.check(resource=resource_for_object(obj), action=action, subject=subject)
+
+
+def check_shared_link_access(user: SharedLinkUser) -> bool:
+    targets = [
+        target
+        for field in ("dashboard", "insight", "notebook", "recording")
+        if (target := getattr(user.sharing_configuration, field)) is not None
+    ]
+    return bool(targets) and all(check_object_access(user, target, Action.VIEW) for target in targets)
 
 
 def object_access_level(user: User | SyntheticUser | AnonymousUser, obj: Model | ObjectAccessRef) -> str | None:
@@ -53,31 +74,49 @@ def object_access_level(user: User | SyntheticUser | AnonymousUser, obj: Model |
     return "manager" if Action.MANAGE_ACCESS in permissions else "editor"
 
 
-def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, queryset: QuerySet[M]) -> QuerySet[M]:
+def filter_resource_queryset(
+    user: User | SyntheticUser | AnonymousUser, queryset: QuerySet[M], resource_type: ResourceType
+) -> QuerySet[M]:
     if isinstance(user, SyntheticUser):
         return queryset
-    if not user.is_authenticated:
+    subject = subject_for_user(user)
+    if subject is None:
         return queryset.none()
     allowed = Q(pk__in=[])
     for team_id in queryset.order_by().values_list("team_id", flat=True).distinct():
         result = api.list_resources(
-            resource=Resource(type=ResourceType.DASHBOARD, project_id=team_id),
+            resource=Resource(type=resource_type, project_id=team_id),
             action=Action.VIEW,
-            subject=Subject(user_id=user.pk),
+            subject=subject,
             creator_exempt=True,
         )
         if result.complete:
-            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", subject_user_id=user.pk)
+            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", subject_user_id=subject.user_id)
     return queryset.filter(allowed)
 
 
-def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:
-    resource = Resource(type=ResourceType.DASHBOARD, project_id=team.pk)
+def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, queryset: QuerySet[M]) -> QuerySet[M]:
+    return filter_resource_queryset(user, queryset, ResourceType.DASHBOARD)
+
+
+def check_resource_category_access(
+    user: User,
+    team: Team,
+    resource_type: ResourceType,
+    action: Action,
+    *,
+    require_category: bool,
+) -> bool:
     subject = Subject(user_id=user.pk)
     category_action = Action.CREATE if action in (Action.EDIT, Action.DELETE, Action.SHARE) else action
+    resource = Resource(type=resource_type, project_id=team.pk)
     if api.check(resource=resource, action=category_action, subject=subject):
         return True
     if require_category:
         return False
     result = api.list_resources(resource=resource, action=action, subject=subject)
     return result.complete and bool(result.ids)
+
+
+def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:
+    return check_resource_category_access(user, team, ResourceType.DASHBOARD, action, require_category=require_category)

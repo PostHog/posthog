@@ -14,6 +14,7 @@ from products.authz.backend.facade.synchronization import (
     synchronization_enabled,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 if TYPE_CHECKING:
     from ee.models.dashboard_privilege import DashboardPrivilege
@@ -66,6 +67,36 @@ def synchronize_privilege(
     )
     if organization_id is not None:
         schedule_organization_sync(organization_id, using=using)
+
+
+@receiver(pre_save, sender=DashboardTile)
+@receiver(pre_delete, sender=DashboardTile)
+def remember_tile_organization(
+    sender: type[DashboardTile], instance: DashboardTile, using: str, **kwargs: object
+) -> None:
+    if synchronization_enabled():
+        instance.__dict__["_authz_old_organization_id"] = (
+            DashboardTile.objects_including_soft_deleted.using(using)
+            .filter(pk=instance.pk)
+            .values_list("team__organization_id", flat=True)
+            .first()
+        )
+
+
+@receiver(post_save, sender=DashboardTile)
+@receiver(post_delete, sender=DashboardTile)
+def synchronize_tile(
+    sender: type[DashboardTile], instance: DashboardTile, using: str, raw: bool = False, **kwargs: object
+) -> None:
+    invalidate_authorization_session()
+    if raw or not synchronization_enabled():
+        return
+    organization_id = (
+        Team.objects.using(using).filter(id=instance.team_id).values_list("organization_id", flat=True).first()
+    )
+    for id in {organization_id, instance.__dict__.get("_authz_old_organization_id")}:
+        if id is not None:
+            schedule_organization_sync(id, using=using)
 
 
 if EE_AVAILABLE:

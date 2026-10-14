@@ -49,3 +49,11 @@ class SavedInsightDefinition:
     short_id: str
     name: str | None
     query: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AuthorizationInsight:
+    id: int
+    created_by_id: int | None
+    deleted: bool
+    dashboard_ids: tuple[int, ...]

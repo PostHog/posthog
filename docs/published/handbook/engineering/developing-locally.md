@@ -162,12 +162,12 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
-Select the `authz` intent to start OpenFGA. It uses in-memory storage and no authentication, so its data resets when the container restarts. The intent also starts OpenFGA Studio at http://localhost:3000, where you can browse the store, the model, and the tuples, and run checks. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
+Select the `authz` intent to start OpenFGA. It uses in-memory storage and no authentication, so its data resets when the container restarts. The intent also starts OpenFGA Studio at http://localhost:3000, where you can browse the store, the model, and the tuples, and run checks. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `products/authz/generated/model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
 
 Run the authorization checks without starting the stack:
 
 ```bash
-go run github.com/openfga/cli/cmd/fga@v0.8.1 model validate --file products/authz/model.fga
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model validate --file products/authz/generated/model.fga
 go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --allow-external-files --tests products/authz/model/core.fga.yaml
 go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --allow-external-files --tests 'products/authz/model/resources/*.fga.yaml'
 ```
@@ -187,19 +187,20 @@ Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next
   Member-level changes use `can_change_level`; promotions to owner also require `can_make_owner`.
 - Use one `project:<team_id>` entity for the team and project.
   Link it to its organization.
-  Project overrides use `member_*`, `role_*`, and `default_*` relations with `none`, `member`, or `admin` levels.
+  Project overrides use `member_*` for individual member assignments, `role_*` for roles, and `default_*` for defaults, with `none`, `member`, or `admin` levels.
   The model accepts `owner` as an admin-equivalent project relation; persisted project levels stop at `admin`.
-- Create one `resource_category` per project and resource type, with its own `access_policy`.
-  Link each dashboard or insight to its project and category, and to a separate object policy when it has overrides.
+- Create one `resource` per project and resource type, with its own `access_policy`.
+  For example, `resource:<org_id>/3/dashboard` holds the dashboards in project 3.
+  Link each object, such as a dashboard or an insight, to its project and resource, and to a separate object policy when it has overrides.
   Link each policy to its organization.
   Policies resolve member overrides first, then the highest matching role override, then the default.
-  An object policy with any applicable rule overrides the category, including a `none` or lower-level rule.
-  Without a category rule, dashboards and insights default to `editor`.
+  An object policy with any applicable rule overrides the resource, including a `none` or lower-level rule.
+  Without a resource rule, dashboards and insights default to `editor`.
 - Set default levels and organization settings with `user:*` tuples.
   Set `access_control_enabled` and `role_based_access_enabled` from the organization's entitlements.
   Rules are inert without the relevant entitlement.
   Without project rules, access-control-enabled organizations default to project admin; other organizations default to project member.
-- Organization admins and owners bypass resource restrictions.
+- Organization admins and owners bypass resource and object rules.
   Creators bypass object restrictions but still require project membership.
   Explicit project admins can manage access and bypass legacy dashboard collaborator restrictions, but cannot bypass resource or object rules.
   The implicit project-admin default alone does not grant `can_manage_access`.
@@ -209,12 +210,12 @@ Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next
   An insight passes this legacy write gate if any attached dashboard permits editing, or if it has no attachments.
 - When member visibility is restricted, link a membership's `project` relations only to projects that grant that member scoped access, excluding the organization-admin bypass.
   This lets peers with access to a shared project see the membership.
-- Check `can_create` on the category for creation and use `ListObjects` with `can_view` to filter individual objects.
+- Check `can_create` on the resource for creation and use `ListObjects` with `can_view` to filter individual objects.
   Object grants do not grant creation rights.
 
 Tuple writers must keep these relationships consistent with the database.
 Write only active, valid role memberships from the same organization as the policy or project.
-Keep each object's project, category, and policy in the same organization and project.
+Keep each object's project, resource, and policy in the same organization and project.
 Store one member/default level per scope and replace the old level when it changes.
 OpenFGA does not enforce relationship cardinality or compare organization IDs across tuple paths.
 Application checks still enforce request-specific rules such as API scopes, reauthentication, verified domains, and the last-owner invariant.
@@ -233,7 +234,7 @@ API queries and authorization listings omit deleted dashboards.
 Legacy dashboard collaborator privileges also trigger reconciliation.
 Rolled-back transactions enqueue nothing.
 The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
-The mirror covers project rules and dashboard category/object rules; other resource types, including insights, are not mirrored yet.
+The mirror covers project rules and dashboard resource and object rules; other resource types, including insights, are not mirrored yet.
 
 The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
 It deletes obsolete grants before writing replacements.
@@ -246,9 +247,10 @@ If retries run out, bulk writes bypass model signals, or Redis loses the readine
 This is a development/pilot integration, not a production authorization rollout.
 It reconciles the whole organization and scans the store to compute its tuple diff.
 Use incremental projections before enabling it broadly.
-Dashboard API permissions, list filtering, access-rule editing, sharing, and tile mutations use the authorization facade.
+Dashboard and insight API permissions, list filtering, and access-rule editing use the authorization facade.
 Dashboard checks in insight placement, subscriptions, and AI tools use it too.
-Other resource types keep their existing authorization paths.
+Other resource types keep their existing member-authorization paths.
+Public share-link reads use OpenFGA for dashboards, insights, notebooks, and session recordings.
 Post-commit task publishing is not a transactional outbox.
 Add durable change capture before using the facade as the sole authorization check.
 
@@ -264,34 +266,47 @@ Missing, disabled, boolean, or unknown flag values use `v1`.
 The flag evaluates locally with the organization ID as its distinct ID and organization group key.
 Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
 Only resource types in `V2_RESOURCES` in `products/authz/backend/logic/rollout.py` can use OpenFGA, including shadow comparisons.
-The allowlist contains dashboards; project, organization, and role checks always use `v1`.
+The allowlist contains dashboards and insights; project, organization, and role checks for users always use `v1`.
+Share-link subjects always use OpenFGA, without a legacy fallback or shadow comparison.
 Each organization and resource type in a batch gets its own routing decision; results retain the input order.
 Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
-- `list_resources` returns authorized dashboard IDs scoped to the requested project.
-  Legacy mode evaluates the project's dashboards with the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
+- `list_resources` returns authorized dashboard or insight IDs scoped to the requested project.
+  Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
   A supplied limit returns an empty, incomplete result if exceeded.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
 
-The pilot supports dashboards, dashboard categories, projects, organizations, and roles.
+The pilot supports dashboard and insight objects, their resource types, projects, organizations, and roles.
 It does not replace API scope checks, reauthentication, or other request-specific enforcement.
 Shadow comparisons run synchronously after the authoritative check.
 `authz_decision_comparison` logs both decisions, whether they match, the rollout mode, and the user/resource identifiers.
 `authz_resource_list_comparison` logs counts, completeness, and whether the results match, without logging the returned IDs.
 A failed comparison logs an error type and a comparison with `matches=null`; it does not change the authoritative result.
 An authoritative error propagates without falling back to the other engine.
-Optimize the legacy dashboard scan and shadow-check latency before using this path broadly.
+Optimize the legacy dashboard and insight scans and shadow-check latency before using this path broadly.
 
-These methods require an explicit `Subject(user_id=...)`.
+These methods require an explicit `Subject(user_id=...)` or `Subject(share_link_id=...)`.
 `posthog/authz.py` adapts Django users, objects, and querysets to these contracts.
 Django viewsets bind an `authorization_session` to reuse legacy lookups within each request.
 Authorization-related model writes invalidate this lookup state; the session never caches OpenFGA decisions.
-Authenticated dashboard requests still enforce API scopes, project membership, and reauthentication through Django permissions.
-Public sharing and export authentication retain their existing read-only paths.
+Authenticated dashboard and insight requests still enforce API scopes, project membership, and reauthentication through Django permissions.
+Share token and password validation authenticate a `SharedLinkUser` to a `share_link:<sharing_configuration_id>` principal.
+The shared-page renderer, API object checks, insight list filtering, and asynchronous shared-query refreshes use OpenFGA decisions.
+The projection writes `shared_viewer` relationships for enabled, unexpired shares and their embedded insights.
+Each relationship names a specific share-link principal, never an anonymous wildcard.
+The validated parent token selects that principal for every API object check and list.
+An unrelated parent's token cannot read an insight just because another parent shares it.
+These relationships grant `can_view` only, not membership or editing permissions.
+Sharing, notebook content, dashboard tile, and recording changes reconcile the graph through the existing post-commit synchronization path.
+Organization public-sharing restrictions revoke these relationships too.
+Token rotation keeps the old principal's reads during the grace period; credential validation rejects it after expiry.
+Bootstrap the updated model, enable `OPENFGA_SYNC_ENABLED`, and run `sync_openfga <organization_uuid>` before serving public links.
+Public reads fail closed while their organization's projection is missing or pending; there is no SQL grant fallback.
+Export-purpose tokens retain their existing authentication and surface restrictions.
 Service credentials retain project-wide access within their API scopes because the facade does not support their principals yet.
-Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.
+Request-context overrides and principals other than users and share links are not wired yet and raise rather than being ignored.
 The relationship-write, subject-listing, and explanation methods remain unimplemented.
 Use the existing AccessControl write APIs as the database source of truth.
 

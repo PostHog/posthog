@@ -28,7 +28,7 @@ class TestLegacyAuthorization(BaseTest):
         self.subject = Subject(user_id=self.reader.id)
         self.dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
         self.resource = Resource(type=ResourceType.DASHBOARD, id=str(self.dashboard_id), project_id=self.team.id)
-        self.category = Resource(type=ResourceType.DASHBOARD, project_id=self.team.id)
+        self.dashboards = Resource(type=ResourceType.DASHBOARD, project_id=self.team.id)
         self.enterContext(api.authorization_session())
 
     @parameterized.expand(
@@ -62,10 +62,25 @@ class TestLegacyAuthorization(BaseTest):
                 CheckRequest(resource=self.resource, action=Action.EDIT, subject=self.subject),
             ]
         ) == [Action.VIEW in expected, Action.EDIT in expected]
-        listed = api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject)
+        listed = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
         assert listed.complete
         assert listed.allows(str(self.dashboard_id)) == (Action.VIEW in expected)
-        assert not api.check(resource=self.category, action=Action.CREATE, subject=self.subject)
+        assert not api.check(resource=self.dashboards, action=Action.CREATE, subject=self.subject)
+
+    @parameterized.expand(
+        [
+            ("recording_playlist", ResourceType.SESSION_RECORDING_PLAYLIST, "session_recording"),
+            ("dashboard_template", ResourceType.DASHBOARD_TEMPLATE, "dashboard"),
+            ("warehouse_table", ResourceType.WAREHOUSE_TABLE, "warehouse_objects"),
+            ("llm_prompt", ResourceType.LLM_PROMPT, "llm_analytics"),
+        ]
+    )
+    def test_inherited_category_permissions_use_the_parent_resource(
+        self, _name: str, child: ResourceType, parent: str
+    ) -> None:
+        access_testing.create_access_control(team_id=self.team.id, resource=parent, access_level="viewer")
+        resource = Resource(type=child, project_id=self.team.id)
+        assert api.permissions(resource=resource, subject=self.subject) == frozenset({Action.VIEW, Action.LIST})
 
     def test_project_denial_tenant_scope_and_missing_objects_fail_closed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
@@ -87,7 +102,7 @@ class TestLegacyAuthorization(BaseTest):
             team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
         )
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
-        assert not api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject).allows(
+        assert not api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject).allows(
             str(self.dashboard_id)
         )
         dashboard_testing.delete_dashboard(team_id=self.team.id, dashboard_id=self.dashboard_id)
@@ -138,13 +153,13 @@ class TestLegacyAuthorization(BaseTest):
         )
         assert api.check(resource=self.resource, action=Action.EDIT, subject=self.subject)
         other_dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
-        listed = api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject)
+        listed = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
         assert listed.complete and listed.allows(str(other_dashboard_id))
         # The cap counts the dashboards with a rule of their own, not every dashboard in the project.
         for dashboard_id in (self.dashboard_id, other_dashboard_id):
             access_testing.create_access_control(
                 team_id=self.team.id, resource="dashboard", resource_id=str(dashboard_id), access_level="viewer"
             )
-        capped = api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject, limit=1)
+        capped = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject, limit=1)
         assert not capped.complete and not capped.ids
         assert api.check(resource=self.resource, action=Action.MANAGE_ACCESS, subject=Subject(user_id=self.user.id))

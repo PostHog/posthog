@@ -15,8 +15,8 @@ from products.authz.backend.logic.model_builder import (
     read_test_files,
 )
 
-NOTEBOOK = "type notebook extends resource\n  relations\n{statements}"
-NOTEBOOK_TESTS = "name: Notebook\nmodel_file: ../../model.fga\ntests: []\n"
+NOTEBOOK = "type notebook extends object\n  relations\n{statements}"
+NOTEBOOK_TESTS = "name: Notebook\nmodel_file: ../../generated/model.fga\ntests: []\n"
 WHY = "    # A test relation.\n"
 DASHBOARD = "resources/dashboard.fga"
 
@@ -65,18 +65,18 @@ class TestModelRules(SimpleTestCase):
                 "add a comment above collaborator",
             ),
             (
-                "extends_a_resource",
-                {"resources/insight.fga": ("extends shareable_resource", "extends dashboard")},
+                "extends_an_object_type",
+                {"resources/insight.fga": ("extends shareable_object", "extends dashboard")},
                 "must extend one of the bases",
             ),
             (
                 "type_name_differs_from_file",
-                {"resources/notebook.fga": (None, "type notebooks extends resource\n  relations\n")},
+                {"resources/notebook.fga": (None, "type notebooks extends object\n  relations\n")},
                 "named 'notebook' after the file",
             ),
             (
                 "unknown_resource_type",
-                {"resources/spline_reticulator.fga": (None, "type spline_reticulator extends resource\n  relations\n")},
+                {"resources/spline_reticulator.fga": (None, "type spline_reticulator extends object\n  relations\n")},
                 "not a ResourceType value",
             ),
             (
@@ -119,6 +119,8 @@ class TestModelRules(SimpleTestCase):
         with tempfile.TemporaryDirectory() as directory:
             source_dir = Path(directory)
             shutil.copytree(SOURCE_DIR, source_dir, dirs_exist_ok=True)
+            (source_dir / "resources/notebook.fga").unlink(missing_ok=True)
+            (source_dir / "resources/notebook.fga.yaml").unlink(missing_ok=True)
             original_model = ModelBuilder(source_dir).build()
             for relative_path, (old, new) in edits.items():
                 path = source_dir / relative_path

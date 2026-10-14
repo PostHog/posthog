@@ -23,12 +23,15 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
-    SharingAccessTokenAuthentication,
-    SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
     is_mcp_request,
 )
-from posthog.authz import RESOURCE_ACTIONS, check_dashboard_category_access, check_object_access
+from posthog.authz import (
+    RESOURCE_ACTIONS,
+    check_dashboard_category_access,
+    check_object_access,
+    check_resource_category_access,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
@@ -45,6 +48,7 @@ from posthog.scopes import (
     scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.shared_link_user import SharedLinkUser
 from posthog.utils import get_can_create_org
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -55,7 +59,7 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
     ordered_access_levels,
 )
-from products.authz.backend.facade.enums import Action
+from products.authz.backend.facade.enums import Action, ResourceType
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -585,44 +589,6 @@ class PremiumFeaturePermission(BasePermission):
         return True
 
 
-class SharingTokenPermission(BasePermission):
-    """
-    Validates an authenticated SharingToken against the current request.
-    """
-
-    def has_object_permission(self, request, view, object) -> bool:
-        # A sharing configuration grants access to specific model instances, so it never covers a
-        # contract-backed object.
-        if isinstance(object, ObjectAccessRef):
-            return False
-        if not isinstance(
-            request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
-        ):
-            raise ValueError(
-                "SharingTokenPermission only works if SharingAccessTokenAuthentication or SharingPasswordProtectedAuthentication succeeded"
-            )
-        return request.successful_authenticator.sharing_configuration.can_access_object(object)
-
-    def has_permission(self, request, view) -> bool:
-        assert hasattr(view, "sharing_enabled_actions"), (
-            "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
-        )
-
-        if isinstance(
-            request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
-        ):
-            try:
-                view.team  # noqa: B018
-                if request.successful_authenticator.sharing_configuration.team != view.team:
-                    return False
-            except NotFound:
-                return False
-
-            return view.action in view.sharing_enabled_actions
-
-        return False
-
-
 class TimeSensitiveActionPermission(BasePermission):
     """
     Validates that the authenticated session is not older than the allowed time for the action.
@@ -1125,6 +1091,12 @@ class AccessControlPermission(ScopeBasePermission):
         return self._get_required_access_level(request, view)
 
     def has_object_permission(self, request, view, object) -> bool:
+        if isinstance(request.user, SharedLinkUser):
+            resource = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
+            if resource not in ("dashboard", "insight", "notebook", "session_recording", "project"):
+                return False
+            return request.method in SAFE_METHODS and check_object_access(request.user, object, Action.VIEW)
+
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
         # Service credentials (TST, PSAK) are synthetic users UserAccessControl can't evaluate.
@@ -1134,7 +1106,7 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         resource = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
-        if resource == "dashboard":
+        if resource in ("dashboard", "insight"):
             if isinstance(object, ObjectAccessRef) and object.team_id != view.team.pk:
                 return False
             if view.action == "access_controls" and request.method not in SAFE_METHODS:
@@ -1170,6 +1142,14 @@ class AccessControlPermission(ScopeBasePermission):
         return True
 
     def has_permission(self, request, view) -> bool:
+        if isinstance(request.user, SharedLinkUser):
+            if request.method not in SAFE_METHODS or view.action not in getattr(view, "sharing_enabled_actions", []):
+                return False
+            try:
+                return check_object_access(request.user, view.team, Action.VIEW)
+            except NotFound:
+                return False
+
         # At this level we are checking that the user can generically access the resource kind.
         # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
@@ -1212,6 +1192,21 @@ class AccessControlPermission(ScopeBasePermission):
             return check_dashboard_category_access(
                 request.user,
                 team,
+                Action.CREATE if view.action == "create" else RESOURCE_ACTIONS[required_level],
+                require_category=getattr(view, "requires_resource_level_access", False) or view.action == "create",
+            )
+
+        if scope_object == "insight":
+            if not check_object_access(request.user, team, Action.VIEW):
+                return False
+            if not required_level:
+                return True
+            if view.kwargs.get("pk") is not None and not getattr(view, "requires_resource_level_access", False):
+                return True
+            return check_resource_category_access(
+                request.user,
+                team,
+                ResourceType.INSIGHT,
                 Action.CREATE if view.action == "create" else RESOURCE_ACTIONS[required_level],
                 require_category=getattr(view, "requires_resource_level_access", False) or view.action == "create",
             )

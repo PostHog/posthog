@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -21,6 +23,13 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.authz.backend.facade.testing import mock_share_link_authorization
+
+
+@pytest.fixture(autouse=True)
+def share_link_authorization() -> Iterator[None]:
+    with mock_share_link_authorization():
+        yield
 
 
 class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):

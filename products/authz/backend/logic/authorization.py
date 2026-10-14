@@ -9,10 +9,17 @@ from openfga_sdk.sync import OpenFgaClient
 
 from posthog.models import Team
 
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    RESOURCE_INHERITANCE_MAP,
+)
+
 from ..client import get_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, Level, ResourceType
 from . import request_context, sync_state
+
+RESOURCE_CATEGORIES = {ResourceType(child): ResourceType(parent) for child, parent in RESOURCE_INHERITANCE_MAP.items()}
 
 
 def ready_state(organization_id: UUID) -> bytes | None:
@@ -22,7 +29,7 @@ def ready_state(organization_id: UUID) -> bytes | None:
 
 @cache
 def model_relations() -> dict[str, frozenset[str]]:
-    model = json.loads((Path(__file__).resolve().parents[2] / "openfga_model.json").read_text())
+    model = json.loads((Path(__file__).resolve().parents[2] / "generated" / "openfga_model.json").read_text())
     return {definition["type"]: frozenset(definition.get("relations", {})) for definition in model["type_definitions"]}
 
 
@@ -66,6 +73,10 @@ def organization_id(resource: Resource, *, projects: Mapping[int, UUID] | None =
     return resource.organization_id
 
 
+def resource_category(resource_type: ResourceType) -> ResourceType:
+    return RESOURCE_CATEGORIES.get(resource_type, resource_type)
+
+
 def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
     org_id = org_id or organization_id(resource)
     if resource.type == ResourceType.ORGANIZATION:
@@ -79,22 +90,44 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
         if resource.id is None:
             raise ValueError("Provide a role id")
         return f"role:{org_id}/{UUID(resource.id)}"
-    if resource.type != ResourceType.DASHBOARD:
+    if resource.id is None:
+        category = resource_category(resource.type)
+        if category not in ACCESS_CONTROL_RESOURCES:
+            raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
+        if resource.project_id is None:
+            raise ValueError(f"Provide a project id for {resource.type} authorization")
+        return f"resource:{org_id}/{resource.project_id}/{category}"
+    if resource.type not in (
+        ResourceType.DASHBOARD,
+        ResourceType.INSIGHT,
+        ResourceType.NOTEBOOK,
+        ResourceType.SESSION_RECORDING,
+    ):
         raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
     if resource.project_id is None:
-        raise ValueError("Provide a project id for dashboard authorization")
-    if resource.id is None:
-        return f"resource_category:{org_id}/{resource.project_id}/dashboard"
-    if not resource.id.isdecimal() or int(resource.id) <= 0:
-        raise ValueError("Provide the dashboard's numeric id")
-    return f"dashboard:{org_id}/{resource.project_id}/{int(resource.id)}"
+        raise ValueError(f"Provide a project id for {resource.type} authorization")
+    if resource.type == ResourceType.NOTEBOOK:
+        id = str(UUID(resource.id))
+    elif resource.type == ResourceType.SESSION_RECORDING:
+        if not resource.id or len(resource.id) > 200 or any(c.isspace() or c in "#:" for c in resource.id):
+            raise ValueError("Provide a valid session recording id")
+        id = resource.id
+    else:
+        if not resource.id.isdecimal() or int(resource.id) <= 0:
+            raise ValueError(f"Provide the {resource.type}'s numeric id")
+        id = str(int(resource.id))
+    return f"{resource.type}:{org_id}/{resource.project_id}/{id}"
 
 
 def actor_key(subject: Subject | None) -> str:
     if subject is None:
         raise ValueError("Pass an explicit subject until request-context authorization is wired")
+    if subject.share_link_id is not None:
+        if subject.share_link_id <= 0:
+            raise ValueError("Provide a positive share link id")
+        return f"share_link:{subject.share_link_id}"
     if subject.user_id is None:
-        raise NotImplementedError("OpenFGA checks currently support user subjects only")
+        raise NotImplementedError("OpenFGA checks currently support user and share link subjects only")
     return f"user:{subject.user_id}"
 
 

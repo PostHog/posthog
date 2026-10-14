@@ -37,7 +37,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
     mint_export_renderer_token,
 )
-from posthog.authz import check_object_access
+from posthog.authz import check_object_access, check_shared_link_access, filter_resource_queryset
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
@@ -70,7 +70,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.authz.backend.facade.enums import Action
+from products.authz.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
@@ -1023,6 +1023,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         shared_link_user = (
             cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
         )
+        if isinstance(resource, SharingConfiguration) and not check_shared_link_access(
+            cast(SharedLinkUser, shared_link_user)
+        ):
+            return custom_404_response(self.request)
 
         context: dict[str, Any] = {
             "view": self,
@@ -1369,8 +1373,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             referenced_insight_ids = resource.get_connected_insight_ids()
             referenced_insights = (
                 list(
-                    Insight.objects.filter(
-                        id__in=referenced_insight_ids, team__project_id=resource.team.project_id, deleted=False
+                    filter_resource_queryset(
+                        cast(SharedLinkUser, shared_link_user),
+                        Insight.objects.filter(
+                            id__in=referenced_insight_ids, team__project_id=resource.team.project_id, deleted=False
+                        ),
+                        ResourceType.INSIGHT,
                     )
                 )
                 if referenced_insight_ids

@@ -224,7 +224,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
             # Check that they have the right access level for this specific resource object
             can_modify = (
                 check_object_access(self.context["request"].user, the_object, Action.MANAGE_ACCESS)
-                if resource == "dashboard"
+                if resource in ("dashboard", "insight")
                 else access_control.check_can_modify_access_levels_for_object(the_object)
             )
             if not can_modify:
@@ -421,7 +421,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         user_access_level = (
             object_access_level(request.user, obj)
-            if resource == "dashboard"
+            if resource in ("dashboard", "insight")
             else user_access_control.get_user_access_level(obj)
         )
 
@@ -436,7 +436,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
             "user_can_edit_access_levels": check_object_access(request.user, obj, Action.MANAGE_ACCESS)
-            if resource == "dashboard"
+            if resource in ("dashboard", "insight")
             else user_access_control.check_can_modify_access_levels_for_object(obj),
         }
 
@@ -492,7 +492,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 continue
 
             access_level = (
-                object_access_level(user, obj) if resource == "dashboard" else user_uac.get_user_access_level(obj)
+                object_access_level(user, obj)
+                if resource in ("dashboard", "insight")
+                else user_uac.get_user_access_level(obj)
             )
             if access_level is None or access_level == "none":
                 continue
@@ -645,7 +647,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         resource = obj.resource if isinstance(obj, ObjectAccessRef) else model_to_resource(obj)
-        if resource == "dashboard":
+        if resource in ("dashboard", "insight"):
             request = self.context.get("request")
             if request is not None:
                 return object_access_level(request.user, obj)

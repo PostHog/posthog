@@ -24,7 +24,11 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightDefinition
+from products.product_analytics.backend.facade.contracts import (
+    AuthorizationInsight,
+    InsightVariableDefinition,
+    SavedInsightDefinition,
+)
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -124,6 +128,10 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
+def authorization_insights(team_id: int, insight_ids: Collection[int] | None = None) -> list[AuthorizationInsight]:
+    return logic.authorization_insights(team_id, insight_ids)
 
 
 def recent_viewers_by_insight(

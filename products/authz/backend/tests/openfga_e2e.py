@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -7,13 +8,14 @@ from unittest.mock import patch
 
 from django.db import transaction
 from django.test import override_settings
+from django.utils.timezone import now
 
 from openfga_sdk import CreateStoreRequest
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 
 from products.access_control.backend.facade import testing as access_control_testing
 from products.access_control.backend.facade.api import set_object_access_control
@@ -23,8 +25,12 @@ from products.authz.backend.client import get_openfga_client
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import CheckRequest, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
+from products.authz.backend.logic import authorization
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.models import Insight
 
 DASHBOARD_PERMISSIONS = {
     "none": frozenset(),
@@ -36,7 +42,7 @@ DASHBOARD_PERMISSIONS = {
 
 @frozen
 class Rule:
-    scope: Literal["object", "category", "project"]
+    scope: Literal["object", "resource", "project"]
     subject: Literal["member", "role", "default"]
     level: str
 
@@ -73,7 +79,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             self.second_dashboard_id = dashboard_testing.create_dashboard(
                 team_id=self.team.id, created_by_id=self.user.id
             )
-            self.category_rule_id = access_control_testing.create_access_control(
+            self.resource_rule_id = access_control_testing.create_access_control(
                 team_id=self.team.id, resource="dashboard", access_level="none"
             )
         self.subject = Subject(user_id=self.other_user.id)
@@ -93,13 +99,21 @@ class TestOpenFgaDashboardMirror(BaseTest):
             project_id=team_id or self.team.id,
         )
 
-    def _grant(self, level: str | None, dashboard_id: int | None = None, role_id: UUID | None = None) -> None:
+    def _grant(
+        self,
+        level: str | None,
+        dashboard_id: int | None = None,
+        role_id: UUID | None = None,
+        *,
+        resource: str = "dashboard",
+        resource_id: int | None = None,
+    ) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             set_object_access_control(
                 team_id=self.team.id,
                 input=SetObjectAccessControlInput(
-                    resource="dashboard",
-                    resource_id=str(dashboard_id or self.dashboard_id),
+                    resource=resource,
+                    resource_id=str(resource_id or dashboard_id or self.dashboard_id),
                     access_level=level,
                     organization_member_id=self.membership.id if role_id is None else None,
                     role_id=role_id,
@@ -155,7 +169,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
     def test_viewer_default_with_member_editor_grant_on_only_one_dashboard(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level="viewer"
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level="viewer"
             )
             third_dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
             another_reader = User.objects.create_and_join(
@@ -179,6 +193,238 @@ class TestOpenFgaDashboardMirror(BaseTest):
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"])
         editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
         assert editable.complete and not editable.allows(str(self.dashboard_id))
+
+    def test_playlist_category_inherits_recording_grants_and_revocations(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            rule_id = access_control_testing.create_access_control(
+                team_id=self.team.id, resource="session_recording", access_level="none"
+            )
+            access_control_testing.create_access_control(
+                team_id=self.team.id, resource="session_recording_playlist", access_level="manager"
+            )
+        resources = [
+            Resource(type=resource_type, project_id=self.team.id)
+            for resource_type in (ResourceType.SESSION_RECORDING_PLAYLIST, ResourceType.SESSION_RECORDING)
+        ]
+        requests = [
+            CheckRequest(resource=resource, action=action, subject=self.subject)
+            for resource in resources
+            for action in (Action.VIEW, Action.LIST, Action.CREATE, Action.MANAGE_ACCESS)
+        ]
+        for level, expected in (
+            ("none", [False, False, False, False]),
+            ("viewer", [True, True, False, False]),
+            ("editor", [True, True, True, False]),
+            ("manager", [True, True, True, True]),
+            ("none", [False, False, False, False]),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                access_control_testing.set_access_control_level(
+                    team_id=self.team.id, rule_id=rule_id, access_level=level
+                )
+            assert authorization.check(requests, None) == expected * len(resources)
+            assert api.check(requests) == expected * len(resources)
+            assert not self._check(Action.VIEW)
+
+    def test_insight_access_uses_its_rules_and_attached_dashboard_permissions(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.creator_user = User.objects.create_and_join(
+                self.organization, "insight-creator@example.com", "test-password"
+            )
+            access_control_testing.create_access_control(
+                team_id=self.team.id,
+                resource="project",
+                resource_id=str(self.team.id),
+                access_level="member",
+            )
+            access_control_testing.create_access_control(team_id=self.team.id, resource="insight", access_level="none")
+        with self.captureOnCommitCallbacks(execute=True):
+            insight = Insight.objects.create(team=self.team, created_by=self.creator_user, name="Insight")
+        resource = Resource(type=ResourceType.INSIGHT, id=str(insight.id), project_id=self.team.id)
+        insight_resource = Resource(type=ResourceType.INSIGHT, project_id=self.team.id)
+        assert api.check(resource=resource, action=Action.EDIT, subject=Subject(user_id=self.creator_user.id))
+        self._grant("viewer", resource="insight", resource_id=insight.id)
+        assert api.check(resource=resource, action=Action.VIEW, subject=self.subject)
+        assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        listed = api.list_resources(resource=insight_resource, action=Action.VIEW, subject=self.subject)
+        assert listed.complete and listed.ids == frozenset({str(insight.id)})
+
+        self._grant("editor", resource="insight", resource_id=insight.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            access_control_testing.set_access_control_level(
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level="editor"
+            )
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            dashboard_testing.set_dashboard_restriction(
+                team_id=self.team.id,
+                dashboard_id=self.dashboard_id,
+                level=RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+            )
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            DashboardTile.objects.create(
+                dashboard_id=self.dashboard_id,
+                insight_id=insight.id,
+                team_id=self.team.id,
+            )
+        assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            dashboard_testing.set_dashboard_collaborator(
+                team_id=self.team.id,
+                dashboard_id=self.dashboard_id,
+                user_id=self.other_user.id,
+                level=PrivilegeLevel.CAN_EDIT,
+            )
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+
+    def test_share_links_only_read_their_objects_and_current_embedded_insights(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            insight = Insight.objects.create(team=self.team, name="Shared insight", short_id="shared01")
+            unrelated = Insight.objects.create(team=self.team, name="Other insight")
+            tile = DashboardTile.objects.create(team=self.team, dashboard_id=self.dashboard_id, insight=insight)
+            notebook = Notebook.objects.create(
+                team=self.team,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}},
+                        }
+                    ],
+                },
+            )
+            recording = SessionRecording.objects.create(team=self.team, session_id="shared-recording")
+            shares = [
+                SharingConfiguration.objects.create(team=self.team, enabled=True, **{field: target})
+                for field, target in (
+                    ("dashboard_id", self.dashboard_id),
+                    ("insight", insight),
+                    ("notebook", notebook),
+                    ("recording", recording),
+                )
+            ]
+        resources = [
+            self._resource(self.dashboard_id),
+            Resource(type=ResourceType.INSIGHT, id=str(insight.pk), project_id=self.team.id),
+            Resource(type=ResourceType.NOTEBOOK, id=str(notebook.pk), project_id=self.team.id),
+            Resource(type=ResourceType.SESSION_RECORDING, id=recording.session_id, project_id=self.team.id),
+        ]
+        with patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v1"):
+            for index, share in enumerate(shares):
+                subject = Subject(share_link_id=share.pk)
+                assert api.permissions(resource=resources[index], subject=subject) == frozenset({Action.VIEW})
+                assert api.check(
+                    resource=Resource(type=ResourceType.PROJECT, id=str(self.team.pk)),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                for other in range(len(resources)):
+                    expected = other == index or (other == 1 and index in (0, 2))
+                    assert api.check(resource=resources[other], action=Action.VIEW, subject=subject) is expected
+                assert not api.check(
+                    resource=Resource(type=ResourceType.INSIGHT, id=str(unrelated.pk), project_id=self.team.id),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                listed = api.list_resources(
+                    resource=Resource(type=ResourceType.INSIGHT, project_id=self.team.id),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                assert listed.complete
+                assert listed.ids == (frozenset({str(insight.pk)}) if index != 3 else frozenset())
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/", {"sharing_access_token": str(shares[2].access_token)}
+            )
+            assert response.status_code == 200, response.content
+            assert [item["id"] for item in response.json()["results"]] == [insight.pk]
+            response = self.client.get(f"/shared/{shares[2].access_token}.json")
+            assert response.status_code == 200, response.content
+            assert set(response.json()["insights"]) == {insight.short_id}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notebook.content = {"type": "doc", "content": []}
+            notebook.save()
+            tile.delete()
+        for share in (shares[0], shares[2]):
+            assert not api.check(resource=resources[1], action=Action.VIEW, subject=Subject(share_link_id=share.pk))
+        assert api.check(resource=resources[1], action=Action.VIEW, subject=Subject(share_link_id=shares[1].pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            shares[1].enabled = False
+            shares[1].save()
+        assert not api.check(resource=resources[1], action=Action.VIEW, subject=Subject(share_link_id=shares[1].pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            rotated = shares[3].rotate_access_token()
+        for share in (shares[3], rotated):
+            assert api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=share.pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            shares[3].expires_at = now() - timedelta(seconds=1)
+            shares[3].save()
+        assert not api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=shares[3].pk))
+        assert api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=rotated.pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.available_product_features = [
+                *(self.organization.available_product_features or []),
+                {
+                    "key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                    "name": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                },
+            ]
+            self.organization.allow_publicly_shared_resources = False
+            self.organization.save()
+        for share, resource in zip(shares, resources, strict=True):
+            assert not api.check(resource=resource, action=Action.VIEW, subject=Subject(share_link_id=share.pk))
+        assert not api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=rotated.pk))
+
+    @parameterized.expand(["dashboard", "notebook"])
+    def test_implicit_insight_reads_require_the_matching_parent_token(self, parent_type: str) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            insights = [Insight.objects.create(team=self.team, name=f"Embedded {index}") for index in range(2)]
+            shares = []
+            for index, insight in enumerate(insights):
+                if parent_type == "dashboard":
+                    dashboard_id = self.dashboard_id if index == 0 else self.second_dashboard_id
+                    DashboardTile.objects.create(team=self.team, dashboard_id=dashboard_id, insight=insight)
+                    share = SharingConfiguration.objects.create(team=self.team, enabled=True, dashboard_id=dashboard_id)
+                else:
+                    notebook = Notebook.objects.create(
+                        team=self.team,
+                        content={
+                            "type": "doc",
+                            "content": [
+                                {
+                                    "type": "ph-query",
+                                    "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}},
+                                }
+                            ],
+                        },
+                    )
+                    share = SharingConfiguration.objects.create(team=self.team, enabled=True, notebook=notebook)
+                shares.append(share)
+        self.client.logout()
+        with patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v1"):
+            for index, insight in enumerate(insights):
+                url = f"/api/projects/{self.team.pk}/insights/{insight.pk}/"
+                response = self.client.get(url)
+                assert response.status_code == 403, response.content
+                for invalid_token in ("invalid-token", str(shares[index].pk)):
+                    response = self.client.get(url, {"sharing_access_token": invalid_token})
+                    assert response.status_code == 403, response.content
+                response = self.client.get(url, {"sharing_access_token": str(shares[1 - index].access_token)})
+                assert response.status_code == 404, response.content
+                response = self.client.get(
+                    url, {"sharing_access_token": str(shares[index].access_token), "basic": "true"}
+                )
+                assert response.status_code == 200, response.content
+                assert response.json()["id"] == insight.pk
+                response = self.client.get(
+                    f"/api/projects/{self.team.pk}/insights/",
+                    {"sharing_access_token": str(shares[index].access_token), "basic": "true"},
+                )
+                assert response.status_code == 200, response.content
+                assert [item["id"] for item in response.json()["results"]] == [insight.pk]
 
     def test_rule_crud_dashboard_lifecycle_and_scoped_listing(self) -> None:
         assert not self._check(Action.VIEW)
@@ -210,12 +456,12 @@ class TestOpenFgaDashboardMirror(BaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level="viewer"
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level="viewer"
             )
         assert self._check(Action.VIEW) and not self._check(Action.EDIT)
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level=None
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level=None
             )
         assert self._check(Action.EDIT)
         self._grant("none")
@@ -284,23 +530,23 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 Rule(scope="object", subject="member", level=level),
                 Rule(scope="object", subject="role", level=level),
                 Rule(scope="object", subject="default", level=level),
-                Rule(scope="category", subject="member", level=level),
-                Rule(scope="category", subject="role", level=level),
-                Rule(scope="category", subject="default", level=level),
+                Rule(scope="resource", subject="member", level=level),
+                Rule(scope="resource", subject="role", level=level),
+                Rule(scope="resource", subject="default", level=level),
             )
         ]
     )
     def test_user_has_the_dashboard_permissions_their_rule_grants(self, _name: str, rule: Rule) -> None:
         with self.captureOnCommitCallbacks(execute=True):
-            if rule.scope == "category" and rule.subject == "default":
+            if rule.scope == "resource" and rule.subject == "default":
                 access_control_testing.set_access_control_level(
-                    team_id=self.team.id, rule_id=self.category_rule_id, access_level=rule.level
+                    team_id=self.team.id, rule_id=self.resource_rule_id, access_level=rule.level
                 )
             else:
                 self._add_rule(rule)
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[rule.level])
         expected_second = (
-            DASHBOARD_PERMISSIONS[rule.level] if rule.scope == "category" else DASHBOARD_PERMISSIONS["none"]
+            DASHBOARD_PERMISSIONS[rule.level] if rule.scope == "resource" else DASHBOARD_PERMISSIONS["none"]
         )
         self._assert_dashboard_permissions(expected_second, dashboard_id=self.second_dashboard_id)
 
@@ -371,82 +617,82 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 "viewer",
             ),
             (
-                "object_default_viewer_beats_category_member_manager",
+                "object_default_viewer_beats_resource_member_manager",
                 (
                     Rule(scope="object", subject="default", level="viewer"),
-                    Rule(scope="category", subject="member", level="manager"),
+                    Rule(scope="resource", subject="member", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "object_default_none_beats_category_member_manager",
+                "object_default_none_beats_resource_member_manager",
                 (
                     Rule(scope="object", subject="default", level="none"),
-                    Rule(scope="category", subject="member", level="manager"),
+                    Rule(scope="resource", subject="member", level="manager"),
                 ),
                 "none",
             ),
             (
-                "object_default_editor_beats_category_member_none",
+                "object_default_editor_beats_resource_member_none",
                 (
                     Rule(scope="object", subject="default", level="editor"),
-                    Rule(scope="category", subject="member", level="none"),
+                    Rule(scope="resource", subject="member", level="none"),
                 ),
                 "editor",
             ),
             (
-                "object_role_editor_beats_category_member_none",
+                "object_role_editor_beats_resource_member_none",
                 (
                     Rule(scope="object", subject="role", level="editor"),
-                    Rule(scope="category", subject="member", level="none"),
+                    Rule(scope="resource", subject="member", level="none"),
                 ),
                 "editor",
             ),
             (
-                "object_role_viewer_beats_category_role_manager",
+                "object_role_viewer_beats_resource_role_manager",
                 (
                     Rule(scope="object", subject="role", level="viewer"),
-                    Rule(scope="category", subject="role", level="manager"),
+                    Rule(scope="resource", subject="role", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "object_member_viewer_beats_category_member_manager",
+                "object_member_viewer_beats_resource_member_manager",
                 (
                     Rule(scope="object", subject="member", level="viewer"),
-                    Rule(scope="category", subject="member", level="manager"),
+                    Rule(scope="resource", subject="member", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "category_member_viewer_beats_role_manager",
+                "resource_member_viewer_beats_role_manager",
                 (
-                    Rule(scope="category", subject="member", level="viewer"),
-                    Rule(scope="category", subject="role", level="manager"),
+                    Rule(scope="resource", subject="member", level="viewer"),
+                    Rule(scope="resource", subject="role", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "category_member_none_beats_role_editor",
+                "resource_member_none_beats_role_editor",
                 (
-                    Rule(scope="category", subject="member", level="none"),
-                    Rule(scope="category", subject="role", level="editor"),
+                    Rule(scope="resource", subject="member", level="none"),
+                    Rule(scope="resource", subject="role", level="editor"),
                 ),
                 "none",
             ),
             (
-                "category_member_editor_beats_role_none",
+                "resource_member_editor_beats_role_none",
                 (
-                    Rule(scope="category", subject="member", level="editor"),
-                    Rule(scope="category", subject="role", level="none"),
+                    Rule(scope="resource", subject="member", level="editor"),
+                    Rule(scope="resource", subject="role", level="none"),
                 ),
                 "editor",
             ),
             (
-                "category_highest_role_manager_beats_none",
+                "resource_highest_role_manager_beats_none",
                 (
-                    Rule(scope="category", subject="role", level="none"),
-                    Rule(scope="category", subject="role", level="manager"),
+                    Rule(scope="resource", subject="role", level="none"),
+                    Rule(scope="resource", subject="role", level="manager"),
                 ),
                 "manager",
             ),
@@ -471,7 +717,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             self.membership.save(update_fields=["level"])
             self._add_rule(Rule(scope="project", subject="default", level="none"))
             self._add_rule(Rule(scope="project", subject="member", level="none"))
-            self._add_rule(Rule(scope="category", subject="member", level="none"))
+            self._add_rule(Rule(scope="resource", subject="member", level="none"))
             self._add_rule(Rule(scope="object", subject="member", level="none"))
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["manager"])
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["manager"], dashboard_id=self.second_dashboard_id)
@@ -621,9 +867,9 @@ class TestOpenFgaDashboardMirror(BaseTest):
     ) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level=default_level
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level=default_level
             )
-            self._add_rule(Rule(scope="category", subject="role", level=role_level))
+            self._add_rule(Rule(scope="resource", subject="role", level=role_level))
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[role_level])
         with self.captureOnCommitCallbacks(execute=True):
             self.organization.available_product_features = [
@@ -688,7 +934,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             ids = {
                 dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id) for _ in range(32)
             }
-            self._add_rule(Rule(scope="category", subject="member", level="editor"))
+            self._add_rule(Rule(scope="resource", subject="member", level="editor"))
         expected_ids = ids | {self.dashboard_id, self.second_dashboard_id}
         api.synchronize_organization(self.organization.id)
         api.synchronize_organization(self.organization.id)

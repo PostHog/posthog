@@ -189,6 +189,7 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     principal the request did. None if the share was disabled, expired, or deleted, or the
     organization turned off public sharing, in the meantime - the query then runs userless and is
     denied, which is the correct outcome for a revoked share."""
+    from posthog.authz import check_shared_link_access  # noqa: PLC0415 -- keep authorization off the client import path
     from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
@@ -201,14 +202,19 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     ):
         return None
 
-    sharing_configuration = SharingConfiguration.objects.filter(
-        SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team.id
-    ).first()
+    sharing_configuration = (
+        SharingConfiguration.objects.filter(
+            SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team.id
+        )
+        .select_related("dashboard", "insight", "notebook", "recording")
+        .first()
+    )
     if sharing_configuration is None:
         return None
     # The query stack types its principal as Optional[User] but accepts the anonymous shared-link
     # viewer at runtime, so cast at the boundary the same way SharingViewerPageViewSet does.
-    return cast("User", SharedLinkUser(sharing_configuration))
+    viewer = SharedLinkUser(sharing_configuration)
+    return cast("User", viewer) if check_shared_link_access(viewer) else None
 
 
 def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:

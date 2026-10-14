@@ -27,9 +27,9 @@
 - { user: 'organization_member:member#user', relation: assignee, object: 'role:writer' }
 - { user: 'organization_member:member#user', relation: assignee, object: 'role:manager' }
 - { user: 'organization_member:member#user', relation: assignee, object: 'role:blocked' }
-- { user: 'organization:org', relation: organization, object: 'access_policy:category' }
+- { user: 'organization:org', relation: organization, object: 'access_policy:resource' }
 - { user: 'organization:org', relation: organization, object: 'access_policy:object' }
-- { user: 'project:project', relation: project, object: 'resource_category:dashboards' }
-- { user: 'project:project', relation: project, object: 'resource_category:insights' }
-- { user: 'access_policy:category', relation: policy, object: 'resource_category:dashboards' }
-- { user: 'access_policy:category', relation: policy, object: 'resource_category:insights' }
+- { user: 'project:project', relation: project, object: 'resource:dashboards' }
+- { user: 'project:project', relation: project, object: 'resource:insights' }
+- { user: 'access_policy:resource', relation: policy, object: 'resource:dashboards' }
+- { user: 'access_policy:resource', relation: policy, object: 'resource:insights' }

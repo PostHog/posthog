@@ -18,7 +18,7 @@ ROLLOUT_FLAG = "authz-rebac"
 RolloutMode = Literal["v1", "v1-shadow-log", "v2"]
 
 
-V2_RESOURCES = frozenset({ResourceType.DASHBOARD})
+V2_RESOURCES = frozenset({ResourceType.DASHBOARD, ResourceType.INSIGHT})
 
 
 def mode(organization_id: UUID, resource_type: ResourceType) -> RolloutMode:
@@ -42,18 +42,21 @@ def mode(organization_id: UUID, resource_type: ResourceType) -> RolloutMode:
 
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
     authorization.validate_context(context)
-    grouped: dict[tuple[UUID, ResourceType], list[tuple[int, CheckRequest]]] = defaultdict(list)
+    grouped: dict[tuple[UUID, ResourceType, bool], list[tuple[int, CheckRequest]]] = defaultdict(list)
     for index, request in enumerate(requests):
         authorization.actor_key(request.subject)
-        grouped[(authorization.organization_id(request.resource), request.resource.type)].append((index, request))
+        is_share_link = request.subject is not None and request.subject.share_link_id is not None
+        grouped[(authorization.organization_id(request.resource), request.resource.type, is_share_link)].append(
+            (index, request)
+        )
     decisions = [False] * len(requests)
-    for (org_id, resource_type), entries in grouped.items():
-        rollout_mode = mode(org_id, resource_type)
+    for (org_id, resource_type, is_share_link), entries in grouped.items():
+        rollout_mode = "v2" if is_share_link else mode(org_id, resource_type)
         batch = [request for _, request in entries]
         primary = authorization if rollout_mode == "v2" else legacy_authorization
         results = primary.check(batch, context)
         comparison: list[bool] | None = None
-        if rollout_mode != "v1":
+        if rollout_mode != "v1" and not is_share_link:
             secondary = legacy_authorization if rollout_mode == "v2" else authorization
             try:
                 comparison = secondary.check(batch, context)
@@ -69,7 +72,7 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
                 )
         for offset, ((index, request), allowed) in enumerate(zip(entries, results, strict=True)):
             decisions[index] = allowed
-            if rollout_mode == "v1":
+            if rollout_mode == "v1" or is_share_link:
                 continue
             shadow = comparison[offset] if comparison is not None else None
             logger.info(
@@ -109,10 +112,11 @@ def list_resources(
     authorization.validate_context(context)
     authorization.actor_key(subject)
     org_id = _organization_id(resource, user_access_control)
-    rollout_mode = mode(org_id, resource.type)
+    is_share_link = subject is not None and subject.share_link_id is not None
+    rollout_mode = "v2" if is_share_link else mode(org_id, resource.type)
     primary = authorization if rollout_mode == "v2" else legacy_authorization
     result = primary.list_resources(resource, action, subject, context, limit, creator_exempt, user_access_control)
-    if rollout_mode == "v1":
+    if rollout_mode == "v1" or is_share_link:
         return result
     secondary = legacy_authorization if rollout_mode == "v2" else authorization
     comparison: ResourceIds | None = None

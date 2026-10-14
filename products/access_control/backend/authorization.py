@@ -1,14 +1,19 @@
 from uuid import UUID
 
+from django.db.models import Q
+
 from products.access_control.backend.facade.contracts import AuthorizationRole, AuthorizationRule
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 
 
 def authorization_rules(team_id: int, organization_id: UUID) -> tuple[AuthorizationRule, ...]:
-    rows = AccessControl.objects.filter(team_id=team_id, resource__in=["project", "dashboard"]).select_related(
-        "organization_member", "role"
-    )
+    rows = AccessControl.objects.filter(
+        Q(resource_id__isnull=True) | Q(resource__in=["project", "dashboard", "insight"]),
+        team_id=team_id,
+        resource__in=["project", *ACCESS_CONTROL_RESOURCES],
+    ).select_related("organization_member", "role")
     return tuple(
         AuthorizationRule(
             resource=row.resource,
