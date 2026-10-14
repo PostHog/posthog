@@ -1495,9 +1495,6 @@ impl PersonHogReplica for PersonHogReplicaService {
             .await
             .map_err(|e| match &e {
                 storage::StorageError::NotFound(msg) => Status::not_found(msg.clone()),
-                storage::StorageError::FailedPrecondition(msg) => {
-                    Status::failed_precondition(msg.clone())
-                }
                 _ => log_and_convert_error(e, "split_person"),
             })?;
 

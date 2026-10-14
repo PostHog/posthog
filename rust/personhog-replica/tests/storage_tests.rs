@@ -2979,6 +2979,35 @@ async fn test_split_person_waits_for_a_concurrent_move_and_keeps_the_last_distin
 }
 
 #[tokio::test]
+async fn test_split_person_times_out_and_rolls_back_behind_a_long_held_mark() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("split_slow_a", None).await.unwrap();
+    ctx.add_distinct_id_to_person(person.id, "split_slow_b")
+        .await
+        .unwrap();
+    let mut holder = ctx.pool.begin().await.unwrap();
+    claim_merge_mark(&mut holder, ctx.team_id, &person).await;
+
+    let result = ctx
+        .storage
+        .split_person(ctx.team_id, person.id, &["split_slow_b".to_string()])
+        .await;
+    holder.rollback().await.unwrap();
+
+    match result {
+        Err(err) => assert_eq!(err.error_type(), "lock_timeout"),
+        Ok(results) => panic!("expected a lock timeout, got {results:?}"),
+    }
+    assert_eq!(
+        live_distinct_ids(&ctx.pool, ctx.team_id, person.id).await,
+        vec!["split_slow_a", "split_slow_b"]
+    );
+    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_split_person_fails_when_a_lifecycle_op_holds_the_person() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("split_held_a", None).await.unwrap();

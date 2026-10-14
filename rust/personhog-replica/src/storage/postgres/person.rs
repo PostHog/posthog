@@ -982,17 +982,13 @@ impl PersonLookup for PostgresStorage {
         // is constant (not per-distinct_id), so the lock window stays short; the
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
-        // A held mark or row means a merge, delete or split in flight: fail fast and roll back instead of
-        // waiting out the statement timeout. The bound is per wait, so a split can still outlast the
-        // router's deadline when several waits add up.
+        // Fail fast behind an in-flight merge, delete or split; the bound is per wait, not per call.
         sqlx::query("SET LOCAL lock_timeout = '2s'")
             .execute(&mut *tx)
             .await?;
 
-        // The source's mark serializes this split with the other writers that move its distinct ids away
-        // (other splits, ingestion merges, the tombstone RPC), so the check below that one id stays cannot
-        // pass in two splits at once. The manual detach_distinct_id job claims no mark. Marks go before any
-        // row lock, as everywhere else.
+        // The source's mark serializes splits and merges of this person, so two splits cannot both pass the
+        // keep-one check below. Claim it before any row lock; the manual detach_distinct_id job takes none.
         let mark_op_id = claim_split_mark(&mut tx, team_id, person_id).await?;
 
         // No FOR UPDATE on the source person: deletes lock PDI rows before person
@@ -1046,7 +1042,7 @@ impl PersonLookup for PostgresStorage {
         }
 
         // A fresh statement after the claim, so it sees every split that committed while this one waited.
-        // A requested id whose derived uuid is the source's own stays on the source, but counts as leaving.
+        // An id derived to the source's own uuid counts as leaving.
         let keeps_a_distinct_id: bool = sqlx::query_scalar!(
             r#"
             SELECT EXISTS (
@@ -1727,8 +1723,7 @@ async fn claim_delete_marks(
     Ok((Some(op_id), person_ids))
 }
 
-/// Claims the split source's mark as a 'merge' op, the type ingestion uses for moving distinct ids between
-/// persons. Fails like the tombstone RPC when another lifecycle operation holds the person.
+/// Marks the split source as a 'merge' op, the type ingestion uses to move distinct ids.
 async fn claim_split_mark(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
