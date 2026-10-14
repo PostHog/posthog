@@ -62,8 +62,8 @@ tools:
 
             ```
 
-            Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are
-            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+            Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
+            so a query you just ran through one of the `query-*` tools can be passed straight through.
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
