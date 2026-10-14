@@ -73,6 +73,9 @@ def get_workflow_ref(
         trigger_type=trigger.get("type"),
         trigger_filters=trigger.get("filters") or {},
         variables=flow.variables,
+        has_email_step=any(
+            isinstance(action, dict) and action.get("type") == "function_email" for action in flow.actions or []
+        ),
     )
 
 
