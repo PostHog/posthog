@@ -45,16 +45,17 @@ class AlertCutover:
 
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
     """Hands every logs alert of one team to the platform, or says why one stays."""
-    at = now or timezone.now()
     alert_ids = list(
         LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id").values_list("id", flat=True)
     )
-    return tuple(AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, at)) for alert_id in alert_ids)
+    return tuple(AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now)) for alert_id in alert_ids)
 
 
-def _cut_over_alert(alert_id: UUID, at: datetime) -> CutoverSkip | None:
+def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
     with transaction.atomic():
         alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
+        # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
+        at = now or timezone.now()
         if alert.platform_owned:
             return CutoverSkip.ALREADY_MOVED
         if alert.state in FIRING_STATES:

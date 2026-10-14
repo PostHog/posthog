@@ -235,8 +235,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     by_id = {str(o.configuration_id): o for o in outcomes}
 
     with transaction.atomic():
+        # Locked in a fixed order, so an ownership handover waits for this write or this write
+        # re-reads the row after it and finds it no longer due.
         configurations = list(
-            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id__in=by_id)
+            .filter(due_q(now))
+            .order_by("id")
         )
         if not configurations:
             return 0
