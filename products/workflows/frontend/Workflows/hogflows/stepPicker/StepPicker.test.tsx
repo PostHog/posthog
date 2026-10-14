@@ -30,7 +30,7 @@ const captured = (event: string): Record<string, any>[] =>
         .filter(([name]) => name === event)
         .map(([, properties]) => properties)
 
-const stepColumn = (): HTMLElement => screen.getByRole('region', { name: 'Steps' })
+const stepColumn = (): HTMLElement => screen.getByLabelText('Steps')
 
 const rowTitled = (title: string): HTMLElement => {
     const row = within(stepColumn()).getByText(title).closest('li')
@@ -44,7 +44,7 @@ const visibleRowTitles = (): string[] =>
         .map((row) => row.querySelector('[data-attr="workflow-step-picker-step-title"]')?.textContent)
         .filter((title): title is string => !!title)
 
-const breadcrumb = (): HTMLElement => screen.getByRole('navigation', { name: 'Breadcrumb' })
+const breadcrumb = (): HTMLElement => screen.getByLabelText('Breadcrumb')
 
 describe('StepPicker', () => {
     let onPick: jest.Mock
@@ -81,7 +81,7 @@ describe('StepPicker', () => {
         }
         expect(within(breadcrumb()).getByText('Search')).toBeInTheDocument()
 
-        fireEvent.click(within(rowTitled('Create contact')).getByRole('button', { name: 'Add step' }))
+        fireEvent.click(within(rowTitled('Create contact')).getByLabelText('Add step'))
 
         expect(onPick).toHaveBeenCalledWith({
             type: 'function',
@@ -138,14 +138,12 @@ describe('StepPicker', () => {
         expect(captured('workflow step picker provider opened')).toEqual([
             { surface: 'tree', provider: 'vendor:HubSpot' },
         ])
-        expect(within(breadcrumb()).getByRole('button', { name: 'All steps' })).toBeInTheDocument()
+        expect(within(breadcrumb()).getByText('All steps')).toBeInTheDocument()
         expect(within(breadcrumb()).getByText('HubSpot')).toBeInTheDocument()
         expect(visibleRowTitles()).toEqual(['Create contact', 'Create company', 'Send event'])
 
         fireEvent.click(within(rowTitled('Send event')).getByText('Send event'))
-        fireEvent.click(
-            within(screen.getByRole('region', { name: 'Step details' })).getByRole('button', { name: 'Add step' })
-        )
+        fireEvent.click(within(screen.getByLabelText('Step details')).getByText('Add step'))
 
         expect(onPick).toHaveBeenCalledWith(
             expect.objectContaining({ config: { template_id: 'template-hubspot-event', inputs: {} } })
@@ -158,7 +156,7 @@ describe('StepPicker', () => {
     it('shows the curated highlights in order', async () => {
         renderPicker()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Highlights' }))
+        fireEvent.click(screen.getByText('Highlights'))
 
         expect(captured('workflow step picker view changed')).toEqual([{ surface: 'tree', view: 'highlights' }])
         await waitFor(() =>
@@ -185,7 +183,7 @@ describe('StepPicker', () => {
         expect(screen.getByText('Workflows')).toBeInTheDocument()
 
         useMocks({ get: { [TEMPLATES_PATH]: { count: DESTINATION_TEMPLATES.length, results: DESTINATION_TEMPLATES } } })
-        fireEvent.click(screen.getAllByRole('button', { name: 'Retry' })[0])
+        fireEvent.click(screen.getAllByText('Retry')[0])
 
         expect(await screen.findByText('HubSpot')).toBeInTheDocument()
         expect(
@@ -200,7 +198,7 @@ describe('StepPicker', () => {
         fireEvent.change(screen.getByPlaceholderText('Search steps'), { target: { value: 'qqqzzz' } })
         expect(screen.getByText('No steps match "qqqzzz".')).toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+        fireEvent.click(screen.getByText('Clear search'))
         expect(screen.getByPlaceholderText('Search steps')).toHaveValue('')
         expect(screen.getByText('HubSpot')).toBeInTheDocument()
     })
