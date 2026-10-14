@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import time
 import uuid
 import hashlib
@@ -175,7 +176,13 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
+def _get_insert_settings(
+    team_id: int,
+    *,
+    spill_to_disk: bool = False,
+    read_after_write: bool = True,
+    max_execution_time: int | None = None,
+) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -192,12 +199,17 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_afte
     minutes later (background builders) gets no consistency from it — only the
     failure mode where a downed or stale-registered replica turns every build
     into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+
+    `max_execution_time` lowers the INSERT time limit below the default, for a caller
+    that must finish inside its own deadline.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
     settings.update(
         {
-            "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+            "max_execution_time": min(max_execution_time, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+            if max_execution_time is not None
+            else HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM if read_after_write else 0,
             "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
@@ -1617,6 +1629,7 @@ def ensure_precomputed(
     cache_key_context: dict[str, str] | None = None,
     read_after_write: bool = True,
     database: "Database | None" = None,
+    insert_deadline: float | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1701,6 +1714,10 @@ def ensure_precomputed(
                       and CPU per job. A caller that ensures many windows for one team should
                       build it once, userless with warehouse access control bypassed and with
                       the same `modifiers`, and pass it here.
+        insert_deadline: A `time.monotonic()` value. Each INSERT gets the time left until
+                      it as its ClickHouse max_execution_time, so the INSERT cannot run past
+                      the caller's own deadline. Pair it with `wait_timeout_seconds` so no
+                      INSERT starts after the deadline. Default: the standard INSERT limit.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1789,7 +1806,12 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
+                    settings=_get_insert_settings(
+                        t.id,
+                        spill_to_disk=spill_to_disk,
+                        read_after_write=read_after_write,
+                        max_execution_time=_seconds_until(insert_deadline) if insert_deadline is not None else None,
+                    ),
                 )
             )
         # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
@@ -1838,6 +1860,11 @@ def ensure_precomputed(
         # the query cache) from caching a partial result for the full TTL.
         time.sleep(PREAGGREGATION_REPLICATION_SETTLE_SECONDS)
     return result
+
+
+def _seconds_until(deadline: float) -> int:
+    # ClickHouse reads max_execution_time=0 as "no limit", so the floor is 1 second.
+    return max(1, math.ceil(deadline - time.monotonic()))
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

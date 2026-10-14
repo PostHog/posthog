@@ -1,3 +1,4 @@
+import time
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -32,6 +33,8 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
+    METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+    METRIC_CALC_PRECOMPUTE_SELECT_RESERVE_SECONDS,
     TIMEOUT_MAX_METRIC_ATTEMPTS,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -1015,6 +1018,19 @@ class TestCalculateActivity(BaseTest):
         # And the persisted row's query_from matches that same start_date — so reader and writer agree.
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.query_from == exp.start_date
+
+    def test_precompute_builds_share_the_attempt_deadline(self):
+        exp = self._experiment(flag_key="calc-time-budget", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        started_at = time.monotonic()
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        time_budget = mock_runner.call_args.kwargs["time_budget"]
+        assert started_at < time_budget.deadline <= time.monotonic() + METRIC_CALC_MAX_EXECUTION_TIME_SECONDS
+        assert time_budget.select_reserve_seconds == METRIC_CALC_PRECOMPUTE_SELECT_RESERVE_SECONDS
 
     def test_query_id_is_persisted_on_result_row(self):
         # The deterministic client_query_id is stamped into ClickHouse's query_id and stored on the row so a

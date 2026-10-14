@@ -68,8 +68,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.hogql_queries.precompute_policy import (
     BLOCKING_PRECOMPUTE_SKIP_REASONS,
     METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS,
+    QueryTimeBudget,
     ensure_exposures_precomputed,
     experiment_precompute_ttl_schedule,
+    precompute_build_limits,
     team_precompute_skip_reason,
 )
 from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
@@ -132,11 +134,13 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
+        time_budget: Optional[QueryTimeBudget] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
+        self.time_budget = time_budget
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
         self._requested_as_of = as_of
         # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
@@ -233,6 +237,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             builder,
             self.experiment.start_date,
             experiment_window_end(self.experiment, self.as_of),
+            time_budget=self.time_budget,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -270,6 +275,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if extension_seconds > 0:
             date_to = date_to + timedelta(seconds=extension_seconds)
 
+        limits = precompute_build_limits(self.time_budget)
         return ensure_precomputed(
             team=self.team,
             insert_query=query_string,
@@ -281,6 +287,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             sentinel_placeholders={"experiment_date_to"},
             end_is_data_horizon=True,
             spill_to_disk=True,
+            run_inserts=limits.run_inserts,
+            wait_timeout_seconds=limits.wait_timeout_seconds,
+            insert_deadline=limits.insert_deadline,
         )
 
     @cached_property
@@ -584,8 +593,11 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         ):
             modifiers.sessionIdPushdown = True
 
+        max_execution_time = self.max_execution_time
+        if self.time_budget is not None:
+            max_execution_time = min(max_execution_time, self.time_budget.select_seconds_left())
         settings = HogQLGlobalSettings(
-            max_execution_time=self.max_execution_time,
+            max_execution_time=max_execution_time,
             max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
         )
         # Mean metric queries join exposures with a potentially large metric-events table and

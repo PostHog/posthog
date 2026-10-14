@@ -5,6 +5,8 @@ decide whether a query may use precomputed data at all.
 Shared by the experiment query runner, the exposures query runner, and replay linkage.
 """
 
+import math
+import time
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -12,6 +14,7 @@ from django.db.models import Q
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -60,6 +63,48 @@ PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
 # window would stretch the precompute horizon into thousands of daily jobs before the
 # executor's timeout check. Past the cap the metric falls back to the direct scan.
 METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
+
+
+@frozen
+class QueryTimeBudget:
+    """A wall-clock deadline for one experiment query, shared by its precompute builds and its read.
+
+    Builds may use the time until `deadline` minus `select_reserve_seconds`. After that, a build
+    only reads windows that are already READY, so the final SELECT keeps the reserve.
+    """
+
+    deadline: float  # a time.monotonic() value
+    select_reserve_seconds: float
+
+    @property
+    def build_deadline(self) -> float:
+        return self.deadline - self.select_reserve_seconds
+
+    def build_seconds_left(self) -> float:
+        return self.build_deadline - time.monotonic()
+
+    def select_seconds_left(self) -> int:
+        # ClickHouse reads max_execution_time=0 as "no limit", so the floor is 1 second.
+        return max(1, math.ceil(self.deadline - time.monotonic()))
+
+
+@frozen
+class PrecomputeBuildLimits:
+    run_inserts: bool = True
+    wait_timeout_seconds: Optional[float] = None
+    insert_deadline: Optional[float] = None
+
+
+def precompute_build_limits(time_budget: Optional[QueryTimeBudget]) -> PrecomputeBuildLimits:
+    if time_budget is None:
+        return PrecomputeBuildLimits()
+    build_seconds_left = time_budget.build_seconds_left()
+    if build_seconds_left <= 0:
+        return PrecomputeBuildLimits(run_inserts=False)
+    return PrecomputeBuildLimits(
+        wait_timeout_seconds=build_seconds_left,
+        insert_deadline=time_budget.build_deadline,
+    )
 
 
 def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
@@ -198,8 +243,10 @@ def ensure_exposures_precomputed(
     builder: ExperimentQueryBuilder,
     time_range_start: datetime,
     time_range_end: datetime,
+    time_budget: Optional[QueryTimeBudget] = None,
 ) -> LazyComputationResult:
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
+    limits = precompute_build_limits(time_budget)
 
     return ensure_precomputed(
         team=team,
@@ -214,4 +261,7 @@ def ensure_exposures_precomputed(
         # High-volume teams' builds OOM even at capped window widths; spilling the
         # GROUP BY to disk degrades gracefully instead of failing the build.
         spill_to_disk=True,
+        run_inserts=limits.run_inserts,
+        wait_timeout_seconds=limits.wait_timeout_seconds,
+        insert_deadline=limits.insert_deadline,
     )

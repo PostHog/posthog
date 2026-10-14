@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -22,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -40,7 +42,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
-from products.experiments.backend.hogql_queries.precompute_policy import PRECOMPUTE_MAX_WINDOW_DAYS
+from products.experiments.backend.hogql_queries.precompute_policy import PRECOMPUTE_MAX_WINDOW_DAYS, QueryTimeBudget
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
@@ -280,6 +282,68 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                     settings["max_bytes_before_external_group_by"] == MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
                     for settings in settings_list
                 )
+
+    @parameterized.expand(
+        [
+            # (name, seconds_until_deadline, prebuilt, expect_inserts, expect_precomputed)
+            ("build_time_left", 1000, False, True, True),
+            ("build_time_spent_cold", 100, False, False, False),
+            ("build_time_spent_reads_ready_windows", 100, True, False, True),
+        ]
+    )
+    def test_time_budget_bounds_precompute_builds(
+        self, _name, seconds_until_deadline, prebuilt, expect_inserts, expect_precomputed
+    ):
+        feature_flag = self.create_feature_flag(key="budget-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 3),
+        )
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+        _create_person(distinct_ids=["budget_user"], team_id=self.team.pk)
+        self._create_exposure_event("budget_user", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+        self._enable_precomputation()
+        if prebuilt:
+            self._run_experiment(experiment, metric)
+
+        select_reserve_seconds = 120
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+            team=self.team,
+            max_execution_time=270,
+            time_budget=QueryTimeBudget(
+                deadline=time.monotonic() + seconds_until_deadline,
+                select_reserve_seconds=select_reserve_seconds,
+            ),
+        )
+        results: list[ExperimentQueryResponse] = []
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.execute_hogql_query",
+            side_effect=execute_hogql_query,
+        ) as spy_select:
+            insert_settings = self._spy_insert_settings_by_table(
+                lambda: results.append(cast(ExperimentQueryResponse, runner.calculate()))
+            )
+
+        assert results[0].is_precomputed is expect_precomputed
+        select_max_execution_time = spy_select.call_args.kwargs["settings"].max_execution_time
+        if expect_inserts:
+            assert set(insert_settings) == {
+                "experiment_exposures_preaggregated",
+                "experiment_metric_events_preaggregated",
+            }
+            build_seconds = seconds_until_deadline - select_reserve_seconds
+            for settings_list in insert_settings.values():
+                assert all(1 <= settings["max_execution_time"] <= build_seconds for settings in settings_list)
+            assert select_max_execution_time == 270
+        else:
+            assert insert_settings == {}
+            assert 1 <= select_max_execution_time <= seconds_until_deadline
+        if not prebuilt and not expect_inserts:
+            assert PreaggregationJob.objects.count() == 0
 
     def test_group_aggregated_experiment_skips_precompute(self):
         # Group-aggregated builds always fail on ClickHouse (the INSERT can't resolve the
