@@ -22,9 +22,8 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         passkeysAvailable,
         totpAvailable,
     } = useValues(timeSensitiveAuthenticationLogic)
-    const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA } = useActions(
-        timeSensitiveAuthenticationLogic
-    )
+    const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA, beginSsoReauthentication } =
+        useActions(timeSensitiveAuthenticationLogic)
 
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
@@ -50,6 +49,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                             email={user!.email}
                             size="medium"
                             extraQueryParams={extraQueryParams}
+                            onProviderClick={beginSsoReauthentication}
                         />
                     </span>
                 ) : showPassword ? (
@@ -137,6 +137,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
                         extraQueryParams={extraQueryParams}
+                        onProviderClick={beginSsoReauthentication}
                         showPasskey={true}
                     />
                     {precheckResponse?.saml_available ? (
@@ -145,6 +146,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                             email={user!.email}
                             size="medium"
                             extraQueryParams={extraQueryParams}
+                            onProviderClick={beginSsoReauthentication}
                         />
                     ) : null}
                     {precheckResponse?.oidc_available ? (
@@ -153,6 +155,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                             email={user!.email}
                             size="medium"
                             extraQueryParams={extraQueryParams}
+                            onProviderClick={beginSsoReauthentication}
                         />
                     ) : null}
                 </div>

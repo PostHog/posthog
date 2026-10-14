@@ -1,7 +1,9 @@
 import uuid
-from collections.abc import Callable
-from contextlib import nullcontext
-from datetime import UTC, datetime
+import itertools
+import dataclasses
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, nullcontext
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -30,13 +32,25 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models import User
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, record_failed_evaluation
+from posthog.temporal.alerts.activities import (
+    admit_alert_evaluations,
+    evaluate_alert,
+    notify_alert,
+    prepare_alert,
+    record_failed_evaluation,
+    release_alert_evaluation_slots,
+    retrieve_due_alerts,
+)
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import (
     DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN,
+    AdmittedEvaluations,
     AlertInfo,
     CheckAlertWorkflowInputs,
+    EvaluateAlertResult,
+    PrepareAction,
+    PrepareAlertResult,
     ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
@@ -44,6 +58,11 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAle
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -55,19 +74,180 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 ]
 
 
+def _alerts(count: int) -> list[AlertInfo]:
+    return [
+        AlertInfo(
+            alert_id=f"alert-{index}",
+            team_id=42,
+            distinct_id=f"user-{index}",
+            calculation_interval=AlertCalculationInterval.DAILY.value,
+            insight_id=123,
+        )
+        for index in range(count)
+    ]
+
+
+@dataclasses.dataclass(frozen=True)
+class _SchedulerRun:
+    execute_activity: AsyncMock
+    start_child: AsyncMock
+    sleep: AsyncMock
+    admitted: list[list[str]]
+    admission_expiries: list[float]
+    released: list[tuple[list[str], float]]
+
+
+@contextmanager
+def _admission_scheduler(
+    *,
+    due_pages: list[list[AlertInfo]],
+    free_capacity: list[int],
+    start_child_side_effect: Any = None,
+    seconds_per_clock_read: int = 0,
+) -> Iterator[_SchedulerRun]:
+    pages = iter(due_pages)
+    capacities = iter(free_capacity)
+    admitted: list[list[str]] = []
+    admission_expiries: list[float] = []
+    released: list[tuple[list[str], float]] = []
+    clock = itertools.count(0, seconds_per_clock_read)
+    started_at = datetime(2026, 9, 22, 10, 0, tzinfo=UTC)
+
+    async def execute_activity(activity: Any, *args: Any, **kwargs: Any) -> Any:
+        if activity is retrieve_due_alerts:
+            return next(pages, [])
+        if activity is admit_alert_evaluations:
+            admitted_ids = list(args[0].alert_ids)[: next(capacities, len(args[0].alert_ids))]
+            if admitted_ids:
+                admitted.append(admitted_ids)
+                admission_expiries.append(args[0].expires_at)
+            return AdmittedEvaluations(alert_ids=admitted_ids)
+        if activity is release_alert_evaluation_slots:
+            released.append((list(args[0].alert_ids), args[0].held_until))
+            return None
+        raise AssertionError(f"unexpected activity {activity}")
+
+    execute_activity_mock = AsyncMock(side_effect=execute_activity)
+    start_child = AsyncMock(side_effect=start_child_side_effect)
+    sleep = AsyncMock()
+    with (
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", return_value=True),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.now",
+            side_effect=lambda: started_at + timedelta(seconds=next(clock)),
+        ),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity", new=execute_activity_mock),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow", new=start_child),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.sleep", new=sleep),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
+    ):
+        yield _SchedulerRun(
+            execute_activity=execute_activity_mock,
+            start_child=start_child,
+            sleep=sleep,
+            admitted=admitted,
+            admission_expiries=admission_expiries,
+            released=released,
+        )
+
+
+def _started_alert_ids(run: _SchedulerRun) -> list[str]:
+    return [call.args[1].alert_id for call in run.start_child.await_args_list]
+
+
+@pytest.mark.parametrize(
+    "uses_llm_detector,expected_task_queue",
+    [(False, None), (True, settings.MAX_AI_TASK_QUEUE)],
+)
+@pytest.mark.asyncio
+async def test_check_alert_workflow_evaluates_ai_detectors_on_the_ai_task_queue(
+    uses_llm_detector: bool, expected_task_queue: str | None
+) -> None:
+    # Only the AI worker holds the model provider credentials, so an AI detector's evaluation
+    # has to leave the analytics-platform queue. Every other alert stays on it (task_queue=None).
+    execute_activity = AsyncMock(
+        side_effect=[
+            PrepareAlertResult(action=PrepareAction.EVALUATE, uses_llm_detector=uses_llm_detector),
+            EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState.NOT_FIRING),
+        ]
+    )
+
+    with (
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity", new=execute_activity),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", return_value=True),
+    ):
+        await CheckAlertWorkflow().run(
+            CheckAlertWorkflowInputs(
+                alert_id=str(uuid.uuid4()),
+                team_id=1,
+                distinct_id="alerts-queue-test",
+                calculation_interval=AlertCalculationInterval.DAILY.value,
+                insight_id=1,
+            )
+        )
+
+    evaluate_call = execute_activity.await_args_list[1]
+    assert evaluate_call.args[0] is evaluate_alert
+    assert evaluate_call.kwargs["task_queue"] == expected_task_queue
+
+
 @pytest.mark.asyncio
 async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
-    execute_activity = AsyncMock(return_value=[])
     inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
 
-    with patch(
-        "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
-        new=execute_activity,
-    ):
+    with _admission_scheduler(due_pages=[[]], free_capacity=[]) as run:
         await ScheduleDueAlertChecksWorkflow().run(inputs)
 
-    assert execute_activity.await_args is not None
-    assert execute_activity.await_args.args[1] == inputs
+    run.execute_activity.assert_awaited_once()
+    assert run.execute_activity.await_args is not None
+    assert run.execute_activity.await_args.args[:2] == (retrieve_due_alerts, inputs)
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_admits_only_the_free_capacity() -> None:
+    alerts = _alerts(5)
+
+    with _admission_scheduler(due_pages=[alerts], free_capacity=[2, 0, 3]) as run:
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    assert _started_alert_ids(run) == [alert.alert_id for alert in alerts]
+    assert run.admitted == [[alert.alert_id for alert in alerts[:2]], [alert.alert_id for alert in alerts[2:]]]
+    assert run.sleep.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_keeps_fetching_pages_while_capacity_remains() -> None:
+    alerts = _alerts(3)
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=2)
+
+    with _admission_scheduler(due_pages=[alerts[:2], alerts[2:], []], free_capacity=[10, 10, 10]) as run:
+        await ScheduleDueAlertChecksWorkflow().run(inputs)
+
+    assert _started_alert_ids(run) == [alert.alert_id for alert in alerts]
+    retrievals = [call for call in run.execute_activity.await_args_list if call.args[0] is retrieve_due_alerts]
+    assert len(retrievals) == 2
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_leaves_the_rest_to_the_next_run_when_the_budget_ends() -> None:
+    with _admission_scheduler(due_pages=[_alerts(2)], free_capacity=[0] * 50, seconds_per_clock_read=10) as run:
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    run.start_child.assert_not_awaited()
+    assert run.sleep.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_replays_the_fan_out_for_runs_started_before_the_patch() -> None:
+    with (
+        _admission_scheduler(due_pages=[_alerts(2)], free_capacity=[]) as run,
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", return_value=False),
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    assert run.start_child.await_count == 2
+    run.execute_activity.assert_awaited_once()
+    run.sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -103,17 +283,10 @@ async def test_schedule_due_alert_checks_starts_child_with_shared_slo_context() 
         insight_id=123,
     )
 
-    with (
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
-            new=AsyncMock(return_value=[alert]),
-        ),
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow", new=AsyncMock()
-        ) as start_child,
-    ):
+    with _admission_scheduler(due_pages=[[alert]], free_capacity=[10]) as run:
         await ScheduleDueAlertChecksWorkflow().run()
 
+    start_child = run.start_child
     start_child.assert_awaited_once()
     assert start_child.await_args is not None
     inputs = start_child.await_args.args[1]
@@ -145,20 +318,16 @@ async def test_schedule_due_alert_checks_skips_already_running_children() -> Non
         insight_id=123,
     )
 
-    with (
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
-            new=AsyncMock(return_value=[alert]),
-        ),
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow",
-            new=AsyncMock(side_effect=WorkflowAlreadyStartedError("check-alert-alert-1", "check-alert")),
-        ) as start_child,
-        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
-    ):
+    with _admission_scheduler(
+        due_pages=[[alert]],
+        free_capacity=[10],
+        start_child_side_effect=WorkflowAlreadyStartedError("check-alert-alert-1", "check-alert"),
+    ) as run:
         await ScheduleDueAlertChecksWorkflow().run()
 
-    start_child.assert_awaited_once()
+    run.start_child.assert_awaited_once()
+    # The running child released its own slot already, so the reservation this run made goes back.
+    assert run.released == [(["alert-1"], run.admission_expiries[0])]
 
 
 @pytest.mark.asyncio
@@ -174,21 +343,16 @@ async def test_schedule_due_alert_checks_attempts_remaining_children_before_repo
         for index in range(2)
     ]
 
-    with (
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
-            new=AsyncMock(return_value=alerts),
-        ),
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow",
-            new=AsyncMock(side_effect=[RuntimeError("start failed"), None]),
-        ) as start_child,
-        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
-    ):
+    with _admission_scheduler(
+        due_pages=[alerts],
+        free_capacity=[10],
+        start_child_side_effect=[RuntimeError("start failed"), None],
+    ) as run:
         with pytest.raises(ApplicationError, match="alert-0"):
             await ScheduleDueAlertChecksWorkflow().run()
 
-    assert start_child.await_count == 2
+    assert run.start_child.await_count == 2
+    assert run.released == [(["alert-0"], run.admission_expiries[0])]
 
 
 def test_schedule_is_registered_in_init_schedules():
@@ -372,12 +536,17 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
             SkipReason.DISABLED,
             id="disabled",
         ),
+        pytest.param(
+            lambda ateam: _create_alert(ateam),
+            SkipReason.CHANGED_DURING_EVALUATION,
+            id="disabled_during_evaluation",
+        ),
     ],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
+async def test_check_alert_workflow_skip_does_not_notify(
     mock_slo_analytics: MagicMock,
     ateam,
     setup,
@@ -385,8 +554,14 @@ async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
 ) -> None:
     alert = await setup(ateam)
 
+    def _disable_during_evaluation(_alert, *, evaluation_id):
+        AlertConfiguration.objects.filter(id=alert.id).update(enabled=False)
+        return AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
+
     with (
-        patch("posthog.temporal.alerts.activities.check_alert_for_insight") as mock_ch_query,
+        patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_disable_during_evaluation
+        ) as mock_ch_query,
         patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_send_breaches,
     ):
         await _run_check_alert_workflow(
@@ -398,7 +573,7 @@ async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
 
     check_count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
     assert check_count == 0
-    mock_ch_query.assert_not_called()
+    assert mock_ch_query.call_count == int(expected_reason == SkipReason.CHANGED_DURING_EVALUATION)
     mock_send_breaches.assert_not_called()
 
     completed_props = _completed_slo_props(mock_slo_analytics)
@@ -412,13 +587,15 @@ class _PermanentEvaluationError(Exception):
 
 
 @pytest.mark.parametrize(
-    "error,expected_attempts,expect_workflow_failure,expected_outcome",
+    "error,expected_attempts,expect_workflow_failure,expected_outcome,edit_on_final_attempt,expected_error_code",
     [
         pytest.param(
             ClickHouseClusterMemoryLimitExceeded(),
             ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
             True,
             SloOutcome.FAILURE,
+            False,
+            None,
             id="transient_retried_to_exhaustion",
         ),
         pytest.param(
@@ -426,7 +603,27 @@ class _PermanentEvaluationError(Exception):
             1,
             False,
             SloOutcome.SUCCESS,
+            False,
+            None,
             id="non_transient_not_retried",
+        ),
+        pytest.param(
+            LLMDetectorUnavailableError("Could not resolve authentication method"),
+            ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
+            True,
+            SloOutcome.FAILURE,
+            False,
+            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            id="detector_could_not_complete_the_check",
+        ),
+        pytest.param(
+            LLMDetectorUnavailableError("Model timed out"),
+            ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
+            True,
+            SloOutcome.FAILURE,
+            True,
+            None,
+            id="edited_during_final_model_attempt",
         ),
     ],
 )
@@ -440,16 +637,31 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
     expected_attempts: int,
     expect_workflow_failure: bool,
     expected_outcome: SloOutcome,
+    edit_on_final_attempt: bool,
+    expected_error_code: str | None,
 ) -> None:
     # However evaluation fails, the workflow must leave an errored check, notify the owner, and push
     # next_check_at into the future so the one-minute sweep doesn't restart the chain forever.
     # Transient cluster pressure re-raises and exhausts the retry policy before the workflow records
     # the failure and fails; a user's query error is recorded inline on the first attempt.
     failure_ctx = pytest.raises(WorkflowFailureError) if expect_workflow_failure else nullcontext()
+    attempts = 0
+    edited_due_at = None
+
+    def fail_evaluation(alert, *, evaluation_id):
+        nonlocal attempts, edited_due_at
+        attempts += 1
+        if edit_on_final_attempt and attempts == expected_attempts:
+            edited_due_at = datetime.now(UTC)
+            AlertConfiguration.objects.filter(id=alert.id, team_id=alert.team_id).update(
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30}, next_check_at=edited_due_at
+            )
+        raise error
+
     with (
         patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=error,
+            side_effect=fail_evaluation,
         ) as mock_ch_query,
         patch(
             "posthog.tasks.alerts.utils.send_notifications_for_errors",
@@ -469,15 +681,28 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
     check = await sync_to_async(
         lambda: AlertCheck.objects.filter(alert_configuration=alert_with_subscriber).order_by("-created_at").first()
     )()
-    assert check is not None
-    assert check.state == AlertState.ERRORED
-    mock_send_errors.assert_called_once()
-
-    # Evaluate-time failures keep the alert enabled (only prepare-time config errors disable it).
     refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_subscriber.pk)
     assert refreshed.enabled is True
-    assert refreshed.next_check_at is not None
-    assert refreshed.next_check_at > datetime.now(UTC)
+    if edit_on_final_attempt:
+        assert check is None
+        mock_send_errors.assert_not_called()
+        assert refreshed.state == alert_with_subscriber.state
+        assert refreshed.next_check_at == edited_due_at
+    else:
+        assert check is not None
+        assert check.state == AlertState.ERRORED
+        if expected_error_code is None:
+            assert check.error is not None and "code" not in check.error
+        else:
+            # A check the judge could not complete is not the owner's configuration, so the check
+            # carries its own code and never the raw transport error.
+            assert check.error == {
+                "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+                "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+            }
+        mock_send_errors.assert_called_once()
+        assert refreshed.next_check_at is not None
+        assert refreshed.next_check_at > datetime.now(UTC)
 
     completed_props = _completed_slo_props(mock_slo_analytics)
     assert completed_props["outcome"] == expected_outcome

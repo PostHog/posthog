@@ -1,0 +1,171 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Auto-grading a scanned math packet",
+  "scenario": "EduGrade's teacher dashboard sends photographed pages of a student's math packet to a vision model, which scores the whole packet against an answer key and returns a total point count with a short rationale.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "gateway"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "google/gemini-3.5-flash"
+    ],
+    "content_types": [
+      "file",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_lib_version": "7.21.0",
+        "$ai_lib": "posthog-ai",
+        "$ai_model_parameters": {
+          "temperature": 0
+        },
+        "batch_id": "97e07e4a46e275405f225f76",
+        "$ai_http_status": 200,
+        "$ai_reasoning_tokens": 790,
+        "$ai_provider": "gateway",
+        "$ai_latency": 0,
+        "$ai_framework": "vercel",
+        "$ai_model": "google/gemini-3.5-flash",
+        "purpose": "auto-grade",
+        "$ai_framework_version": "6",
+        "$ai_input_tokens": 11005,
+        "$lib": "posthog-node",
+        "$lib_version": "5.36.17",
+        "$is_server": true,
+        "$geoip_disable": true,
+        "$ai_base_url": "",
+        "$ai_tokens_source": "sdk",
+        "$ai_stop_reason": "stop",
+        "$ai_output_tokens": 832,
+        "$ai_trace_id": "f5b01ced-7b9d-7026-bda8-470ebf1909bc",
+        "$ai_text_input_tokens": 217,
+        "$ai_image_input_tokens": 10788,
+        "$ai_text_output_tokens": 42,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are a careful grading assistant for scanned homework.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Grade this 10-page math packet for a 5th grade student named Jordan. The packet is worth 1000 points across fractions, decimals, and word problem sections. Use the answer key from the system prompt. Award partial credit for shown work even if the final answer is wrong. Return JSON with the total point score and a one-sentence reason naming the pages that lost the most points.",
+                "type": "text"
+              },
+              {
+                "text": "Page 1 - cover sheet",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W9990433.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Page 2 - fractions",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W2020743.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Page 3 - fractions",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W118444.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Page 4 - decimals",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W2826361.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Page 5 - decimals",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W781432.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Page 6 - word problems",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W4927640.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "text": "Page 7 - word problems",
+                "type": "text"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W4035012.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W334517.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W6748024.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "file": "https://media.example.com/vercel_gateway_image_url_grading__W9616538.jpg",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"points\": 754, \"reason\": \"Lost points on page 6 and 7 where two word problems were left blank; the decimal long division on page 4 was fully correct.\"}",
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

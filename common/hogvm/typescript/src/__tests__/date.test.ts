@@ -54,7 +54,7 @@ const REJECTED = [
 describe('date-like string grammar', () => {
     test.each(ACCEPTED)('accepts %s as %d', (input, expected) => {
         expect(dateStringToSeconds(input)).toBeCloseTo(expected, 3)
-        expect(toDateTime(input).dt).toBeCloseTo(expected, 3)
+        expect(toDateTime(input)!.dt).toBeCloseTo(expected, 3)
         expect(toUnixTimestamp(input)).toBeCloseTo(expected, 3)
     })
 
@@ -65,7 +65,7 @@ describe('date-like string grammar', () => {
     test('a naive string resolves to UTC regardless of the host timezone', () => {
         // Python's `datetime.timestamp()` resolved naive input in the host zone, so the same filter
         // gave different answers on a developer's laptop and in production. Pinned in all three VMs.
-        expect(toDateTime('2024-01-01').dt).toBe(1704067200)
+        expect(toDateTime('2024-01-01')!.dt).toBe(1704067200)
         expect(toDate('2024-01-01')).toEqual({
             __hogDate__: true,
             year: 2024,
@@ -74,19 +74,26 @@ describe('date-like string grammar', () => {
         })
     })
 
+    test('an unparseable value is null, not a date made of NaN', () => {
+        // A date of NaN fields throws out of the date library the moment anything compares it.
+        for (const input of ['', 'nonsense', '2024-13-45']) {
+            expect(toDate(input)).toBeNull()
+            expect(toDateTime(input)).toBeNull()
+        }
+    })
+
     test('an explicit zone applies only to input carrying no zone of its own', () => {
-        expect(toDateTime('2024-01-01 00:00:00', 'America/New_York').dt).toBe(1704085200)
-        expect(toDateTime('2024-01-01T00:00:00Z', 'America/New_York').dt).toBe(1704067200)
+        expect(toDateTime('2024-01-01 00:00:00', 'America/New_York')!.dt).toBe(1704085200)
+        expect(toDateTime('2024-01-01T00:00:00Z', 'America/New_York')!.dt).toBe(1704067200)
     })
 
     test('a number passes through as epoch seconds without parsing', () => {
-        expect(toDateTime(1700000000).dt).toBe(1700000000)
+        expect(toDateTime(1700000000)!.dt).toBe(1700000000)
     })
 
-    test('unparseable input keeps the pre-existing NaN failure mode', () => {
-        // Not a good failure mode, but each VM's is different (Python raises, Rust errors into a
-        // null) and converging them is a separate change from converging what parses.
-        expect(toDateTime('not-a-date').dt).toBeNaN()
+    test('unparseable input is null, which is what the Rust VM already returns', () => {
+        // The Python VM still raises on this input.
+        expect(toDateTime('not-a-date')).toBeNull()
     })
 
     test.each([[1700000000], [null], [{ a: 1 }], [['x']]])(
@@ -100,8 +107,8 @@ describe('date-like string grammar', () => {
         }
     )
 
-    test.each([[null], [{ a: 1 }], [['x']]])('toDateTime(%p) yields NaN rather than throwing', (input) => {
-        expect(toDateTime(input as any).dt).toBeNaN()
+    test.each([[null], [{ a: 1 }], [['x']]])('toDateTime(%p) is null rather than throwing', (input) => {
+        expect(toDateTime(input as any)).toBeNull()
     })
 
     test('an ambiguous local time takes the first of the DST fold', () => {

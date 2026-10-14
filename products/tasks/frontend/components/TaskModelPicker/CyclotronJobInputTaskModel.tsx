@@ -3,12 +3,14 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 
 import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
-import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
+import { MODELS, REASONING_EFFORT_LABELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 type TaskModelValue = { model: string; reasoning_effort?: string }
 
 const MODEL_OPTIONS = MODELS.map((model) => ({ value: model.id, label: model.label }))
 const EFFORTS_BY_MODEL = new Map<string, readonly string[]>(MODELS.map((model) => [model.id, model.reasoningEfforts]))
+// Widened to take the plain strings a stored workflow config carries.
+const EFFORT_LABELS: Record<string, string> = REASONING_EFFORT_LABELS
 
 export default function CyclotronJobInputTaskModel({ value, onChange }: CustomInputRendererProps): JSX.Element {
     const selected: Partial<TaskModelValue> = value ?? {}
@@ -52,7 +54,7 @@ export default function CyclotronJobInputTaskModel({ value, onChange }: CustomIn
                     placeholder="Default effort"
                     allowClear
                     value={selected.reasoning_effort ?? null}
-                    options={efforts.map((effort) => ({ value: effort, label: effort }))}
+                    options={efforts.map((effort) => ({ value: effort, label: EFFORT_LABELS[effort] ?? effort }))}
                     onChange={(effort) =>
                         onChange(effort ? { model: selectedModel, reasoning_effort: effort } : { model: selectedModel })
                     }

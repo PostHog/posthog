@@ -1,0 +1,125 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_DOCS = "https://developer.folk.app/api-reference/overview"
+
+# Descriptions are sourced from Folk's public API reference (developer.folk.app). Partial coverage
+# is fine — any endpoint, column, or table-level description not listed here falls back to LLM
+# enrichment.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "people": {
+        "description": "Contacts in the Folk workspace, with their profile details, associated companies and groups, and per-group custom field values.",
+        "docs_url": "https://developer.folk.app/api-reference/people/list-people",
+        "columns": {
+            "id": "Unique identifier for the person.",
+            "first_name": "The first name of the person.",
+            "last_name": "The last name of the person.",
+            "full_name": "The full name of the person.",
+            "description": "A short description of the person.",
+            "birthday": "The birthday of the person, in ISO format.",
+            "gender": "The gender of the person (Female, Male, Unknown, Other, or null).",
+            "job_title": "The job title of the person.",
+            "created_at": "The date and time the person was created, in ISO format.",
+            "created_by": "The workspace user who created the person.",
+            "groups": "The groups associated with the person.",
+            "companies": "The companies associated with the person; the first is the person's primary company.",
+            "addresses": "Postal addresses on the person's profile.",
+            "emails": "Email addresses on the person's profile.",
+            "phones": "Phone numbers on the person's profile.",
+            "urls": "Websites and social profiles on the person's profile.",
+            "custom_field_values": "Custom field values, keyed per group the person belongs to.",
+            "interaction_metadata": "First and last interaction timestamps, for the workspace and for the API key's user.",
+            "strongest_connection": "Per group, the workspace member with the strongest connection to the person.",
+        },
+    },
+    "companies": {
+        "description": "Companies in the Folk workspace, with firmographics, associated groups, and per-group custom field values.",
+        "docs_url": "https://developer.folk.app/api-reference/companies/list-companies",
+        "columns": {
+            "id": "Unique identifier for the company.",
+            "name": "The name of the company.",
+            "description": "A short description of the company.",
+            "funding_raised": "The amount in USD of funding raised by the company.",
+            "last_funding_date": "The date of the last funding round for the company.",
+            "industry": "The industry the company operates in.",
+            "foundation_year": "The foundation year of the company.",
+            "employee_range": "The employee range of the company (e.g. 1-10, 11-50, 51-200).",
+            "groups": "The groups associated with the company.",
+            "addresses": "Postal addresses on the company's profile.",
+            "emails": "Email addresses on the company's profile.",
+            "phones": "Phone numbers on the company's profile.",
+            "urls": "Websites and social profiles on the company's profile.",
+            "created_at": "The date and time the company was created, in ISO format.",
+            "created_by": "The workspace user who created the company.",
+            "custom_field_values": "Custom field values, keyed per group the company belongs to.",
+        },
+    },
+    "groups": {
+        "description": "Groups (contact lists / pipelines) in the Folk workspace. The API returns the groups the API key's user can access.",
+        "docs_url": "https://developer.folk.app/api-reference/groups/list-groups",
+        "columns": {
+            "id": "Unique identifier for the group.",
+            "name": "The name of the group.",
+            "visibility": "The visibility of the group: public (all workspace users), private (explicit members only), or shared (members and invitees).",
+            "created_by": "The workspace user who created the group.",
+        },
+    },
+    "users": {
+        "description": "Workspace members (Folk users), referenced by created-by fields, assignments, and interaction metadata.",
+        "docs_url": "https://developer.folk.app/api-reference/users/list-users",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "full_name": "The full name of the user.",
+            "email": "The email address of the user.",
+        },
+    },
+    "notes": {
+        "description": "Notes attached to people, companies, or deals in the Folk workspace.",
+        "docs_url": "https://developer.folk.app/api-reference/notes/list-notes",
+        "columns": {
+            "id": "Unique identifier for the note.",
+            "entity": "The person, company, or deal the note is attached to.",
+            "content": "The content of the note, in plain text or markdown.",
+            "visibility": "The visibility of the note: public (all workspace users) or private (author only).",
+            "author": "The workspace user who wrote the note.",
+            "created_at": "The date and time the note was created, in ISO format.",
+            "parent_note": "The parent note, if this note is a reply to another note.",
+        },
+    },
+    "tasks": {
+        "description": "Tasks created in the Folk workspace, with due dates, completion state, and assigned users.",
+        "docs_url": "https://developer.folk.app/api-reference/tasks/list-tasks",
+        "columns": {
+            "id": "Unique identifier for the task.",
+            "title": "The title of the task.",
+            "description": "The description of the task, in markdown format.",
+            "entity": "The person, company, or deal the task is connected to.",
+            "recurrence_frequency": "The recurrence frequency of the task (weekday, weekly, biweekly, monthly, quarterly, yearly), or null if non-recurring.",
+            "due_at": "The due date of the task.",
+            "due_time": "The due time of the task.",
+            "completed_at": "The date and time the task was completed, or null if not yet completed.",
+            "is_public": "Whether the task is visible to all workspace members or only to its assigned users.",
+            "assigned_users": "The users assigned to this task.",
+            "created_by": "The workspace user who created the task.",
+            "created_at": "The date and time the task was created.",
+            "updated_at": "The date and time the task was last updated.",
+        },
+    },
+    "reminders": {
+        "description": "Reminders attached to people, companies, or deals in the Folk workspace, with their recurrence rules and trigger times.",
+        "docs_url": "https://developer.folk.app/api-reference/reminders/list-reminders",
+        "columns": {
+            "id": "Unique identifier for the reminder.",
+            "name": "The name of the reminder.",
+            "entity": "The person, company, or deal the reminder is attached to.",
+            "recurrence_rule": "The recurrence rule of the reminder, in iCalendar (RFC 5545) format.",
+            "visibility": "The visibility of the reminder: public (all workspace users) or private (current user only).",
+            "assigned_users": "The workspace users notified when the reminder triggers.",
+            "next_trigger_time": "The next trigger time of the reminder.",
+            "last_trigger_time": "The last trigger time of the reminder.",
+            "created_by": "The workspace user who created the reminder.",
+            "created_at": "The date and time the reminder was created, in ISO format.",
+        },
+    },
+}

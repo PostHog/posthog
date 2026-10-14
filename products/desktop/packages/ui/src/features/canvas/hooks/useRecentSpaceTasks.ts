@@ -101,9 +101,9 @@ export const NO_TASKS: SpaceTasks = { items: [], total: 0 };
 /** What a space's rows were built from, so they can be reused unchanged. */
 interface CachedSpaceTasks {
   page: SpaceTaskPage;
+  dataUpdatedAt: number;
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
-  viewedAt: TaskTimestamps;
   blockedTaskIds: ReadonlySet<string>;
   built: SpaceTasks;
 }
@@ -162,9 +162,12 @@ function spaceTreeOrder(
  * them the item models and every row's props.
  */
 function combineTaskPages(
-  queries: { data?: SpaceTaskPage }[],
-): SpaceTaskPage[] {
-  return queries.map((query) => query.data ?? NO_PAGE);
+  queries: { data?: SpaceTaskPage; dataUpdatedAt: number }[],
+): { page: SpaceTaskPage; dataUpdatedAt: number }[] {
+  return queries.map((query) => ({
+    page: query.data ?? NO_PAGE,
+    dataUpdatedAt: query.dataUpdatedAt,
+  }));
 }
 
 // Slower than the open channel's own feed (5s): the tree is a glance at what's
@@ -204,18 +207,26 @@ export function useRecentSpaceTasks(
   // already-open row a new array — enough to re-render every session row in the
   // tree on every expand.
   const cache = useRef(new Map<string, CachedSpaceTasks>());
+  // Out of the reuse key below, and read through a ref so it is not a
+  // dependency either. Opening a session marks it viewed, and ordering on that
+  // the moment it changes moves the row the reader just clicked — down a tier,
+  // and sometimes off the five the space shows.
+  const viewedAtRef = useRef(viewedAt);
+  viewedAtRef.current = viewedAt;
 
   return useMemo(() => {
     const bySpace = new Map<string, SpaceTasks>();
     spaceIds.forEach((spaceId, index) => {
-      const page = pagePerSpace[index] ?? NO_PAGE;
+      const page = pagePerSpace[index]?.page ?? NO_PAGE;
+      const dataUpdatedAt = pagePerSpace[index]?.dataUpdatedAt ?? 0;
       const cached = cache.current.get(spaceId);
       if (
         cached &&
         cached.page === page &&
+        // A successful poll can keep the same page reference.
+        cached.dataUpdatedAt === dataUpdatedAt &&
         cached.archivedTaskIds === archivedTaskIds &&
         cached.pinnedTaskIds === pinnedTaskIds &&
-        cached.viewedAt === viewedAt &&
         cached.blockedTaskIds === blockedTaskIds
       ) {
         bySpace.set(spaceId, cached.built);
@@ -236,32 +247,26 @@ export function useRecentSpaceTasks(
       // archived and not yet mirrored, which `useServerArchiveSync` is working
       // through.
       const built: SpaceTasks = {
-        items: spaceTreeOrder(available, viewedAt, blockedTaskIds).slice(
-          0,
-          RECENT_TASKS_PER_SPACE,
-        ),
+        items: spaceTreeOrder(
+          available,
+          viewedAtRef.current,
+          blockedTaskIds,
+        ).slice(0, RECENT_TASKS_PER_SPACE),
         total:
           page.tasks.length < TREE_FETCH_LIMIT ? available.length : page.count,
       };
       cache.current.set(spaceId, {
         page,
+        dataUpdatedAt,
         archivedTaskIds,
         pinnedTaskIds,
-        viewedAt,
         blockedTaskIds,
         built,
       });
       bySpace.set(spaceId, built);
     });
     return bySpace;
-  }, [
-    spaceIds,
-    pagePerSpace,
-    archivedTaskIds,
-    pinnedTaskIds,
-    viewedAt,
-    blockedTaskIds,
-  ]);
+  }, [spaceIds, pagePerSpace, archivedTaskIds, pinnedTaskIds, blockedTaskIds]);
 }
 
 /**
@@ -294,12 +299,14 @@ export interface SpaceOverview {
    * nothing has been fetched yet.
    */
   total: number | null;
+  lastActivityAt: string | null;
 }
 
 const NO_OVERVIEW: SpaceOverview = {
   people: [],
   liveUuids: NO_LIVE_UUIDS,
   total: null,
+  lastActivityAt: null,
 };
 
 /**
@@ -343,6 +350,8 @@ export function useSpaceOverview(
       // server's total, which excludes archived tasks — bar any this device has
       // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
+      lastActivityAt:
+        live.find((task) => task.last_activity_at)?.last_activity_at ?? null,
     };
   }, [data, archivedTaskIds, createdBy, peopleLimit, now]);
 }

@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -89,6 +91,10 @@ function backfillErrorMessage(error: unknown, fallback: string): string {
     return evaluationErrorMessage(error, fallback)
 }
 
+// How long a finished run keeps refreshing while its coverage count is still on its way. It
+// matches the counting activity's own schedule-to-close, so a retried count is not missed.
+const COVERAGE_GRACE_SECONDS = 600
+
 /** Each consecutive list failure doubles the wait, so an API that is already struggling is not
  * polled at full rate. The wait returns to the base interval as soon as one load succeeds. */
 function pollDelayMs(consecutiveFailures: number): number {
@@ -112,12 +118,14 @@ export interface evaluationBackfillsLogicValues {
     estimate: EvaluationBackfillEstimateApi | null
     estimateError: string | null
     estimateLoading: boolean
+    estimateSummary: string | null
     expandedBackfillIds: string[]
     hasActiveBackfill: boolean
     pollFailures: number
     requestedWindow: BackfillWindow | null
     rerunExisting: boolean
     settleWait: string | null
+    shouldPoll: boolean
     startDisabledReason: string | undefined
     transitioningIds: string[]
     unit: EvaluationTargetEnumApi
@@ -187,6 +195,9 @@ export interface evaluationBackfillsLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    startClicked: () => {
+        value: true
+    }
     transitionBackfillDone: (id: string) => {
         id: string
     }
@@ -197,6 +208,7 @@ export interface evaluationBackfillsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasActiveBackfill: (backfills: EvaluationBackfillApi[]) => boolean
+        shouldPoll: (backfills: EvaluationBackfillApi[], hasActiveBackfill: boolean) => boolean
         unit: (
             estimate: EvaluationBackfillEstimateApi | null,
             evaluation: EvaluationConfig | null
@@ -208,6 +220,7 @@ export interface evaluationBackfillsLogicMeta {
             estimateLoading: boolean,
             estimateError: string | null
         ) => string | undefined
+        estimateSummary: (estimate: EvaluationBackfillEstimateApi | null) => string | null
         settleWait: (estimate: EvaluationBackfillEstimateApi | null) => string | null
         clampedWindow: (
             estimate: EvaluationBackfillEstimateApi | null,
@@ -263,6 +276,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         setConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         seedConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setRerunExisting: (rerunExisting: boolean) => ({ rerunExisting }),
+        startClicked: true,
     }),
 
     reducers({
@@ -349,6 +363,22 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             (s) => [s.backfills],
             (backfills: EvaluationBackfillApi[]): boolean => backfills.some((b) => b.status === 'running'),
         ],
+        // A row completes just before its coverage is counted, so polling has to outlive the run
+        // itself or the table keeps the number it had in that gap. The age bound is what stops a
+        // row that will never be counted, from before coverage was recorded or after a failed
+        // count, from polling forever.
+        shouldPoll: [
+            (s) => [s.backfills, s.hasActiveBackfill],
+            (backfills: EvaluationBackfillApi[], hasActiveBackfill: boolean): boolean =>
+                hasActiveBackfill ||
+                backfills.some(
+                    (b) =>
+                        b.status === 'completed' &&
+                        b.remaining_count === null &&
+                        !!b.finished_at &&
+                        dayjs().diff(dayjs(b.finished_at), 'second') < COVERAGE_GRACE_SECONDS
+                ),
+        ],
         unit: [
             (s) => [s.estimate, s.evaluation],
             (
@@ -382,9 +412,27 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     return 'Pick a time range to see how many units match'
                 }
                 if (estimate.total_units === 0) {
-                    return 'Nothing in this range matches these conditions'
+                    return estimate.already_evaluated_units > 0
+                        ? `Every ${estimate.unit} in this range already has a result`
+                        : 'Nothing in this range matches these conditions'
                 }
                 return undefined
+            },
+        ],
+        // A zero count has two causes the user cannot tell apart, and an evaluation that runs
+        // live covers its own range, so the judged count is what makes the second one readable.
+        estimateSummary: [
+            (s) => [s.estimate],
+            (estimate: EvaluationBackfillEstimateApi | null): string | null => {
+                if (!estimate) {
+                    return null
+                }
+                if (estimate.total_units > 0) {
+                    return `${pluralize(estimate.total_units, estimate.unit)} would be evaluated`
+                }
+                return estimate.already_evaluated_units > 0
+                    ? `All ${pluralize(estimate.already_evaluated_units, estimate.unit)} in this range already have a result`
+                    : `No ${pluralize(0, estimate.unit, undefined, false)} in this range match these conditions`
             },
         ],
         // The server holds the window back by the evaluation's wait, so the gap between the
@@ -429,7 +477,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         /** Arms the next poll off the list the logic last saw, so a failed request keeps the poll
          * alive instead of ending it. */
         const schedulePoll = (): void => {
-            if (!values.hasActiveBackfill) {
+            if (!values.shouldPoll) {
                 cache.disposables.dispose(POLL_KEY)
                 return
             }
@@ -464,7 +512,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                         limit: BACKFILL_PAGE_SIZE,
                     })
                     actions.loadBackfillsSuccess(response.results ?? [])
-                    if (values.hasActiveBackfill) {
+                    if (values.shouldPoll) {
                         cache.recountWhenIdle = true
                     } else if (cache.recountWhenIdle) {
                         // A finished run changed which units already have a result, so the count is
@@ -489,6 +537,14 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             setWindowRange: () => actions.requestEstimate(),
             setConditions: () => actions.requestEstimate(),
             setRerunExisting: () => actions.requestEstimate(),
+            // The estimate reloads on every edit, so this is the step that shows intent to start.
+            startClicked: () => {
+                posthog.capture('llma evaluation backfill start clicked', {
+                    evaluation_id: props.evaluationId,
+                    units_to_evaluate: values.estimate?.total_units ?? null,
+                    rerun_existing: values.rerunExisting,
+                })
+            },
             requestEstimate: async (_, breakpoint) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId || !values.windowDateFrom) {
@@ -572,7 +628,13 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         }
     }),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, props }) => {
+        // Only the Backfills tab mounts this logic, so a mount is a view of the tab.
+        posthog.capture('llma evaluation backfills tab viewed', {
+            evaluation_id: props.evaluationId,
+            evaluation_type: values.evaluation?.evaluation_type,
+            target: values.evaluation?.target,
+        })
         actions.loadBackfills()
         if (values.evaluation) {
             actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))

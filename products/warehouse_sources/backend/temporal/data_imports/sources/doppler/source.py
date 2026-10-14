@@ -103,12 +103,7 @@ Use a [personal token](https://docs.doppler.com/docs/personal-tokens) or a [serv
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
-                description=(
-                    "Workplace activity log of project, config, and access changes. Incremental syncs "
-                    "stop paging once they reach already-synced entries."
-                    if endpoint == "activity_logs"
-                    else None
-                ),
+                description=endpoint_config.description,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

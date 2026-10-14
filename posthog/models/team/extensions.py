@@ -78,7 +78,11 @@ def register_team_extension_signal(
         except Exception as e:
             _logger.warning(f"Error creating {model_name}: {e}")
 
-    post_save.connect(receiver_func, sender=Team, dispatch_uid=f"create_{model_name.lower()}")
+    # weak=False: receiver_func is local, so the default weak reference dies as soon as this
+    # function returns and the next connect() sweeps the dead entry away. Under DEBUG the
+    # receiver survives by accident, because Signal.connect's kwargs check caches it, so only
+    # production loses the receiver.
+    post_save.connect(receiver_func, sender=Team, dispatch_uid=f"create_{model_name.lower()}", weak=False)
 
 
 class TeamExtensionDescriptor:

@@ -31,6 +31,14 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
     }
 
     if (data.version === '2023-04-28') {
+        // Files exported before window ids became integers carry the window UUID, and the segmenter indexes windows by number
+        const registerWindowId = createWindowIdRegistry()
+        for (const snapshot of data.data.snapshots) {
+            const windowId: number | string = snapshot.windowId
+            if (typeof windowId === 'string') {
+                snapshot.windowId = registerWindowId(windowId)
+            }
+        }
         return data
     } else if (data.version === '2022-12-02') {
         const registerWindowId = createWindowIdRegistry()

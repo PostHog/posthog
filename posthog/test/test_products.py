@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import ProductKey
 
 from posthog.products import Products
 
 
-class TestProducts(BaseTest):
+class TestProducts(SimpleTestCase):
     def test_products_returns_list(self):
         products = Products.products()
         assert isinstance(products, list)
@@ -37,10 +37,12 @@ class TestProducts(BaseTest):
 
         expected_categories = {
             "Analytics",
+            "Data",
             "AI engineering",
-            "Behavior",
-            "App monitoring",
-            "Features",
+            "Product engineering",
+            "Messaging",
+            "Monitoring",
+            "Schema",
             "Tools",
             "Unreleased",
         }

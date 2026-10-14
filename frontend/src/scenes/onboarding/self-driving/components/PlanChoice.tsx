@@ -8,8 +8,8 @@ import { freePrs, pricePerPrUsd } from 'scenes/billing/inboxPricing'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { PlanCard } from 'scenes/onboarding/self-driving/components/PlanCard'
+import { ProductFreeTiers } from 'scenes/onboarding/self-driving/components/ProductFreeTiers'
 import { SelfDrivingPricing } from 'scenes/onboarding/self-driving/components/SelfDrivingPricing'
-import { ToolFreeTiers } from 'scenes/onboarding/self-driving/components/ToolFreeTiers'
 import { formatUsd } from 'scenes/onboarding/self-driving/utils'
 import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 
@@ -120,7 +120,7 @@ export function PlanChoice({
                 />
             </PlanCard>
 
-            <ToolFreeTiers products={products} />
+            <ProductFreeTiers products={products} />
         </div>
     )
 }

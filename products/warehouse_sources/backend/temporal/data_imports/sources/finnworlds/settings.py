@@ -3,6 +3,17 @@ from enum import StrEnum
 from typing import Optional
 
 
+class FanoutDimension(StrEnum):
+    """The identifier a full sync iterates to cover an endpoint."""
+
+    # One request per configured ticker (most endpoints are keyed on a single company).
+    TICKER = "ticker"
+    # One request per configured country (macroeconomic indicators are keyed on a country).
+    COUNTRY = "country"
+    # A single request returns the whole dataset (bond yields).
+    NONE = "none"
+
+
 class ResponseMode(StrEnum):
     """How rows are extracted from a Finnworlds JSON response.
 
@@ -21,19 +32,21 @@ class ResponseMode(StrEnum):
     OUTPUT_BARE = "output_bare"
     # result[<data_key>] is a list of records (analyst/company ratings live under result.analysts).
     RESULT_KEY = "result_key"
+    # result is an SEC Form 4 document (or a list of them); rows are its transaction lines.
+    INSIDER_FILING = "insider_filing"
     # <data_key> is a top-level list, outside the result envelope (SEC filings).
     TOP_LEVEL = "top_level"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FinnworldsEndpointConfig:
     name: str  # warehouse table name (and ExternalDataSchema.name)
     path: str  # API path segment under https://api.finnworlds.com/api/v1/
     response_mode: ResponseMode
     data_key: Optional[str] = None  # array/object key for OUTPUT_ARRAY / RESULT_KEY / TOP_LEVEL
     # Most endpoints return data for a single identifier per call, so a full sync fans out over the
-    # user's ticker list. Endpoints that return a global list (bond yields) set this False.
-    requires_ticker: bool = True
+    # identifiers the user configured. The fan-out value is injected onto every row.
+    fanout: FanoutDimension = FanoutDimension.TICKER
     # Inject result.basics.period into each row so fundamentals from different reporting periods don't
     # collide on the (ticker, period, date) primary key.
     include_period: bool = False
@@ -129,11 +142,34 @@ FINNWORLDS_ENDPOINTS: dict[str, FinnworldsEndpointConfig] = {
         primary_keys=["ticker", "url"],
         partition_key="date",
     ),
+    "company_identifiers": FinnworldsEndpointConfig(
+        name="company_identifiers",
+        path="identifiers",
+        response_mode=ResponseMode.OUTPUT_OBJECT,
+        primary_keys=["ticker"],
+    ),
+    "insider_transactions": FinnworldsEndpointConfig(
+        name="insider_transactions",
+        path="insidertransactions",
+        response_mode=ResponseMode.INSIDER_FILING,
+        # Transaction lines repeat security, date and code, and a ticker can file more than once in a
+        # period, so the line's position in the whole response is what separates them.
+        primary_keys=["ticker", "period_of_report", "owner_cik", "transaction_table", "transaction_index"],
+        partition_key="activity_date",
+    ),
+    "macroeconomic_indicators": FinnworldsEndpointConfig(
+        name="macroeconomic_indicators",
+        path="macroindicator",
+        response_mode=ResponseMode.OUTPUT_BARE,
+        fanout=FanoutDimension.COUNTRY,
+        primary_keys=["country", "report_name", "report_date"],
+        should_sync_default=False,
+    ),
     "bond_yields": FinnworldsEndpointConfig(
         name="bond_yields",
         path="bonds",
         response_mode=ResponseMode.OUTPUT_BARE,
-        requires_ticker=False,
+        fanout=FanoutDimension.NONE,
         primary_keys=["country", "type", "datetime"],
         partition_key="datetime",
         should_sync_default=False,

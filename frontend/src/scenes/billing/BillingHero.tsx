@@ -130,7 +130,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                     .
                 </p>
                 <p className="text-xs text-secondary mb-0">
-                    Credits can't be used for every product and tool. Check{' '}
+                    Credits can't be used for every product. Check{' '}
                     <Link to="https://posthog.com/startups" target="_blank">
                         posthog.com/startups
                     </Link>{' '}
@@ -159,7 +159,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                     .
                 </p>
                 <p className="text-xs text-secondary mb-0">
-                    Credits can't be used for every product and tool. Check{' '}
+                    Credits can't be used for every product. Check{' '}
                     <Link to="https://posthog.com/startups" target="_blank">
                         posthog.com/startups
                     </Link>{' '}

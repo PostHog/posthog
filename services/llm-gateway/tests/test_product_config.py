@@ -230,6 +230,7 @@ class TestCheckProductAccess:
             "gpt-5.2",
             "gpt-5-mini",
             "gpt-6-astra",
+            "gpt-6.1-sol",
             "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
@@ -388,6 +389,7 @@ class TestCheckProductAccess:
             "gpt-5.6-luna",
             "gpt-5.6-sol",
             "gpt-6-astra",
+            "gpt-6.1-sol",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):
@@ -603,6 +605,7 @@ class TestCheckFreeTierModelAccess:
             ("posthog_code", "@cf/zai-org/glm-5.2", False, False, True),
             ("posthog_code", "deepseek-ai/deepseek-v4-flash-0731", False, False, True),
             ("posthog_code", "moonshotai/kimi-k3", False, False, True),
+            ("posthog_code", "zai-org/glm-5.3-flash", False, False, True),
             # The alias routes are the same surface - a URL spelling must not bypass
             ("array", "claude-fable-5", False, False, False),
             ("twig", "gpt-5.5", False, False, False),

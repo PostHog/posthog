@@ -19,6 +19,7 @@ there's nothing to say), everything else degrades to a missing section recorded 
 
 import asyncio
 from typing import Any, cast
+from urllib.parse import urlencode
 
 from django.utils import timezone
 
@@ -113,6 +114,7 @@ async def get_setup_plan(
     *,
     date_from: str = "-30d",
     user: User | None = None,
+    refresh_source_scan: bool = False,
 ) -> SetupPlan:
     """Build the ranked setup plan for a team."""
     date_range = QueryDateRange(
@@ -123,8 +125,16 @@ async def get_setup_plan(
     )
 
     results = await asyncio.gather(
-        get_marketing_diagnostic(team, include_conversion_goals=True, user=user),
-        get_attribution_health(team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS),
+        get_marketing_diagnostic(
+            team,
+            include_conversion_goals=True,
+            user=user,
+            cache_source_scan=True,
+            refresh_source_scan=refresh_source_scan,
+        ),
+        get_attribution_health(
+            team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS, cache_scan=True, refresh_scan=refresh_source_scan
+        ),
         suggest_conversion_goals(team),
         get_campaigns_with_spend_async(team, date_range, user=user),
         get_utm_campaign_catalogue_async(team, date_range, user=user),
@@ -158,7 +168,7 @@ async def get_setup_plan(
     goal_flags = _or_degraded(goal_flags_result, "goal_flags", degraded, team) or {}
 
     suggestions: list[Suggestion] = []
-    suggestions.extend(_integration_suggestions(diagnostic))
+    suggestions.extend(_integration_suggestions(diagnostic, team_id=team.pk))
 
     # Ahead of the mapping suggester so its proposals can be injected there.
     campaign_mappings: CampaignMappingSuggestions | None = None
@@ -258,10 +268,10 @@ def _load_goal_flags(team: Team) -> dict[str, dict[str, Any]]:
 # --- Suggestion builders ---------------------------------------------------
 
 
-def _integration_suggestions(diagnostic: MarketingDiagnosticResponse) -> list[Suggestion]:
+def _integration_suggestions(diagnostic: MarketingDiagnosticResponse, *, team_id: int) -> list[Suggestion]:
     suggestions: list[Suggestion] = []
     for integration in diagnostic.integrations:
-        suggestion = _integration_suggestion(integration)
+        suggestion = _integration_suggestion(integration, team_id=team_id)
         if suggestion is not None:
             suggestions.append(suggestion)
     return suggestions
@@ -274,7 +284,7 @@ def _looks_like_auth_failure(last_error: str | None) -> bool:
     return any(token in lowered for token in ("token", "unauthor", "auth", "credential", "expired", "401", "403"))
 
 
-def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | None:
+def _integration_suggestion(integration: IntegrationDiagnostic, *, team_id: int) -> Suggestion | None:
     key: NativeIntegration = integration.integration_key
     native = KEY_TO_NATIVE.get(key)
     display = integration.display_name
@@ -282,29 +292,13 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     source_type = integration.source_type
     ds = integration.data_source
     attribution = integration.attribution
-    # Both counters: `events_only` is set when either one is non-zero, so reading just the
-    # likely-yours side reports "0 events" as the reason to connect a platform whose
-    # utm_source matched exactly. They never overlap — a utm_source either matches an alias
-    # or is only fuzzy-suggested — so the sum is every event carrying this platform's source.
-    volume = (
-        attribution.events_matched_last_7d + attribution.events_unmatched_likely_yours_last_7d if attribution else 0
-    )
-
     if status == "events_only":
-        # `utm_source` alone doesn't mean paid — `google` also covers gmail links and
-        # `linkedin` organic posts, so this fired "connect an ad account you don't
-        # have" at error severity. Suppressed only on positive evidence: most of the
-        # traffic carries a medium and none of it is paid. An untagged event is absence
-        # of evidence, not evidence of organic, so a tagged minority doesn't get to
-        # speak for it — a team that tags its posts but not its ad links still gets asked.
-        attr = integration.attribution
-        if (
-            attr is not None
-            and attr.events_matched_paid_last_7d == 0
-            and attr.events_matched_tagged_medium_last_7d * 2 > attr.events_matched_last_7d
-        ):
+        # Organic and referral links can carry both utm_source and utm_campaign.
+        if attribution is None or attribution.events_matched_paid_last_7d == 0:
             return None
 
+        paid_volume = attribution.events_matched_paid_last_7d
+        event_label = "event" if paid_volume == 1 else "events"
         # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.
         return Suggestion(
             id=f"connect_source:{key}",
@@ -313,13 +307,22 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
             confidence=0.95,
             title=f"Connect {display}",
             evidence=(
-                f"{volume:,} events in the last 7 days carry a {display} utm_source, but the platform "
-                "isn't connected — none of that traffic has cost attached."
+                f"Detected {paid_volume:,} {event_label} with paid attribution signals for {display} "
+                "in the last 7 days. Connect the platform to add spend data."
             ),
             unlocks=[Capability.COST, Capability.ROAS, Capability.CAC],
             apply=OpenSourceWizard(kind=source_type),
             integration=source_type,
-            event_volume=volume,
+            deep_link=f"/project/{team_id}/data-warehouse/new-source?"
+            + urlencode(
+                {
+                    "kind": source_type,
+                    "returnUrl": f"/project/{team_id}/marketing",
+                    "returnLabel": "Marketing analytics",
+                    "entry_point": "marketing_analytics_mcp",
+                }
+            ),
+            event_volume=paid_volume,
         )
 
     if status == "sync_broken":

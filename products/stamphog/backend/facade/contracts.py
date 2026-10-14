@@ -44,6 +44,26 @@ class RepoConfigDTO:
 
 
 @dataclass(frozen=True)
+class AvailableRepositoriesDTO:
+    """Repositories a team can add from its connected installations, one page of them."""
+
+    repositories: list[str]
+    # Every addable repository that matches the search, not only the ones on this page.
+    total_count: int
+    # False means nobody on the team connected GitHub yet, so nothing can be added.
+    has_installation: bool
+
+
+@dataclass(frozen=True)
+class AddRepositoryResultDTO:
+    """The repo config an add turned on, and whether the add created it."""
+
+    config: RepoConfigDTO
+    # False when the team already had a row for the repository and the add turned it on.
+    created: bool
+
+
+@dataclass(frozen=True)
 class PullRequestDTO:
     """A pull request stamphog knows about, including merge state once it merges."""
 
@@ -84,6 +104,11 @@ class DigestRunDTO:
     error: str = ""
     created_at: datetime | None = None
     posted_at: datetime | None = None
+
+
+# The keys of ReviewRun.output the API returns. The rest of the blob holds the PR payload, patches,
+# policy files and reviewer stdout, which the API must not expose and a list page must not load.
+REVIEW_RUN_OUTPUT_SUMMARY_KEYS = ("stamphog_version", "reviewer_exit_code")
 
 
 @dataclass(frozen=True)
@@ -148,6 +173,10 @@ class ReviewRequestRefusedError(Exception):
 
 class RepoAlreadyClaimedError(Exception):
     """Another team already owns this repository under this GitHub installation."""
+
+
+class RepositoryNotInstalledError(Exception):
+    """The repository is in none of the team's installation snapshots, so it cannot be added."""
 
 
 class StamphogGitHubError(Exception):

@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # What a Slack run uses when neither the user nor the workspace has pinned a model.
 # Chosen here rather than left to the agent server so the App Home card and the run
 # itself agree on what "unset" means.
-SLACK_DEFAULT_MODEL = "claude-opus-5"
+SLACK_DEFAULT_MODEL = "claude-opus-5-5"
 
 
 class ModelOverride(Protocol):

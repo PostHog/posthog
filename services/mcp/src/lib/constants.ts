@@ -28,6 +28,9 @@ export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 // fit, and the tool-domain index absorbs whatever budget the fixed sections leave.
 export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
 
+// Response policy, not a token limit: client limits and tokenization vary.
+export const MCP_TOOL_OUTPUT_CHAR_BUDGET = 80_000
+
 // Ceiling for the tool-domain index inside the claude.ai exec command reference. That reference
 // lives in the `command` description, whose serialized schema claude.ai silently drops past
 // ~16,384 chars, and the index is the only part of it that grows with the tool catalog — one new
@@ -39,3 +42,6 @@ export const MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET = 1536
 // Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
 export const MCP_GATEWAY_FLAG = 'mcp-gateway'
+
+// claude.ai silently drops a tool whose serialized `inputSchema` reaches this many characters.
+export const CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT = 16_384

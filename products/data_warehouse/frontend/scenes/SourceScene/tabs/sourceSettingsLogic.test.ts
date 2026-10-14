@@ -1,12 +1,11 @@
 import type { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
-import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+import { allowedCdcSyncFrequencies, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import {
     buildBulkEnablePayloads,
     bulkSyncMethodDisabledReason,
-    clonePayloadPreservingFiles,
     effectiveLookbackDays,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
@@ -197,25 +196,6 @@ describe('removeEmptySensitiveValues', () => {
     })
 })
 
-describe('clonePayloadPreservingFiles', () => {
-    it('preserves File instances in nested payloads', () => {
-        const keyFile = new File(['{"project_id":"my-project"}'], 'service-account.json', {
-            type: 'application/json',
-        })
-        const payload = {
-            key_file: [keyFile],
-            config: { use_custom_region: { enabled: true, region: 'us-east1' } },
-        }
-
-        const cloned = clonePayloadPreservingFiles(payload) as Record<string, any>
-
-        expect(cloned).not.toBe(payload)
-        expect(cloned.config).not.toBe(payload.config)
-        expect(cloned.key_file[0]).toBeInstanceOf(File)
-        expect(cloned.key_file[0]).toBe(keyFile)
-    })
-})
-
 describe('schemasEligibleForSync', () => {
     it('keeps only schemas that are enabled with a sync method', () => {
         const schemas = [
@@ -300,11 +280,18 @@ describe('effectiveLookbackDays', () => {
     })
 })
 
-describe('clampSyncFrequency', () => {
+describe('sync frequency limits', () => {
     it('floors every schema at 5 minutes, CDC included', () => {
         expect(clampSyncFrequency('1min')).toBe('5min')
         expect(clampSyncFrequency('5min')).toBe('5min')
         expect(clampSyncFrequency('1hour')).toBe('1hour')
+    })
+
+    it('offers a CDC table nothing slower than weekly, which the API rejects', () => {
+        const options = allowedCdcSyncFrequencies()
+        expect(options).toContain('7day')
+        expect(options).not.toContain('30day')
+        expect(options).not.toContain('1min')
     })
 })
 

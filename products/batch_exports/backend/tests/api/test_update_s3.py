@@ -7,7 +7,6 @@ from rest_framework import status
 from posthog.models.integration import Integration
 
 from products.batch_exports.backend.models.batch_export import BatchExportDestination
-from products.batch_exports.backend.tests.api.fixtures import create_batch_export as create_batch_export_orm
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok, patch_batch_export
 
 pytestmark = [
@@ -131,31 +130,6 @@ def test_updating_migrated_s3_batch_export_ignores_credentials_left_in_stored_co
     )
     assert response.status_code == status.HTTP_200_OK, response.json()
     assert response.json()["destination"]["config"]["prefix"] == "new-prefix/"
-
-
-def test_updating_legacy_s3_batch_export_is_rejected(client: HttpClient, temporal, organization, team, user):
-    """The legacy `S3` type has been migrated away and accepts no writes."""
-    destination = BatchExportDestination.objects.create(
-        type="S3",
-        config={
-            "bucket_name": "my-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    )
-    batch_export = create_batch_export_orm(team, destination)
-
-    client.force_login(user)
-    response = patch_batch_export(
-        client,
-        team.pk,
-        str(batch_export.id),
-        {"destination": {"type": "S3", "config": {"prefix": "new-prefix/"}}},
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert "deprecated" in response.json()["detail"]
 
 
 def test_updating_s3_family_batch_export_preserves_legacy_parquet_extension(

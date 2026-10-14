@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -11,6 +11,20 @@ class ThreadOutcome(str, Enum):
     ALREADY_FIXED = "already_fixed"
     OBSOLETE = "obsolete"
     ESCALATE = "escalate"
+
+
+class CommitHold(StrEnum):
+    """Why the stage must not commit to the PR branch. The threads stay open for a person."""
+
+    # Trunk removes a queued PR on any push and resets every PR testing behind it. A person
+    # submitted the PR, so it ships as it is.
+    MERGE_QUEUE = "pr_in_merge_queue"
+    # The stage commits to the head branch only, so a fix here leaves every PR stacked on top
+    # behind its base until someone restacks.
+    STACKED = "pr_has_stacked_pull_requests"
+    # Branch protection on the head branch would refuse the push, or let only some people push. A
+    # person decides what lands on a protected branch.
+    BRANCH_PROTECTED = "pr_branch_protected"
 
 
 class ThreadResolution(BaseModel):

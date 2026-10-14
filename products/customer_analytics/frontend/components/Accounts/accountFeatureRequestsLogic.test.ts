@@ -52,19 +52,28 @@ describe('accountFeatureRequestsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('links an existing request without replacing its current accounts', async () => {
+    it('links a searched request without replacing its current accounts', async () => {
         const listSpy = jest
             .spyOn(generatedApi, 'featureRequestsList')
             .mockResolvedValueOnce(emptyPage)
+            .mockResolvedValueOnce(emptyPage)
             .mockResolvedValueOnce({ ...emptyPage, count: 1, results: [existingRequest] })
-            .mockResolvedValueOnce({ ...emptyPage, count: 1, results: [existingRequest] })
+            .mockResolvedValueOnce(emptyPage)
         const updateSpy = jest.spyOn(generatedApi, 'featureRequestsUpdate').mockResolvedValue(existingRequest)
         const logic = accountFeatureRequestsLogic({ accountId: 'account-2' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         await expectLogic(logic, () => logic.actions.openRequestPicker()).toFinishAllListeners()
-        logic.actions.setSelectedRequestId(existingRequest.id)
+        await expectLogic(logic, () => logic.actions.setRequestSearch('scheduled')).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.setRequestSearch('')
+            logic.actions.setSelectedRequestId(existingRequest.id)
+        }).toFinishAllListeners()
+
+        expect(logic.values.selectedRequestId).toBe(existingRequest.id)
+        expect(logic.values.availableRequests).toEqual([existingRequest])
+
         await expectLogic(logic, () => logic.actions.linkSelectedRequest()).toFinishAllListeners()
 
         expect(updateSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), existingRequest.id, {

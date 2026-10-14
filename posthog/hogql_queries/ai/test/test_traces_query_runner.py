@@ -669,6 +669,30 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace3")
 
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
+    def test_single_calendar_day_range_covers_the_whole_day(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 14, 30),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 23, 59, 59, 500000),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2025-01-15", date_to="2025-01-15")),
+        ).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].id, "trace2")
+        self.assertEqual(response.results[1].id, "trace1")
+
     def test_capture_range(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
@@ -1150,11 +1174,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        expected_ids = (
-            set()
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and property_name == "$ai_span_name"
-            else {"trace_with_empty_name"}
-        )
+        # The native-JSON table treats an empty value as absent, so an explicit '' never matches there.
+        expected_ids = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"trace_with_empty_name"}
         self.assertEqual({result.id for result in response.results}, expected_ids)
 
     @snapshot_clickhouse_queries

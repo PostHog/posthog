@@ -21,9 +21,12 @@ import type {
     EndpointVersionResponseApi,
     EndpointsListParams,
     EndpointsLogsRetrieveParams,
+    EndpointsMaterializationStatusRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
+    EndpointsRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
+    MaterializationPreviewResponseApi,
     PaginatedEndpointResponseListApi,
     PaginatedEndpointVersionResponseListApi,
     PatchedEndpointRequestApi,
@@ -80,8 +83,20 @@ export const endpointsCreate = async (
     })
 }
 
-export const getEndpointsRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/`
+export const getEndpointsRetrieveUrl = (projectId: string, name: string, params?: EndpointsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/`
 }
 
 /**
@@ -90,9 +105,10 @@ export const getEndpointsRetrieveUrl = (projectId: string, name: string) => {
 export const endpointsRetrieve = async (
     projectId: string,
     name: string,
+    params?: EndpointsRetrieveParams,
     options?: RequestInit
 ): Promise<EndpointVersionResponseApi> => {
-    return apiMutator<EndpointVersionResponseApi>(getEndpointsRetrieveUrl(projectId, name), {
+    return apiMutator<EndpointVersionResponseApi>(getEndpointsRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
@@ -194,8 +210,8 @@ export const endpointsMaterializationPreviewCreate = async (
     name: string,
     materializationPreviewRequestApi?: MaterializationPreviewRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsMaterializationPreviewCreateUrl(projectId, name), {
+): Promise<MaterializationPreviewResponseApi> => {
+    return apiMutator<MaterializationPreviewResponseApi>(getEndpointsMaterializationPreviewCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -203,8 +219,24 @@ export const endpointsMaterializationPreviewCreate = async (
     })
 }
 
-export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/materialization_status/`
+export const getEndpointsMaterializationStatusRetrieveUrl = (
+    projectId: string,
+    name: string,
+    params?: EndpointsMaterializationStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/materialization_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/materialization_status/`
 }
 
 /**
@@ -213,12 +245,16 @@ export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, 
 export const endpointsMaterializationStatusRetrieve = async (
     projectId: string,
     name: string,
+    params?: EndpointsMaterializationStatusRetrieveParams,
     options?: RequestInit
 ): Promise<EndpointMaterializationApi> => {
-    return apiMutator<EndpointMaterializationApi>(getEndpointsMaterializationStatusRetrieveUrl(projectId, name), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<EndpointMaterializationApi>(
+        getEndpointsMaterializationStatusRetrieveUrl(projectId, name, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getEndpointsMaterializationSuggestionCreateUrl = (projectId: string, name: string) => {

@@ -11,16 +11,21 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_CHOICES,
     RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
+    SCOPE_OBJECT_CHOICES,
 )
 from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
@@ -92,7 +97,9 @@ class ResolvedAccessSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.",
     )
-    source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
+    source_resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="The resource the deciding rule belongs to."
+    )
     source_resource_id = serializers.CharField(
         allow_null=True,
         help_text="The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).",
@@ -149,9 +156,10 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return field_class, field_kwargs
 
     def validate_resource(self, resource):
-        if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
-            allowed = tuple(s for s in API_SCOPE_OBJECTS if s not in INTERNAL_API_SCOPE_OBJECTS)
-            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(allowed))
+        if resource not in GRANTABLE_API_SCOPE_OBJECTS:
+            raise serializers.ValidationError(
+                "Invalid resource. Must be one of: {}".format(GRANTABLE_API_SCOPE_OBJECTS)
+            )
 
         return resource
 
@@ -247,18 +255,36 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-def upsert_access_control(
+TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Terraform."
+
+
+def is_terraform_request(request: Request) -> bool:
+    """True for a request from the Terraform provider with personal API key authentication. A session
+    request is never a Terraform request, so a browser cannot mark a project."""
+    return (
+        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        and get_event_source(request) == EventSource.TERRAFORM
+    )
+
+
+def apply_access_control_rule(
     *,
     team: Team,
+    user: User,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
-) -> Response:
+) -> AccessControl | None:
     """Apply one validated access control rule: a null level deletes the subject's rule, any other
-    level creates or updates it. Shared by the per-resource PUT actions and the settings page's
-    generic object-rule write, so validation and cache behavior cannot drift between them."""
+    level creates or updates it. Returns the stored row, or None once the rule is gone. Shared by
+    the per-resource PUT actions and the settings page's rule writes, so validation and cache
+    behavior cannot drift between them."""
     serializer = build_serializer(None)
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
+
+    # Every rule write goes through here. When Terraform manages the project, only its account may write.
+    if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
+        raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
     instance = AccessControl.objects.filter(
         team=team,
@@ -269,21 +295,39 @@ def upsert_access_control(
     ).first()
 
     if params["access_level"] is None:
-        if instance:
-            instance.delete()
-            # Drop the preloaded access-control snapshot so later reads this request are fresh.
-            user_access_control._clear_cache()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if instance is None:
+            return None
+        instance.delete()
+        # Drop the preloaded access-control snapshot so later reads this request are fresh.
+        user_access_control._clear_cache()
+        return None
 
     if instance:
         serializer = build_serializer(instance)
         serializer.is_valid(raise_exception=True)
     serializer.validated_data["team"] = team
-    serializer.save()
+    rule = serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return rule
+
+
+def upsert_access_control(
+    *,
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl,
+    build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
+) -> Response:
+    """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
+    PUT actions expect."""
+    rule = apply_access_control_rule(
+        team=team, user=user, user_access_control=user_access_control, build_serializer=build_serializer
+    )
+    if rule is None:
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response(AccessControlSerializer(rule).data, status=status.HTTP_200_OK)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
@@ -400,7 +444,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
-            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj)
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
         }
 
         if not is_resource_level:
@@ -515,8 +560,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             data["resource"] = resource
             data["resource_id"] = resource_id
 
+        user = cast(User, request.user)
+        # Terraform writes rules only through this method. A Terraform write enables the lock and
+        # sets the Terraform account before the rule is written, so the guard lets the write through.
+        if is_terraform_request(request):
+            access_control_api.set_terraform_lock(team_id=team.id, enabled=True, terraform_user_id=user.id)
+
         return upsert_access_control(
             team=team,
+            user=user,
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
         )
@@ -604,9 +656,12 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
         return None
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if not self.user_access_control:
             return None
+
+        if isinstance(obj, ObjectAccessRef):
+            return self.user_access_control.access_level_for_ref(obj)
 
         # Check if self.instance is a list - if so we want to preload the user access controls
         if not self._preloaded_access_controls and isinstance(self.instance, list):

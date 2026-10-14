@@ -127,6 +127,7 @@ def integration_kind_choices() -> list[tuple[str, str | Promise]]:
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
+        APPLE_ADS = "apple-ads"
         APPLE_PUSH = "apns"
         AWS_REDSHIFT = "aws-redshift"
         AWS_S3 = "aws-s3"
@@ -162,6 +163,7 @@ class Integration(models.Model):
         POSTGRESQL = "postgresql"
         POSTHOG = "posthog"
         REDDIT_ADS = "reddit-ads"
+        TWITTER_ADS = "twitter-ads"
         RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
@@ -214,6 +216,8 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "twitter-ads":
+            return self.config.get("screen_name") or self.integration_id
         if self.kind == "pinterest-ads":
             # Pinterest's OAuth username is an opaque hash, so prefer the business name when there is one.
             return self.config.get("business_name") or self.config.get("username") or self.integration_id

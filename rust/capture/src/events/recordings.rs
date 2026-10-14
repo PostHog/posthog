@@ -1501,7 +1501,7 @@ mod tests {
     // metadata and produces to `replay_overflow_topic` with the session_id
     // as partition key.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -1509,7 +1509,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
@@ -1530,7 +1530,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "replay_overflow",
+            &*records[0].topic, "replay_overflow",
             "ReplayLimited must route to replay_overflow topic"
         );
         assert_eq!(

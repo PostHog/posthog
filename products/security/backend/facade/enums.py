@@ -10,10 +10,12 @@ class Surface(StrEnum):
     APP = "app"
     AI_GATEWAY = "ai_gateway"
     EMAIL_CODE = "email_code"
+    SIGNUP_RISK = "signup_risk"
 
 
 class Outcome(StrEnum):
     ALLOW = "allow"
     BLOCK = "block"
-    # Only on EMAIL_CODE: the user skips the emailed login code.
+    # On EMAIL_CODE the user skips the emailed login code. On SIGNUP_RISK the
+    # signup skips the WorkOS Radar verdict.
     EXEMPT = "exempt"

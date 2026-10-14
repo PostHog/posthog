@@ -14,10 +14,14 @@ description: >
 
 # Exploring AI observability evaluations
 
+For stored offline experiment comparisons, scorer history, or externally computed
+result uploads, use `analyzing-offline-evaluations`. Offline experiments use pinned
+scorer configurations and separate result APIs from the online evaluations below.
+
 PostHog evaluations score `$ai_generation` events. Each evaluation is one of three
 types:
 
-- **`hog`** — deterministic Hog code that returns `true`/`false` (and optionally N/A).
+- **`hog`** — deterministic Hog code that returns a boolean, numeric score, or categories (and optionally N/A).
   Best for objective rule-based checks: format validation (JSON parses, schema matches),
   length limits, keyword presence/absence, regex patterns, structural assertions, latency
   thresholds, cost guards. Cheap, fast, reproducible — no LLM call per run. Prefer this
@@ -32,6 +36,21 @@ types:
 Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
 evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
+Both `hog` and `llm_judge` also support `output_type: "numeric"`.
+Numeric runs store their raw score in `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max`.
+They never set `$ai_evaluation_result`.
+Use `output_config.passing_rule` to interpret scores: `gte` means at least the threshold and `lte` means at most.
+Changing the rule reinterprets historical scores. Saved reports retain the rule and metrics used when generated.
+Without a passing rule, inspect score means and distributions; pass rates and reports are unavailable.
+
+Both runtimes also support `output_type: "categorical"` when categorical evaluations are enabled for the project.
+Read `output_config.options` for the configured `{key, label}` pairs and `selection_mode` for `single` or `multiple`.
+Results store keys as a list in `$ai_evaluation_categorical_result`; single selection requires exactly one key, while multiple selection accepts `[]`.
+Hog can also return a single key string in single mode.
+Use `output_config.passing_rule.categories` to grade results: a nonempty result passes only when every returned key is a passing category.
+A nonempty rule fails `[]`; an empty rule passes only `[]` and is allowed only in multiple mode.
+Without a rule, inspect category frequencies instead of pass rates; new reports are unavailable.
+Rule edits reclassify historical results, while saved reports retain their rule snapshot.
 
 This skill covers the full lifecycle: list/inspect/manage evaluation configs, run
 them on specific generations, query individual results, and configure evaluation
@@ -60,20 +79,24 @@ All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tool
 
 Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
-| Property                     | Meaning                                                                          |
-| ---------------------------- | -------------------------------------------------------------------------------- |
-| `$ai_evaluation_id`          | UUID of the evaluation config                                                    |
-| `$ai_evaluation_name`        | Human-readable name                                                              |
-| `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                                  |
-| `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                                    |
-| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                                            |
-| `$ai_evaluation_result`      | Raw boolean result. Use the evaluation's output config to map it to pass or fail |
-| `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)                         |
-| `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A                         |
-| `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative`                  |
-| `$ai_sentiment_score`        | Confidence score for the winning sentiment label                                 |
+| Property                            | Meaning                                                                          |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `$ai_evaluation_id`                 | UUID of the evaluation config                                                    |
+| `$ai_evaluation_name`               | Human-readable name                                                              |
+| `$ai_target_event_id`               | UUID of the `$ai_generation` event being scored                                  |
+| `$ai_trace_id`                      | Parent trace ID (for jumping to the trace UI)                                    |
+| `$ai_evaluation_result_type`        | Result kind: `boolean`, `numeric`, `categorical`, or `sentiment`                 |
+| `$ai_evaluation_numeric_result`     | Raw numeric score. Use the passing rule to map it to pass or fail                |
+| `$ai_evaluation_categorical_result` | List of category keys. Use the passing rule to map it to pass or fail            |
+| `$ai_evaluation_result`             | Raw boolean result. Use the evaluation's output config to map it to pass or fail |
+| `$ai_evaluation_reasoning`          | Free-text explanation (set by the LLM judge or Hog code)                         |
+| `$ai_evaluation_applicable`         | `false` when the evaluator decided the generation is N/A                         |
+| `$ai_evaluation_skipped`            | `true` when no result was graded because the run could not be evaluated          |
+| `$ai_sentiment_label`               | For sentiment evaluations: `positive`, `neutral`, or `negative`                  |
+| `$ai_sentiment_score`               | Confidence score for the winning sentiment label                                 |
 
-When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
+Check `$ai_evaluation_skipped` first: skipped runs are excluded from pass rates and are distinct from N/A.
+Otherwise, `$ai_evaluation_applicable = false` means N/A regardless of the result value.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
 For boolean evaluations, `output_config.true_is_failure: false` maps `true` to pass and `false` to fail.
 Set it to `true` for detector-style evaluations where `true` means the evaluator found a problem.
@@ -84,6 +107,8 @@ Works the same way for boolean `llm_judge` and `hog` evaluations — the differe
 only matter when you eventually go to fix the evaluator (edit the prompt vs. edit
 the Hog source). Sentiment evaluations should be inspected by sentiment label and
 score rather than pass/fail filters.
+The SQL pass/fail examples below use boolean results.
+For numeric and categorical evaluations, read their result property and current passing rule instead of `$ai_evaluation_result`.
 
 ### Step 1 — Find the evaluation
 
@@ -200,8 +225,8 @@ posthog:llma-evaluation-test-hog
 }
 ```
 
-The handler returns the boolean result for each of the most recent N `$ai_generation`
-events. Iterate on the source until it behaves as expected, then promote it via
+The handler returns raw boolean or numeric results for the sampled units.
+For numeric previews, send `output_type: "numeric"` and the saved `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
 `llma-evaluation-create`:
 
 ```json
@@ -407,8 +432,8 @@ Always surface the relevant link so the user can verify in the UI.
 - When showing failure patterns to the user, always include 1-2 example trace links so
   they can validate the pattern visually
 - `llma-evaluation-*` tools use `evaluation:read` for read tools and `evaluation:write` for
-  mutating tools; the `llma-evaluation-report-*` tools use `llm_analytics:read` and
-  `llm_analytics:write`
+  mutating tools, except `llma-evaluation-config-get` and `llma-evaluation-judge-models`,
+  which use `llm_analytics:read`
 - Hog evaluators are reproducible — if you suspect a regression, `llma-evaluation-test-hog`
   with the suspect source against the failing generations is the fastest way to bisect
   whether the change is in the evaluator or in the producer of the generations

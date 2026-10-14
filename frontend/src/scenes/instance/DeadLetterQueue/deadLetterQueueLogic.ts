@@ -143,6 +143,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
                     if (values.filters.after) {
                         params.after = values.filters.after
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return (await api.get(`api/dead_letter_queue?${new URLSearchParams(params).toString()}`)).results
                 },
             },
@@ -163,6 +164,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
                 if (values.filters.after) {
                     params.after = values.filters.after
                 }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const res = await api.get(`api/dead_letter_queue/${key}?${new URLSearchParams(params).toString()}`)
                 actions.addRowsToMetric(key, res.subrows.rows)
             }

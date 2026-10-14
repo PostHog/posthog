@@ -140,6 +140,7 @@ LOGGING: dict[str, Any] = {
     },
     "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     "loggers": {
+        "posthog.github_diagnostics": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
         "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {

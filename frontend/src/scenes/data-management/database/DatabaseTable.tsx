@@ -9,19 +9,20 @@ import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
 interface DatabaseTableProps {
     table: string
     tables: DatabaseSchemaTable[]
     inEditSchemaMode: boolean
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
+    fieldDescriptions?: Record<string, string>
 }
 
 const nonEditableSchemaTypes = [
@@ -103,7 +104,13 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
     return <More overlay={overlay()} />
 }
 
-export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
+export function DatabaseTable({
+    table,
+    tables,
+    inEditSchemaMode,
+    schemaOnChange,
+    fieldDescriptions,
+}: DatabaseTableProps): JSX.Element {
     const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
     const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
@@ -117,8 +124,8 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     title: 'Column',
                     key: 'key',
                     dataIndex: 'name',
-                    render: function RenderColumn(column) {
-                        return <code>{column}</code>
+                    render: function RenderColumn(_, { name }) {
+                        return <code>{name}</code>
                     },
                 },
                 {
@@ -211,7 +218,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                             )
                         }
 
-                        return ''
+                        return fieldDescriptions?.[field.name] ?? ''
                     },
                 },
                 {

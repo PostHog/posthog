@@ -2,11 +2,16 @@ import { act, fireEvent, render } from '@testing-library/react'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { CodeSnippet } from './CodeSnippet'
+import { CodeSnippet, Language } from './CodeSnippet'
 
 jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn(),
 }))
+
+// Every case here renders with the highlighter chunk unavailable, as after a deploy removes it.
+jest.mock('./HighlightedCodeLine', () => {
+    throw new Error('highlighter chunk unavailable')
+})
 
 describe('CodeSnippet', () => {
     beforeEach(() => {
@@ -30,5 +35,16 @@ describe('CodeSnippet', () => {
 
         expect(copyToClipboard).toHaveBeenCalledWith('echo hello', 'snippet')
         expect(onCopy).toHaveBeenCalledTimes(expectedCalls)
+    })
+
+    it('keeps the plain code when the highlighter fails to load', async () => {
+        const { container } = render(<CodeSnippet language={Language.JavaScript}>const a = 1</CodeSnippet>)
+
+        // The failed import settles over several microtasks, so let one macrotask pass.
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        })
+
+        expect(container.querySelector('.CodeSnippet code')?.textContent).toBe('const a = 1')
     })
 })

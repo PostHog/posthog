@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import type { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { PersonType } from '~/types'
 import type { PersonListParams } from '~/types'
@@ -118,13 +118,13 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                               ? { main_distinct_id: values.selectedPersonToAssignSplit }
                               : {}
                     // personsSplitCreate needs a project id that this logic does not hold.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
                     if (splitAction.success) {
                         lemonToast.success(
                             'Person succesfully split. This may take up to a couple of minutes to complete.'
                         )
-                        eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
+                        posthog.capture('split person started', { merge_count: values.person.distinct_ids.length })
                         actions.setSplitMergeModalShown(false)
                         router.actions.push('/persons')
                         return true

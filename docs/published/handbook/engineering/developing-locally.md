@@ -266,6 +266,11 @@ The first time you run typegen, it may get stuck. Cancel it (`Ctrl+C`), run `git
 **"layout.html is not defined" error**
 This happens on first startup. Wait for the frontend to finish compiling and try accessing the app again.
 
+**Vite cannot resolve an installed Tiptap package**
+Files under `products/*/frontend` cannot resolve packages installed only in `frontend/node_modules` through their parent directories.
+Shared Tiptap packages, including `@tiptap/extension-image`, have individual aliases in `frontend/vite.config.mts`.
+Check those aliases if an installed package fails to resolve from a product directory.
+
 **Kafka segfaults on ARM**
 Kafka is an x86 container and may segfault randomly on ARM machines. Simply restart it when that happens.
 
@@ -295,7 +300,7 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 
 ## Option 2: Developing with Coder workspaces (PostHog employees only)
 
-If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md). We call a Coder workspace a devbox, and `hogli` manages it.
 
 If you drive your workflow with a coding agent (Claude Code, Cursor, etc.), the `setting-up-devbox` skill walks the agent through the whole flow — the tailnet prerequisite, `hogli devbox:setup`, starting a box, storing auth as Coder user secrets, and running commands on the box with `hogli devbox:exec`. Just ask it to set up your devbox.
 

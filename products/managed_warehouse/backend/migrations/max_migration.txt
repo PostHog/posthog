@@ -1,1 +1,1 @@
-0007_drop_orphaned_duckgresserver_team_fk
+0008_duckgresserver_trino_password

@@ -200,17 +200,19 @@ drf-spectacular's `COMPONENT_SPLIT_PATCH` setting (enabled by default) handles
 the PATCH case automatically, creating separate schemas for PATCH vs POST
 since PATCH doesn't require all fields.
 
-## Enum naming — derived from Choices classes, overrides as fallback
+## Enum naming — derived from choices classes, overrides as fallback
 
-Enum components are named after the `django.db.models.Choices` class that defines
-the choices: `ChoicesEnumNameOverrides` (`posthog/openapi/enum_names.py`) walks
-every Choices subclass at schema-build time and registers it under a name derived
-from its qualname. A field whose choices come from a TextChoices class therefore
-gets a stable name with no configuration.
+Enum components are named after the class that defines the choices:
+`ChoicesEnumNameOverrides` (`posthog/openapi/enum_names.py`) walks every
+`django.db.models.Choices` subclass and every `LabeledStrEnum` / `LabeledIntEnum`
+subclass (`posthog/enums.py`) at schema-build time and registers it under a name
+derived from its qualname. A field whose choices come from such a class (passed as
+`X.choices`) therefore gets a stable name with no configuration. Facade contract
+files use the labeled bases, because they must not import Django.
 
 When choices have no class behind them (inline lists, computed lists, pydantic
 literals) and multiple fields collide, drf-spectacular emits warnings. Those are
-fixed by defining a TextChoices class, or as a fallback via the explicit
+fixed by defining a choices class, or as a fallback via the explicit
 `ENUM_NAME_OVERRIDES` dict in `posthog/settings/web.py`; the comment on the dict
 lists the reasons an entry can be required.
 

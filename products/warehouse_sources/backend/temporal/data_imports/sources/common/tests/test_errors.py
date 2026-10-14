@@ -18,8 +18,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
         "HTTPSConnectionPool(host='login.example.com', port=443): Max retries exceeded with url: /oauth2/token "
         "(Caused by ProxyError('Cannot connect to proxy.', NewConnectionError('<urllib3.connection.HTTPSConnection "
         "object at 0x7f>: Failed to establish a new connection: [Errno 111] Connection refused')))",
+        "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+        "(Caused by ProxyError('Cannot connect to proxy.', RemoteDisconnected('Remote end closed "
+        "connection without response'))) executing HTTP request attempt 2",
     ],
-    ids=["tunnel_429", "tunnel_502", "tunnel_503", "tunnel_504", "proxy_connect_timeout", "proxy_connect_refused"],
+    ids=[
+        "tunnel_429",
+        "tunnel_502",
+        "tunnel_503",
+        "tunnel_504",
+        "proxy_connect_timeout",
+        "proxy_connect_refused",
+        "proxy_connect_remote_disconnected",
+    ],
 )
 def test_matches_transient_egress_proxy_failures(message: str) -> None:
     assert is_transient_egress_proxy_error(message)

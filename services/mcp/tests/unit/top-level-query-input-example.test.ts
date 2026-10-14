@@ -114,6 +114,31 @@ describe('tools that take their query fields at the top level', () => {
         }
     })
 
+    it.each(TOP_LEVEL_QUERY_TOOLS)(
+        '%s runs its documented example nested under `query` through the exec CLI',
+        async (name) => {
+            // Callers keep sending the natural `{query: {...}}` shape whatever the description
+            // says, so the executor lifts it to the top level instead of rejecting it.
+            const received: unknown[] = []
+            const tool = asExecutableTool(name, GENERATED_TOOL_MAP[name]!())
+            const exec = createExecTool(
+                [{ ...tool, handler: async (_context, params) => (received.push(params), { results: [] }) }],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined
+            )
+            const example = jsonExamples(definitions[name]?.description ?? '')[0] as Record<string, unknown>
+
+            const output = await exec.handler(mockContext, {
+                command: `call ${name} ${JSON.stringify({ query: example })}`,
+            })
+
+            expect(String(output)).not.toContain('Invalid input')
+            expect(received).toEqual([tool.schema.parse(example)])
+        }
+    )
+
     // Parsing alone does not prove an example works: these schemas drop fields
     // they do not declare, so an example naming one is accepted and then quietly
     // loses it. Scoped to trends — `query-funnel` documents `name` on a grouped

@@ -20,6 +20,7 @@ from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.redis_errors import is_transient_redis_error
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 logger = get_write_only_logger()
@@ -36,6 +37,7 @@ logger = get_write_only_logger()
 # "trace_not_settled" and "session_not_settled" are the aggregate-evaluation settle probes, whose
 # retry schedule is the poll loop. Each settle target keeps its own type, so a new target must
 # list its type here too; `_NOT_SETTLED_ERROR_TYPES` is tested against this set.
+# The "tagger_" types are runs RunTaggerWorkflow skips; `SKIPPED_RESULT_ERROR_TYPES` is tested against this set.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
@@ -45,6 +47,12 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
         "AIFeaturesCloudOnly",
         "SandboxRateLimitedError",
         "SandboxControlPlaneUnavailableError",
+        "tagger_disabled",
+        "tagger_parse_error",
+        "tagger_request_rejected",
+        "tagger_provider_key_required",
+        "tagger_key_invalid",
+        "tagger_no_default_model",
     }
 )
 
@@ -58,7 +66,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
     already records via record_outbound_decision), errors explicitly marked non-reportable
     (expected customer/upstream conditions, e.g. a REST API serving a login page instead of JSON),
     expected-control-flow ApplicationErrors (activity-retry-as-poll probes), and a saturated or
-    restarting database that clears on its own.
+    restarting database or Redis instance that clears on its own.
 
     The activity interceptor below re-raises these without reporting them. An activity that also
     captures locally must apply the same filter, or a worker drain mints an error tracking issue
@@ -72,6 +80,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
             and error.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         )
         or is_transient_db_error(error)
+        or is_transient_redis_error(error)
     )
 
 
@@ -126,6 +135,12 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 if is_transient_db_error(e):
                     await logger.awarning(
                         "Transient database error in activity %s, leaving retry to Temporal",
+                        activity.info().activity_type,
+                        exc_info=e,
+                    )
+                elif is_transient_redis_error(e):
+                    await logger.awarning(
+                        "Transient Redis error in activity %s, leaving retry to Temporal",
                         activity.info().activity_type,
                         exc_info=e,
                     )

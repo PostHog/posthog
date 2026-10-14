@@ -19,6 +19,12 @@ from products.cohorts.backend.models.backfill import CohortBackfillRun, CohortBa
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash, extract_person_leaf_shape_hash
 
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
+
 # (name, run factory, stamp fn, cohort hash column, cohort stamp column, same-kind edit,
 # other-kind edit) — the stamp protocol is symmetric in these, so every step of it runs under both
 # kinds. The two edits are the filters that move only this kind's hash, and only the other's.
@@ -60,11 +66,12 @@ class TestBackfillReadiness(BaseTest):
                 "key": "$pageview",
                 "event_type": "events",
                 "value": "performed_event_multiple",
-                "conditionHash": "same-condition-hash",
+                "conditionHash": "same-condition00",
                 "time_value": window_days,
                 "time_interval": "day",
                 "operator": "gte",
                 "operator_value": 2,
+                "bytecode": _BYTECODE,
             }
         ]
         if person_hash is not None:
@@ -74,7 +81,10 @@ class TestBackfillReadiness(BaseTest):
                     "key": "email",
                     "value": ["person@example.com"],
                     "operator": "exact",
-                    "conditionHash": person_hash,
+                    # The catalog wants exactly 16 characters; the cases only need the hashes to
+                    # differ from each other.
+                    "conditionHash": person_hash[:16].ljust(16, "0"),
+                    "bytecode": _BYTECODE,
                 }
             )
         return {"properties": {"type": "AND", "values": values}}

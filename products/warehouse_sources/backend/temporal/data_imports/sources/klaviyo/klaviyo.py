@@ -1,16 +1,23 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, tzinfo
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
     KLAVIYO_API_VERSION_2026_07_15,
@@ -23,6 +30,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
 )
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
+
+# Cap how long a single in-function retry waits so a long fixed-window Retry-After doesn't pin a
+# worker thread; if the window is longer, the attempts exhaust and Temporal retries the whole
+# activity later from saved page state.
+MAX_RETRY_AFTER_SECONDS = 120
 
 # Klaviyo's reporting API only accepts a value-tracking metric (one that carries a monetary
 # $value, like an order metric) as a values report's conversion metric; engagement metrics such as
@@ -40,7 +52,9 @@ CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data
 
 
 class KlaviyoRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class KlaviyoConversionMetricError(Exception):
@@ -158,15 +172,41 @@ def _get_headers(api_key: str, revision: str = KLAVIYO_API_VERSION_2026_07_15) -
     }
 
 
-def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> bool:
+_KLAVIYO_INVALID_KEY_ERROR = (
+    "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your "
+    "Klaviyo account settings, then reconnect."
+)
+
+# The probe reads /accounts, so a scoped key that was never granted account read lands here even
+# though it is a live key. Telling that user to replace the key sends them down the wrong path.
+_KLAVIYO_MISSING_SCOPE_ERROR = (
+    "Your Klaviyo API key can't read your account. Give the key read access to Accounts in your "
+    "Klaviyo account settings, then reconnect."
+)
+
+_KLAVIYO_UNREACHABLE_ERROR = "Couldn't reach Klaviyo to validate your API key. Try again in a few minutes."
+
+
+def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> tuple[bool, str | None]:
     # Probe under the caller's resolved pin so a 2024-10-15-pinned source validates on the
     # same `revision` header it syncs with.
-    url = f"{KLAVIYO_BASE_URL}/accounts"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key, api_version), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, status = validate_via_probe(
+        make_tracked_session,
+        f"{KLAVIYO_BASE_URL}/accounts",
+        headers=_get_headers(api_key, api_version),
+    )
+    if ok:
+        return True, None
+    if status == 401:
+        return False, _KLAVIYO_INVALID_KEY_ERROR
+    if status == 403:
+        return False, _KLAVIYO_MISSING_SCOPE_ERROR
+    # No status means the request never completed. That, a rate limit and a Klaviyo-side error are
+    # all transient, so none of them should point the user at a key that may be fine.
+    if status is None or status == 429 or status >= 500:
+        return False, _KLAVIYO_UNREACHABLE_ERROR
+    capture_exception(Exception(f"Unexpected Klaviyo credential validation response ({status})"))
+    return False, _KLAVIYO_INVALID_KEY_ERROR
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -248,6 +288,41 @@ def _raise_for_status_with_detail(response: requests.Response) -> None:
         raise
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    # Retry-After is either delta-seconds or an HTTP-date (RFC 7231).
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        delay = float(value)
+        # A negative delta is a malformed header, not "no wait" — falling through to exponential
+        # backoff avoids instant retries burning the attempt budget while still rate limited.
+        return delay if delay >= 0 else None
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _wait_klaviyo(retry_state: RetryCallState) -> float:
+    # Prefer the server's own backoff instruction on rate limits; fall back to exponential jitter
+    # when the header is absent (429 without one, or a 5xx). Only GET requests get Retry-After-aware
+    # backoff from the shared session's urllib3 retry policy (it retries GET/HEAD/OPTIONS only), so
+    # the reporting endpoints' POST pagination depends on this to honor the header at all.
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, KlaviyoRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _backoff(retry_state)
+
+
 @retry(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
@@ -260,7 +335,7 @@ def _raise_for_status_with_detail(response: requests.Response) -> None:
         )
     ),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_klaviyo,
     reraise=True,
 )
 def _fetch_page(
@@ -277,7 +352,11 @@ def _fetch_page(
         response = session.post(page_url, headers=headers, json=json_body, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
-        raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
+        retry_after = _parse_retry_after(response.headers.get("Retry-After")) if response.status_code == 429 else None
+        raise KlaviyoRetryableError(
+            f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}",
+            retry_after=retry_after,
+        )
 
     if not response.ok:
         # 404 is expected and handled during a fan-out (a parent deleted mid-sync).
@@ -403,6 +482,7 @@ def _get_fan_out_rows(
         resume_url = resume.next_url
         logger.debug(f"Klaviyo: resuming {config.name} from parent={resume.list_id}, url={resume_url}")
 
+    parent_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for index, (ancestors, parent_id) in enumerate(remaining):
         child_path = config.path.format(**{fan_out.parent_id_column: parent_id})
         url = resume_url or _build_url(f"{KLAVIYO_BASE_URL}{child_path}", params)
@@ -438,9 +518,10 @@ def _get_fan_out_rows(
                 raise
 
         # Advance the bookmark to the next parent so a crash between parents resumes correctly. Its
-        # first page URL is built fresh when the loop reaches it.
+        # first page URL is built fresh when the loop reaches it. The batcher can hold rows of this
+        # parent, and a bookmark at the next parent skips them.
         if index + 1 < len(remaining):
-            resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=None, list_id=remaining[index + 1][1]))
+            yield from parent_checkpoint.save(KlaviyoResumeConfig(next_url=None, list_id=remaining[index + 1][1]))
 
 
 def _resolve_conversion_metric_id(

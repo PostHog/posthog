@@ -34,6 +34,14 @@ class CursorRetryableError(Exception):
     pass
 
 
+class CursorPlanError(requests.HTTPError):
+    pass
+
+
+ENTERPRISE_PLAN_ERROR = "Cursor Enterprise plan required"
+_ENTERPRISE_PLAN_MARKER = "member of an enterprise team"
+
+
 @dataclasses.dataclass
 class CursorResumeConfig:
     # Start (epoch ms) of the window being processed when the sync was interrupted.
@@ -93,6 +101,17 @@ def _make_session(api_key: str) -> requests.Session:
     )
 
 
+def _is_plan_rejection(response: requests.Response) -> bool:
+    if response.status_code not in (401, 403):
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    message = body.get("message") if isinstance(body, dict) else None
+    return isinstance(message, str) and _ENTERPRISE_PLAN_MARKER in message.lower()
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -129,6 +148,8 @@ def _fetch(
 
     if not response.ok:
         logger.error(f"Cursor API error: status={response.status_code}, body={response.text}, url={url}")
+        if _is_plan_rejection(response):
+            raise CursorPlanError(f"{ENTERPRISE_PLAN_ERROR} for url: {url}", response=response)
         response.raise_for_status()
 
     return response.json()
@@ -143,6 +164,11 @@ KEY_REJECTED_MESSAGE = (
 KEY_FORBIDDEN_MESSAGE = (
     "Your Cursor Admin API key does not have access to this data. Admin API keys must be created "
     "by a team admin, and some endpoints require an Enterprise plan."
+)
+ANALYTICS_PLAN_MESSAGE = (
+    "This table reads Cursor's Analytics API, which needs a Cursor Enterprise plan. AI code tables also need "
+    "AI code tracking turned on. Your Admin API key still syncs the other Cursor tables. Turn this table off, "
+    "or turn it back on after your team moves to Enterprise."
 )
 # `validate_via_probe` reports a transport failure as a `None` status, so anything Cursor did not
 # answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
@@ -302,11 +328,15 @@ _WINDOWED_NORMALIZERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "daily_usage": _normalize_daily_usage,
     "agent_edits": _make_iso_normalizer("event_date"),
     "tabs": _make_iso_normalizer("event_date"),
+    "dau": _make_iso_normalizer("date"),
+    "models": _make_iso_normalizer("date"),
+    "top_file_extensions": _make_iso_normalizer("event_date"),
     "by_user_agent_edits": _make_iso_normalizer("event_date"),
     "by_user_tabs": _make_iso_normalizer("event_date"),
     "by_user_top_file_extensions": _make_iso_normalizer("event_date"),
     "by_user_models": _make_iso_normalizer("date"),
     "ai_code_commits": _make_iso_normalizer("commitTs", "createdAt"),
+    "ai_code_changes": _make_iso_normalizer("createdAt"),
 }
 
 
@@ -327,13 +357,16 @@ def _expand_model_breakdown(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 _ROW_EXPANDERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
     "by_user_models": _expand_model_breakdown,
+    "models": _expand_model_breakdown,
 }
 
 
 def _extract_rows(config: CursorEndpointConfig, data: dict[str, Any]) -> list[dict[str, Any]]:
     payload = data.get(config.data_key)
+    expand = _ROW_EXPANDERS.get(config.name)
     if not config.by_user:
-        return payload or []
+        rows = payload or []
+        return [expanded for row in rows for expanded in expand(row)] if expand else rows
     if not isinstance(payload, dict):
         return []
 
@@ -344,7 +377,6 @@ def _extract_rows(config: CursorEndpointConfig, data: dict[str, Any]) -> list[di
         for mapping in ((data.get("params") or {}).get("userMappings") or [])
         if isinstance(mapping, dict) and mapping.get("email")
     }
-    expand = _ROW_EXPANDERS.get(config.name)
     rows = [
         {**row, "userEmail": email, "userId": ids_by_email.get(email)}
         for email, user_rows in payload.items()

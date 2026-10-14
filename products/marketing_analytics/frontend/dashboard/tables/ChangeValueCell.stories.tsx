@@ -46,7 +46,8 @@ export const InteractiveTable: Story = {
         const [pastedExport, setPastedExport] = useState('')
 
         return (
-            <div className="flex flex-col gap-4 w-full max-w-[60rem]">
+            // A 960 px scene keeps snapshots from shrinking the table to its minimum content width.
+            <div className="flex w-[60rem] max-w-full flex-col gap-4">
                 <LemonMenu
                     items={buildExportMenuItems(
                         () =>

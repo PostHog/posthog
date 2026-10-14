@@ -5,11 +5,12 @@ from unittest import mock
 
 from django.db import OperationalError
 
-from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretMissingError
+from posthog.credentials_service.errors import CredentialsServiceUnreachableError, SecretMissingError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
@@ -216,13 +217,13 @@ def test_undecrypted_integration_secret_error_is_skipped():
 @pytest.mark.parametrize(
     "error,expect_capture",
     [
-        (IntegrationServiceUnreachableError("connect timeout"), False),
+        (CredentialsServiceUnreachableError("connect timeout"), False),
         (SecretMissingError("some_key"), True),
     ],
     ids=["non_reportable_service_unreachable", "reportable_secret_missing"],
 )
-def test_integration_secrets_failure_is_retried_and_reported_by_reportable(error, expect_capture):
-    # An integration-service failure is never the customer's fault, so discovery must not disable
+def test_credentials_service_failure_is_retried_and_reported_by_reportable(error, expect_capture):
+    # A credentials-service failure is never the customer's fault, so discovery must not disable
     # the source (would need `handle_non_retryable_error`) — it must re-raise as NonReportableError
     # so the workflow's retry policy picks it back up. `reportable` alone decides whether a person
     # hears about it: capturing an unreachable service opens an issue per credential read for what
@@ -237,6 +238,25 @@ def test_integration_secrets_failure_is_retried_and_reported_by_reportable(error
         _run_activity(source_mock)
 
     assert capture.called is expect_capture
+
+
+def test_discovery_passes_schema_metadata_for_non_github_sources():
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.return_value = [
+        SourceSchema(
+            name="budget",
+            supports_incremental=False,
+            supports_append=False,
+            schema_metadata={"source_resource_id": "7"},
+        )
+    ]
+
+    mocks = _run_activity(source_mock)
+
+    assert mocks["sync_old_schemas_with_new_schemas"].call_args.kwargs["schema_metadata_by_name"] == {
+        "budget": {"source_resource_id": "7"}
+    }
 
 
 def test_discovery_uses_source_pinned_api_version():

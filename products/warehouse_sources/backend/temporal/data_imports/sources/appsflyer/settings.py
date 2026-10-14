@@ -106,6 +106,9 @@ class AppsFlyerEndpointConfig:
     partition_format: PartitionFormat = "month"
     # Query params sent on every request for this report, on top of the date window.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Reports behind an AppsFlyer add-on the account may not have start unselected, so a new
+    # source doesn't queue a sync that can only fail.
+    should_sync_default: bool = True
 
 
 # AppsFlyer's aggregate Pull API returns CSV per date window (max ~1000 days);
@@ -198,6 +201,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
         extra_params={"additional_fields": ",".join(_BLOCKED_ADDITIONAL_FIELDS)},
+        should_sync_default=False,
     ),
     "blocked_in_app_events": AppsFlyerEndpointConfig(
         name="blocked_in_app_events",
@@ -208,6 +212,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
         extra_params={"additional_fields": ",".join(_BLOCKED_ADDITIONAL_FIELDS)},
+        should_sync_default=False,
     ),
     "post_attribution_installs": AppsFlyerEndpointConfig(
         name="post_attribution_installs",
@@ -222,6 +227,7 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         partition_key="event_time",
         partition_format="day",
         extra_params={"additional_fields": ",".join(_POST_ATTRIBUTION_ADDITIONAL_FIELDS)},
+        should_sync_default=False,
     ),
     "ad_revenue": AppsFlyerEndpointConfig(
         name="ad_revenue",
@@ -270,4 +276,10 @@ ENDPOINTS = tuple(APPSFLYER_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in APPSFLYER_ENDPOINTS.items() if config.incremental_fields
+}
+
+# The Protect360 fraud reports need the Protect360 add-on, which most accounts don't buy, so they
+# start unselected instead of failing on the first sync of every new source.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: config.should_sync_default for name, config in APPSFLYER_ENDPOINTS.items()
 }

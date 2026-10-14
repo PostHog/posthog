@@ -84,10 +84,13 @@ class TestMarketingAnalyticsConstantsStructure:
         assert primary in defaults, f"{source}: primary source '{primary}' not in default sources {defaults}"
 
     @parameterized.expand([(source,) for source in NativeMarketingSource])
-    def test_needed_fields_has_two_tables(self, source):
+    def test_needed_fields_has_expected_tables(self, source: NativeMarketingSource) -> None:
         tables = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source]
         assert isinstance(tables, list), f"{source}: expected list, got {type(tables)}"
-        assert len(tables) == 2, f"{source}: expected 2 tables, got {len(tables)}"
+        if source == NativeMarketingSource.ROKT_ADS:
+            assert tables == ["CampaignPerformance"]
+        else:
+            assert len(tables) == 2, f"{source}: expected 2 tables, got {len(tables)}"
         for table in tables:
             assert isinstance(table, str), f"{source}: table '{table}' is not a string"
             assert table, f"{source}: contains empty table name"
@@ -106,10 +109,10 @@ class TestMarketingAnalyticsConstantsStructure:
 
 class TestMarketingAnalyticsConstantsConsistency:
     @parameterized.expand([(source,) for source in NativeMarketingSource])
-    def test_stats_table_name_matches_pattern(self, source):
+    def test_stats_table_name_matches_pattern(self, source: NativeMarketingSource) -> None:
         needed_fields = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source]
         patterns = TABLE_PATTERNS[source]
-        stats_table = needed_fields[1]
+        stats_table = needed_fields[-1].lower()
         stats_keywords = patterns["stats_table_keywords"]
         assert stats_table in stats_keywords, f"{source}: stats table '{stats_table}' not in keywords {stats_keywords}"
 

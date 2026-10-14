@@ -147,11 +147,12 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
             } as ConfirmOrganizationFormValues,
-            errors: ({ organization_name, first_name }) => ({
+            errors: ({ organization_name, first_name, role_at_organization }) => ({
                 first_name: !first_name?.trim() ? 'Please enter your name' : undefined,
                 organization_name: !organization_name?.trim()
                     ? "Please enter an organization name. You can use your own name if you don't belong to one."
                     : undefined,
+                role_at_organization: !role_at_organization ? 'Please select your role to continue' : undefined,
             }),
 
             // A manual error from a rejected attempt counts as a validation error, and only its own
@@ -162,6 +163,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
 
             submit: async (formValues) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create('api/social_signup/', {
                         ...formValues,
                         // Trim rather than reject: surrounding whitespace is still a good signup

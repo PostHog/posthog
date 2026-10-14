@@ -15,6 +15,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/react": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",

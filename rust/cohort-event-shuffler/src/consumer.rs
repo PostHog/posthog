@@ -24,16 +24,16 @@ use serde::{de::IgnoredAny, Deserialize};
 use tokio::task::JoinError;
 use tracing::{debug, error, info, warn};
 
-use crate::event::CohortStreamEvent;
+use crate::event::{personless_mode, CohortStreamEvent};
 use crate::filter_team_index::TeamIndex;
 use crate::ledger::{
     DeliveryOutcome, Ledger, NextOffset, Observation, Resolution, SourceOffset, SourcePartition,
 };
 use crate::observability::metrics::{
     COMMITS, COMMIT_ERRORS, EVENTS_ABANDONED, EVENTS_CONSUMED, EVENTS_DROPPED_NO_PERSON_ID,
-    EVENTS_FORWARDED, EVENTS_SKIPPED_TEAM_GATE, EVENTS_UNPARSEABLE, FORWARDS_ENQUEUED,
-    FORWARDS_INFLIGHT, LEDGER_PARTITIONS, PRODUCE_ACK_SECONDS, PRODUCE_ERRORS, PRODUCE_QUEUE_FULL,
-    UNCOMMITTED_EVENTS,
+    EVENTS_FORWARDED, EVENTS_PERSON_PAYLOAD_DROPPED, EVENTS_SKIPPED_TEAM_GATE, EVENTS_UNPARSEABLE,
+    FORWARDS_ENQUEUED, FORWARDS_INFLIGHT, LEDGER_PARTITIONS, PRODUCE_ACK_SECONDS, PRODUCE_ERRORS,
+    PRODUCE_QUEUE_FULL, UNCOMMITTED_EVENTS,
 };
 use crate::producer::{CohortStreamProducer, EnqueueError};
 
@@ -359,6 +359,9 @@ impl EventShuffler {
             }
         };
 
+        if let Some(person_mode) = personless_mode(event.person_mode) {
+            counter!(EVENTS_PERSON_PAYLOAD_DROPPED, "person_mode" => person_mode).increment(1);
+        }
         let forward = Box::new(PendingForward {
             event: CohortStreamEvent::from_clickhouse(
                 *event,

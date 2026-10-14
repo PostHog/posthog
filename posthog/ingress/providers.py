@@ -28,8 +28,8 @@ _INCARNATION_MODULES = (
     "posthog.ingress.teams.provider",
     "posthog.ingress.pandadoc.provider",
     "posthog.ingress.mailgun.provider",
-    "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
+    "posthog.ingress.vercel.provider",
 )
 
 
@@ -82,8 +82,8 @@ class WebhookProvider(ABC):
     """One provider app: how a delivery is verified, and how it is read.
 
     The status codes are attributes rather than view arguments because they are part of the
-    provider's own protocol: PandaDoc answers 404 on a bad signature by design, and Vapi
-    answers 401. Everything else is a 202 transport receipt.
+    provider's own protocol: PandaDoc answers 404 on a bad signature by design. Everything else
+    is a 202 transport receipt.
     """
 
     provider: str = ""

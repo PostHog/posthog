@@ -1,6 +1,7 @@
 import random
 import signal
 import asyncio
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -18,6 +19,7 @@ from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.tests.utils.logger import restored_structlog_config
 
 
 @pytest.fixture(autouse=True)
@@ -137,7 +139,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
+        from products.batch_exports.backend.facade.temporal import WORKFLOWS
 
         return WORKFLOWS
 
@@ -152,7 +154,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
+        from products.batch_exports.backend.facade.temporal import ACTIVITIES
 
         return ACTIVITIES
 
@@ -176,9 +178,11 @@ async def temporal_worker(temporal_client, workflows, activities):
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
-async def configure_logger_auto() -> None:
+async def configure_logger_auto() -> AsyncIterator[None]:
     """Configure logger for running temporal tests."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 @pytest_asyncio.fixture

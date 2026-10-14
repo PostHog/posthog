@@ -152,12 +152,13 @@ class PRTimelineBuilder:
         for push in pushes:
             sha_attempts = by_sha[push.head_sha]
             by_workflow: dict[str, list[RunAttempt]] = defaultdict(list)
-            for attempt in sorted(sha_attempts, key=lambda a: (a.started_at, a.attempt)):
+            # The run id breaks a tie between two runs of one workflow that start in the same second.
+            for attempt in sorted(sha_attempts, key=lambda a: (a.started_at, a.attempt, a.run_id)):
                 by_workflow[attempt.workflow_name].append(attempt)
             grouped.append(
                 _Push(head_sha=push.head_sha, pushed_at=push.pushed_at, attempts_by_workflow=dict(by_workflow))
             )
-        return sorted(grouped, key=lambda push: push.pushed_at)
+        return sorted(grouped, key=lambda push: (push.pushed_at, push.head_sha))
 
     def _queue_span(self) -> _QueueSpan:
         """The continuous queue stretch: from the first gate attempt after the last push to the merge

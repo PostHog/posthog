@@ -50,6 +50,7 @@ Rules that decide whether this works:
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
 - An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade. `hogli product:lint` holds the same rule by AST for every product that has a `webhook_consumers.py`, including relative imports and products with no contract yet.
 - A consumer whose resources are split across regions declares `ownership=`, pointing at a facade function that returns a `DeliveryOwnership`. Ingress forwards the signed request when the answer is `ELSEWHERE`, and dispatches locally either way. The lookup runs inside the request, so bound it with `bounded_statement_timeout(ms, models=...)`. Let a transient error out of the lookup rather than answering `LOCAL` or `UNDECIDED` through it: a lookup that raises asks a provider with `retry_status` for the delivery again, and a guessed answer receipts a delivery the other region never sees.
+- A GitHub consumer cannot get its project from `installation.id`, because one installation can link to several projects. Read [Picking the project](../../../posthog/ingress/github/README.md#picking-the-project) for the two allowed shapes.
 
 Tests: extend the product's existing webhook test module rather than starting a parallel one.
 `products/stamphog/backend/tests/test_webhook_consumers.py` is the shape: drive the real view with a signed `RequestFactory` request and assert the enqueue, plus the event type the app does not register, the bad signature, the unparseable body, the non-POST, and the missing secret.
@@ -58,7 +59,8 @@ Reset the process-cached registry and the dedup cache between tests with `reset_
 ## Add a provider
 
 Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
-Copy `github/` for the full shape, or `vapi/` for a small one.
+Copy `github/` for the full shape, or `pandadoc/` for a small one.
+Copy the layout, not the behavior: a provider package holds only what is specific to its third party. A need that a second provider could share becomes a lane, a scheme option or a `WebhookProvider` attribute, the way `retry_status` and `throttle_class` did. A true one-off stays in the provider with a `# One-off:` comment that says why no other provider needs it.
 `provider.py` holds three things:
 
 - `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
@@ -74,17 +76,17 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
 
 Three exist. Configure one; do not write a fourth without reading [the Schemes section of the package README](../../../posthog/ingress/README.md#schemes).
 
-- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc, Vapi and Customer.io all use it.
+- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc and Customer.io all use it.
 - `SnsSignature` (`verify/schemes.py`) — the AWS SNS envelope check plus a topic-ARN allowlist. The RSA work stays with a caller-supplied verifier.
 - `BearerJwt` (`verify/jwt.py`) — a `Bearer` token signed as a JWT, checked against the issuer's published JWKS. Its `facts` are the verified claims. The incarnation supplies the JWKS URI, the audience and the issuer allowlist as callables, and caches any discovery it does to find the URI. An endpoint on this scheme sets `throttle_class`, because an unsigned request costs a signing-key lookup.
 
 Then:
 
 1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
-2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("webhooks/<product>/<provider>", build_webhook_view(build_<provider>_provider()))`. The path must start with `webhooks/<product>/` or `api/<product>/`, or the URL conf fails to load. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
+2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `webhook_urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("<provider>", build_webhook_view(build_<provider>_provider()))`. Core mounts that list at `webhooks/<product>/`, so the route is relative to it. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
 3. Write `posthog/ingress/<provider>/README.md` with the fixed sections, in this order: headers, signature scheme, delivery id and event type, apps and secrets, quirks, consumers. `posthog/ingress/test/test_provider_readme_sections.py` fails on a provider folder without one, and on a README with different or reordered headings.
 4. Add the provider's signature header name to the `$HEADER` regex in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`, plus a fixture case in the `.py` beside it. The header names are spelled out rather than matched generically because a generic header pattern makes semgrep time out on a large module, which drops that file from the scan without failing it.
-5. Delete the migrated endpoint's line from `paths.exclude` in the same rule. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
+5. Do not add the endpoint to `paths.exclude` in the same rule. Every verifier that predated ingress is migrated, so the rule has no grandfathered paths left.
 6. Preserve the endpoint's externally observable behavior. Existing tests are the contract: move or extend them, do not drop assertions.
 
 ### The DRF adapter path
@@ -102,7 +104,7 @@ Each was a real proposal already; ["Non-goals" in the package README](../../../p
 ## Verify
 
 ```sh
-semgrep --config .semgrep/rules/devex/ .          # the ratchet entry is really gone
+semgrep --config .semgrep/rules/devex/ .          # no hand-rolled verifier is left
 semgrep --test .semgrep/                          # only if you changed the rule itself
 lint-imports                                      # the webhook_consumers contract
 hogli product:lint <product>                      # the AST backstop for that contract

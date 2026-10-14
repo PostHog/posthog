@@ -9,6 +9,7 @@ recommendations, because every consumer applies its own policy to the same facts
 """
 
 import json
+import time
 import hashlib
 import logging
 import dataclasses
@@ -18,7 +19,6 @@ from typing import Any, Final, Generic, TypeVar
 
 from django.db import models
 from django.db.models import BooleanField, Case, Count, F, Max, Prefetch, Q, QuerySet, Value, When
-from django.db.models.fields.json import KT, KeyTransform
 from django.utils import timezone
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig
@@ -39,7 +39,7 @@ from posthog.exceptions import (
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.production_event_activation import MOBILE_SIDE_LIBS, SERVER_SIDE_LIBS
 from posthog.models.team.team import Team
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -54,19 +54,19 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_flag_call_source_event,
 )
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    build_primary_calculation_configs,
+    team_experiments_configs,
+)
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     filter_metric_group_ids_by_event,
     resolve_action_events,
 )
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricResult,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-)
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
 logger = logging.getLogger(__name__)
@@ -273,6 +273,7 @@ class TargetSurface:
     unique_persons: int
     exposures_per_day_estimate: float
     libs: list[LibReach]
+    libs_truncated: bool
     anonymous_share: float | None
     device_id_share: float | None
 
@@ -415,12 +416,17 @@ class ExperimentSetupContext:
     shared_metrics: SetupContextSection[SharedMetrics]
 
 
+# A skipped section never runs a provider, so the observer never hears about it.
+SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
+
+
 def build_setup_context(
     *,
     team: Team,
     inputs: SetupContextInputs,
     experiments: QuerySet[Experiment],
     saved_metrics: QuerySet[ExperimentSavedMetric],
+    on_section: SectionObserver | None = None,
 ) -> ExperimentSetupContext:
     """Assemble every section of the setup context.
 
@@ -432,15 +438,15 @@ def build_setup_context(
     # on a first call for a team writes) team extension rows outside ClickHouse.
     skipped: SetupContextSection[Any] = SetupContextSection(status=SetupContextSectionStatus.SKIPPED)
     return ExperimentSetupContext(
-        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
-        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team)),
+        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team), on_section),
+        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team), on_section),
         target_surface=(
-            _run_section("target_surface", team, lambda: get_target_surface(team, inputs))
+            _run_section("target_surface", team, lambda: get_target_surface(team, inputs), on_section)
             if inputs.target_event
             else skipped
         ),
         candidate_metric=(
-            _run_section("candidate_metric", team, lambda: get_candidate_metric(team, inputs))
+            _run_section("candidate_metric", team, lambda: get_candidate_metric(team, inputs), on_section)
             if inputs.metric_event
             else skipped
         ),
@@ -448,6 +454,7 @@ def build_setup_context(
             "previous_experiments",
             team,
             lambda: get_previous_experiments(experiments, limit=inputs.previous_experiments_limit),
+            on_section,
         ),
         shared_metrics=_run_section(
             "shared_metrics",
@@ -459,11 +466,22 @@ def build_setup_context(
                 limit=inputs.shared_metrics_limit,
                 metric_event=inputs.metric_event,
             ),
+            on_section,
         ),
     )
 
 
-def _run_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
+def _run_section(
+    name: str, team: Team, provider: Callable[[], T], on_section: SectionObserver | None = None
+) -> SetupContextSection[T]:
+    started = time.monotonic()
+    section = _read_section(name, team, provider)
+    if on_section is not None:
+        on_section(name, section.status, (time.monotonic() - started) * 1000)
+    return section
+
+
+def _read_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
     try:
         return SetupContextSection(status=SetupContextSectionStatus.OK, data=provider())
     except _CLICKHOUSE_TOO_EXPENSIVE:
@@ -502,7 +520,7 @@ def _cache_key(team: Team, section: str, inputs: dict[str, Any]) -> str:
     # Bump the version whenever a cached dataclass changes shape: entries are pickled, so a deploy
     # would otherwise restore instances that miss the new fields.
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return f"experiment_setup_context_v2_{team.pk}_{section}_{digest}"
+    return f"experiment_setup_context_v3_{team.pk}_{section}_{digest}"
 
 
 def _cached(key: str, ttl: int, compute: Callable[[], T]) -> T:
@@ -771,6 +789,21 @@ def _target_cache_inputs(team: Team, inputs: SetupContextInputs) -> dict[str, An
     }
 
 
+def clear_cached_sections(team: Team, inputs: SetupContextInputs) -> None:
+    """Drop the cached ClickHouse sections for this team and these inputs.
+
+    A caller that measures how long a section takes needs a cold read. The three cached sections
+    answer from the cache for hours, so a second measurement of the same team reports the cache.
+    """
+    target_inputs = _target_cache_inputs(team, inputs)
+    for section, key_inputs in (
+        ("sdk_profile", {}),
+        ("target_surface", target_inputs),
+        ("candidate_metric", target_inputs),
+    ):
+        safe_cache_delete(_cache_key(team, section, key_inputs))
+
+
 def get_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSurface:
     if not inputs.target_event:
         raise ValueError("target_event is required for the target surface")
@@ -842,7 +875,7 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
         """,
         {
             "where": _and(conditions),
-            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS),
+            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS + 1),
         },
     )
     unique_persons, events, device_id_events, anonymous_ids, identity_known_ids, top_libs = (
@@ -873,8 +906,9 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
                 lib_identity_known_ids,
                 lib_device_id_events,
                 lib_events,
-            ) in top_libs or []
+            ) in (top_libs or [])[:TARGET_SURFACE_MAX_LIBS]
         ],
+        libs_truncated=len(top_libs or []) > TARGET_SURFACE_MAX_LIBS,
         anonymous_share=_share(anonymous_ids, identity_known_ids),
         device_id_share=_share(device_id_events, events),
     )
@@ -1003,11 +1037,11 @@ def _link_type(link: ExperimentToSavedMetric) -> str:
 
 @frozen
 class OutcomeMetric:
-    uuid: str
+    calculation_config: MetricCalculationConfig
     metric_type: str
 
 
-def _outcome_metric(experiment: Experiment) -> OutcomeMetric | None:
+def _outcome_metric(experiment: Experiment, team_config: TeamExperimentsConfig) -> OutcomeMetric | None:
     """The primary metric whose stored result this section reports.
 
     Only metrics that can have a stored result count, so a legacy metric listed first never hides
@@ -1016,24 +1050,15 @@ def _outcome_metric(experiment: Experiment) -> OutcomeMetric | None:
     analyzed population, which is the fact the outcome exists to carry.
     """
     candidates = [
-        OutcomeMetric(uuid=str(metric["uuid"]), metric_type=str(metric["metric_type"]))
-        for metric in [
-            *(metric for metric in experiment.metrics or [] if isinstance(metric, dict)),
-            *(
-                link.saved_metric.query
-                for link in _saved_metric_links(experiment)
-                if _link_type(link) == "primary" and isinstance(link.saved_metric.query, dict)
-            ),
-        ]
-        if is_scheduled_metric(metric)
+        OutcomeMetric(
+            calculation_config=calculation_config, metric_type=str(calculation_config.definition["metric_type"])
+        )
+        for calculation_config in build_primary_calculation_configs(experiment, team_config=team_config)
     ]
-    position = {uuid: index for index, uuid in enumerate(experiment.primary_metrics_ordered_uuids or [])}
-    # Stable, so a metric the experiment does not order keeps its declared place behind the ordered ones.
-    ordered = sorted(candidates, key=lambda candidate: position.get(candidate.uuid, len(position)))
-    for candidate in ordered:
+    for candidate in candidates:
         if candidate.metric_type in EXPOSURE_SHAPED_METRIC_TYPES:
             return candidate
-    return ordered[0] if ordered else None
+    return candidates[0] if candidates else None
 
 
 @frozen
@@ -1128,66 +1153,41 @@ def _multiple_variant_handling(exposure_criteria: dict[str, Any]) -> str:
 
 
 def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, ExperimentOutcome]:
-    """Stored result that describes each experiment's current run, in one query.
+    """The current stored result of each experiment's outcome metric, in one query.
 
     A legacy Trends or Funnels metric never has a stored result, with or without a uuid, because
     both writers of `ExperimentMetricResult` build the metric from its `metric_type`. Its
     experiment correctly gets no outcome.
     """
-    if not outcome_metrics:
-        return {}
-    rows = (
-        ExperimentMetricResult.objects.filter(
-            experiment_id__in=outcome_metrics.keys(),
-            metric_uuid__in={metric.uuid for metric in outcome_metrics.values()},
-            status=ExperimentMetricResult.Status.COMPLETED,
-            # Both writers store the experiment's start date, so a relaunch moves that date
-            # forward and leaves the earlier run's rows behind it. A draft has no start date, so
-            # nothing matches. `gte` rather than an exact match, so a start date edited to an
-            # earlier moment keeps its results instead of hiding them until every row is recomputed.
-            query_from__gte=F("experiment__start_date"),
-        )
-        # A backfill stores a historical `query_to` with `completed_at` set to now, so ordering by
-        # the write time can pick an older day. The (experiment, metric_uuid, query_to) index covers this.
-        .order_by("experiment_id", "metric_uuid", "-query_to", F("completed_at").desc(nulls_last=True))
-        .distinct("experiment_id", "metric_uuid")
-        # The stored query text in each result stays in Postgres.
-        .values(
-            "experiment_id",
-            "metric_uuid",
-            "completed_at",
-            "query_to",
-            baseline_samples=KT("result__baseline__number_of_samples"),
-            baseline_sum=KT("result__baseline__sum"),
-            variant_results=KeyTransform("variant_results", "result"),
-        )
+    summaries = MetricResultStore.current_outcomes(
+        {experiment_id: metric.calculation_config for experiment_id, metric in outcome_metrics.items()}
     )
     outcomes: dict[int, ExperimentOutcome] = {}
-    for row in rows:
-        metric = outcome_metrics.get(row["experiment_id"])
-        if metric is None or metric.uuid != row["metric_uuid"]:
-            continue
-        variants = [variant for variant in row["variant_results"] or [] if isinstance(variant, dict)]
+    for experiment_id, summary in summaries.items():
+        metric = outcome_metrics[experiment_id]
         # Samples exclude users seen in several variants under the default handling, so this is
         # the analyzed population rather than every exposure. A result that stores no sample count
         # anywhere is unknown, not zero.
         stored_samples = [
             samples
-            for samples in [row["baseline_samples"], *(variant.get("number_of_samples") for variant in variants)]
+            for samples in [
+                summary.baseline_samples,
+                *(variant.get("number_of_samples") for variant in summary.variant_results),
+            ]
             if samples is not None
         ]
         metric_samples = sum(int(float(samples)) for samples in stored_samples) if stored_samples else None
         exposure_shaped = metric.metric_type in EXPOSURE_SHAPED_METRIC_TYPES
-        outcomes[row["experiment_id"]] = ExperimentOutcome(
+        outcomes[experiment_id] = ExperimentOutcome(
             metric_type=metric.metric_type,
             metric_samples=metric_samples,
             analyzed_exposures=metric_samples if exposure_shaped else None,
             control_baseline_value=_control_baseline_value(
-                row["baseline_sum"], row["baseline_samples"], exposure_shaped
+                summary.baseline_sum, summary.baseline_samples, exposure_shaped
             ),
-            any_variant_significant=any(v.get("significant") is True for v in variants),
-            result_completed_at=row["completed_at"],
-            result_data_through=row["query_to"],
+            any_variant_significant=any(v.get("significant") is True for v in summary.variant_results),
+            result_completed_at=summary.completed_at,
+            result_data_through=summary.query_to,
         )
     return outcomes
 
@@ -1209,7 +1209,7 @@ def _control_baseline_value(
 def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -> PreviousExperiments:
     rows = list(
         experiments.exclude(deleted=True)
-        .select_related("feature_flag")
+        .select_related("feature_flag", "team")
         .prefetch_related(
             Prefetch(
                 "experimenttosavedmetric_set",
@@ -1220,9 +1220,15 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
         .order_by(F("start_date").desc(nulls_last=True), "-created_at", "-id")[:limit]
     )
 
-    outcome_metrics = {
-        experiment.id: metric for experiment in rows if (metric := _outcome_metric(experiment)) is not None
-    }
+    # A draft has no current result: rows from before a reset carry the earlier start date in their key.
+    launched_rows = [experiment for experiment in rows if experiment.start_date is not None]
+    # A calculation key resolves the team's experiment defaults, so read them once per team, not once per experiment.
+    team_configs = team_experiments_configs({experiment.team_id for experiment in launched_rows})
+    outcome_metrics: dict[int, OutcomeMetric] = {}
+    for experiment in launched_rows:
+        metric = _outcome_metric(experiment, team_configs[experiment.team_id])
+        if metric is not None:
+            outcome_metrics[experiment.id] = metric
     outcomes = _outcomes(outcome_metrics)
 
     previous: list[PreviousExperiment] = []

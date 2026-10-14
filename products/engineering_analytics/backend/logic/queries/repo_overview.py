@@ -475,18 +475,44 @@ def query_repo_overview(
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
 
-    runs = _query_run_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    merges = _query_merge_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    queue = query_merge_queue_overview(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    trunk = query_merge_queue_trunk_outcomes(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    time_to_green = query_time_to_green_window(
-        curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
-    )
-    pipeline = query_delivery_pipeline(curated=curated, date_from=date_from, date_to=date_to)
+    with curated.concurrent_reads() as reads:
+        runs_read = reads.submit(
+            lambda: _query_run_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+        )
+        merges_read = reads.submit(
+            lambda: _query_merge_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+        )
+        queue_read = reads.submit(
+            lambda: query_merge_queue_overview(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+        trunk_read = reads.submit(
+            lambda: query_merge_queue_trunk_outcomes(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+        time_to_green_read = reads.submit(
+            lambda: query_time_to_green_window(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+        pipeline_read = reads.submit(
+            lambda: query_delivery_pipeline(curated=curated, date_from=date_from, date_to=date_to)
+        )
+        costs_read = reads.submit(
+            lambda: query_workflow_window_costs_with_prev(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+    runs = runs_read.result()
+    merges = merges_read.result()
+    queue = queue_read.result()
+    trunk = trunk_read.result()
+    time_to_green = time_to_green_read.result()
+    pipeline = pipeline_read.result()
     costs = _derive_cost_headlines(
-        query_workflow_window_costs_with_prev(
-            curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
-        ),
+        costs_read.result(),
         merged_count=merges.merged_count,
         merged_count_prev=merges.merged_count_prev,
     )

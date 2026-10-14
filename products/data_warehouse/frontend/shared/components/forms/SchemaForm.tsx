@@ -36,6 +36,16 @@ export function getDirectQuerySelectionDescription(selectedSchema?: string | nul
     return "Query selected Postgres tables from within PostHog. Tables stay in the source database and are not synced into the data warehouse. You can't join data from these tables with other data in the PostHog warehouse. Enable each schema to choose which tables should be queryable."
 }
 
+// A full refresh replaces the whole table and CDC streams the replication log, so neither keys on
+// a field. Reporting those as "No sync field selected" reads as a table the user still has to
+// configure, which is what makes a long table list look full of problems.
+export function getSyncFieldPlaceholder(syncType: ExternalDataSourceSyncSchema['sync_type']): string {
+    if (syncType === 'full_refresh' || syncType === 'cdc') {
+        return 'Not needed for this sync method'
+    }
+    return 'No sync field selected'
+}
+
 function getSchemaSelectionState(tables: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' {
     const enabledCount = tables.filter((table) => table.should_sync).length
 
@@ -237,7 +247,9 @@ export default function SchemaForm(): JSX.Element {
                     }
                 }
 
-                return <span className="text-xs text-muted-foreground">No sync field selected</span>
+                return (
+                    <span className="text-xs text-muted-foreground">{getSyncFieldPlaceholder(schema.sync_type)}</span>
+                )
             },
         },
         {
@@ -249,7 +261,7 @@ export default function SchemaForm(): JSX.Element {
             isHidden: !shouldShowSyncColumns || !databaseSchema.some((schema) => schema.sync_type === 'incremental'),
             render: function RenderPrimaryKey(_: unknown, schema: ExternalDataSourceSyncSchema) {
                 if (schema.sync_type !== 'incremental') {
-                    return <span className="text-xs text-muted-foreground">No primary key selected</span>
+                    return <span className="text-xs text-muted-foreground">Only used for incremental syncs</span>
                 }
 
                 if (!schema.primary_key_columns || schema.primary_key_columns.length === 0) {

@@ -10,16 +10,12 @@ jest.mock('~/common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
-jest.mock('~/ingestion/pipelines/ai/process-ai-event', () => {
-    const actual = jest.requireActual('~/ingestion/pipelines/ai/process-ai-event')
-    return {
-        AI_EVENT_TYPES: actual.AI_EVENT_TYPES,
-        processAiEvent: jest.fn((event: PluginEvent) => ({
-            ...event,
-            properties: { ...event.properties, $ai_was_processed: true },
-        })),
-    }
-})
+jest.mock('~/ingestion/pipelines/ai/process-ai-event', () => ({
+    processAiEvent: jest.fn((event: PluginEvent) => ({
+        ...event,
+        properties: { ...event.properties, $ai_was_processed: true },
+    })),
+}))
 
 const mockedProcessAiEvent = processAiEvent as jest.MockedFunction<typeof processAiEvent>
 const mockedCaptureException = captureException as jest.MockedFunction<typeof captureException>

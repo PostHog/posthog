@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sanitizeDashboard } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { dashboardLogic } from './dashboardLogic'
@@ -36,7 +37,12 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                     onClick={() => {
                         const nextZoom = layoutZoom < 1 ? 1 : 0.25
                         setLayoutZoom(nextZoom)
-                        eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'button')
+                        posthog.capture('dashboard layout zoom changed', {
+                            dashboard_id: (dashboard ?? null)?.id,
+                            dashboard: sanitizeDashboard(dashboard ?? null),
+                            layout_zoom: nextZoom,
+                            source: 'button',
+                        })
                     }}
                     tooltip="Collapse/Expand view. Makes it easier to edit the layout for busier dashboards."
                 >

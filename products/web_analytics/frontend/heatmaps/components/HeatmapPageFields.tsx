@@ -24,7 +24,7 @@ export function HeatmapPageFields({
         displayUrl,
         type,
         blockConsentModals,
-        urlEditDisabledReason,
+        dataUrlEditDisabledReason,
         renderSettingsEditDisabledReason,
         isBrowserUrlValid,
     } = useValues(heatmapLogic)
@@ -44,7 +44,7 @@ export function HeatmapPageFields({
                             setDataUrl(value || null)
                         }}
                         fullWidth={true}
-                        disabledReason={urlEditDisabledReason}
+                        disabledReason={dataUrlEditDisabledReason}
                         status={!isBrowserUrlValid ? 'danger' : undefined}
                     />
                     <div className="text-xs text-muted mt-1">{dataUrlHelp}</div>

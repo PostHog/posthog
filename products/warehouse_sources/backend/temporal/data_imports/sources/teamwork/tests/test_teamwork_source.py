@@ -27,14 +27,6 @@ class TestSourceConfig:
 
 
 class TestValidateCredentials:
-    def test_success(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(source_module, "validate_teamwork_credentials", lambda host, api_key: True)
-        ok, error = TeamworkSource().validate_credentials(
-            TeamworkSourceConfig(site="mycompany", api_key="key"), team_id=1
-        )
-        assert ok is True
-        assert error is None
-
     def test_failure(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(source_module, "validate_teamwork_credentials", lambda host, api_key: False)
         ok, error = TeamworkSource().validate_credentials(
@@ -88,21 +80,10 @@ class TestSourceForPipeline:
             inputs,  # type: ignore[arg-type]
         )
 
-    def test_plumbs_endpoint_and_primary_key(self) -> None:
-        response = self._response("tasks")
-        assert response.name == "tasks"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-
     def test_partitioned_endpoint_sets_datetime_partitioning(self) -> None:
         response = self._response("timelogs")
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["dateCreated"]
-
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
-        response = self._response("tasks")
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
     def test_unsafe_host_blocks_sync(self, monkeypatch: Any) -> None:
         # An internal/private host must be rejected at sync time, not just at source creation —

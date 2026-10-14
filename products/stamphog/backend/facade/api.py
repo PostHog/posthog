@@ -13,15 +13,17 @@ from typing import Any, TypeVar, overload
 from uuid import UUID
 
 from django.db import IntegrityError, router, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import BooleanField, ExpressionWrapper, Q, QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 
 import structlog
 
+from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
-from ..models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from ..models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from . import contracts
 from .enums import (
     TERMINAL_STATUSES,
@@ -138,12 +140,12 @@ _MANUAL = Q(output__has_key="manual_review")
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
-def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
+def _derive_trigger(obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool) -> ReviewTrigger:
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
     the reviewer invocation has to answer the same question before a run exists to read."""
     return derive_review_trigger(
-        has_inbox_review=bool((obj.output or {}).get("inbox_review")),
-        has_manual_review=bool((obj.output or {}).get("manual_review")),
+        has_inbox_review=has_inbox_review,
+        has_manual_review=has_manual_review,
         review_mode=obj.pull_request.repo_config.review_mode,
     )
 
@@ -167,7 +169,7 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     return qs.none()
 
 
-def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: ReviewTrigger) -> contracts.ReviewRunDTO:
     return contracts.ReviewRunDTO(
         id=obj.id,
         team_id=obj.team_id,
@@ -179,12 +181,12 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         head_sha=obj.head_sha,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
-        trigger=_derive_trigger(obj),
+        trigger=trigger,
         title=obj.pull_request.title,
         author_login=obj.pull_request.author_login,
         delivery_id=obj.delivery_id,
         gate_result=obj.gate_result,
-        output=obj.output,
+        output=output,
         error=obj.error,
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
@@ -193,6 +195,44 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
     )
+
+
+def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    output = obj.output or {}
+    trigger = _derive_trigger(
+        obj,
+        has_inbox_review=bool(output.get("inbox_review")),
+        has_manual_review=bool(output.get("manual_review")),
+    )
+    return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+# Retrieve also parses the reviewer's reasoning out of its raw stdout.
+_RETRIEVE_OUTPUT_KEYS = (*contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS, "reviewer_raw")
+
+
+def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
+    """Skip the `output` column and read only `output_keys` and the trigger's provenance flags from it."""
+    return qs.defer("output").annotate(
+        **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
+        slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
+        slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
+    )
+
+
+def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> contracts.ReviewRunDTO:
+    output = {key: value for key in output_keys if (value := getattr(obj, f"slim_output_{key}")) is not None}
+    # _slim_review_runs annotates these, so the model type does not declare them.
+    trigger = _derive_trigger(
+        obj,
+        has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
+        has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
+    )
+    return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+def _review_run_list_row_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    return _slim_review_run_to_dto(obj, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS)
 
 
 def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | None:
@@ -231,10 +271,10 @@ def has_reviewable_repo_config(team_id: int) -> bool:
 
 
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
-    obj = (
-        ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
-    )
-    return _review_run_to_dto(obj) if obj is not None else None
+    """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
+    qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
+    obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
+    return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
 
 def _clean_reviewer_text(text: str) -> str:
@@ -336,6 +376,114 @@ def create_repo_config(
     return _repo_config_to_dto(obj)
 
 
+def list_available_repositories(team_id: int, *, search: str = "", limit: int) -> contracts.AvailableRepositoriesDTO:
+    """Repositories in the team's installation snapshots that the team has not added yet.
+
+    A repository another team holds under the same installation is left out too, because the
+    cross-team unique constraint would refuse it. ``search`` is a case-insensitive substring.
+    """
+    # A record without a connecting user cannot mint review credentials, so add_repository refuses it.
+    snapshots = list(
+        StamphogInstallation.objects.for_team(team_id)
+        .filter(provider="github", connected_by_user_id__isnull=False)
+        .values_list("installation_id", "repositories")
+    )
+    if not snapshots:
+        return contracts.AvailableRepositoriesDTO(repositories=[], total_count=0, has_installation=False)
+
+    added = set(StamphogRepoConfig.objects.for_team(team_id).values_list("repository", flat=True))
+    candidates = {
+        (installation_id, repository)
+        for installation_id, repositories in snapshots
+        for repository in repositories
+        if repository not in added
+    }
+    # The one cross-team read here: which of these repositories another team already owns. It
+    # returns only names this team's own snapshots hold, so nothing about the other team leaks.
+    claimed = set(
+        StamphogRepoConfig.objects.unscoped()
+        .filter(
+            provider="github",
+            installation_id__in={installation_id for installation_id, _ in candidates},
+            repository__in={repository for _, repository in candidates},
+        )
+        .exclude(team_id=team_id)
+        .values_list("installation_id", "repository")
+    )
+    addable = {repository for _, repository in candidates - claimed}
+    needle = search.strip().lower()
+    available = sorted((repository for repository in addable if needle in repository.lower()), key=str.lower)
+    return contracts.AvailableRepositoriesDTO(
+        repositories=available[:limit], total_count=len(available), has_installation=True
+    )
+
+
+def add_repository(team_id: int, repository: str) -> contracts.AddRepositoryResultDTO:
+    """Turn reviews on for a repository from the team's installation snapshot.
+
+    The installation and the connecting user come from the snapshot record, never from the caller:
+    the record is what a member's GitHub token proved. A row the team already has for the
+    repository is turned on and bound to that installation rather than refused, so a paused or
+    removed repository can be added again.
+    """
+    write_db = router.db_for_write(StamphogRepoConfig)
+    try:
+        with transaction.atomic(using=write_db):
+            # Writer pin: this read decides which installation the row binds to. The lock is the one a
+            # removal or uninstall webhook takes first. Without it, a webhook can drop the repository
+            # and tombstone the team's rows between this read and the create below, and the new row
+            # then stays enabled for a repository that left the installation. A record without a
+            # connecting user cannot mint review credentials, so a member has to sync it first.
+            installation = (
+                StamphogInstallation.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(provider="github", repositories__contains=[repository], connected_by_user_id__isnull=False)
+                .order_by("-updated_at")
+                .first()
+            )
+            if installation is None:
+                raise contracts.RepositoryNotInstalledError(repository)
+            existing = (
+                StamphogRepoConfig.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(repository=repository)
+                .first()
+            )
+            if existing is None:
+                config = (
+                    StamphogRepoConfig.objects.for_team(team_id)
+                    .using(write_db)
+                    .create(
+                        # for_team() scopes a read but not row creation, so team_id is explicit here.
+                        team_id=team_id,
+                        provider="github",
+                        repository=repository,
+                        installation_id=installation.installation_id,
+                        enabled=True,
+                        connected_by_user_id=installation.connected_by_user_id,
+                    )
+                )
+                return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(config), created=True)
+
+            update_fields = ["enabled", "updated_at"]
+            if existing.installation_id != installation.installation_id:
+                # A reinstall row keeps its settings, because a verified binding configured them.
+                if not existing.installation_id:
+                    update_fields += reset_unverified_review_policy(existing)
+                existing.installation_id = installation.installation_id
+                update_fields.append("installation_id")
+            existing.connected_by_user_id = installation.connected_by_user_id
+            update_fields.append("connected_by_user_id")
+            existing.enabled = True
+            existing.save(update_fields=update_fields)
+            return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(existing), created=False)
+    except IntegrityError:
+        # unique_stamphog_installation_repo: another team holds this repository under the installation.
+        raise contracts.RepoAlreadyClaimedError(repository)
+
+
 def update_repo_config(team_id: int, config_id: str, **fields: object) -> contracts.RepoConfigDTO:
     """Apply an update, superseding in-flight runs when the repo goes from enabled to disabled.
 
@@ -415,7 +563,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    return LazyDTOList(qs, _review_run_to_dto)
+    return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
 def list_pull_requests(

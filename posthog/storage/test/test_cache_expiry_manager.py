@@ -1,6 +1,6 @@
 import time
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase
 
@@ -88,6 +88,36 @@ class TestRefreshExpiringCaches(SimpleTestCase):
 
         assert (counts.successful, counts.failed, counts.enqueued) == (1, 2, 1)
         assert counts.successful + counts.failed + counts.enqueued == 4
+
+    def test_a_cache_that_has_not_opted_in_keeps_its_flat_ttl(self) -> None:
+        update_fn = MagicMock(return_value=True)
+        config = build_config(update_fn=update_fn, cache_ttl=1000)
+
+        with patch(f"{MODULE}.random.randint") as mock_randint:
+            refresh_expiring_caches(config)
+
+        assert mock_randint.call_count == 0
+        assert [c.kwargs["ttl"] for c in update_fn.call_args_list] == [None, None, None]
+
+    @parameterized.expand(
+        [
+            ("a_fraction_of_the_cache_ttl", 1000, 0.7, (700, 1000), 850),
+            # The floor truncates to an int, so without a clamp this band starts at zero
+            # and can draw a ttl of 0, which Redis expires on arrival.
+            ("at_least_one_second", 60, 0.01, (1, 60), 30),
+        ]
+    )
+    def test_an_opted_in_cache_draws_its_ttl_from_the_band_above_the_floor(
+        self, _name: str, cache_ttl: int, fraction: float, expected_band: tuple[int, int], drawn: int
+    ) -> None:
+        update_fn = MagicMock(return_value=True)
+        config = build_config(update_fn=update_fn, refresh_ttl_min_fraction=fraction, cache_ttl=cache_ttl)
+
+        with patch(f"{MODULE}.random.randint", return_value=drawn) as mock_randint:
+            refresh_expiring_caches(config)
+
+        assert mock_randint.call_args_list == [call(*expected_band)] * 3
+        assert [c.kwargs["ttl"] for c in update_fn.call_args_list] == [drawn] * 3
 
     def test_a_hook_that_raises_counts_as_failed_and_does_not_build(self):
         update_fn = MagicMock(return_value=True)

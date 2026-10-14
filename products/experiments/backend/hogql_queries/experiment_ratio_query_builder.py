@@ -1,37 +1,89 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierHandling, ExperimentRatioMetric
+from posthog.schema import (
+    ActionsNode,
+    EventsNode,
+    ExperimentDataWarehouseNode,
+    ExperimentMetricOutlierHandling,
+    ExperimentRatioMetric,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.dataclasses import frozen
+
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
+from products.experiments.backend.hogql_queries.metric_source_precompute import (
+    build_metric_events_precompute_query,
+    build_precomputed_metric_events_cte,
+    build_precomputed_metric_events_placeholders,
+)
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
+
+
+@frozen
+class RatioPrecomputeQueries:
+    """The write-path SELECT and placeholders of each ratio side, keyed by side so they cannot be swapped."""
+
+    numerator: tuple[str, dict[str, ast.Expr]]
+    denominator: tuple[str, dict[str, ast.Expr]]
 
 
 class RatioQueryBuilder:
     """
     Builds ratio-metric queries, including the winsorized variant.
 
-    Ratio construction reuses the shared exposure and metric-value helpers
-    already extracted from the experiment query builder. To keep the move
-    behavior-preserving, this class holds a reference to the owning
-    ``ExperimentQueryBuilder`` and reaches through it for shared state (the
-    metric, entity key, breakdown injector) and those cross-cluster helpers.
+    The class holds a reference to the owning ``ExperimentQueryBuilder`` and
+    reads shared state (metric, entity key, breakdown injector) and the shared
+    exposure and metric-value helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(
+        self,
+        builder: "ExperimentQueryBuilder",
+        exposure: ExposureQueryBuilder,
+        *,
+        numerator_job_ids: list[str] | None = None,
+        denominator_job_ids: list[str] | None = None,
+    ):
         self._b = builder
+        self._exposure = exposure
+        self._numerator_job_ids = numerator_job_ids
+        self._denominator_job_ids = denominator_job_ids
+
+    def reads_precomputed_metric_events(self) -> bool:
+        """Both sides must be served from the precomputed table, or neither is."""
+        return bool(self._numerator_job_ids and self._denominator_job_ids)
+
+    def get_ratio_metric_events_queries_for_precomputation(self) -> RatioPrecomputeQueries:
+        """
+        Each side's query is the build query a mean metric on that source would
+        produce, so a side shares precompute jobs with such a metric. See
+        build_metric_events_precompute_query().
+        """
+        assert isinstance(self._b.metric, ExperimentRatioMetric)
+        return RatioPrecomputeQueries(
+            numerator=self._metric_events_query_for_precomputation(self._b.metric.numerator),
+            denominator=self._metric_events_query_for_precomputation(self._b.metric.denominator),
+        )
+
+    def _metric_events_query_for_precomputation(
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    ) -> tuple[str, dict[str, ast.Expr]]:
+        assert isinstance(source, (ActionsNode, EventsNode))
+        return build_metric_events_precompute_query(
+            team=self._b.team,
+            source=source,
+            entity_key=self._b.entity_key,
+            date_range_query=self._b.date_range_query,
+            conversion_window_seconds=self._b._get_conversion_window_seconds(),
+        )
 
     def build_ratio_query(self) -> ast.SelectQuery:
-        """
-        Builds query for ratio metrics.
-
-        Dispatches to the winsorized variant when outlier handling is configured for
-        either the numerator or the denominator.
-        """
         assert isinstance(self._b.metric, ExperimentRatioMetric)
 
         if self.ratio_needs_winsorization():
@@ -61,7 +113,6 @@ class RatioQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_ratio_breakdown_columns(query)
 
@@ -91,8 +142,8 @@ class RatioQueryBuilder:
 
         When a bound is not configured the threshold falls back to min()/max() so the
         least(greatest(...)) clamp becomes a no-op for that side. This lets the numerator
-        and denominator be capped independently — a binomial denominator simply leaves its
-        outlier handling unset and is never clamped.
+        and denominator be capped independently. A binomial denominator leaves its outlier
+        handling unset, so it is never clamped.
 
         value_field is an internal column name (numerator_value / denominator_value), never
         user input, so interpolating it into the expression string is safe.
@@ -127,8 +178,6 @@ class RatioQueryBuilder:
 
     def build_ratio_query_with_winsorization(self) -> ast.SelectQuery:
         """
-        Builds query for ratio metrics with winsorization (outlier handling).
-
         The numerator and denominator are capped independently, each as if it were its own
         mean metric: percentile thresholds are computed separately for each component (pooled
         across all variations) and the per-entity numerator and denominator values are clamped
@@ -197,7 +246,6 @@ class RatioQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_ratio_breakdown_columns(query, winsorized=True)
 
@@ -207,42 +255,38 @@ class RatioQueryBuilder:
         """
         Builds the shared CTE chain and placeholders for ratio metric queries.
 
-        Optimized structure using pre-aggregation to reduce join operations:
+        Structure:
         - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
         - numerator_events / denominator_events: events for each component with value
         - numerator_agg / denominator_agg: per-entity aggregates joined to exposures
         - entity_metrics: single row per entity carrying numerator_value and denominator_value
 
-        This approach reduces memory pressure by joining exposures to events only once
-        per component instead of fanning out the raw event rows.
+        Each component collapses to one row per entity before entity_metrics joins
+        the two. A direct join of the raw numerator and denominator events would fan
+        out to (numerator rows × denominator rows) per entity and use much more memory.
         """
         assert isinstance(self._b.metric, ExperimentRatioMetric)
 
-        # Use MetricSourceInfo abstraction for both numerator and denominator
         num_source_info = MetricSourceInfo.from_source(self._b.metric.numerator, entity_key=self._b.entity_key)
         denom_source_info = MetricSourceInfo.from_source(self._b.metric.denominator, entity_key=self._b.entity_key)
 
-        # Extract field names for numerator
         num_table = num_source_info.table_name
         num_entity_field = num_source_info.entity_key
         num_timestamp_field = num_source_info.timestamp_field
 
-        # Extract field names for denominator
         denom_table = denom_source_info.table_name
         denom_entity_field = denom_source_info.entity_key
         denom_timestamp_field = denom_source_info.timestamp_field
 
-        # Build exposure query with conditional exposure_identifier(s)
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._exposure.select_query()
         if num_source_info.kind == "datawarehouse" or denom_source_info.kind == "datawarehouse":
-            # Add exposure_identifier fields for data warehouse joins
-            # Support different join keys for numerator and denominator
+            # argMin takes each join key from the first exposure, so each entity_id gets one
+            # identifier per component. Do not add the join keys to GROUP BY: a user with
+            # exposures that carry different join key values would then fan out into several rows.
             if num_source_info.kind == "datawarehouse":
                 num_source = cast(ExperimentDataWarehouseNode, self._b.metric.numerator)
                 num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
 
-                # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-                # This prevents fan-out when a user has multiple exposures with different join key values
                 exposure_query.select.append(
                     ast.Alias(
                         alias="exposure_identifier_num",
@@ -252,14 +296,11 @@ class RatioQueryBuilder:
                         ),
                     )
                 )
-                # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
 
             if denom_source_info.kind == "datawarehouse":
                 denom_source = cast(ExperimentDataWarehouseNode, self._b.metric.denominator)
                 denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
 
-                # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-                # This prevents fan-out when a user has multiple exposures with different join key values
                 exposure_query.select.append(
                     ast.Alias(
                         alias="exposure_identifier_denom",
@@ -269,9 +310,7 @@ class RatioQueryBuilder:
                         ),
                     )
                 )
-                # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
 
-        # Build join conditions for pre-aggregation CTEs based on DW scenario
         if num_source_info.kind == "datawarehouse":
             num_preagg_join = "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
         else:
@@ -282,31 +321,51 @@ class RatioQueryBuilder:
         else:
             denom_preagg_join = "exposures.entity_id = denominator_events.entity_id"
 
-        # Pre-aggregation approach: aggregate events per entity_id FIRST, then join
-        # This dramatically reduces memory usage by avoiding large intermediate result sets
-        # Memory impact: 471M rows → ~2M rows in joins
+        if self.reads_precomputed_metric_events():
+            # Only reachable for eligible metrics (events/actions sources on both sides, no
+            # breakdowns/CUPED), so the data warehouse join branches above never apply here.
+            assert isinstance(self._b.metric.numerator, (ActionsNode, EventsNode))
+            assert isinstance(self._b.metric.denominator, (ActionsNode, EventsNode))
+            numerator_events_cte = build_precomputed_metric_events_cte(
+                cte_name="numerator_events",
+                source=self._b.metric.numerator,
+                entity_key=self._b.entity_key,
+                job_ids_placeholder="numerator_job_ids",
+            )
+            denominator_events_cte = build_precomputed_metric_events_cte(
+                cte_name="denominator_events",
+                source=self._b.metric.denominator,
+                entity_key=self._b.entity_key,
+                job_ids_placeholder="denominator_job_ids",
+            )
+        else:
+            numerator_events_cte = """
+            numerator_events AS (
+                SELECT
+                    {num_entity_key} AS entity_id,
+                    {num_timestamp_field} AS timestamp,
+                    {numerator_value_expr} AS value
+                FROM {num_table}
+                WHERE {numerator_predicate}
+            )"""
+            denominator_events_cte = """
+            denominator_events AS (
+                SELECT
+                    {denom_entity_key} AS entity_id,
+                    {denom_timestamp_field} AS timestamp,
+                    {denominator_value_expr} AS value
+                FROM {denom_table}
+                WHERE {denominator_predicate}
+            )"""
+
         common_ctes = f"""
             exposures AS (
                 {{exposure_select_query}}
             ),
 
-            numerator_events AS (
-                SELECT
-                    {{num_entity_key}} AS entity_id,
-                    {{num_timestamp_field}} AS timestamp,
-                    {{numerator_value_expr}} AS value
-                FROM {{num_table}}
-                WHERE {{numerator_predicate}}
-            ),
+            {numerator_events_cte},
 
-            denominator_events AS (
-                SELECT
-                    {{denom_entity_key}} AS entity_id,
-                    {{denom_timestamp_field}} AS timestamp,
-                    {{denominator_value_expr}} AS value
-                FROM {{denom_table}}
-                WHERE {{denominator_predicate}}
-            ),
+            {denominator_events_cte},
 
             numerator_agg AS (
                 SELECT
@@ -370,5 +429,16 @@ class RatioQueryBuilder:
                 "denominator_events"
             ),
         }
+
+        if self.reads_precomputed_metric_events():
+            placeholders["numerator_job_ids"] = ast.Constant(value=self._numerator_job_ids)
+            placeholders["denominator_job_ids"] = ast.Constant(value=self._denominator_job_ids)
+            placeholders.update(
+                build_precomputed_metric_events_placeholders(
+                    team=self._b.team,
+                    date_range_query=self._b.date_range_query,
+                    conversion_window_seconds=self._b._get_conversion_window_seconds(),
+                )
+            )
 
         return common_ctes, placeholders

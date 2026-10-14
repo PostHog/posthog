@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
+import { saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
@@ -34,7 +36,7 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
         },
     ],
     edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -377,6 +379,28 @@ describe('workflowLogic auto-save', () => {
             expect(patchBodies[0].actions).toBeUndefined()
             expect(patchBodies[0].name).toBe('Renamed active')
             expect(logic.values.hasStagedDraft).toBe(false)
+        })
+
+        it('reports enabling a workflow once, with the product surface it was opened from', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            saveEntrySource(WORKFLOW_ID, 'survey')
+            useMocks(activeMocks({ ...activeWorkflow, status: 'draft' }))
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+            }).toDispatchActions(['saveWorkflowSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.setWorkflowValue('name', 'Renamed while live')
+                logic.actions.saveWorkflowPartial({ name: 'Renamed while live' })
+            }).toDispatchActions(['saveWorkflowSuccess'])
+
+            const enabledCalls = captureSpy.mock.calls.filter(([event]) => event === 'workflow enabled')
+            expect(enabledCalls).toEqual([['workflow enabled', { workflow_id: WORKFLOW_ID, entry_source: 'survey' }]])
+            captureSpy.mockRestore()
         })
 
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {

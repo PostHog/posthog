@@ -18,6 +18,8 @@ pub enum Pipeline {
     SessionRecordings,
     Ai,
     ErrorTracking,
+    Heatmaps,
+    ClientWarnings,
 }
 
 impl Pipeline {
@@ -27,6 +29,8 @@ impl Pipeline {
             Self::SessionRecordings => "session_recordings",
             Self::Ai => "ai",
             Self::ErrorTracking => "errortracking",
+            Self::Heatmaps => "heatmaps",
+            Self::ClientWarnings => "clientwarnings",
         }
     }
 
@@ -36,6 +40,8 @@ impl Pipeline {
             "session_recordings" => Some(Self::SessionRecordings),
             "ai" => Some(Self::Ai),
             "errortracking" => Some(Self::ErrorTracking),
+            "heatmaps" => Some(Self::Heatmaps),
+            "clientwarnings" => Some(Self::ClientWarnings),
             _ => None,
         }
     }
@@ -45,9 +51,9 @@ impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (names on the `AI_EVENT_NAMES` allowlist), so its restriction service
-    /// must serve restrictions for all three pipelines. `Import` is an events
-    /// deployment restricted to backfills, so it serves the same three.
+    /// (`$ai_` names), so its restriction service must serve restrictions for
+    /// all three pipelines. `Import` is an events deployment restricted to
+    /// backfills, so it serves the same three.
     ///
     /// `Ai` serves only `ai`. That deployment registers no analytics route,
     /// and `process_events` rejects a batch carrying anything off the AI lane,
@@ -383,6 +389,11 @@ mod tests {
             Pipeline::parse("errortracking"),
             Some(Pipeline::ErrorTracking)
         );
+        assert_eq!(Pipeline::parse("heatmaps"), Some(Pipeline::Heatmaps));
+        assert_eq!(
+            Pipeline::parse("clientwarnings"),
+            Some(Pipeline::ClientWarnings)
+        );
         assert_eq!(Pipeline::parse("unknown"), None);
     }
 
@@ -393,6 +404,8 @@ mod tests {
             Pipeline::SessionRecordings,
             Pipeline::Ai,
             Pipeline::ErrorTracking,
+            Pipeline::Heatmaps,
+            Pipeline::ClientWarnings,
         ] {
             assert_eq!(Pipeline::parse(pipeline.as_str()), Some(pipeline));
         }
@@ -416,7 +429,7 @@ mod tests {
             vec![Pipeline::SessionRecordings]
         );
         // Ai serves only the AI lane: its routes are AI-only and its batch path
-        // rejects anything off the allowlist, so every event it processes
+        // rejects anything off the AI lane, so every event it processes
         // resolves to Pipeline::Ai. Widening this would load slices nothing
         // looks up; narrowing it below is only safe while both of those hold.
         assert_eq!(

@@ -19,6 +19,7 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
     get_github_integration,
     get_user_github_integration,
+    merge_queue_push_would_eject,
 )
 
 
@@ -66,6 +67,9 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
 
         try:
             raw = github_integration.get_pull_request_babysit_snapshot(pr_url)
+            # A closed PR ends the loop anyway, so a failed queue read must not fail its last tick.
+            if raw.get("success") and raw.get("state") not in ("closed", "merged"):
+                raw["merge_queue_push_would_eject"] = merge_queue_push_would_eject(github_integration, pr_url)
         except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
             retry_after = getattr(e, "retry_after", None) or DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS
             raise GitHubRateLimitedError(

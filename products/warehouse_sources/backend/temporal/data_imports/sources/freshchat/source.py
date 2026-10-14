@@ -33,11 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# This first cut covers Freshchat's top-level v2 list endpoints (Agents, Users, Groups, Channels)
-# plus the single-row account configuration. Conversations and messages require object IDs (no
-# top-level list endpoint exists), and outbound-messages / raw reports require time-window params;
-# all are intentionally left out of this first cut. Freshchat has no server-side incremental
-# cursor on the core list endpoints, so every endpoint is full refresh, resumable by page number.
+# Covers Freshchat's top-level v2 list endpoints (Agents, Users, Groups, Channels, Roles), the
+# single-row account configuration, and the two fan-out tables that reach conversations and their
+# messages — Freshchat exposes no top-level conversations list, so both hang off Users. The
+# outbound-messages and metrics endpoints require time-window params and are not covered.
+# Freshchat has no server-side incremental cursor on these endpoints, so every endpoint is full
+# refresh, resumable by page number.
 
 # Shape check on the normalized host (the Freshworks-suffix allowlist in `is_allowed_host` is the
 # actual security boundary).

@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
     finnworlds_source,
+    parse_countries,
     parse_tickers,
     validate_credentials as validate_finnworlds_credentials,
 )
@@ -89,6 +90,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
     ) -> tuple[bool, str | None]:
         try:
             parse_tickers(config.tickers)
+            parse_countries(config.countries)
         except ValueError as exc:
             return False, str(exc)
 
@@ -99,6 +101,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             tickers=parse_tickers(config.tickers),
+            countries=parse_countries(config.countries),
             logger=inputs.logger,
         )
 
@@ -113,7 +116,9 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
 
 You can find your API key in your [Finnworlds dashboard](https://finnworlds.com/dashboard/).
 
-Most datasets (fundamentals, prices, dividends, ratings) return data for one company per request, so enter the stock tickers you want to sync — the connector fetches each dataset for every ticker. Bond yields are global and ignore the ticker list.""",
+Most datasets (fundamentals, prices, dividends, ratings) return data for one company per request, so enter the stock tickers you want to sync — the connector fetches each dataset for every ticker. Bond yields are global and ignore the ticker list.
+
+Macroeconomic indicators are reported per country, so add the countries you want before you sync that table.""",
             iconPath="/static/services/finnworlds.png",
             docsUrl="https://posthog.com/docs/cdp/sources/finnworlds",
             fields=cast(
@@ -131,8 +136,16 @@ Most datasets (fundamentals, prices, dividends, ratings) return data for one com
                         name="tickers",
                         label="Tickers",
                         type=SourceFieldInputConfigType.TEXTAREA,
-                        required=True,
+                        required=False,
                         placeholder="AAPL, MSFT, GOOGL",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="countries",
+                        label="Countries for macroeconomic indicators",
+                        type=SourceFieldInputConfigType.TEXTAREA,
+                        required=False,
+                        placeholder="United States, United Kingdom, Germany",
                         secret=False,
                     ),
                 ],

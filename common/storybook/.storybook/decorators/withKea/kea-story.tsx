@@ -3,6 +3,7 @@ import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
+import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { App } from 'scenes/App'
 // Eagerly bring AuthenticatedShell into the storybook bundle. App.tsx code-splits
@@ -42,6 +43,9 @@ function unmountLogicsOfPreviousStory(): void {
 export function resetKeaStory(): void {
     worker.resetHandlers()
     unmountLogicsOfPreviousStory()
+    // Stories in one file share a browser context, so a has-data answer cached by one story
+    // would open the gate over the next story's empty state.
+    clearAllCachedHasData()
 
     const history = createMemoryHistory({})
     ;(history as any).pushState = history.push

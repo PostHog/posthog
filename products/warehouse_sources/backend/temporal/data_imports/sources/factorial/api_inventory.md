@@ -38,41 +38,56 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 ## Incremental sync
 
 - Server-side `updated_after` is documented for only a narrow set of resources —
-  `project_management/flexible_time_records` and `project_management/subprojects`. It is **not** documented
-  on the higher-value people / time-off / attendance streams (Airbyte's connector confirms this: it filters
-  `updated_at` client-side everywhere except `shifts`).
+  `project_management/flexible_time_records`, `project_management/time_records` and
+  `project_management/subprojects`. It is **not** documented on the higher-value people / time-off /
+  attendance streams (Airbyte's connector confirms this: it filters `updated_at` client-side everywhere
+  except `shifts`). `time_records` accepts the filter but its response carries no `updated_at` column, so
+  there is no cursor the pipeline could advance a watermark on — it stays full refresh regardless.
 - Per the implementing-warehouse-sources guidance, a client-side cursor that still walks every page is not
   incremental, and the two `updated_after` endpoints can't be curl-verified without a live API key. So every
   endpoint currently ships **full refresh** (`INCREMENTAL_FIELDS = {}`). Promote `flexible_time_records` /
   `subprojects` to incremental once the filter is verified against a live account with a future-date cutoff.
 - For genuine change tracking, Factorial also exposes `employee_updates/*` change-feed resources and webhooks
   (`api_public/webhook_subscriptions`) — candidates for a future webhook-backed iteration.
+- `employee_updates/terminations` is such a change feed, but it carries no timestamp column at all (not even
+  `created_at`), so it syncs full refresh like everything else.
 
 ## Synced endpoints (`settings.py`)
 
 | Table                 | Path                                                  | Partition key |
 | --------------------- | ----------------------------------------------------- | ------------- |
 | employees             | `/resources/employees/employees`                      | created_at    |
+| terminations          | `/resources/employee_updates/terminations`            | —             |
 | teams                 | `/resources/teams/teams`                              | —             |
 | team_memberships      | `/resources/teams/memberships`                        | —             |
 | locations             | `/resources/locations/locations`                      | —             |
 | legal_entities        | `/resources/companies/legal_entities`                 | —             |
 | contract_versions     | `/resources/contracts/contract_versions`              | created_at    |
+| compensations         | `/resources/contracts/compensations`                  | —             |
 | leaves                | `/resources/timeoff/leaves`                           | created_at    |
 | leave_types           | `/resources/timeoff/leave_types`                      | —             |
 | allowances            | `/resources/timeoff/allowances`                       | —             |
+| allowance_stats       | `/resources/timeoff/allowance_stats`                  | —             |
 | attendance_shifts     | `/resources/attendance/shifts`                        | created_at    |
+| worked_times          | `/resources/attendance/worked_times`                  | —             |
 | expenses              | `/resources/expenses/expenses`                        | created_at    |
+| cost_centers          | `/resources/finance/cost_centers`                     | —             |
 | payroll_supplements   | `/resources/payroll/supplements`                      | created_at    |
 | flexible_time_records | `/resources/project_management/flexible_time_records` | created_at    |
+| time_records          | `/resources/project_management/time_records`          | —             |
 | projects              | `/resources/project_management/projects`              | —             |
 | candidates            | `/resources/ats/candidates`                           | created_at    |
 | job_postings          | `/resources/ats/job_postings`                         | —             |
 | applications          | `/resources/ats/applications`                         | created_at    |
+| application_phases    | `/resources/ats/application_phases`                   | —             |
+| hiring_stages         | `/resources/ats/hiring_stages`                        | —             |
+| candidate_sources     | `/resources/ats/candidate_sources`                    | —             |
 
 Primary key is the `id` column on every list resource. It is serialized as an integer on `2025-04-01` and
 `2026-04-01`, and as an opaque string on `2026-07-01` (see Identifier serialization above), so the column type is
-left to inference. Partition keys are `created_at` where the field is reliably present on every row
+left to inference. Three resources key on a composite string the API builds for them and documents as unique:
+`worked_times` on `<employee_id>_<date>`, `allowance_stats` on `<employee_id>/<allowance_id>/<reference_date>`,
+and `time_records` on its own record id. Partition keys are `created_at` where the field is reliably present on every row
 (transactional records); lookup/config resources are left unpartitioned.
 
 ## Rate limits
@@ -80,9 +95,44 @@ left to inference. Partition keys are `created_at` where the field is reliably p
 - POST is documented at 200 req/min on `2025-*` endpoints. GET limits and rate-limit response headers are not
   publicly documented. The tracked session's default retry handles transient `429`/`5xx`.
 
+## Endpoint-specific notes
+
+- **`attendance/worked_times`** aggregates worked minutes per employee and day; `attendance/shifts` carries
+  the raw clock in/out rows the aggregate is built from. The spec marks `include_time_range_category` and
+  `include_non_attendable_employees` required, so both are sent on every page (see `settings.py`). Both are
+  sent as `"false"`: excluding non-attendable employees keeps the table to the people Factorial tracks
+  attendance for, rather than emitting an all-zero row per employee per day for everyone else.
+- **`project_management/time_records`** is the time booked against projects, joined to a `project_worker_id`
+  and an `attendance_shift_id`. Only available to companies with the `projects_management` feature enabled;
+  for everyone else the endpoint is a permission failure, which `get_non_retryable_errors` already maps.
+- **`contracts/compensations`** holds the salary and pay-concept lines hanging off a `contract_version_id`
+  we already sync. `amount` is in the smallest currency unit.
+- **`ats/hiring_stages`** is the fixed pipeline ladder (`new` → `screening` → `interview` → `assessment` →
+  `offer` → `hired`) that every job posting's `ats/application_phases` map onto through `ats_hiring_stage_id`.
+  The two together resolve the phase and stage ids carried on each synced application.
+- **`ats/candidate_sources`** resolves the source id on a candidate into a name and a category
+  (`job_board`, `agency_or_external_recruiter`, `event`, `social_media`, `referral`, …), which is what
+  source-of-hire reporting breaks down by.
+- **`finance/cost_centers`** is the cost allocation lookup. It carries counts of assigned employees but not the
+  assignments themselves — those live in `finance/cost_center_memberships`, which is not synced yet.
+- **`employee_updates/terminations`** is the attrition feed: one row per leaver with `terminated_on`,
+  `contract_end_date` and the termination reason. The `employees` snapshot carries only the current state of
+  each person, so headcount churn over time is not derivable from it.
+- **`timeoff/allowance_stats`** is a computed snapshot, not a stored record: it recalculates against a
+  `reference_date` that defaults to today, so each full-refresh sync replaces the table with the balances as
+  of that run. Its `id` embeds the reference date and the docs state it cannot be used to re-fetch the row.
+  The source pins one `reference_date` for the whole walk and carries it in the resume state, so a run that
+  crosses midnight or resumes the next day cannot write two as-of dates into the same table.
+
 ## Verification status
 
 Endpoint paths, pagination, and the `updated_after` coverage were cross-referenced against the official docs
-and the Airbyte/Fivetran connector stream lists. They were **not** curl-verified against a live account (no
+and the Airbyte/Fivetran connector stream lists. The endpoints added since the initial set — `worked_times`,
+`time_records`, `compensations`, `allowance_stats`, and then `terminations`, `cost_centers`,
+`application_phases`, `hiring_stages`, `candidate_sources` — were checked against the OpenAPI document the
+reference site serves for `2026-07-01` and `2026-04-01`: each is a GET list route returning the
+`{"meta": _paged_index_meta, "data": [...]}` envelope, so they page exactly like the existing tables. The five
+lookup/change-feed resources take only optional id filters, so they need no static params, and none of them
+carries a `created_at` column, so none is partitioned. They were **not** curl-verified against a live account (no
 API key available). The connection (host, version path, `x-api-key`, 401-on-bad-key) was confirmed with an
 unauthenticated curl returning `401`.

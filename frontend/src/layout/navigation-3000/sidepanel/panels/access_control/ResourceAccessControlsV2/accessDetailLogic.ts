@@ -12,6 +12,7 @@ import {
     propertyAccessControlsCreate,
     propertyAccessControlsDestroy,
 } from 'products/access_control/frontend/generated/api'
+import type { AIEventPropertyEnumApi, ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import type { ScopeType } from './types'
@@ -202,6 +203,9 @@ export interface accessDetailLogicActions {
         properties: AccessPropertyRule[]
         payload?: any
     }
+    propertyRuleSaved: () => {
+        value: true
+    }
     ruleSaveFinished: () => {
         value: true
     }
@@ -211,130 +215,15 @@ export interface accessDetailLogicActions {
         level: AccessControlLevel | null
     ) => {
         level: AccessControlLevel | null
-        resource:
-            | 'access_control'
-            | 'account'
-            | 'action'
-            | 'activity_log'
-            | 'ai_observability_clusters'
-            | 'alert'
-            | 'annotation'
-            | 'approvals'
-            | 'autoresearch'
-            | 'batch_export'
-            | 'batch_import'
-            | 'batch_import_support'
-            | 'billing'
-            | 'business_knowledge'
-            | 'canvas'
-            | 'clickhouse_test_cluster_perf'
-            | 'cohort'
-            | 'comment'
-            | 'context_layer_internal'
-            | 'conversation'
-            | 'customer_analytics'
-            | 'customer_journey'
-            | 'customer_profile_config'
-            | 'customer_task'
-            | 'dashboard'
-            | 'dashboard_template'
-            | 'data_catalog'
-            | 'data_catalog_approval'
-            | 'data_deletion'
-            | 'dataset'
-            | 'early_access_feature'
-            | 'element'
-            | 'endpoint'
-            | 'engineering_analytics'
-            | 'error_tracking'
-            | 'evaluation'
-            | 'event_definition'
-            | 'event_filter'
-            | 'experiment'
-            | 'experiment_holdout'
-            | 'experiment_saved_metric'
-            | 'export'
-            | 'external_data_schema'
-            | 'external_data_source'
-            | 'feature_flag'
-            | 'field_note'
-            | 'file_system'
-            | 'file_system_shortcut'
-            | 'group'
-            | 'health_issue'
-            | 'heatmap'
-            | 'hog_flow'
-            | 'hog_function'
-            | 'ingestion_warning'
-            | 'insight'
-            | 'insight_variable'
-            | 'integration'
-            | 'internal_run'
-            | 'legal_document'
-            | 'link'
-            | 'live_debugger'
-            | 'llm_analytics'
-            | 'llm_gateway'
-            | 'llm_playground'
-            | 'llm_prompt'
-            | 'llm_provider_key'
-            | 'llm_skill'
-            | 'logs'
-            | 'loop'
-            | 'marketing_analytics'
-            | 'mcp_analytics'
-            | 'mcp_builtin_agent'
-            | 'metrics'
-            | 'notebook'
-            | 'organization'
-            | 'organization_integration'
-            | 'organization_member'
-            | 'person'
-            | 'plugin'
-            | 'product_enablement'
-            | 'product_tour'
-            | 'project'
-            | 'property_definition'
-            | 'query'
-            | 'query_performance'
-            | 'replay_scanner'
-            | 'revenue_analytics'
-            | 'review_hog'
-            | 'session_recording'
-            | 'session_recording_playlist'
-            | 'sharing_configuration'
-            | 'signal_scout'
-            | 'signal_scout_internal'
-            | 'signal_scout_report'
-            | 'signal_scratchpad_internal'
-            | 'stamphog'
-            | 'streamlit_app'
-            | 'subscription'
-            | 'survey'
-            | 'tagger'
-            | 'task'
-            | 'ticket'
-            | 'toolbar'
-            | 'tracing'
-            | 'uploaded_media'
-            | 'usage_metric'
-            | 'user'
-            | 'user_interview'
-            | 'vision_action'
-            | 'vision_alert'
-            | 'visual_review'
-            | 'warehouse_objects'
-            | 'warehouse_table'
-            | 'warehouse_view'
-            | 'web_analytics'
-            | 'webhook'
-            | 'wizard_session'
+        resource: ScopeObjectEnumApi
         resourceId: string
     }
     setPropertyRule: (
         propertyDefinitionId: string,
-        level: AccessLevelEnumApi | null
+        level: AccessLevelEnumApi | null,
+        aiProperty?: AIEventPropertyEnumApi
     ) => {
+        aiProperty: AIEventPropertyEnumApi | undefined
         level: AccessLevelEnumApi | null
         propertyDefinitionId: string
     }
@@ -363,10 +252,12 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             resourceId,
             level,
         }),
-        setPropertyRule: (propertyDefinitionId: string, level: AccessLevelEnumApi | null) => ({
-            propertyDefinitionId,
-            level,
-        }),
+        setPropertyRule: (
+            propertyDefinitionId: string,
+            level: AccessLevelEnumApi | null,
+            aiProperty?: AIEventPropertyEnumApi
+        ) => ({ propertyDefinitionId, level, aiProperty }),
+        propertyRuleSaved: true,
         ruleSaveFinished: true,
     }),
 
@@ -387,6 +278,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessObjectRule[],
             {
                 loadObjects: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     (await api.get<{ results: AccessObjectRule[] }>(subjectRulesEndpoint(props, 'objects'))).results,
             },
         ],
@@ -394,6 +286,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessPropertyRule[],
             {
                 loadProperties: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     (await api.get<{ results: AccessPropertyRule[] }>(subjectRulesEndpoint(props, 'properties')))
                         .results,
             },
@@ -404,6 +297,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
         setObjectRule: async ({ resource, resourceId, level }) => {
             // A null level clears the subject's rule on the object
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.put(`api/projects/${props.projectId}/access_control_object_rules`, {
                     resource,
                     resource_id: resourceId,
@@ -419,7 +313,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
                 actions.ruleSaveFinished()
             }
         },
-        setPropertyRule: async ({ propertyDefinitionId, level }) => {
+        setPropertyRule: async ({ propertyDefinitionId, level, aiProperty }) => {
             try {
                 if (level === null) {
                     await propertyAccessControlsDestroy(props.projectId, {
@@ -428,11 +322,14 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
                     })
                 } else {
                     await propertyAccessControlsCreate(props.projectId, {
-                        property_definition_id: propertyDefinitionId,
+                        ...(aiProperty
+                            ? { ai_property: aiProperty }
+                            : { property_definition_id: propertyDefinitionId }),
                         access_level: level,
                         ...subjectBody(props),
                     })
                 }
+                actions.propertyRuleSaved()
                 lemonToast.success(level === null ? 'Rule removed' : 'Property rule saved')
                 actions.loadProperties()
             } catch (e) {

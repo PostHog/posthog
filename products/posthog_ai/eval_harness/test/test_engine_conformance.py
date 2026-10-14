@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
-from collections.abc import Sequence
 from typing import Any
 
 import pytest
 
-import braintrust.framework as bt_framework
 from braintrust import Score
-from braintrust.framework import EvalResult, Evaluator
-from braintrust.logger import ExperimentSummary, ScoreSummary
 from braintrust_core.score import Scorer
 
 from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine
@@ -21,53 +16,11 @@ from products.posthog_ai.eval_harness.engines.types import CaseHooks, CaseSpec, 
 pytestmark = pytest.mark.parametrize("engine", ["braintrust"], indirect=True)
 
 
-def _none_safe_local_summary(
-    evaluator: Evaluator[Any, Any], results: Sequence[EvalResult[Any, Any]]
-) -> ExperimentSummary:
-    """A None-aware replacement for braintrust's offline ``build_local_summary``.
-
-    The stock offline path sums ``None`` scores and crashes (a local-mode bug the
-    authenticated path doesn't have — the real harness always runs authenticated).
-    This shim excludes ``None`` from the mean, matching authenticated behavior, so
-    the offline fixture can exercise the None-exclusion the engine contract promises.
-    """
-    by_name: dict[str, tuple[float, int]] = defaultdict(lambda: (0.0, 0))
-    for result in results:
-        for name, score in result.scores.items():
-            if score is None:
-                continue
-            total, count = by_name[name]
-            by_name[name] = (total + score, count + 1)
-    longest = max((len(name) for name in by_name), default=0)
-    scores = {
-        name: ScoreSummary(
-            name=name,
-            _longest_score_name=longest,
-            score=(total / count if count else 0.0),
-            improvements=0,
-            regressions=0,
-        )
-        for name, (total, count) in by_name.items()
-    }
-    return ExperimentSummary(
-        project_name=evaluator.project_name,
-        project_id=None,
-        experiment_id=None,
-        experiment_name=evaluator.experiment_name or evaluator.project_name,
-        project_url=None,
-        experiment_url=None,
-        comparison_experiment_name=None,
-        scores=scores,
-        metrics={},
-    )
-
-
 @pytest.fixture
 def engine(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> BraintrustEngine:
     if request.param == "braintrust":
         # Keep the run fully offline: no API key means no login and no network.
         monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
-        monkeypatch.setattr(bt_framework, "build_local_summary", _none_safe_local_summary)
         return BraintrustEngine()
     raise AssertionError(f"unknown engine fixture: {request.param}")
 

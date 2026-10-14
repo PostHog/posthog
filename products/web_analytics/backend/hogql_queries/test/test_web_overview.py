@@ -1516,7 +1516,8 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         # Full-shape lock on the generated SQL, complementing the targeted
         # assertions above — any change to the rendered fast-path query shows up
         # in review as a snapshot diff.
-        assert self.generalize_sql(sql) == self.snapshot
+        generalized = self.generalize_sql(sql)
+        assert generalized == self.sql_snapshot(generalized)
 
     def test_session_id_set_executes_with_pushdown_modifier_and_tag(self):
         # The fast path only pays off if _calculate actually flips the

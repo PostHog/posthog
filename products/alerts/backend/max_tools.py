@@ -17,16 +17,20 @@ from posthog.schema import (
     QuerySchemaRoot,
 )
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
+from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 from ee.hogai.artifacts.types import ModelArtifactResult
@@ -164,6 +168,14 @@ class UpdateAlertAction(BaseModel):
 
 
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
+
+
+@frozen
+class _SaveRefusal:
+    """A write the alert save refused, with the error code the tool reports."""
+
+    message: str
+    error_code: str
 
 
 class UpsertAlertToolArgs(BaseModel):
@@ -322,27 +334,73 @@ class UpsertAlertTool(MaxTool):
                 "details": str(e),
             }
 
-    async def _handle_update(self, action: UpdateAlertAction) -> tuple[str, dict[str, Any]]:
-        try:
-            alert = await self._resolve_alert(action.alert_id)
-            if alert is None:
-                return f"Alert '{action.alert_id}' not found.", {"error": "alert_not_found"}
+    def _save_alert(
+        self,
+        alert: AlertConfiguration,
+        action: UpdateAlertAction,
+    ) -> _SaveRefusal | None:
+        """Write the threshold and the alert together.
 
-            await self.check_object_access(alert, "editor", resource="alert", action="edit")
-
-            if interval_msg := await self._validate_interval_entitlement(
-                action.calculation_interval,
-                existing_interval=alert.calculation_interval,
-            ):
-                return interval_msg, {"error": "validation_failed"}
-
-            new_interval = (
-                action.calculation_interval if action.calculation_interval is not None else alert.calculation_interval
-            )
+        Both writes sit in one transaction so a rejected save leaves no half-applied
+        threshold behind. The AI detector's rules run through the same admission as the
+        API, under the row lock, so enabling an AI alert here holds the team's cap lock
+        across the count and the write. Returns a `_SaveRefusal` instead of saving when
+        the write is refused.
+        """
+        with transaction.atomic():
+            current_insight_id = AlertConfiguration.objects.get(id=alert.id, team_id=alert.team_id).insight_id
+            # Match evaluation's insight-before-alert lock order to keep validation stable.
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=current_insight_id):
+                return _SaveRefusal(
+                    message="The insight no longer exists. Refresh the alert.", error_code="validation_failed"
+                )
+            alert.refresh_from_db(from_queryset=AlertConfiguration.objects.select_for_update(no_key=True))
+            if alert.insight_id != current_insight_id:
+                return _SaveRefusal(
+                    message="The alert's insight changed. Retry the update.", error_code="validation_failed"
+                )
+            new_interval = action.calculation_interval or alert.calculation_interval
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
-            if real_time_msg := await self._validate_real_time_alert(new_interval, enabled=new_enabled, existing=alert):
-                return real_time_msg, {"error": "plan_limit_reached"}
-
+            if error := AlertConfiguration.real_time_alert_validation_error(
+                team_id=alert.team_id,
+                organization=self._team.organization,
+                calculation_interval=new_interval,
+                enabled=new_enabled,
+                existing=alert,
+            ):
+                return _SaveRefusal(message=error, error_code="plan_limit_reached")
+            if is_llm_detector_config(alert.detector_config) and new_enabled:
+                # The API validates the insight configuration on every write; this tool only
+                # touches it for an enabled AI alert, whose checks would otherwise auto-disable.
+                try:
+                    with upgrade_insight(alert.insight):
+                        validate_alert_config(
+                            alert.insight.query or {},
+                            {"type": action.condition_type} if action.condition_type is not None else alert.condition,
+                            {**(alert.config or {}), "series_index": action.series_index}
+                            if action.series_index is not None
+                            else alert.config,
+                            self._proposed_threshold_configuration(alert, action),
+                            new_interval,
+                            detector_config=alert.detector_config,
+                        )
+                except ValueError as validation_error:
+                    return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
+            if refusal := admit_llm_alert_write(
+                LLMAlertWrite(
+                    team_id=alert.team_id,
+                    organization=self._team.organization,
+                    principal=alert.created_by,
+                    detector_config=alert.detector_config,
+                    enabled=new_enabled,
+                    calculation_interval=new_interval,
+                    existing=alert,
+                )
+            ):
+                return _SaveRefusal(
+                    message=refusal.message,
+                    error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
+                )
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
             schedule_reset_required = False
@@ -383,30 +441,53 @@ class UpsertAlertTool(MaxTool):
                 alert.skip_weekend = action.skip_weekend
                 update_fields.append("skip_weekend")
 
-            has_threshold_changes = (
-                action.upper_threshold is not None
-                or action.lower_threshold is not None
-                or action.threshold_type is not None
-            )
+            has_threshold_changes = self._has_threshold_changes(action)
             if has_threshold_changes:
-                try:
-                    update_fields.extend(await self._update_threshold(alert, action))
-                except ValidationError as e:
-                    return str(e), {"error": "validation_failed"}
                 conditions_or_threshold_changed = True
                 schedule_reset_required = True
 
             if not update_fields and not has_threshold_changes:
-                return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
+                return _SaveRefusal(
+                    message="No changes provided. Specify at least one field to update.", error_code="no_changes"
+                )
 
+            if self._has_threshold_changes(action):
+                try:
+                    update_fields.extend(self._update_threshold(alert, action))
+                except ValidationError as e:
+                    return _SaveRefusal(message=str(e), error_code="validation_failed")
             if conditions_or_threshold_changed:
                 update_fields.extend(apply_threshold_change(alert))
             if schedule_reset_required:
-                # Keep the due timestamp so the scheduler metric can measure
-                # a recheck that remains unhandled after an edit or re-enable.
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
-            await sync_to_async(alert.save)(update_fields=update_fields)
+            alert.save(update_fields=update_fields)
+        return None
+
+    @staticmethod
+    def _has_threshold_changes(action: UpdateAlertAction) -> bool:
+        return (
+            action.upper_threshold is not None
+            or action.lower_threshold is not None
+            or action.threshold_type is not None
+        )
+
+    async def _handle_update(self, action: UpdateAlertAction) -> tuple[str, dict[str, Any]]:
+        try:
+            alert = await self._resolve_alert(action.alert_id)
+            if alert is None:
+                return f"Alert '{action.alert_id}' not found.", {"error": "alert_not_found"}
+
+            await self.check_object_access(alert, "editor", resource="alert", action="edit")
+
+            if interval_msg := await self._validate_interval_entitlement(
+                action.calculation_interval,
+                existing_interval=alert.calculation_interval,
+            ):
+                return interval_msg, {"error": "validation_failed"}
+
+            if refusal := await sync_to_async(self._save_alert)(alert, action):
+                return refusal.message, {"error": refusal.error_code}
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
             insight = await sync_to_async(lambda: alert.insight)()
@@ -432,43 +513,48 @@ class UpsertAlertTool(MaxTool):
         if not alert_id:
             return None
         try:
-            return await AlertConfiguration.objects.select_related("threshold", "insight").aget(
+            return await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
                 id=alert_id, team=self._team
             )
         except Exception:
             return None
 
-    @staticmethod
-    async def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
+    @classmethod
+    def _proposed_threshold_configuration(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> dict | None:
+        """The threshold configuration the alert will have once ``action`` is applied.
+
+        Validation runs before the threshold is written, so it must see the same configuration
+        that ``_update_threshold`` persists, or a change to an incompatible threshold passes and
+        the next scheduled check auto-disables the alert.
+        """
+        if not cls._has_threshold_changes(action):
+            return alert.threshold.configuration if alert.threshold else None
+        base: dict = dict(alert.threshold.configuration) if alert.threshold else {}
+        config: dict = {**base, "type": action.threshold_type or base.get("type") or InsightThresholdType.ABSOLUTE}
+        bounds: dict = dict(base.get("bounds") or {})
+        if action.lower_threshold is not None:
+            bounds["lower"] = action.lower_threshold
+        if action.upper_threshold is not None:
+            bounds["upper"] = action.upper_threshold
+        config["bounds"] = bounds
+        return config
+
+    @classmethod
+    def _update_threshold(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
         """Returns list of alert field names that were modified (for use with update_fields)."""
+        config = cls._proposed_threshold_configuration(alert, action)
         threshold = alert.threshold
 
-        def _build_bounds(base: dict) -> dict:
-            bounds: dict = dict(base.get("bounds") or {})
-            if action.lower_threshold is not None:
-                bounds["lower"] = action.lower_threshold
-            if action.upper_threshold is not None:
-                bounds["upper"] = action.upper_threshold
-            return bounds
-
         if threshold is None:
-            config: dict = {"type": action.threshold_type or InsightThresholdType.ABSOLUTE}
-            config["bounds"] = _build_bounds(config)
-            insight = await sync_to_async(lambda: alert.insight)()
-            team = await sync_to_async(lambda: alert.team)()
-            threshold = Threshold(team=team, insight=insight, name=alert.name, configuration=config)
-            await sync_to_async(threshold.clean)()
-            await sync_to_async(threshold.save)()
+            threshold = Threshold(team=alert.team, insight=alert.insight, name=alert.name, configuration=config)
+            threshold.clean()
+            threshold.save()
             alert.threshold = threshold
             return ["threshold"]
 
-        config = dict(threshold.configuration)
-        if action.threshold_type is not None:
-            config["type"] = action.threshold_type
-        config["bounds"] = _build_bounds(config)
         threshold.configuration = config
-        await sync_to_async(threshold.clean)()
-        await sync_to_async(threshold.save)(update_fields=["configuration"])
+        threshold.clean()
+        threshold.save(update_fields=["configuration"])
         return []
 
     async def _check_alert_limit(self) -> str | None:

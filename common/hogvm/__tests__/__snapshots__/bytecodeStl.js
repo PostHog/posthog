@@ -1,10 +1,10 @@
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function like (str, pattern) { return __like(str, pattern, false) }
-function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < arr.length; i++) { result = func(result, arr[i]) } return result }
-function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
-function arrayFilter (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}
+function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < (arr ?? []).length; i++) { result = func(result, arr[i]) } return result }
+function arrayMap (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
+function arrayFilter (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
-function arrayExists (func, arr) { for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { return true } } return false }
+function arrayExists (func, arr) { for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { return true } } return false }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {

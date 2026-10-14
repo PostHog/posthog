@@ -4,6 +4,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
@@ -312,26 +314,133 @@ def _fanout_resource(
     return resources[endpoint].add_map(_rename_parent_key)
 
 
-def validate_credentials(api_token: str) -> tuple[bool, int | None]:
-    """Confirm the API token is valid with Cloudflare's token verify endpoint.
+# Cloudflare answers 6003 when it can't parse the Authorization header at all, which happens with a
+# Global API Key or a token pasted with extra characters, never with a revoked or expired token.
+_MALFORMED_TOKEN_ERROR_CODE = 6003
 
-    Returns ``(is_valid, status_code)``. ``status_code`` is ``None`` when Cloudflare was
-    unreachable so the caller can tell a rejected token apart from a transient failure and
-    avoid telling the user their token is invalid when it may be fine.
+
+def _transient_status(status: int | None) -> bool:
+    """Cloudflare was unreachable or busy rather than refusing the token."""
+    return status is None or status == 429 or status >= 500
+
+
+@frozen
+class TokenCheck:
+    """Outcome of checking an API token against Cloudflare.
+
+    ``status`` is ``None`` when Cloudflare was never reached, which is what keeps a refused
+    token distinguishable from a request that never got an answer.
+    """
+
+    is_valid: bool
+    status: int | None
+    reason: str | None = None
+    code: int | None = None
+
+    @property
+    def is_transient(self) -> bool:
+        return not self.is_valid and _transient_status(self.status)
+
+    @property
+    def is_malformed(self) -> bool:
+        return not self.is_valid and self.code == _MALFORMED_TOKEN_ERROR_CODE
+
+
+def _cloudflare_error(response: Response) -> str | None:
+    """Cloudflare's own reason for refusing a request, from the `errors` array it returns.
+
+    Without this the caller can only say "rejected", which is the same sentence for a revoked
+    token, an IP-filtered one, and a token this endpoint structurally cannot verify.
     """
     try:
-        response = make_tracked_session(redact_values=(api_token,)).get(
-            f"{CLOUDFLARE_BASE_URL}/user/tokens/verify",
+        errors = response.json().get("errors") or []
+    except Exception:
+        return None
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        message = str(error.get("message") or "").strip()
+        code = error.get("code")
+        if message and code:
+            return f"{message} (code {code})"
+        if message:
+            return message
+    return None
+
+
+def _cloudflare_error_code(response: Response) -> int | None:
+    try:
+        errors = response.json().get("errors") or []
+    except Exception:
+        return None
+    for error in errors:
+        if isinstance(error, dict) and isinstance(error.get("code"), int):
+            return error["code"]
+    return None
+
+
+def _get(api_token: str, path: str, **params: Any) -> Optional[Response]:
+    try:
+        return make_tracked_session(redact_values=(api_token,)).get(
+            f"{CLOUDFLARE_BASE_URL}{path}",
             headers={"Authorization": f"Bearer {api_token}"},
+            params=params or None,
             timeout=10,
         )
     except Exception:
-        return False, None
+        return None
+
+
+def _succeeded(response: Response) -> bool:
     try:
-        is_valid = response.status_code == 200 and bool(response.json().get("success"))
+        return response.status_code == 200 and bool(response.json().get("success"))
     except Exception:
-        is_valid = False
-    return is_valid, response.status_code
+        return False
+
+
+def validate_credentials(api_token: str) -> TokenCheck:
+    """Confirm the API token can reach the data the connector syncs.
+
+    ``/user/tokens/verify`` only verifies *user* tokens. An account-owned token — the kind
+    Cloudflare recommends for durable service integrations, created under Manage Account >
+    Account API Tokens — is verified at ``/accounts/{account_id}/tokens/verify`` instead, so it
+    is refused here however broad its permissions are, and we hold no account id to check it
+    against. Fall back to the two top-level lists the sync fans out from: a token that can read
+    either one can run this source, which is the question validation is actually asking.
+    """
+    verify = _get(api_token, "/user/tokens/verify")
+    if verify is not None and _succeeded(verify):
+        return TokenCheck(is_valid=True, status=verify.status_code)
+
+    status = verify.status_code if verify is not None else None
+    if _transient_status(status):
+        return TokenCheck(is_valid=False, status=status)
+
+    assert verify is not None  # a None verify is transient, handled above
+    code = _cloudflare_error_code(verify)
+    if code == _MALFORMED_TOKEN_ERROR_CODE:
+        # The probes send the same header, so they can only fail the same way.
+        return TokenCheck(is_valid=False, status=status, reason=_cloudflare_error(verify), code=code)
+
+    # Verify refused, but that refusal is not a verdict on the token, so these probes are what
+    # decides. A probe that never got an answer therefore leaves the question open instead of
+    # confirming the refusal — reporting "rejected" there would send someone off to rebuild a
+    # token that was fine.
+    probe_statuses: list[int | None] = []
+    for path in _PARENT_PATHS.values():
+        probe = _get(api_token, path, per_page=1)
+        if probe is None:
+            probe_statuses.append(None)
+            continue
+        if _succeeded(probe):
+            return TokenCheck(is_valid=True, status=probe.status_code)
+        probe_statuses.append(probe.status_code)
+
+    transient = [probe_status for probe_status in probe_statuses if _transient_status(probe_status)]
+    if transient:
+        return TokenCheck(is_valid=False, status=transient[0])
+
+    return TokenCheck(is_valid=False, status=status, reason=_cloudflare_error(verify), code=code)
 
 
 def cloudflare_source(

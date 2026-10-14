@@ -117,6 +117,7 @@ class BackMarketSource(ResumableSource[BackMarketSourceConfig, BackMarketResumeC
 
 Generate a token from your Back Market Back Office under **Support & Technical Support**. The token stays valid until you reset your account password.""",
             iconPath="/static/services/back_market.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/back-market",
             fields=cast(
                 list[FieldType],
                 [

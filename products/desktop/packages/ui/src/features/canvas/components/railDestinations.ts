@@ -28,6 +28,7 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -43,6 +44,7 @@ import {
   navigateToSpaces,
   navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
+import { hrefPath } from "@posthog/ui/router/reportNavigation";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
 
@@ -55,6 +57,7 @@ export interface RailCounts {
 export interface RailDestination {
   pane: NavRailPane;
   label: string;
+  shortLabel?: string;
   analyticsId: SidebarNavItem;
   Icon: ComponentType<IconProps>;
   /** Root opened by an explicit Cmd/Ctrl-click. */
@@ -66,7 +69,8 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
-  placement?: "top" | "bottom";
+  /** `more` files the destination under the rail's overflow menu. */
+  placement?: "top" | "bottom" | "more";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
@@ -101,6 +105,13 @@ function showSpaces(): void {
 function focusColumnSearch(): void {
   useSidebarStore.getState().setOpen(true);
   requestSidebarSearchFocus();
+}
+
+function showInboxList(): void {
+  if (isInboxTriagePath(hrefPath(currentHref() ?? ""))) {
+    navigateToInbox();
+  }
+  focusColumnSearch();
 }
 
 /**
@@ -212,7 +223,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
-    onReclick: focusColumnSearch,
+    onReclick: showInboxList,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
     enabled: (flags) => flags.inbox,
@@ -226,6 +237,8 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: navigateToCommandCenter,
     count: (counts) => counts.commandCenter,
     countTone: "neutral",
+    placement: "more",
+    shortcut: formatHotkey(SHORTCUTS.COMMAND_CENTER),
   },
   {
     pane: "loops",
@@ -239,6 +252,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "feeds",
     label: "Saved searches",
+    shortLabel: "Saved",
     analyticsId: "search",
     Icon: ListMagnifyingGlassIcon,
     href: "/feeds",
@@ -256,6 +270,50 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.context,
   },
 ];
+
+/** What decides which destination the rail lights. */
+export interface RailState {
+  railPane: NavRailPane;
+  workLayout: boolean;
+  workActivityOpen: boolean;
+}
+
+/**
+ * In the Work layout the Activity panel opens over the route, so while it is
+ * open it is the only lit destination.
+ */
+export function isRailDestinationActive(
+  pane: NavRailPane,
+  { railPane, workLayout, workActivityOpen }: RailState,
+): boolean {
+  if (!workLayout) return railPane === pane;
+  if (pane === "activity") return workActivityOpen;
+  if (workActivityOpen) return false;
+  return pane === "spaces"
+    ? railPaneFoldsIntoWork(railPane)
+    : railPane === pane;
+}
+
+/**
+ * The destination one step from the lit one in `order`, wrapping at both ends.
+ * With nothing lit, down lands on the first destination and up on the last.
+ */
+export function stepRailDestination(
+  order: readonly RailDestination[],
+  state: RailState,
+  direction: 1 | -1,
+): RailDestination | undefined {
+  const current = order.findIndex(({ pane }) =>
+    isRailDestinationActive(pane, state),
+  );
+  const next =
+    current === -1
+      ? direction === 1
+        ? 0
+        : order.length - 1
+      : (current + direction + order.length) % order.length;
+  return order[next];
+}
 
 export function visibleRailDestinations(
   flags: RailFlags,

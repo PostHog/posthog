@@ -5,13 +5,14 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.facade.api import (
-    SignalSourceSliceOutcomes,
+    SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
     get_reports_for_signal_source_slice,
 )
@@ -22,13 +23,14 @@ from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_origin_sources_for_report,
     fetch_signal_stats_for_source_slice,
+    fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
-    fetch_signals_for_report_sync,
+    retract_source_signals,
 )
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
@@ -48,6 +50,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         content: str = "the signal content",
         skill_name: str | None = None,
         extra: dict | None = None,
+        source_id: str | None = None,
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
@@ -58,7 +61,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
             "report_id": report_id,
             "source_product": source_product,
             "source_type": source_type,
-            "source_id": f"src-{document_id}",
+            "source_id": source_id or f"src-{document_id}",
             "deleted": deleted,
         }
         if skill_name is not None or extra is not None:
@@ -534,7 +537,17 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
             team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
         )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=2, merged_pr_count=1)
+        assert (outcomes.signal_count, outcomes.report_count, outcomes.pr_count, outcomes.merged_pr_count) == (
+            5,
+            2,
+            2,
+            1,
+        )
+        # The links behind the counts: the same deduped PRs, newest report's first.
+        assert outcomes.pull_requests == [
+            SignalSourceSlicePullRequest(url=shared_pr.url, merged=True),
+            SignalSourceSlicePullRequest(url=second_pr.url, merged=False),
+        ]
 
     def test_hydrates_the_same_slice_newest_first(self) -> None:
         # The link surface shares the slice query with the counters, so it must drop the same
@@ -562,3 +575,35 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
             (str(newer.id), "newer", "potential"),
             (str(older.id), "older", "potential"),
         ]
+
+
+class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
+    @patch("products.signals.backend.temporal.signal_queries._RETRACT_PAGE_SIZE", 2)
+    @patch("products.signals.backend.temporal.signal_queries.emit_embedding_request")
+    def test_retracts_every_page_of_the_source(self, emit: MagicMock) -> None:
+        for document_id in ("a", "b", "c"):
+            self._emit_version(
+                document_id=document_id,
+                report_id="rA",
+                source_product="conversations",
+                source_type="ticket",
+                source_id="ticket-1",
+                inserted_at=self.base,
+            )
+        self._emit_version(
+            document_id="other",
+            report_id="rA",
+            source_product="conversations",
+            source_type="ticket",
+            source_id="ticket-2",
+            inserted_at=self.base,
+        )
+
+        retracted = retract_source_signals(
+            team=self.team, source_product="conversations", source_type="ticket", source_id="ticket-1"
+        )
+
+        assert retracted == 3
+        assert sorted(call.kwargs["document_id"] for call in emit.call_args_list) == ["a", "b", "c"]
+        assert all(call.kwargs["content"] == "" for call in emit.call_args_list)
+        assert all(call.kwargs["metadata"]["deleted"] is True for call in emit.call_args_list)

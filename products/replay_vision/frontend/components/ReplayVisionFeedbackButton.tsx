@@ -15,6 +15,7 @@ export function ReplayVisionFeedbackButton({
 } = {}): JSX.Element {
     return (
         <LemonButton
+            data-attr="vision-feedback"
             size="small"
             type={type}
             tooltip="Share feedback on Replay vision"

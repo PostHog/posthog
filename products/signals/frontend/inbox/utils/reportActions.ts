@@ -4,6 +4,15 @@ import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } fro
 import { primaryReportPullRequest, hasActiveReportPullRequest } from './reportPullRequests'
 
 /**
+ * Can the signed-in user take themselves off this report's suggested reviewers? A list scoped to them
+ * holds only reports that name them, even where `is_suggested_reviewer` is false: the server clears
+ * that flag on failed and not-actionable reports, which still list the user as a reviewer.
+ */
+export function canUnassignMe(report: SignalReport, isScopedToMe: boolean): boolean {
+    return isScopedToMe || report.is_suggested_reviewer
+}
+
+/**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */

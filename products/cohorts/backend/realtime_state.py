@@ -32,6 +32,7 @@ from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+    READINESS_CHUNKS,
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillRun,
@@ -234,7 +235,7 @@ def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, dict[str
         return {}
     tallies = (
         CohortBackfillChunk.objects.for_team(team_id, canonical=True)
-        .filter(run_id__in=run_ids)
+        .filter(READINESS_CHUNKS, run_id__in=run_ids)
         .values("run_id")
         .annotate(
             chunks_total=Count("id"),

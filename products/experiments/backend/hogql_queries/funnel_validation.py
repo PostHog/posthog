@@ -1,11 +1,3 @@
-"""
-Datawarehouse funnel validation utilities.
-
-This module provides validation for datawarehouse funnel configurations,
-ensuring required fields are present, join keys are consistent, and
-complexity limits are enforced before query execution.
-"""
-
 from typing import Any
 
 from rest_framework.exceptions import ValidationError
@@ -15,13 +7,9 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric
 
 class FunnelDWValidator:
     """
-    Validates datawarehouse funnel configuration.
-
-    Provides clear, actionable error messages for common DW funnel
-    misconfigurations before expensive query execution.
-
-    All methods are static as validation is stateless - operates only
-    on the provided metric configuration.
+    Validates a data warehouse funnel configuration before the query runs, so that
+    a misconfiguration gets an actionable error message instead of an expensive
+    or failed query.
     """
 
     # Complexity limits to prevent expensive queries
@@ -30,21 +18,7 @@ class FunnelDWValidator:
 
     @staticmethod
     def validate_required_fields(node: ExperimentDataWarehouseNode, step_index: int) -> list[str]:
-        """
-        Validate DW node has all required fields.
-
-        Args:
-            node: The datawarehouse node to validate
-            step_index: Step number in funnel (1-based for error messages)
-
-        Returns:
-            List of error messages (empty if valid)
-
-        Example:
-            >>> errors = FunnelDWValidator.validate_required_fields(node, 2)
-            >>> if errors:
-            ...     raise ValidationError({"datawarehouse_configuration": errors})
-        """
+        """`step_index` is 1-based because it appears in the error messages."""
         errors = []
 
         if not node.table_name:
@@ -72,32 +46,14 @@ class FunnelDWValidator:
 
     @staticmethod
     def validate_consistent_join_keys(metric: ExperimentFunnelMetric) -> dict[str, str] | None:
-        """
-        Validate all DW steps use the same events_join_key.
-
-        This is a current limitation that simplifies the UNION ALL query pattern.
-        All DW steps must join to events using the same field.
-
-        Args:
-            metric: The funnel metric to validate
-
-        Returns:
-            Dictionary with error key and message if invalid, None if valid
-
-        Example:
-            >>> error = FunnelDWValidator.validate_consistent_join_keys(metric)
-            >>> if error:
-            ...     raise ValidationError(error)
-        """
+        """All DW steps must use the same events_join_key, which keeps the UNION ALL query simple."""
         dw_steps = [
             (i + 1, step) for i, step in enumerate(metric.series) if isinstance(step, ExperimentDataWarehouseNode)
         ]
 
         if len(dw_steps) <= 1:
-            # 0 or 1 DW steps - no consistency to check
             return None
 
-        # Collect all unique events_join_keys
         join_keys: dict[str, list[int]] = {}
         for step_index, step in dw_steps:
             join_key = step.events_join_key
@@ -106,7 +62,6 @@ class FunnelDWValidator:
             join_keys[join_key].append(step_index)
 
         if len(join_keys) > 1:
-            # Multiple different join keys - build helpful error message
             error_lines = ["All datawarehouse steps must use the same join key to events.\n"]
 
             for join_key, step_indices in join_keys.items():
@@ -122,26 +77,11 @@ class FunnelDWValidator:
     @staticmethod
     def validate_complexity_limits(metric: ExperimentFunnelMetric) -> dict[str, str] | None:
         """
-        Enforce complexity limits to prevent expensive queries.
-
-        Limits:
-        - Max 3 DW steps per funnel (reduces UNION ALL query size)
-        - Max 2 distinct DW tables per funnel (limits join complexity)
-
-        Args:
-            metric: The funnel metric to validate
-
-        Returns:
-            Dictionary with error key and message if limit exceeded, None if valid
-
-        Example:
-            >>> error = FunnelDWValidator.validate_complexity_limits(metric)
-            >>> if error:
-            ...     raise ValidationError(error)
+        Each DW step adds a subquery to the UNION ALL, and each distinct DW table
+        adds a join, so both counts have a limit.
         """
         dw_steps = [step for step in metric.series if isinstance(step, ExperimentDataWarehouseNode)]
 
-        # Check max DW steps
         if len(dw_steps) > FunnelDWValidator.MAX_DW_STEPS:
             return {
                 "complexity_limit": (
@@ -153,7 +93,6 @@ class FunnelDWValidator:
                 )
             }
 
-        # Check max distinct tables
         distinct_tables = {step.table_name for step in dw_steps}
         if len(distinct_tables) > FunnelDWValidator.MAX_DISTINCT_DW_TABLES:
             table_list = ", ".join(f"'{table}'" for table in sorted(distinct_tables))
@@ -171,34 +110,14 @@ class FunnelDWValidator:
 
     @classmethod
     def validate_funnel_metric(cls, metric: ExperimentFunnelMetric) -> None:
-        """
-        Run all validations on a funnel metric.
-
-        This is the main entry point - call before building queries for DW funnels.
-
-        Args:
-            metric: The funnel metric to validate
-
-        Raises:
-            ValidationError: If any validation fails, with detailed error messages
-
-        Example:
-            >>> try:
-            ...     FunnelDWValidator.validate_funnel_metric(metric)
-            ... except ValidationError as e:
-            ...     # Show error to user
-            ...     return Response(e.detail, status=400)
-        """
+        """Entry point to call before building the query. A funnel without DW steps always passes."""
         errors: dict[str, Any] = {}
 
-        # Check if there are any DW steps
         has_dw_steps = any(isinstance(step, ExperimentDataWarehouseNode) for step in metric.series)
 
-        # If no DW steps, no validation needed
         if not has_dw_steps:
             return
 
-        # 1. Validate required fields for each DW step
         field_errors: list[str] = []
         for i, step in enumerate(metric.series):
             if isinstance(step, ExperimentDataWarehouseNode):
@@ -208,19 +127,16 @@ class FunnelDWValidator:
         if field_errors:
             errors["datawarehouse_configuration"] = field_errors
             errors["help"] = "All DW steps need table name, timestamp field, and join keys configured."
-            # Early return - downstream checks are unreliable with missing fields
+            # Raise now, because the join key and complexity checks read these fields
             raise ValidationError(errors)
 
-        # 2. Validate join key consistency
         join_key_error = cls.validate_consistent_join_keys(metric)
         if join_key_error:
             errors.update(join_key_error)
 
-        # 3. Validate complexity limits
         complexity_error = cls.validate_complexity_limits(metric)
         if complexity_error:
             errors.update(complexity_error)
 
-        # Raise if any errors found
         if errors:
             raise ValidationError(errors)

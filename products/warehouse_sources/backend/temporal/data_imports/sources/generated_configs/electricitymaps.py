@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class ElectricityMapsSourceConfig(config.Config):
-    pass
+    api_token: str
+    zones: str
+    history_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)

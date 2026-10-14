@@ -41,23 +41,15 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
   useAppView,
   useReportSourceNavType: () => null,
 }));
-// Channel reports defaults off here so the Inbox item renders; the flag-on
-// test flips it via `channelReportsFlag`.
+// Channel reports defaults off here; the flag-on test flips it via
+// `channelReportsFlag`.
 let channelReportsFlag = false;
-let reportsInboxFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (flag: string) =>
-    flag === "posthog-desktop-channel-reports"
-      ? channelReportsFlag
-      : flag === "posthog-desktop-reports-inbox"
-        ? reportsInboxFlag
-        : true,
+    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useChannelReportsEnabled", () => ({
   useChannelReportsEnabled: () => channelReportsFlag,
-}));
-vi.mock("@posthog/ui/features/feature-flags/useReportsInboxEnabled", () => ({
-  useReportsInboxEnabled: () => reportsInboxFlag,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -195,21 +187,8 @@ describe("SidebarNavSection", () => {
     expect(openBrowserTab).not.toHaveBeenCalled();
   });
 
-  it("removes the Inbox item when channel reports replace the inbox", () => {
+  it("keeps the Inbox item when channel reports are on", () => {
     channelReportsFlag = true;
-    try {
-      renderNav();
-      expect(
-        screen.queryByRole("button", { name: /Self-driving/ }),
-      ).not.toBeInTheDocument();
-    } finally {
-      channelReportsFlag = false;
-    }
-  });
-
-  it("keeps the Inbox item when the reports inbox reclaims the slot", () => {
-    channelReportsFlag = true;
-    reportsInboxFlag = true;
     try {
       renderNav();
       expect(
@@ -217,7 +196,6 @@ describe("SidebarNavSection", () => {
       ).toBeInTheDocument();
     } finally {
       channelReportsFlag = false;
-      reportsInboxFlag = false;
     }
   });
 

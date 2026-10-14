@@ -1,0 +1,101 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Sourced from the official API reference (https://demodesk.com/api/docs/index.html) and the
+# Demodesk help center's API article.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "demos": {
+        "description": "A scheduled or held meeting (demo), including its status, timing, and host.",
+        "docs_url": "https://help.demodesk.com/en/articles/8518816-api-reference",
+        "columns": {
+            "id": "Internal meeting id.",
+            "status": "Meeting status: scheduled, starting, started, ending, ended, or canceled.",
+            "account": "Meeting name.",
+            "token": "Public meeting token. Not valid for recording endpoints.",
+            "link": "URL of the meeting room.",
+            "duration": "Planned meeting duration in seconds.",
+            "startDate": "Scheduled start time of the meeting.",
+            "createdAt": "When the meeting was created.",
+            "updatedAt": "When the meeting was last updated.",
+            "timeZone": "IANA time zone of the meeting.",
+            "countryCode": "Country code of the meeting.",
+            "locale": "Locale of the meeting.",
+            "relationships": "References to associated objects such as the host user, booker, participants, playbook, event type, and recordings.",
+        },
+    },
+    "demo_templates": {
+        "description": "A meeting type (event type) that meetings are booked from.",
+        "docs_url": "https://help.demodesk.com/en/articles/8518816-api-reference",
+        "columns": {
+            "id": "Internal meeting type id.",
+        },
+    },
+    "users": {
+        "description": "An active team member visible to the API key's user.",
+        "docs_url": "https://demodesk.com/api/docs/index.html",
+        "columns": {
+            "id": "Internal user id.",
+            "firstName": "First name of the user.",
+            "lastName": "Last name of the user.",
+            "email": "Primary email of the user.",
+            "role": "Permission level of the user: user, manager, or company_admin.",
+            "locale": "Locale of the user.",
+            "timeZone": "IANA time zone of the user.",
+        },
+    },
+    "recordings": {
+        "description": "A meeting recording with its processing state and access level.",
+        "docs_url": "https://demodesk.com/api/docs/index.html",
+        "columns": {
+            "recordingToken": "Public recording token identifier, used to fetch transcripts, summaries, and scorecards.",
+            "recordingId": "Internal recording id.",
+            "demoId": "Internal id of the meeting the recording belongs to.",
+            "userId": "Id of the meeting host user.",
+            "name": "Name of the recording.",
+            "recordingWebUrl": "URL to the recording view in Demodesk.",
+            "temporaryDirectUrl": "Direct link to the video file, signed with a temporary access token.",
+            "status": "Recording status: pending, ready, failure, cancelled, or expired.",
+            "postprocessingStatus": "Post-processing status (transcription, statistics, summaries): pending, done, failed, or too_short.",
+            "access": "Access permission level: company_wide, selected_groups, host_and_participants, or host_only.",
+            "createdAt": "When the recording was created.",
+            "updatedAt": "When the recording was last updated.",
+            "demoStartDate": "Start time of the recorded meeting.",
+            "durationMs": "Recording duration in milliseconds.",
+            "groupIds": "Ids of groups assigned to the meeting.",
+        },
+    },
+    "recording_summaries": {
+        "description": "An AI-generated summary attached to a recording.",
+        "docs_url": "https://demodesk.com/api/docs/index.html",
+        "columns": {
+            "recordingToken": "Token of the recording the summary belongs to.",
+            "summaryId": "Internal summary id.",
+            "promptId": "Id of the prompt the summary was generated from.",
+            "promptName": "Name of the prompt the summary was generated from.",
+            "languageCode": "Language of the summary.",
+            "content": "Summary text.",
+            "htmlContent": "Summary as HTML.",
+            "createdAt": "When the summary was created.",
+            "updatedAt": "When the summary was last updated.",
+        },
+    },
+    "recording_scorecards": {
+        "description": "A coaching scorecard linked to a recording, including per-question scores.",
+        "docs_url": "https://demodesk.com/api/docs/index.html",
+        "columns": {
+            "recordingToken": "Token of the recording the scorecard belongs to.",
+            "scorecardId": "Internal scorecard id.",
+            "templateId": "Id of the scorecard template.",
+            "templateName": "Name of the scorecard template.",
+            "score": "Overall score, 1 to 5.",
+            "comment": "Overall comment left by the scorecard giver.",
+            "languageCode": "Language of the scorecard.",
+            "giverUserId": "Id of the user who gave the scorecard.",
+            "receiverUserId": "Id of the user who received the scorecard.",
+            "questions": "Per-question results, each with position, text, criteria, score, and comment.",
+            "createdAt": "When the scorecard was created.",
+            "updatedAt": "When the scorecard was last updated.",
+        },
+    },
+}

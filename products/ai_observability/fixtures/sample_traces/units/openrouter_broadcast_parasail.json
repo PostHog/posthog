@@ -1,0 +1,84 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Embedding check for a freight manifest line",
+  "scenario": "A warehouse inventory system embeds an incoming freight manifest line through a Parasail-hosted model, routed via OpenRouter, to match it against known cargo categories. The classifier layer times out this time, so the response only echoes the request parameters with no similarity score.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "Parasail"
+    ],
+    "frameworks": [],
+    "models": [
+      "parasail/gte-base-en"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_input_tokens": 11,
+        "$ai_span_name": "LLM Generation",
+        "trace_name": "OpenRouter Request",
+        "$ai_span_id": "gen-1727258206-Xk3mPqRst7ZnJhQb2Wc9Tf3q",
+        "openrouter_api_key_name": "warehouse-embed1",
+        "$ai_total_cost_usd": 1.1e-07,
+        "$ai_input_cost_usd": 1.1e-07,
+        "openrouter_source": "openrouter",
+        "openrouter_entity_id": "org_aSBag4ktLsLM1MWmxKYeCowdvxE",
+        "metadata_provider_responses": [
+          {
+            "endpoint_id": "5d9bdde6-afbf-7bb8-f104-50424b6dead3",
+            "id": "embd-nf378VrhC8ueGLeQojihzdHnmFW6SlNA",
+            "is_byok": false,
+            "latency": 835,
+            "model_permaslug": "parasail/gte-base-en",
+            "provider_name": "Parasail",
+            "status": 225
+          }
+        ],
+        "$ai_trace_id": "gen-1727258206-Xk3mPqRst7ZnJhQb2Wc9Tf3q",
+        "distinct_id": "org_aSBag4ktLsLM1MWmxKYeCowdvxE",
+        "$ai_provider": "Parasail",
+        "$ai_latency": 0.835,
+        "$ai_model": "parasail/gte-base-en",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "{\"prompt\": \"40 pallets of frozen seafood cargo\"}",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"similarity\": null, \"reasoning\": null, \"parameters\": {\"model\": \"gte-base-en\", \"input\": [\"40 pallets of frozen seafood cargo\"]}}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

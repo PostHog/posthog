@@ -79,6 +79,7 @@ export function convertToHogFunctionInvocationGlobals(
 
     const eventTimestamp = parseClickHouseEventTimestamp(event.timestamp)!
     const eventCapturedAt = parseClickHouseEventTimestamp(event.captured_at)
+    const eventUrl = `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -94,7 +95,12 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
-            url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+            // The events page reads flag calls from flag_evaluations only when the link names the event.
+            // On flag_evaluations_mode 2 a flag call has no events row, so a link without the name finds nothing.
+            url:
+                event.event === '$feature_flag_called'
+                    ? `${eventUrl}?event=${encodeURIComponent(event.event)}`
+                    : eventUrl,
         },
         person,
     }
@@ -400,6 +406,20 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
 
     // We don't want to add "REDACTED" for empty strings
     return values.filter((v) => v.trim())
+}
+
+/**
+ * Sensitive values from the function config alone, before any template resolves. Covers an error
+ * raised while the inputs are still being built, when the resolved values do not exist yet.
+ */
+export const getConfiguredSensitiveValues = (hogFunction: HogFunctionType): string[] => {
+    const configured = Object.fromEntries(
+        Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).map(([key, input]) => [
+            key,
+            input?.value,
+        ])
+    )
+    return getSensitiveValues(hogFunction, configured)
 }
 
 export const redactSensitiveValues = (message: string, sensitiveValues?: string[]): string => {

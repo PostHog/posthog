@@ -3,6 +3,7 @@ from typing import ClassVar, cast, get_args
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.errors import ImpossibleASTError, QueryError
+from posthog.hogql.escape_sql import quote_hogql_identifier
 from posthog.hogql.printer.base import BasePrinter
 
 
@@ -58,12 +59,15 @@ class HogQLPrinter(BasePrinter):
         return ".".join(parts)
 
     def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> str:
+        # Only the ClickHouse printer prints this node as HogQL, to name a result column, and it removes `%` from that
+        # name. So a native JSON key may keep a `%`, which `_print_identifier` refuses.
+        keys = [quote_hogql_identifier(key) for key in node.keys]
         parts = [self.visit(node.expr)]
-        if node.access_type == "sub_object" and node.keys:
-            parts.append("^" + self._print_identifier(node.keys[0]))
-            parts.extend(self._print_identifier(key) for key in node.keys[1:])
+        if node.access_type == "sub_object" and keys:
+            parts.append("^" + keys[0])
+            parts.extend(keys[1:])
             return ".".join(parts)
-        parts.extend(self._print_identifier(key) for key in node.keys)
+        parts.extend(keys)
         return ".".join(parts)
 
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
@@ -105,7 +109,10 @@ class HogQLPrinter(BasePrinter):
         return self._print_identifier(table_type.table.to_printed_hogql())
 
     def _render_untyped_join_expr(self, node: ast.JoinExpr) -> list[str]:
-        parts = [self.visit(node.table)]
+        table = self.visit(node.table)
+        if node.table_args is not None:
+            table = f"{table}({', '.join(self.visit(arg) for arg in node.table_args)})"
+        parts = [table]
         if node.alias is not None:
             parts.append(f"AS {self._print_identifier(node.alias)}")
         return parts

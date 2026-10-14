@@ -40,6 +40,7 @@ class EvaluationStatusReason(models.TextChoices):
     PROVIDER_KEY_QUOTA_EXCEEDED = "provider_key_quota_exceeded", "Provider API key quota exceeded"
     PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
     MODEL_NOT_FOUND = "model_not_found", "Model not found"
+    MODEL_NOT_SUPPORTED = "model_not_supported", "Model does not support chat completions"
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
@@ -70,6 +71,13 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(
                 fields=["team", "directory", "-created_at", "id"],
                 name="llma_eval_team_dir_created_idx",
+            ),
+            # Deleting a directory makes Django run the SET_NULL update with a filter on directory_id only,
+            # and the index above cannot serve that filter because it leads with team_id.
+            models.Index(
+                fields=["directory"],
+                name="llma_eval_directory_idx",
+                condition=models.Q(directory__isnull=False),
             ),
         ]
         constraints = [
@@ -219,8 +227,19 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self.status_reason_detail = reason_detail
         self.save(update_fields=["status", "status_reason", "status_reason_detail", "enabled", "updated_at"])
 
+    def _condition_filters_changed(self) -> bool:
+        # Compare against the stored row, not an in-memory snapshot, so in-place edits count as changes.
+        if self._state.adding:
+            return True
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id).values_list("conditions", flat=True).first()
+        )
+        if stored is None:
+            return True
+        return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
+
     def save(self, *args, **kwargs):
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
@@ -263,13 +282,24 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
         # Compile bytecode for each condition
         compiled_conditions = []
-        for condition in self.conditions:
+        compile_error: str | None = None
+        for index, condition in enumerate(self.conditions):
             compiled_condition = {**condition}
             filters = {"properties": condition.get("properties", [])}
             compiled = compile_filters_bytecode(filters, self.team)
+            bytecode_error = compiled.get("bytecode_error")
+            if bytecode_error and compile_error is None:
+                compile_error = f"Condition set {index + 1} has a filter that evaluations cannot run. {bytecode_error}"
             compiled_condition["bytecode"] = compiled.get("bytecode")
-            compiled_condition["bytecode_error"] = compiled.get("bytecode_error")
+            compiled_condition["bytecode_error"] = bytecode_error
             compiled_conditions.append(compiled_condition)
+
+        # The scheduler never matches a condition that has no bytecode. Reject the save when the caller
+        # changes the filters. Other saves skip this check, so pause, delete and status changes work.
+        update_fields = kwargs.get("update_fields")
+        writes_conditions = update_fields is None or "conditions" in update_fields
+        if compile_error and writes_conditions and self._condition_filters_changed():
+            raise ValidationError({"conditions": compile_error})
 
         self.conditions = compiled_conditions
         result = super().save(*args, **kwargs)

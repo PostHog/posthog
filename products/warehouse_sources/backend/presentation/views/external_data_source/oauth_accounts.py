@@ -17,6 +17,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import TeamMemberAdminManagementPermission
 
 from products.warehouse_sources.backend.facade.source_management import (
+    CredentialAccountsMixin,
     IntegrationAccountListingError,
     OAuthMixin,
     filter_integration_accounts,
@@ -56,6 +57,23 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
     accounts = IntegrationAccountSerializer(
         many=True,
         help_text="All accounts the connected integration can access.",
+    )
+
+
+class CredentialAccountsRequestSerializer(serializers.Serializer):
+    """Body for listing accounts from credentials the user has typed but not yet submitted."""
+
+    source_type = serializers.CharField(
+        help_text="The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds')."
+    )
+    credentials = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
+        help_text=("Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected."),
+    )
+    api_version = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Vendor API version the source is pinned to. Defaults to the source's current default.",
     )
 
 
@@ -163,3 +181,59 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
         if accounts:
             cache.set(cache_key, response_data, 60)
         return Response(response_data)
+
+    @extend_schema(
+        request=CredentialAccountsRequestSerializer,
+        responses={200: IntegrationAccountsResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="credential_accounts")
+    def credential_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the accounts a source's typed-in credentials can reach, in the shared
+        IntegrationAccount shape.
+
+        The OAuth twin takes an integration id because the token already lives on the server. Here
+        the credentials are still in the form, so they arrive in the body — POST, not GET, to keep a
+        private key out of the URL and out of anything that logs one. Nothing is cached for the same
+        reason: the cache key would have to include the credentials.
+        """
+        serializer = CredentialAccountsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        source_type = data["source_type"]
+        try:
+            source = base.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+        except ValueError:
+            raise ValidationError(f"Unknown source type: {source_type}")
+
+        if not isinstance(source, CredentialAccountsMixin):
+            raise ValidationError(f"Source type {source_type} does not support listing accounts from credentials")
+
+        # The declared names are the whole allowlist. A source with no credential picker has an empty
+        # set, which fails here rather than reaching `parse_config` with caller-chosen keys.
+        allowed = helpers.get_credential_account_field_names(source.get_source_config.fields)
+        if not allowed:
+            raise ValidationError(f"Source type {source_type} does not support listing accounts from credentials")
+
+        credentials = data["credentials"]
+        unexpected = set(credentials) - allowed
+        if unexpected:
+            raise ValidationError(f"Unexpected credential fields: {', '.join(sorted(unexpected))}")
+
+        try:
+            config = source.parse_config(credentials)
+        except Exception:
+            # A half-filled form is the normal case here — the picker fires as soon as the user
+            # stops typing — so this is not worth capturing.
+            raise ValidationError("Fill in the credentials above to list accounts.")
+
+        try:
+            accounts = source.get_credential_accounts(config, self.team_id, api_version=data.get("api_version"))
+        except NotImplementedError:
+            raise ValidationError(f"Source type {source_type} does not support listing accounts from credentials")
+        except IntegrationAccountListingError as e:
+            # Same split as the OAuth path: an actionable customer-side failure (a key the provider
+            # rejects) is a 400 carrying its message; anything else stays uncaught as a 500.
+            raise ValidationError(str(e))
+
+        return Response(IntegrationAccountsResponseSerializer({"accounts": accounts}).data)

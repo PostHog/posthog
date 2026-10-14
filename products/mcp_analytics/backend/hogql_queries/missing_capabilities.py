@@ -29,6 +29,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     display_person_properties,
     mcp_query_date_range,
     validate_mcp_analytics_access,
@@ -43,10 +44,6 @@ MAX_LIMIT = 500
 
 # Both the result column and search expression use this property so they cannot drift.
 _REPORT_TEXT = "toString(properties.$mcp_intent)"
-
-# Conversation id, same resolution as the tool-call surfaces: the SDK's own
-# $mcp_session_id when set, else the ambient $session_id.
-_CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 
 
 class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
@@ -139,7 +136,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),
-                "conversation_id": parse_expr(_CONVERSATION_ID),
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": self._where(),
                 # Over-fetch one row to detect the next page without a separate count query.
                 "limit": ast.Constant(value=self.limit + 1),

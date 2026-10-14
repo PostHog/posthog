@@ -4,7 +4,7 @@ import re
 import json
 import time
 import datetime as dt
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from posthog.test.base import BaseTest
 from unittest.mock import (
@@ -33,7 +33,9 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportContent,
     ReportSection,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.state import REPORT_RUN_HANDLE_KEY
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
+    _MAX_EVAL_RESULTS_CHARS,
     _SESSION_TRACES_SQL,
     _UUID_RE,
     _ch_ts,
@@ -55,6 +57,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     sample_session_details,
     sample_trace_details,
     set_title,
+    strip_dead_backticked_ids,
 )
 
 _VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
@@ -86,6 +89,7 @@ class _ReportToolState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
     session_id_allowlist: list[str]
+    report_run_handles: NotRequired[dict[str, str]]
     evaluation_target: NotRequired[str]
     team_id: NotRequired[int]
     evaluation_id: NotRequired[str]
@@ -316,8 +320,8 @@ class TestTargetAwareEvalResults(SimpleTestCase):
 
         generation_state = self._state("generation")
         trace_state = self._state("trace")
-        generation_result = json.loads(_sample_eval_results_fn(state=generation_state))
-        trace_result = json.loads(_sample_eval_results_fn(state=trace_state))
+        generation_result = json.loads(_sample_eval_results_fn(state=generation_state))["results"]
+        trace_result = json.loads(_sample_eval_results_fn(state=trace_state))["results"]
 
         self.assertEqual(generation_result[0]["generation_id"], _VALID_GEN_ID)
         self.assertNotIn("trace_id", generation_result[0])
@@ -354,13 +358,23 @@ class TestTargetAwareEvalResults(SimpleTestCase):
     def test_sentiment_list_omits_classifier_reasoning(self, mock_execute_hogql):
         mock_execute_hogql.side_effect = [
             [[1]],
-            [[_VALID_GEN_ID, "negative", None, 0.91, "identical classifier reasoning"]],
+            [[_VALID_GEN_ID, "negative", None, 0.9123456789, "identical classifier reasoning"]],
         ]
 
         result = _list_all_eval_results_fn(state=self._state("generation", "sentiment"))
 
         self.assertIn(f"negative (0.91) | {_VALID_GEN_ID}", result)
         self.assertNotIn("classifier reasoning", result)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_numeric_list_preserves_small_scores(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [[[1]], [[_VALID_GEN_ID, 0.00014, True, 0.00014, "cost"]]]
+        state = self._state("generation", "numeric")
+        state["output_config"] = {"passing_rule": {"operator": "lte", "threshold": 0.001}}
+
+        result = _list_all_eval_results_fn(state=state)
+
+        self.assertIn(f"pass (0.00014) | {_VALID_GEN_ID}", result)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_sentiment_sample_orders_by_score_and_omits_reasoning(self, mock_execute_hogql):
@@ -376,9 +390,72 @@ class TestTargetAwareEvalResults(SimpleTestCase):
 
         self.assertEqual(
             result,
-            [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+            {
+                "results": [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+                "truncated": False,
+            },
         )
         self.assertIn("ORDER BY score DESC, timestamp DESC", mock_execute_hogql.call_args.args[1])
+
+    @parameterized.expand(
+        [(tool_name, size) for tool_name in ("list", "sample") for size in ("empty", "small", "large")]
+    )
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_category_results_fit_response_budget_without_partial_categories(
+        self, tool_name: str, size: str, mock_execute_hogql: MagicMock
+    ) -> None:
+        categories = [f"category_{i:03d}_" + "x" * 115 for i in range(100)] if size == "large" else ["ok"]
+        count = {"empty": 0, "small": 3, "large": 500}[size]
+        state = self._state("trace", "categorical")
+        state["output_config"] = {
+            "selection_mode": "multiple",
+            "options": [{"key": key, "label": key} for key in categories],
+            "passing_rule": {"categories": categories},
+        }
+        ids = [f"trace-{i}" for i in range(count)]
+        if tool_name == "list":
+            mock_execute_hogql.side_effect = [
+                [[count]],
+                [[target_id, categories, True, None, ""] for target_id in ids],
+            ]
+            response = _list_all_eval_results_fn(state=state)
+            header, *rows = response.splitlines()
+            self.assertIn(f"Total: {count} results", header)
+            for row in rows:
+                self.assertIn(f"pass ({json.dumps(categories)})", row)
+            self.assertEqual("response size limit" in header, size == "large")
+        else:
+            mock_execute_hogql.return_value = [[target_id, categories, "", True, None] for target_id in ids]
+            response = _sample_eval_results_fn(state=state, limit=500)
+            result = json.loads(response)
+            rows = result["results"]
+            self.assertEqual(result["truncated"], size == "large")
+            for row in rows:
+                self.assertEqual(row["categories"], categories)
+                self.assertEqual(row["outcome"], "pass")
+            if size == "large":
+                self.assertIn("response size limit", result["notice"])
+        self.assertLessEqual(len(response), _MAX_EVAL_RESULTS_CHARS)
+        self.assertEqual(state["trace_id_allowlist"], ids[: len(rows)])
+        if size == "large":
+            self.assertGreater(len(rows), 0)
+            self.assertLess(len(rows), count)
+        else:
+            self.assertEqual(len(rows), count)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sample_reports_when_one_result_exceeds_the_budget(self, mock_execute_hogql: MagicMock) -> None:
+        mock_execute_hogql.return_value = [["trace-large", True, "x" * _MAX_EVAL_RESULTS_CHARS, True, None]]
+        state = self._state("trace")
+
+        response = _sample_eval_results_fn(state=state)
+        result = json.loads(response)
+
+        self.assertEqual(result["results"], [])
+        self.assertTrue(result["truncated"])
+        self.assertIn("response size limit", result["notice"])
+        self.assertLessEqual(len(response), _MAX_EVAL_RESULTS_CHARS)
+        self.assertEqual(state["trace_id_allowlist"], [])
 
 
 class TestTraceDetailTools(SimpleTestCase):
@@ -724,6 +801,16 @@ class TestAddSection(SimpleTestCase):
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
+    def test_rejects_section_with_a_backticked_run_handle(self):
+        # A handle is not UUID-shaped, so only the handle map makes the guard read it as an ID.
+        state = _state_with_empty_report()
+        state["report_run_handles"] = {"run_1": _VALID_GEN_ID}
+
+        result = _add_section_fn(state=state, title="Summary", content="Steady since `run_1`.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
     def test_rejects_cited_backticked_id_in_a_section_title(self):
         # Section titles reach the reader as a heading, so citation linking never runs over them.
         state = _state_with_empty_report()
@@ -774,6 +861,21 @@ class TestDeadBacktickedIds(SimpleTestCase):
                 [_VALID_GEN_ID.upper()],
             ),
             (
+                # The renderer links this wrapper, so the guard must not call it dead.
+                "cited_uuid_in_double_backtick_span_links",
+                f"See `` `{_VALID_GEN_ID}` `` for the regression.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [],
+            ),
+            (
+                "uncited_uuid_in_double_backtick_span_is_dead",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                [],
+                set(),
+                [_RUN_ID],
+            ),
+            (
                 "cited_uuid_double_backticks_is_dead",
                 f"See ``{_VALID_GEN_ID}``.",
                 [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
@@ -787,6 +889,31 @@ class TestDeadBacktickedIds(SimpleTestCase):
         self, _name: str, text: str, citations: list[Citation], handled_ids: set[str], expected: list[str]
     ) -> None:
         self.assertEqual(_dead_backticked_ids(text, citations, handled_ids), expected)
+
+    @parameterized.expand(
+        [
+            ("uncited_uuid_loses_its_backticks", f"Steady since run `{_RUN_ID}`.", f"Steady since run {_RUN_ID}."),
+            (
+                "uncited_uuid_loses_its_double_backtick_span",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                f"Steady since run {_RUN_ID}.",
+            ),
+            (
+                "cited_id_keeps_its_backticks",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+            ),
+            (
+                "cited_id_keeps_its_double_backtick_span",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+            ),
+            ("prose_keeps_its_backticks", "The `total_runs` field.", "The `total_runs` field."),
+        ]
+    )
+    def test_strip_dead_backticked_ids(self, _name: str, text: str, expected: str) -> None:
+        citations = [Citation(session_id=self._OPAQUE_SESSION_ID)]
+        self.assertEqual(strip_dead_backticked_ids(text, citations, {self._OPAQUE_SESSION_ID}), expected)
 
     def test_scan_stays_linear_on_a_whitespace_run(self):
         # A model that degenerates into whitespace after a stray backtick writes exactly the
@@ -1037,9 +1164,10 @@ class TestListAndGetReportRun(BaseTest):
             period_start=now - dt.timedelta(days=2),
             period_end=now - dt.timedelta(days=1),
         )
-        self.state = {
+        self.state: dict[str, Any] = {
             "evaluation_id": str(self.evaluation.id),
             "period_start": now.isoformat(),
+            REPORT_RUN_HANDLE_KEY: {},
         }
 
     def test_list_returns_compact_index_newest_first(self):
@@ -1049,9 +1177,46 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result[0]["pass_rate"], 94.2)
         self.assertEqual(result[0]["total_runs"], 53)
         self.assertNotIn("result_rates", result[0])
-        self.assertIn("run_id", result[0])
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
+
+    @parameterized.expand([(80, False), (40, True), (None, None)])
+    def test_numeric_history_identifies_comparison_rule(self, previous_threshold, matches):
+        config = (
+            {"passing_rule": {"operator": "lte", "threshold": previous_threshold}}
+            if previous_threshold is not None
+            else {}
+        )
+        self.recent_run.metadata = {
+            "output_type": "numeric",
+            "output_config": config,
+            "total_runs": 10,
+            "result_counts": {"pass": 8, "fail": 2, "na": 0},
+        }
+        self.recent_run.save()
+        self.state.update(output_type="numeric", output_config={"passing_rule": {"operator": "lte", "threshold": 40}})
+
+        result = json.loads(_list_recent_report_runs_fn(state=self.state))[0]
+
+        self.assertEqual(result["output_config"], config)
+        self.assertEqual(result["passing_rule_matches_current"], matches)
+        self.assertEqual(result["pass_rate"], 80)
+
+    def test_list_hands_out_handles_and_get_resolves_them(self):
+        # A run UUID is UUID-shaped but can never be cited, so an agent that repeats one in
+        # backticked prose writes a dead identifier. It never sees the UUID to repeat.
+        listed = json.loads(_list_recent_report_runs_fn(state=self.state))
+        handles = [run["run_id"] for run in listed]
+
+        self.assertNotIn(str(self.recent_run.id), handles)
+        self.assertEqual(len(set(handles)), len(handles))
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=handles[0]))
+        self.assertEqual(fetched["content"]["title"], "Recent report")
+        self.assertEqual(fetched["run_id"], handles[0])
+
+    def test_get_rejects_an_unknown_handle(self):
+        result = json.loads(_get_report_run_fn(state=self.state, run_id="run_9"))
+        self.assertIn("error", result)
 
     def test_list_filters_by_since_days(self):
         result = json.loads(_list_recent_report_runs_fn(state=self.state, since_days=3))
@@ -1085,8 +1250,8 @@ class TestListAndGetReportRun(BaseTest):
         trace_state = {**self.state, "evaluation_target": "trace"}
         trace_runs = json.loads(_list_recent_report_runs_fn(state=trace_state))
 
-        self.assertNotIn(str(trace_run.id), {run["run_id"] for run in generation_runs})
-        self.assertEqual([run["run_id"] for run in trace_runs], [str(trace_run.id)])
+        self.assertNotIn("Trace report", {run["title"] for run in generation_runs})
+        self.assertEqual([run["title"] for run in trace_runs], ["Trace report"])
         self.assertIn("error", json.loads(_get_report_run_fn(state=self.state, run_id=str(trace_run.id))))
         self.assertEqual(
             json.loads(_get_report_run_fn(state=trace_state, run_id=str(trace_run.id)))["content"]["title"],
@@ -1098,7 +1263,7 @@ class TestListAndGetReportRun(BaseTest):
         # excluded by a strict `lt` filter, dropping the immediately previous report —
         # the most useful one for delta/continuity analysis.
         boundary_start = dt.datetime.fromisoformat(self.state["period_start"])
-        boundary_run = self.EvaluationReportRun.objects.create(
+        self.EvaluationReportRun.objects.create(
             report=self.report,
             content={"title": "Back-to-back report", "sections": []},
             metadata={"pass_rate": 77.7, "total_runs": 11},
@@ -1108,7 +1273,7 @@ class TestListAndGetReportRun(BaseTest):
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         titles = [r["title"] for r in result]
         self.assertIn("Back-to-back report", titles)
-        boundary_entry = next(r for r in result if r["run_id"] == str(boundary_run.id))
+        boundary_entry = next(r for r in result if r["title"] == "Back-to-back report")
         self.assertEqual(boundary_entry["pass_rate"], 77.7)
         self.assertEqual(boundary_entry["total_runs"], 11)
 
@@ -1117,7 +1282,7 @@ class TestListAndGetReportRun(BaseTest):
         # downstream store activity mirrors them into metadata. The tool must read
         # either source so it stays correct if the mirror is removed.
         now = timezone.now()
-        content_only_run = self.EvaluationReportRun.objects.create(
+        self.EvaluationReportRun.objects.create(
             report=self.report,
             content={
                 "title": "Content-only metrics",
@@ -1132,7 +1297,7 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
-        entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
+        entry = next(r for r in result if r["title"] == "Content-only metrics")
         self.assertEqual(entry["pass_rate"], 75.0)
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
@@ -1152,10 +1317,10 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
 
-        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        listed_titles = {run["title"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
         fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
 
-        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertNotIn("Metrics temporarily unavailable", listed_titles)
         self.assertIn("error", fetched)
 
     def test_get_rejects_non_uuid(self):
@@ -1300,12 +1465,55 @@ class TestToolsCoordinate(SimpleTestCase):
 
 
 class TestLabelGenerationEvals(SimpleTestCase):
-    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable)
+    def test_numeric_evaluations_use_their_own_rule_and_keep_unrated_scores(self):
+        rows = [
+            [name, "numeric", None, None, None, "reason", True, 7.5, None, None] for name in ["high", "low", "unrated"]
+        ]
+        configs = {
+            "high": {"passing_rule": {"operator": "gte", "threshold": 7}},
+            "low": {"passing_rule": {"operator": "lte", "threshold": 7}},
+        }
+        labeled = _label_generation_evals(rows, set(), configs)
+        self.assertEqual([row["outcome"] for row in labeled], ["pass", "fail", None])
+        self.assertEqual([row["score"] for row in labeled], [7.5, 7.5, 7.5])
+
+    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable, numeric_score, categories, skipped)
     ROWS: list[list[object]] = [
-        ["detector-eval", "boolean", True, None, None, "struggled", None],
-        ["quality-eval", "boolean", True, None, None, "accurate", None],
-        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None],
+        ["detector-eval", "boolean", True, None, None, "struggled", None, None, None, None],
+        ["quality-eval", "boolean", True, None, None, "accurate", None, None, None, None],
+        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None, None, None, None],
     ]
+
+    @parameterized.expand(
+        [
+            (True, False, "skipped"),
+            ("true", "false", "skipped"),
+            (1, False, "skipped"),
+            (False, False, "na"),
+            ("false", "false", "na"),
+            (None, False, "na"),
+            ("false", True, "pass"),
+            (None, True, "pass"),
+        ]
+    )
+    def test_categorical_skips_are_distinct_from_na(
+        self, skipped: bool | str | int | None, applicable: bool | str, expected_outcome: str
+    ) -> None:
+        categories = ["resolved"] if applicable is True else []
+        rows = [["categorical-eval", "categorical", None, None, None, "reason", applicable, None, categories, skipped]]
+        configs = {
+            "categorical-eval": {
+                "allows_na": False,
+                "options": [{"key": "resolved", "label": "Resolved"}],
+                "passing_rule": {"categories": ["resolved"]},
+            }
+        }
+
+        labeled = _label_generation_evals(rows, set(), configs)
+
+        self.assertEqual(labeled[0]["outcome"], expected_outcome)
+        self.assertEqual(labeled[0]["reasoning"], "reason")
+        self.assertEqual(labeled[0]["categories"], categories)
 
     def test_each_evaluation_is_labeled_by_its_own_polarity(self):
         labeled = _label_generation_evals(self.ROWS, {"detector-eval"})
@@ -1320,6 +1528,6 @@ class TestLabelGenerationEvals(SimpleTestCase):
         self.assertEqual(outcomes, {"detector-eval": "pass", "quality-eval": "pass", "sentiment-eval": "negative"})
 
     def test_unsupported_output_type_is_dropped(self):
-        labeled = _label_generation_evals([["numeric-eval", "numeric", 1, None, None, "", None]], set())
+        labeled = _label_generation_evals([["unknown-eval", "unknown", 1, None, None, "", None]], set())
 
         self.assertEqual(labeled, [])

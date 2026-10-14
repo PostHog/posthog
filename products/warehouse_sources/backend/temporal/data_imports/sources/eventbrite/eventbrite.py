@@ -137,9 +137,12 @@ def _leaf_endpoint(
     incremental: Optional[IncrementalConfig] = None,
 ) -> Endpoint:
     endpoint: Endpoint = {"path": config.path, "data_selector": config.data_key}
+    params: dict[str, Any] = dict(config.params)
     if resolve is not None:
         param_name, parent, field = resolve
-        endpoint["params"] = {param_name: {"type": "resolve", "resource": parent, "field": field}}
+        params[param_name] = {"type": "resolve", "resource": parent, "field": field}
+    if params:
+        endpoint["params"] = params
     if incremental is not None:
         endpoint["incremental"] = incremental
     return endpoint
@@ -234,7 +237,10 @@ def eventbrite_source(
                 _parent_resource("events", ORG_EVENTS_PATH, "events", ("organization_id", "organizations", "id"))
             )
             leaf = _leaf_endpoint(config, resolve=("event_id", "events", "id"), incremental=incremental)
-        resources.append({"name": endpoint, "endpoint": leaf})
+        leaf_resource: EndpointResource = {"name": endpoint, "endpoint": leaf}
+        if config.include_from_parent:
+            leaf_resource["include_from_parent"] = config.include_from_parent
+        resources.append(leaf_resource)
 
         rest_config = {"client": client, "resources": resources}
         built = rest_api_resources(

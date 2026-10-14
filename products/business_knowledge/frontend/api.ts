@@ -2,8 +2,14 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgePlaygroundChatsAskCreate,
+    businessKnowledgePlaygroundChatsCreate,
+    businessKnowledgePlaygroundChatsDestroy,
+    businessKnowledgePlaygroundChatsList,
+    businessKnowledgePlaygroundChatsRetrieve,
     businessKnowledgeSourcesCreate,
     businessKnowledgeSourcesDestroy,
+    businessKnowledgeSourcesDocumentsList,
     businessKnowledgeSourcesList,
     businessKnowledgeSourcesPartialUpdate,
     businessKnowledgeSourcesRefreshCreate,
@@ -11,10 +17,15 @@ import {
     businessKnowledgeSourcesTextRetrieve,
 } from './generated/api'
 import type {
+    BusinessKnowledgeSourcesListAddedBy,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
     KnowledgeSourceApi,
+    PlaygroundChatApi,
+    PlaygroundChatListApi,
+    SandboxQuestionApi,
+    KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
 export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
@@ -49,16 +60,25 @@ export interface UpdateSourcePayload {
     always_include?: boolean
 }
 
-export async function listSources(params?: { search?: string; sourceType?: string }): Promise<KnowledgeSourceApi[]> {
+export async function listSources(params?: {
+    search?: string
+    sourceType?: string
+    addedBy?: string
+}): Promise<KnowledgeSourceApi[]> {
     const search = params?.search?.trim()
     const sourceType =
         params?.sourceType && params.sourceType !== 'all'
             ? (params.sourceType as BusinessKnowledgeSourcesListSourceType)
             : undefined
+    const addedBy =
+        params?.addedBy && params.addedBy !== 'all'
+            ? (params.addedBy as BusinessKnowledgeSourcesListAddedBy)
+            : undefined
     const query: BusinessKnowledgeSourcesListParams = {
         limit: 1000,
         ...(search ? { search } : {}),
         ...(sourceType ? { source_type: sourceType } : {}),
+        ...(addedBy ? { added_by: addedBy } : {}),
     }
     const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()), query)
     return response.results
@@ -66,6 +86,12 @@ export async function listSources(params?: { search?: string; sourceType?: strin
 
 export async function getSource(id: string): Promise<KnowledgeSourceApi> {
     return await businessKnowledgeSourcesRetrieve(String(getCurrentTeamId()), id)
+}
+
+export async function getSourceDocuments(id: string): Promise<KnowledgeSourceDocumentApi[]> {
+    // 5000 matches the crawl cap (MAX_URLS_PER_SOURCE), so one page is the full set.
+    const response = await businessKnowledgeSourcesDocumentsList(String(getCurrentTeamId()), id, { limit: 5000 })
+    return response.results
 }
 
 export async function getSourceText(id: string): Promise<{ id: string; text: string }> {
@@ -105,6 +131,27 @@ export async function updateSource(id: string, payload: UpdateSourcePayload): Pr
 
 export async function deleteSource(id: string): Promise<void> {
     await businessKnowledgeSourcesDestroy(String(getCurrentTeamId()), id)
+}
+
+export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+}
+
+export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {
+    return await businessKnowledgePlaygroundChatsCreate(String(getCurrentTeamId()))
+}
+
+export async function getPlaygroundChat(chatId: string): Promise<PlaygroundChatApi> {
+    return await businessKnowledgePlaygroundChatsRetrieve(String(getCurrentTeamId()), chatId)
+}
+
+export async function askPlaygroundChat(chatId: string, question: string): Promise<PlaygroundChatApi> {
+    const body: SandboxQuestionApi = { question }
+    return await businessKnowledgePlaygroundChatsAskCreate(String(getCurrentTeamId()), chatId, body)
+}
+
+export async function deletePlaygroundChat(chatId: string): Promise<void> {
+    await businessKnowledgePlaygroundChatsDestroy(String(getCurrentTeamId()), chatId)
 }
 
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {

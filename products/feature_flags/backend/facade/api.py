@@ -3,13 +3,16 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
-The read helpers (``user_can_edit_flag``, ``flag_disable_requires_approval``,
+``clear_feature_enrollment`` falls back to a raw model write when the serializer rejects
+a flag's stored config version 1 filters, because enrollment cleanup must never fail.
+The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
 the same boundary.
 
 Writes do not enforce access control — that lives at the viewset layer. A caller
-acting on behalf of an end user must pre-check ``user_can_edit_flag`` first.
+acting on behalf of an end user must pre-check ``user_can_edit_flag`` before writing an
+existing flag, and ``user_can_create_flags`` before creating one.
 
 Approval-gate ordering constraint for callers: a gated write can raise ``ApprovalRequired``
 (surfacing as a 409 + change_request_id), which conflicts with ``transaction.atomic`` — the
@@ -27,6 +30,7 @@ caller cannot surface a 409/change request), so ``ApprovalRequired`` is never ra
 from datetime import datetime
 from typing import Any, Literal
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
@@ -38,12 +42,15 @@ from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
     query_feature_flag_request_usage,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:
@@ -209,6 +216,47 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
 
 
+def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
+    """Clear the enrollment marker on an early access feature's linked flag (feature demoted or deleted).
+
+    Cleanup must never fail: a linked flag can hold stored filter shapes the current
+    FeatureFlagSerializer rejects or crashes on (group-aggregated conditions, malformed
+    legacy properties, ...), and a rejection here would make the feature undeletable.
+    Prefer the gated facade write (validation, activity logging); fall back to a raw
+    model write when it raises. This is a system write (user=None): an enabled approval
+    policy must never block cleanup with a 409, and activity is logged as system.
+
+    Another config format raises ``ConfigFormatError`` from ``set_feature_enrollment`` before
+    either write. No caller reaches it: an early access feature only links config version 1 flags.
+
+    The early return covers a hard-deleted id or another team's flag, so nothing is left to
+    clear. A soft-deleted flag still gets cleared, through ``objects_including_soft_deleted``:
+    the default manager hides it, and skipping it would leave the marker to come back with the
+    flag on a restore.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team=team).first()
+    if flag is None:
+        return
+
+    cleared_filters = set_feature_enrollment(flag.get_filters() or {}, None)
+    # Without "groups", the serializer's partial-PATCH shortcut discards the incoming
+    # filters and returns the stored ones — silently skipping the cleanup entirely.
+    if "groups" in cleared_filters:
+        try:
+            update_flag(flag, {"filters": cleared_filters}, team=team, user=None)
+            return
+        except Exception as exc:
+            # Stored legacy JSON can raise arbitrary exception types through the flag
+            # validator (ValidationError, TypeError, KeyError, ...), so catch broadly.
+            logger.warning(
+                "early_access_feature_enrollment_cleanup_fell_back_to_raw_write",
+                feature_flag_id=flag.id,
+                error=str(exc),
+            )
+    flag.filters = cleared_filters  # nosemgrep: feature-flags-no-raw-filters-access -- deliberate never-fail cleanup fallback when the gated write can't validate stored legacy filter shapes
+    flag.save(update_fields=["filters"])
+
+
 def _roll_out_variant(
     current_filters: dict,
     variant_key: str,
@@ -311,6 +359,17 @@ def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
     if not isinstance(user, User) or user.is_anonymous:
         return False
     return UserAccessControl(user=user, team=team).check_access_level_for_object(flag, "editor")
+
+
+def user_can_create_flags(*, team: Team, user: User) -> bool:
+    """Whether ``user`` may create a flag in this team — the resource-level counterpart of
+    ``user_can_edit_flag``, and the same check the feature flag API enforces on create.
+
+    A product that creates a flag as a side effect of its own write needs this, because the
+    write goes through ``create_flag``, which enforces no access control. Without it, editor
+    access to that product substitutes for flag access. Unlike ``user_can_edit_flag`` this takes
+    a real ``User``, so a caller holding an unknown principal narrows it before asking."""
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
 def flag_disable_requires_approval(team: Team) -> bool:

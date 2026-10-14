@@ -11,6 +11,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _inline_email_styles,
     _linkify_citations,
     _render_metrics_block_html,
+    _render_metrics_slack_blocks,
     _render_section_html,
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
@@ -306,8 +307,10 @@ class TestInlineEmailStyles(SimpleTestCase):
 
 
 class TestMetricsBlockHtml(SimpleTestCase):
-    def test_renders_all_counts(self):
+    @parameterized.expand(["boolean", "numeric"])
+    def test_renders_all_counts(self, output_type: str) -> None:
         metrics = EvalReportMetrics(
+            output_type=output_type,
             total_runs=100,
             result_counts={"pass": 80, "fail": 18, "na": 2},
             period_start="2026-04-08T14:00:00+00:00",
@@ -320,6 +323,11 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("2", html)  # na_count
         self.assertIn("81.63%", html)
         self.assertIn("Apr 08, 2026 14:00 UTC", html)
+        slack_text = _render_metrics_slack_blocks(metrics)[0]["text"]["text"]
+        self.assertIn("Pass: 80", slack_text)
+        self.assertIn("Fail: 18", slack_text)
+        self.assertIn("N/A: 2", slack_text)
+        self.assertIn("Pass rate: 81.63%", slack_text)
 
     def test_renders_delta_up(self):
         metrics = EvalReportMetrics(

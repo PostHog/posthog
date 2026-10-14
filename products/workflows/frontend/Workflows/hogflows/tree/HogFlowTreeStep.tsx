@@ -12,22 +12,21 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
-import { HogFlowTreeBranchIndicator } from './HogFlowTreeBranchIndicator'
 import { isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeStep({
     action,
     onDragEnd,
     onDragStart,
-    branchColor,
     collapseControl,
+    stepId,
     canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action),
 }: {
     action: HogFlowAction
     onDragEnd: () => void
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
-    branchColor?: string
     collapseControl?: ReactNode
+    stepId: string
     canDrag?: boolean
 }): JSX.Element {
     const { animatingEdgePair, nodesById, selectedNode } = useValues(hogFlowEditorLogic)
@@ -58,7 +57,8 @@ export function HogFlowTreeStep({
     const hasValidationIssue =
         validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0
     const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`) ?? false
-    const hasFooterContent = !!action.description || !!step?.previews.length
+    const previews = step?.previews ?? []
+    const hasFooterContent = !!action.description || previews.length > 0
 
     return (
         <Item
@@ -71,9 +71,8 @@ export function HogFlowTreeStep({
                 'data-[workflow-tree-dragging]:opacity-50'
             )}
             data-attr="workflow-tree-step"
-            id={`workflow-tree-step-${action.id}`}
+            id={stepId}
         >
-            {branchColor && <HogFlowTreeBranchIndicator color={branchColor} className="inset-y-1" />}
             <Button
                 type="button"
                 variant="link"
@@ -114,7 +113,7 @@ export function HogFlowTreeStep({
             </ItemMedia>
             <ItemContent className="pointer-events-none relative z-10 min-w-0 gap-0.5">
                 <div className="flex min-w-0 items-center gap-1">
-                    <ItemTitle className="pointer-events-none min-w-0 flex-1 max-w-full truncate leading-tight">
+                    <ItemTitle className="pointer-events-none min-w-0 flex-1 max-w-full break-words whitespace-normal leading-tight">
                         {action.name}
                     </ItemTitle>
                     {canHaveActions && (
@@ -157,19 +156,19 @@ export function HogFlowTreeStep({
                     )}
                 </div>
                 {hasFooterContent && (
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                         {action.description && (
-                            <ItemDescription className="pointer-events-none min-w-0 flex-1 truncate leading-tight">
+                            <ItemDescription className="pointer-events-none min-w-0 flex-1 whitespace-normal break-words leading-tight">
                                 {action.description}
                             </ItemDescription>
                         )}
-                        {!!step?.previews.length && (
-                            <div className="pointer-events-none ms-auto flex min-w-0 shrink-0 items-center gap-1 overflow-hidden">
-                                {step.previews.slice(0, 3).map((preview, index) => (
+                        {previews.length > 0 && (
+                            <div className="pointer-events-none ms-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
+                                {previews.slice(0, 3).map((preview, index) => (
                                     <Badge
                                         key={`${preview.label}-${index}`}
                                         variant="default"
-                                        className="max-w-36 truncate"
+                                        className="max-w-full whitespace-normal break-words h-auto min-h-4 py-0 leading-tight"
                                     >
                                         {preview.icon}
                                         {preview.label}

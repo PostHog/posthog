@@ -1,0 +1,114 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Generating a receipt spend snapshot image",
+  "scenario": "A personal budgeting app lets a user upload two receipt photos (groceries and a utility bill) and generates a single infographic-style summary image via Gemini's image model through the Vercel AI SDK, for the user to paste into a paper budgeting notebook.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "google"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gemini-3.1-flash-image-preview"
+    ],
+    "content_types": [
+      "file",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "cache_hits": 0,
+        "retry_count": 1,
+        "$ai_output_tokens": 1909,
+        "request_id": "b0cd0b1a-2ab7-70f1-395c-bce37764fc71",
+        "attachment_count": 2,
+        "request_label": "generate-receipt-summary-image-v1",
+        "$ai_model": "gemini-3.1-flash-image-preview",
+        "$ai_input_tokens": 1066,
+        "sesId": "0a1243fb-a495-7991-be29-5e54af1d997a",
+        "$ai_lib_version": "7.9.3",
+        "$ai_latency": 15.483,
+        "feature": "receipt-collage-gen",
+        "$ai_framework": "vercel",
+        "$ai_tokens_source": "sdk",
+        "$ai_provider": "google",
+        "model_alias": "gemini-3.1-flash-image-preview",
+        "request_uid": "8af9a38a-08a7-74f7-c830-30d00d087f24",
+        "$ai_model_parameters": {
+          "temperature": 1,
+          "top_p": 0.95
+        },
+        "$ai_lib": "posthog-ai",
+        "$ai_base_url": "",
+        "$ai_http_status": 200,
+        "aspectRatio": "16:9",
+        "$groups": {
+          "team": "da01babd-c162-70d8-9cf1-f80cec3f7cee"
+        },
+        "$lib": "posthog-node",
+        "resolution": "2k",
+        "teamId": "da01babd-c162-70d8-9cf1-f80cec3f7cee",
+        "quality_tier": "2k",
+        "$ai_trace_id": "gen-8f3a9c1d2e6b7f04-teamId-da01babd-c162-70d8-9cf1-image",
+        "$ai_session_id": "0a1243fb-a495-7991-be29-5e54af1d997a",
+        "$lib_version": "5.26.0",
+        "$ai_framework_version": "5",
+        "$ai_text_input_tokens": 550,
+        "$ai_image_input_tokens": 516,
+        "$ai_image_output_tokens": 1680,
+        "$group_0": "da01babd-c162-70d8-9cf1-f80cec3f7cee",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "file": "raw files not supported",
+                "mediaType": "image/jpeg",
+                "type": "file"
+              },
+              {
+                "file": "raw files not supported",
+                "mediaType": "image/png",
+                "type": "file"
+              },
+              {
+                "text": "I'm attaching two photos: my grocery receipt from this weekend and my\nelectricity bill for the month. I want you to generate a single square\ngraphic I can drop into my budget notebook that visually summarizes both,\ninstead of me typing the numbers into a spreadsheet by hand again.\n\nPlease make it look like a clean infographic card, not a photo collage:\n- A header that says \"Monthly Spend Snapshot\"\n- A small subheader underneath with just the month and year, nothing\n  else identifying, so I can reuse the same layout every month\n- Two stacked bars or blocks, one for \"Groceries\" and one for \"Utilities\",\n  sized roughly proportional to what's on each receipt (groceries is the\n  bigger one this month, utilities is smaller but still significant\n  compared to last month's bill, which was noticeably lower)\n- Small icons next to each category (a shopping basket for groceries, a\n  lightning bolt for utilities) instead of showing the actual receipt text\n  or any line items from either photo\n- A muted, paper-like background so it doesn't look like a screenshot\n  pasted onto a page, more like something hand-drawn for a notebook\n- Keep all dollar figures approximate and rounded to the nearest ten, I\n  don't need exact cents reproduced anywhere on the image, this is just\n  for a quick visual reference, not for filing anything official\n- No logos, store names, addresses, card numbers, or barcodes from either\n  receipt should appear anywhere in the final graphic, just the category\n  totals and the two icons I described above\n- Use a calm color palette (soft greens and blues) so it matches the rest\n  of my budgeting notebook pages, which all use that same palette\n- If there's room, add a tiny footer line noting this was generated from\n  a photo and might be slightly off\n\nIf the electricity bill photo is too blurry to read the total reliably,\njust estimate based on what's legible and note that it's approximate in\na small caption at the bottom of the card instead of guessing silently\nand presenting it as exact. Same goes for the grocery total if any part\nof the receipt is cut off in the photo I sent.",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "data": "aGVsbG8tZmFrZS1pbWFnZQ==",
+                "mediaType": "image/jpeg",
+                "name": "budget-collage",
+                "type": "file"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

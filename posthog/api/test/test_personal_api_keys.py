@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.schema import EventsQuery
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -24,6 +25,7 @@ from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, Person
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.test.authentication_checks import covers_authentication
 
 from products.product_analytics.backend.facade.models import Insight
 
@@ -172,13 +174,17 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             ],
         )
         response = self.client.patch(
-            f"/api/personal_api_keys/{key.id}", {"label": "test-update", "scopes": ["insight:write"]}
+            f"/api/personal_api_keys/{key.id}",
+            {"label": "test-update", "scopes": ["insight:write"], "scoped_teams": [self.team.id, self.team.id]},
         )
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == key.id
         assert data["label"] == "test-update"
         assert data["scopes"] == ["insight:write"]
+        assert data["scoped_teams"] == [self.team.id]
+        key.refresh_from_db()
+        assert key.scoped_teams == [self.team.id]
 
     def test_allows_all_scope(self):
         response = self.client.post(
@@ -544,6 +550,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    @covers_authentication(PersonalAPIKeyAuthentication)
     def test_user_endpoint(self):
         # NOTE: This is not actually supported currently by new scopes but needs to work for pre-scoped api keys
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
@@ -1103,8 +1110,21 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand(
+        [
+            ("organization", "/api/organizations/{organization_id}/"),
+            ("organization_members", "/api/organizations/{organization_id}/members/"),
+        ]
+    )
+    def test_denies_access_to_org_resources_with_project_token_param(self, _name: str, url: str):
+        url = url.format(organization_id=self.organization.id)
+
+        response = self._do_request(f"{url}?token={self.team.api_token}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_allows_user_me_read_access(self):
         # The /users/@me/ endpoint is not team-based, but it's useful as a way of checking whether the key works

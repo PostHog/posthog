@@ -12,6 +12,8 @@ import { datasetsList } from '../generated/api'
 export const datasetsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.LLM_DATASETS,
     path: ['products', 'ai_observability', 'frontend', 'emptyState', 'datasetsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await datasetsList(projectId, { limit: 1 })

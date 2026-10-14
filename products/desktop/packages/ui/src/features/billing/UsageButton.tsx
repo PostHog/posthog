@@ -1,6 +1,7 @@
 import { Circle } from "@phosphor-icons/react";
 import {
-  formatResetTime,
+  codeUsageResetLabel,
+  codeUsageWindowSuffix,
   formatUsageBreakdown,
   formatUsdAmount,
 } from "@posthog/core/billing/usageDisplay";
@@ -65,14 +66,14 @@ export function UsageButton() {
     : meter.kind === "dollars"
       ? `Usage: ${formatUsdAmount(meter.usedUsd)}`
       : `Usage: ${percent}%`;
-  const amountLabel =
+  const usedLabel =
     meter.kind === "dollars"
       ? `${formatUsdAmount(meter.usedUsd)} of ${formatUsdAmount(meter.limitUsd)} used`
       : `${percent}% used`;
-  const resetLabel =
-    meter.kind === "dollars"
-      ? formatResetTime(meter.resetAt, { label: "Billing period ends" })
-      : formatResetTime(meter.bucket.reset_at);
+  // The window belongs next to the amount: on its own the figure reads as
+  // today's spend.
+  const amountLabel = `${usedLabel} ${codeUsageWindowSuffix(meter)}`;
+  const resetLabel = codeUsageResetLabel(meter);
   const breakdownLabel =
     meter.kind === "dollars" && meter.breakdown
       ? formatUsageBreakdown(meter.breakdown)

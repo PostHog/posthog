@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import threading
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -162,6 +165,65 @@ def test_find_emits_diagnostics_on_no_compatible_artifact(capsys: pytest.Capture
     stderr = capsys.readouterr().err
     assert "Fetched 2 migrated-schema artifact(s)" in stderr
     assert "After name/expiry/size/branch filters: 0 candidate(s)" in stderr
+
+
+class _ScriptedStatusServer(HTTPServer):
+    statuses: list[int]
+    request_count: int
+
+
+class _ScriptedStatusHandler(BaseHTTPRequestHandler):
+    server: _ScriptedStatusServer
+
+    def do_GET(self) -> None:
+        index = min(self.server.request_count, len(self.server.statuses) - 1)
+        self.server.request_count += 1
+        self.send_response(self.server.statuses[index])
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def scripted_status_server() -> Iterator[_ScriptedStatusServer]:
+    server = _ScriptedStatusServer(("127.0.0.1", 0), _ScriptedStatusHandler)
+    server.statuses = [200]
+    server.request_count = 0
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.parametrize(
+    "statuses,expected_status,expected_requests",
+    [
+        ([500, 502, 200], 200, 3),
+        ([503], 503, db_schema.GITHUB_RETRY_TOTAL + 1),
+        ([404, 200], 404, 1),
+    ],
+    ids=["transient_5xx_recovers", "persistent_5xx_returns_last_response", "4xx_not_retried"],
+)
+def test_github_session_retries_only_server_errors(
+    scripted_status_server: _ScriptedStatusServer,
+    monkeypatch: pytest.MonkeyPatch,
+    statuses: list[int],
+    expected_status: int,
+    expected_requests: int,
+) -> None:
+    monkeypatch.setattr(db_schema, "GITHUB_RETRY_BACKOFF_FACTOR", 0)
+    scripted_status_server.statuses = statuses
+    session = db_schema._github_session()
+    session.mount("http://", session.get_adapter("https://"))
+
+    response = session.get(f"http://127.0.0.1:{scripted_status_server.server_port}/", timeout=5)
+
+    assert response.status_code == expected_status
+    assert scripted_status_server.request_count == expected_requests
 
 
 def test_download_fails_when_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:

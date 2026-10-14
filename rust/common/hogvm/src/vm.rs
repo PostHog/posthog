@@ -1007,7 +1007,10 @@ impl<'a> HogVM<'a> {
         let result = {
             let a_lit = a.deref(&self.heap)?;
             let b_lit = b.deref(&self.heap)?;
-            if self.context.coerce_comparisons {
+            if matches!(a_lit, HogLiteral::Null) || matches!(b_lit, HogLiteral::Null) {
+                // SQL semantics, shared with the Node and Python VMs: a null on either side is no match.
+                HogLiteral::Boolean(false)
+            } else if self.context.coerce_comparisons {
                 compare_values(op, a_lit, b_lit, &self.heap)?
             } else if let (HogLiteral::Array(a_values), HogLiteral::Array(b_values)) =
                 (a_lit, b_lit)

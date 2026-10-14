@@ -36,9 +36,13 @@ export function wizardRunTerminalLabel(status: WizardRunApi['status']): string {
 }
 
 export function wizardRunCanCancel(run: WizardRunApi, currentUserId: number | null): boolean {
-    // The API only lets the run's creator cancel it, so hide the control for everyone else.
-    // A run with no creator has no owner who can cancel it, so hide it there too.
-    return wizardRunIsActive(run) && run.created_by_id !== null && run.created_by_id === currentUserId
+    // The server cannot stop a local process, even when it marks that run canceled.
+    return (
+        run.environment === 'cloud' &&
+        wizardRunIsActive(run) &&
+        run.created_by_id !== null &&
+        run.created_by_id === currentUserId
+    )
 }
 
 const FAILURE_STAGE_BY_ERROR_CODE: Record<string, WizardRunStageEnumApi> = {
@@ -62,6 +66,57 @@ export function wizardRunFailureStage(run: WizardRunApi): WizardRunStageEnumApi 
     }
 
     return FAILURE_STAGE_BY_ERROR_CODE[run.error_code ?? ''] ?? WizardRunStageEnumApi.ExecutingWizard
+}
+
+export type WizardRunProgressState = 'complete' | 'active' | 'pending' | 'failed'
+
+export function wizardRunStagePosition(run: WizardRunApi): number {
+    if (run.status === 'completed') {
+        return 4
+    }
+    if (run.status === 'created') {
+        return 0
+    }
+
+    const stage = run.status === 'failed' ? wizardRunFailureStage(run) : run.stage
+
+    switch (stage) {
+        case 'dispatching':
+        case 'provisioning':
+            return 0
+        case 'preparing_workspace':
+            return 1
+        case 'executing_wizard':
+            return 2
+        case 'creating_artifacts':
+            return 3
+        default:
+            return run.status === 'running' ? 2 : 0
+    }
+}
+
+export function wizardRunProgressState(run: WizardRunApi, step: number): WizardRunProgressState {
+    if (run.status === 'cancelled') {
+        return step === 0 ? 'complete' : 'pending'
+    }
+
+    const position = wizardRunStagePosition(run)
+
+    if (run.status === 'failed') {
+        if (wizardRunFailureStage(run) === null) {
+            return step === 0 ? 'complete' : 'pending'
+        }
+        if (position === step) {
+            return 'failed'
+        }
+    }
+    if (position > step) {
+        return 'complete'
+    }
+    if (position === step && run.status !== 'completed') {
+        return 'active'
+    }
+    return 'pending'
 }
 
 export function wizardGithubRepositoryUrl(repository: string): string {

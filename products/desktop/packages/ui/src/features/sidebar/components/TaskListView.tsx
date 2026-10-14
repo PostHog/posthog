@@ -12,7 +12,8 @@ import type {
   TaskGroup,
 } from "@posthog/core/sidebar/sidebarData.types";
 import { cn, MenuLabel, Text } from "@posthog/quill";
-import { builderHog } from "@posthog/ui/assets/hedgehogs";
+import { hoggiePng } from "@posthog/shared/hoggies";
+import { useFilingTasksStore } from "@posthog/ui/features/canvas/stores/filingTasksStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
@@ -39,7 +40,13 @@ import {
   motion,
   useReducedMotion,
 } from "framer-motion";
-import { Fragment, useCallback, useEffect, useMemo } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 
 interface TaskListViewProps {
   pinnedTasks: TaskData[];
@@ -72,6 +79,58 @@ interface TaskListViewProps {
 
 function SectionLabel({ label }: { label: string }) {
   return <MenuLabel className="flex items-center py-0">{label}</MenuLabel>;
+}
+
+function FilingTaskAnimation({
+  taskId,
+  isDragged,
+  prefersReducedMotion,
+  children,
+}: {
+  taskId: string;
+  isDragged: boolean;
+  prefersReducedMotion: boolean;
+  children: ReactNode;
+}) {
+  const filing = useFilingTasksStore((state) => state.filingTasks[taskId]);
+  const hideFiledTask = useFilingTasksStore((state) => state.hideFiledTask);
+
+  if (filing?.status === "hidden") return null;
+
+  const rowTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : {
+        layout: { type: "spring" as const, stiffness: 520, damping: 42 },
+        height: { duration: 0.16, ease: "easeOut" as const },
+        opacity: { duration: 0.1 },
+      };
+
+  return (
+    <motion.div
+      layout={prefersReducedMotion ? false : "position"}
+      layoutId={`sidebar-task-${taskId}`}
+      initial={false}
+      animate={
+        isDragged || filing?.status === "complete"
+          ? {
+              height: 0,
+              opacity: 0,
+              scale: 0.98,
+              x: filing?.status === "complete" ? -16 : 0,
+            }
+          : { height: "auto", opacity: 1, scale: 1 }
+      }
+      onAnimationComplete={() => {
+        if (filing?.status === "complete") {
+          hideFiledTask(taskId, filing.channelId);
+        }
+      }}
+      transition={rowTransition}
+      className="overflow-hidden"
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 export function TaskListView({
@@ -172,14 +231,6 @@ export function TaskListView({
     [],
   );
 
-  const rowTransition = prefersReducedMotion
-    ? { duration: 0 }
-    : {
-        layout: { type: "spring" as const, stiffness: 520, damping: 42 },
-        height: { duration: 0.16, ease: "easeOut" as const },
-        opacity: { duration: 0.1 },
-      };
-
   const draggedIdSet = useMemo(
     () => new Set(dragState?.items.map((task) => task.id) ?? []),
     [dragState],
@@ -188,18 +239,11 @@ export function TaskListView({
   const renderTaskRow = (task: TaskData, depth = 0) => {
     const isDragged = draggedIdSet.has(task.id);
     return (
-      <motion.div
+      <FilingTaskAnimation
         key={task.id}
-        layout={prefersReducedMotion ? false : "position"}
-        layoutId={`sidebar-task-${task.id}`}
-        initial={false}
-        animate={
-          isDragged
-            ? { height: 0, opacity: 0, scale: 0.98 }
-            : { height: "auto", opacity: 1, scale: 1 }
-        }
-        transition={rowTransition}
-        className="overflow-hidden"
+        taskId={task.id}
+        isDragged={isDragged}
+        prefersReducedMotion={Boolean(prefersReducedMotion)}
       >
         <TaskRow
           task={task}
@@ -228,7 +272,7 @@ export function TaskListView({
           )}
           depth={depth}
         />
-      </motion.div>
+      </FilingTaskAnimation>
     );
   };
 
@@ -306,7 +350,7 @@ export function TaskListView({
         groupedTasks.length === 0 ? (
           <div className="flex flex-col items-center gap-1 px-4 pt-6 pb-4 text-center">
             <motion.img
-              src={builderHog}
+              src={hoggiePng("construction-1")}
               alt=""
               className="pointer-events-none w-[72px]"
               initial={{ opacity: 0, y: 8 }}

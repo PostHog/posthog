@@ -238,6 +238,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                     }
 
                     // Double-check with API for recently created flags
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: key })}`
                     )

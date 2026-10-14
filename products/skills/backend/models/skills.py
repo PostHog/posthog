@@ -15,8 +15,10 @@ from ..marketplace.packaging import SkillExport, SkillFileExport, render_skill_m
 # they'd never surface beside their canonical siblings. Values mirror SCOUT_SKILL_CATEGORY /
 # REVIEW_HOG_SKILL_CATEGORY (products can't import each other, so they're duplicated here exactly
 # like the frontend tab map duplicates them).
+MAX_SKILL_CATEGORY_LENGTH = 64
+SCOUT_SKILL_CATEGORY = "scout"
 CATEGORY_BY_NAME_PREFIX: tuple[tuple[str, str], ...] = (
-    ("signals-scout-", "scout"),
+    ("signals-scout-", SCOUT_SKILL_CATEGORY),
     ("review-hog-", "review_hog"),
 )
 
@@ -80,7 +82,7 @@ class LLMSkill(UUIDModel):
     # Generic classification, decoupled from the skill name. Empty for an ordinary skill; a known
     # value (e.g. "scout") groups the skill into its own surface in the UI. Producers own the value
     # (the Signals harness stamps "scout"); the skills product treats it as an opaque string.
-    category = models.CharField(max_length=64, blank=True, default="", db_default="")
+    category = models.CharField(max_length=MAX_SKILL_CATEGORY_LENGTH, blank=True, default="", db_default="")
 
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)

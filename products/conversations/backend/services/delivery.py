@@ -28,7 +28,7 @@ from products.conversations.backend.models import (
     ConversationDeliveryPart,
     TeamConversationsSlackConfig,
 )
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from products.conversations.backend.models.delivery import (
     DELIVERY_ERROR_MAX_LENGTH,
     DeliverySnapshotTooLargeError,
@@ -195,7 +195,10 @@ def _author_for_comment(comment: Comment, team: Team) -> CommentAuthor:
         return CommentAuthor(name=name, email=created_by.email or "")
     settings_dict = team.conversations_settings or {}
     bot_name = settings_dict.get("slack_bot_display_name")
-    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else "AI assistant", email="")
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    # A workflow reply is not the assistant. Fall back to Support when the team has no bot name.
+    fallback = "Support" if context.get("author_type") == WORKFLOW_AUTHOR_TYPE else "AI assistant"
+    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else fallback, email="")
 
 
 def _ticket_belongs_to_comment_team(ticket: Ticket, comment: Comment) -> bool:
@@ -1042,3 +1045,38 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
         part.refresh_from_db()
         transaction.on_commit(lambda: _safe_wake(wake, part))
     return part
+
+
+def delivery_ticket_is_live(delivery: ConversationDelivery) -> bool:
+    """Whether the delivery's ticket still exists and is not deleted, so a reply may go out."""
+    if delivery.ticket_id is None:
+        return True
+    # nosemgrep: idor-lookup-without-team (ticket id comes from the claimed delivery row)
+    return Ticket.objects.filter(id=delivery.ticket_id).exists()
+
+
+def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
+    """Stop outbound sends for a ticket that was just soft-deleted.
+
+    QuerySet.update skips the model save hook, so terminal_at is set here.
+    A failed row is what the worker treats as done.
+    """
+    now = timezone.now()
+    open_statuses = [ConversationDelivery.Status.PENDING, ConversationDelivery.Status.PROCESSING]
+    delivery_ids = list(
+        ConversationDelivery.objects.for_team(team_id)
+        .filter(ticket_id=ticket_id, status__in=open_statuses)
+        .values_list("id", flat=True)
+    )
+    if not delivery_ids:
+        return
+    failed = {
+        "status": ConversationDelivery.Status.FAILED,
+        "terminal_at": now,
+        "last_error_code": "ticket_deleted",
+        "updated_at": now,
+    }
+    ConversationDeliveryPart.objects.for_team(team_id).filter(
+        delivery_id__in=delivery_ids, status__in=open_statuses
+    ).update(**failed)
+    ConversationDelivery.objects.for_team(team_id).filter(id__in=delivery_ids).update(**failed)

@@ -1,5 +1,31 @@
 # Security guidelines for agents
 
+## Routing security fixes
+
+**Security fixes land in `PostHog/posthog` by default.**
+`PostHog/posthog-private` is only for severe vulnerabilities that need an embargo.
+An embargo is expensive: team-security pauses the private sync, disables the merge queue, and ships the fix through the security sync flow.
+Most security fixes do not justify that cost.
+
+Before you create a branch or PR, choose the route:
+
+- **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+
+A public security fix is a normal fix with a neutral description.
+Describe what the change does, not how to exploit the old behavior.
+Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
+
+Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
+When you ask, say why the finding looks severe enough for an embargo.
+If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
+
+Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
+
+This section is about where the fix lands; the rest of this doc is about writing secure code.
+
 ## Principle of Least Privilege
 
 Default to the smallest permission, narrowest field set, and shortest scope that still works. If a change needs more access than what's already in place, stop and reconsider the design before widening it.
@@ -23,6 +49,14 @@ Default to the smallest permission, narrowest field set, and shortest scope that
 - **Support rotation from day one.** Read the key as a list, newest first: the first element signs/encrypts, all elements are tried for verify/decrypt. Prefer a single comma-separated env var (`KEY="<new>,<old>"`) parsed with `get_list()` — the Fernet `new,old` convention. Examples: `RECORDING_API_JWT_SECRET` (`recording_api_jwt.py`), `FLAGS_SECRET_KEYS` (`encrypted_flag_payloads.py`). For encryption use `MultiFernet` (encrypt with first, decrypt with any) — see `posthog/helpers/encrypted_fields.py`. Encrypting data at rest? ship a re-encryption path that re-wraps onto the primary key, like `posthog/management/commands/reencrypt_fields.py`. The primary + `_FALLBACKS` pair (`JWT_SIGNING_KEY` / `JWT_SIGNING_KEY_FALLBACKS`) is the older two-var variant; single-var comma-separated is preferred for new keys.
 - **Unique value per environment — including prod US and prod EU.** Never share a key value across environments; provision each (dev, prod-US, prod-EU) independently so one region can rotate without breaking another and a leak in one doesn't compromise the rest. Enforced at provisioning, not in code — so never hardcode a shared prod default. Fail closed when a prod key is unset (mirror the `SECRET_KEY` startup guard in `posthog/settings/access.py` and `RECORDING_API_JWT_SECRET`'s empty-in-prod default).
 - **Don't extend `INTERNAL_API_SECRET` to new service-to-service calls.** It's a single fleet-wide shared secret already trusted by many services across Django, Node, and Rust — one leak reaches all of them — so it must not grow new callers or protected endpoints (it's being actively retired edge-by-edge; adding one moves it backwards). For a new internal call, in order of preference: (1) **mint a scoped JWT (strongly preferred)** — a dedicated per-audience signing key (never `INTERNAL_API_SECRET`/`SECRET_KEY`/`JWT_SIGNING_KEY`) with claims pinning the token to its team and operation, verified per-route; use the shared machinery instead of hand-rolling: `ScopedServiceJwtPurpose` + `ScopedServiceJWTAuthentication` in `posthog/scoped_service_jwt.py` (Django mint/verify) and `ScopedServiceJwt` in `nodejs/src/cdp/utils/scoped-service-jwt.ts` (Node mint/verify); worked examples: the conversations ticket route (`products/conversations/backend/api/internal.py`) and its minting worker (`nodejs/src/cdp/async-functions/internal-api-call.ts`). (2) If a JWT genuinely doesn't fit, **a dedicated static secret** scoped to that one caller→callee pair (`<PURPOSE>_API_SECRET`, its own env var, rotatable, empty-in-prod-fail-closed) — never reuse `INTERNAL_API_SECRET`. The goal is blast radius: no single "master" credential that authenticates to a dozen services — a scoped JWT limits a leak to one team + operation; a dedicated secret limits it to one hop.
+
+## Authentication classes
+
+In a test marked with `@covers_authentication(<class>)`, when the class returns a `User`, the same request runs again with that user deactivated and then blocked, and the test fails if either run lets the user in.
+
+- **Mark one test per DRF authentication class.** Decorate a test that authenticates a request through the class with `@covers_authentication(<class>)` from `posthog/test/authentication_checks.py`. `test_authentication_credential_types.py` fails when a class has no marked test.
+- **Refuse inactive and blocked users.** Filter on `is_active` and call `refuse_blocked_account()`.
+- **A new Django authentication backend** must return `None` from `get_user()` for an inactive user. `TestSessionBackendsRefuseInactiveUsers` checks every backend in `AUTHENTICATION_BACKENDS`.
 
 ## SQL Security
 
@@ -160,13 +194,14 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 ## Content Security Policy
 
-`CSPMiddleware` in `posthog/middleware.py` attaches a policy to every HTML response.
+`CSPMiddleware` in `posthog/csp_middleware.py` attaches a policy to every HTML response.
 Treat it as enforced.
+team-security owns that file in `.github/CODEOWNERS`, so every policy change needs their approval.
 A refused resource produces no user-visible error, so the feature simply does not work, and the only signal is a `$csp_violation` event in project 2.
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise. A signed-out visitor has no user to bucket, so on login, signup, password reset and email verification the `csp-enforce-signed-out-pages` flag enforces it per page load instead. Other signed-out pages stay report-only. Embeddable documents, such as shared dashboards, stay report-only under both flags.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
@@ -192,8 +227,19 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
-A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/api/hog_flow.py`.
+On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
+A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
+Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
+On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
+It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
+A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
+Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
+A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
+Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
+A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
-Say why the source is needed in a comment either way, then run `posthog/test/test_middleware.py::TestCSPMiddleware`.
+Say why the source is needed in a comment either way, then run `posthog/test/test_csp_middleware.py`.
+The `csp-header-outside-csp-middleware` semgrep rule blocks a `Content-Security-Policy` header set anywhere else.
+A new document that must carry its own policy needs team-security to add it to that rule's exceptions.
 To see what the policy currently blocks, query `$csp_violation` events in project 2.
 Filter to the current policy text and exclude browser extensions on both the source file and the blocked URL, or the result is mostly noise.

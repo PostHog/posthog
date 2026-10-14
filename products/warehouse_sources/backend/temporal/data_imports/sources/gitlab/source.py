@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import (
     ENDPOINTS,
+    GITLAB_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -112,7 +113,13 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
         # fetch_page's own tenacity retry still gets picked up by Temporal's activity retry;
         # classify it as retryable so it's logged as a warning rather than tracked as an
         # exception. Mirrors GitHub's equivalent case.
-        return {"GitLab API error (retryable)"}
+        #
+        # A read timeout that exhausts both the adapter's own retries and fetch_page's tenacity
+        # retry (already covers requests.ReadTimeout/ConnectionError) gets the same treatment — a
+        # slow or unresponsive GitLab instance, not something reconnecting or reconfiguring the
+        # source can fix. Temporal still retries the activity from scratch. Mirrors GitHub's
+        # equivalent classification of the same urllib3 wording.
+        return {"GitLab API error (retryable)", "Read timed out"}
 
     def get_schemas(
         self,
@@ -127,7 +134,10 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                # An incremental fan-out re-emits every child of a re-fanned parent, which append
+                # would duplicate; merge dedupes them on the primary key.
+                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint))
+                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS

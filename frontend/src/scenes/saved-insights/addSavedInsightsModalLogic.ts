@@ -266,6 +266,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     params.tags = JSON.stringify(tags)
                 }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
                 const response = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
@@ -281,6 +282,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         userInsights: {
             __default: { count: 0 },
             loadUserInsights: async () => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
                 const response = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
                         user: true,

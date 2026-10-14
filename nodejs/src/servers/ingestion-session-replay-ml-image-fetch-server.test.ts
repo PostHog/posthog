@@ -1,39 +1,143 @@
 import { Message } from 'node-rdkafka'
 
+import {
+    FetchCandidatePool,
+    FetchCandidatePoolAdmission,
+} from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-candidate-pool'
 import { ImageFetchBatchJoiner } from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import {
+    buildImageFetchBatchHandlers,
     buildImageFetchConsumerConfigs,
     buildImageFetchConsumerOverrides,
+    imageFetchBatchesPerPass,
     shutdownImageFetchConsumers,
 } from './ingestion-session-replay-ml-image-fetch-server'
 import { buildMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
 
 describe('image fetch consumer wiring', () => {
     it.each([
-        ['the default', {}, 2, 102_400],
-        ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 164_096],
-        ['eight consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 328_192],
-        ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 656_384],
-    ])('creates %s number of Kafka group members', (_name, overrides, expectedConsumers, expectedQueueBudget) => {
-        const serverConfig = buildMlMirrorServerConfig(overrides)
-        const consumerConfigs = buildImageFetchConsumerConfigs(serverConfig)
-        const consumerOverrides = buildImageFetchConsumerOverrides(serverConfig, consumerConfigs.length)
-
-        expect(consumerConfigs).toHaveLength(expectedConsumers)
-        expect(consumerConfigs.every((config) => config.maxBackgroundTasks === 2)).toBe(true)
-        expect(consumerConfigs.every((config) => config.backgroundTaskTimeoutMs === 240_000)).toBe(true)
-        expect(consumerConfigs.map((config) => config.groupId)).toEqual(
-            Array(expectedConsumers).fill(serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID)
-        )
-        expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeLessThanOrEqual(
+        ['the default', {}, 2, 2, 2, 102_400],
+        ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 4, 2, 164_096],
+        ['eight consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 8, 2, 328_192],
+        [
+            'eight unjoined consumers',
+            {
+                SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8,
+                SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES: false,
+            },
+            8,
+            1,
+            2,
+            328_192,
+        ],
+        [
+            'eight continuous-pool consumers',
+            {
+                SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8,
+                SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL: true,
+            },
+            8,
+            8,
+            4,
+            328_192,
+        ],
+        ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 16, 2, 656_384],
+    ])(
+        'creates %s number of Kafka group members',
+        (
+            _name,
+            overrides,
+            expectedConsumers,
+            expectedBatchesPerPass,
+            expectedBatchesInFlightPerMember,
             expectedQueueBudget
+        ) => {
+            const serverConfig = buildMlMirrorServerConfig(overrides)
+            const consumerConfigs = buildImageFetchConsumerConfigs(serverConfig)
+            const consumerOverrides = buildImageFetchConsumerOverrides(serverConfig, consumerConfigs.length)
+
+            expect(consumerConfigs).toHaveLength(expectedConsumers)
+            expect(imageFetchBatchesPerPass(serverConfig, consumerConfigs.length)).toBe(expectedBatchesPerPass)
+            expect(consumerConfigs.map((config) => config.maxBackgroundTasks)).toEqual(
+                Array(expectedConsumers).fill(expectedBatchesInFlightPerMember)
+            )
+            expect(consumerConfigs.every((config) => config.backgroundTaskTimeoutMs === 240_000)).toBe(true)
+            expect(consumerConfigs.map((config) => config.groupId)).toEqual(
+                Array(expectedConsumers).fill(serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID)
+            )
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeLessThanOrEqual(
+                expectedQueueBudget
+            )
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeGreaterThanOrEqual(
+                expectedQueueBudget - expectedConsumers
+            )
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(
+                serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
+            )
+        }
+    )
+
+    it.each([
+        ['the joiner without a pool', false],
+        ['its own pool window with a pool', true],
+    ])('routes each member batch through %s', async (_name, withPool) => {
+        const pool = withPool
+            ? new FetchCandidatePool<unknown>(
+                  { maxConcurrentPerRegistrableDomain: 6, refillRunnableUrls: 100, maxQueuedUrlsPerOwner: 1_000 },
+                  { originCrawlDelayMs: () => 0, originNextImageStartAtMs: () => 0 }
+              )
+            : undefined
+        const fetchConsumer = { handleBatch: jest.fn().mockResolvedValue(undefined) }
+        const joiner = {
+            handleBatch: jest.fn().mockResolvedValue(undefined),
+            waitForProcessing: jest.fn().mockResolvedValue(undefined),
+        }
+        const message: Message = { topic: 'test-topic', partition: 0, offset: 1, value: Buffer.from('x'), size: 1 }
+
+        const { handlers } = buildImageFetchBatchHandlers(2, fetchConsumer, { candidatePool: pool }, joiner)
+        await Promise.all(handlers.map((handler) => handler([message])))
+
+        expect(handlers).toHaveLength(2)
+        expect(joiner.handleBatch).toHaveBeenCalledTimes(withPool ? 0 : 2)
+        expect(fetchConsumer.handleBatch).toHaveBeenCalledTimes(withPool ? 2 : 0)
+        if (withPool) {
+            const [firstAdmission, secondAdmission] = fetchConsumer.handleBatch.mock.calls.map((call) => call[2])
+            expect(firstAdmission.owner).not.toBe(secondAdmission.owner)
+        }
+        pool?.close()
+    })
+
+    it('waits for a pooled member batch that is still preparing before it closes the fetch runner', async () => {
+        const pool = new FetchCandidatePool<unknown>(
+            { maxConcurrentPerRegistrableDomain: 6, refillRunnableUrls: 100, maxQueuedUrlsPerOwner: 1_000 },
+            { originCrawlDelayMs: () => 0, originNextImageStartAtMs: () => 0 }
         )
-        expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeGreaterThanOrEqual(
-            expectedQueueBudget - expectedConsumers
-        )
-        expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(
-            serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
-        )
+        let finishBatch: () => void = () => undefined
+        const fetchConsumer = {
+            handleBatch: jest.fn(
+                (_messages: Message[], _nowMs: number, admission?: FetchCandidatePoolAdmission) =>
+                    new Promise<void>((resolve) => {
+                        admission?.admitted()
+                        finishBatch = resolve
+                    })
+            ),
+        }
+        const joiner = { handleBatch: jest.fn(), waitForProcessing: jest.fn().mockResolvedValue(undefined) }
+        const startedBatches = buildImageFetchBatchHandlers(1, fetchConsumer, { candidatePool: pool }, joiner)
+        await startedBatches.handlers[0]([
+            { topic: 'test-topic', partition: 0, offset: 1, value: Buffer.from('x'), size: 1 },
+        ])
+        const consumers = [{ stopConsuming: jest.fn().mockResolvedValue(undefined), disconnect: jest.fn() }]
+        const fetchRunner = { close: jest.fn().mockResolvedValue(undefined) }
+
+        const shutdown = shutdownImageFetchConsumers(consumers, startedBatches, fetchRunner)
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(fetchRunner.close).not.toHaveBeenCalled()
+        finishBatch()
+        await shutdown
+
+        expect(fetchRunner.close).toHaveBeenCalledTimes(1)
+        pool.close()
     })
 
     it.each([false, true])('waits for joined work before disconnecting and cleaning up (failure=%s)', async (fails) => {

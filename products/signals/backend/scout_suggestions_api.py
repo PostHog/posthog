@@ -95,7 +95,8 @@ class ScoutSuggestionSetSerializer(serializers.Serializer):
         help_text=(
             "`fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past "
             "the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). "
-            "`empty`: nothing to suggest yet."
+            "`empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing "
+            "was generated."
         ),
     )
     generated_at = serializers.DateTimeField(

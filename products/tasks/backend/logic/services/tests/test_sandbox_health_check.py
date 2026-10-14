@@ -30,6 +30,7 @@ def _path_with_fake_curl(tmp_path: Path, body: str, delay_seconds: float) -> dic
     [
         ('{"status":"ok","hasSession":true}', 0, "ok:1"),
         ('{"status":"ok","hasSession":false}', 1, ""),
+        ('{"status":"error","code":"codex_credential_unavailable"}', 1, "codex_credential_unavailable"),
     ],
 )
 def test_health_check_loop_stops_at_wall_clock_budget(tmp_path, body, expected_exit_code, expected_stdout) -> None:
@@ -50,6 +51,30 @@ def test_health_check_loop_stops_at_wall_clock_budget(tmp_path, body, expected_e
     assert completed.returncode == expected_exit_code
     assert completed.stdout.strip() == expected_stdout
     assert elapsed < budget + poll_delay + poll_interval + 2
+
+
+def test_health_check_loop_outlasts_its_budget_while_session_hooks_run(tmp_path: Path) -> None:
+    max_attempts, poll_interval, hook_polls = 20, 0.01, 30
+    curl = tmp_path / "curl"
+    curl.write_text(
+        "#!/bin/bash\n"
+        f"count=$(( $(cat {tmp_path}/polls 2>/dev/null || echo 0) + 1 )); echo $count > {tmp_path}/polls\n"
+        f'if [ "$count" -le {hook_polls} ]; then printf \'%s\' \'{{"status":"ok","hasSession":false,"initializationPhase":"setup_hooks"}}\'; '
+        'else printf \'%s\' \'{"status":"ok","hasSession":true}\'; fi\n'
+    )
+    curl.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
+
+    completed = subprocess.run(
+        ["bash", "-c", build_health_check_command(port=1, max_attempts=max_attempts, poll_interval=poll_interval)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == f"ok:{hook_polls + 1}"
 
 
 def _run_preflight(tmp_path: Path, health_body: str, capability_tokens: str) -> subprocess.CompletedProcess[str]:

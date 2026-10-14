@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Whop follows the Standard Webhooks spec: `webhook-id`, `webhook-timestamp` (Unix seconds) and
 # `webhook-signature` (a space-separated list of `v<version>,<base64 HMAC-SHA256>` entries) signing
@@ -32,9 +32,10 @@ if (not inputs.bypass_signature_check) {
   if (empty(inputs.signing_secret)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Signing secret not configured',
-      }
+        'status': 200,
+        'body': 'Signing secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

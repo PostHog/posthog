@@ -31,15 +31,24 @@ export class ViewportScaler {
         this.contentEl.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`
     }
 
-    attachToReplayer(replayer: Replayer): void {
+    /** Follow the replayer's size; with several windows only the one on screen may resize the content. */
+    attachToReplayer(replayer: Replayer, isOnScreen: () => boolean = () => true): void {
+        if (isOnScreen()) {
+            this.fitReplayer(replayer)
+        }
+
+        replayer.on('resize', (dimension: { width: number; height: number }) => {
+            if (isOnScreen()) {
+                this.apply(dimension.width, dimension.height)
+            }
+        })
+    }
+
+    fitReplayer(replayer: Replayer): void {
         const iframeWidth = Number.parseFloat(replayer.iframe.width)
         const iframeHeight = Number.parseFloat(replayer.iframe.height)
         if (iframeWidth > 0 && iframeHeight > 0) {
             this.apply(iframeWidth, iframeHeight)
         }
-
-        replayer.on('resize', (dimension: { width: number; height: number }) => {
-            this.apply(dimension.width, dimension.height)
-        })
     }
 }

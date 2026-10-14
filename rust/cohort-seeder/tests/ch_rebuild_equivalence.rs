@@ -17,9 +17,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use clickhouse::{Client, Row};
+use clickhouse::Row;
 use cohort_seeder::clickhouse::client::build_client;
 use cohort_seeder::clickhouse::sql::rebuild_expr;
+use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::ProjectedKeys;
 use envconfig::Envconfig;
@@ -56,7 +57,10 @@ const CORPUS: &[Case] = &[
         r#"{"nul":null,"yes":true,"no":false}"#,
         &["nul", "yes", "no"],
     ),
-    case(r#"{"big":123456789012345678901234567890}"#, &["big"]),
+    case(
+        r#"{"plan":"paid","big":123456789012345678901234567890}"#,
+        &["plan"],
+    ),
     case(
         r#"{"tiny":-1.5e-300,"round":1.0,"zero":-0.0}"#,
         &["tiny", "round", "zero"],
@@ -206,30 +210,65 @@ async fn a_blob_too_deep_for_serde_but_not_for_clickhouse_diverges() {
     );
 }
 
-/// ClickHouse gives up on the whole document when any number token is outside what it can
-/// represent, wherever that token sits: `JSONType` reports `Null`, so the rebuild's guard passes
-/// the blob through verbatim. The projected row is then byte-identical to the wide scan's row,
-/// which is zero evaluation divergence, just wider than the pruned oracle. That is why this sits
-/// beside the depth pin instead of weakening the main assertion.
+/// ClickHouse gives up on the whole document when a float token is outside what it can represent,
+/// wherever that token sits: `JSONType` reports `Null`, so the rebuild's guard passes the blob
+/// through verbatim. The projected row is then byte-identical to the wide scan's row, which is zero
+/// evaluation divergence, just wider than the pruned oracle. That is why this sits beside the depth
+/// pin instead of weakening the main assertion.
 #[tokio::test]
 async fn a_number_clickhouse_cannot_represent_passes_the_whole_blob_through() {
     let client = connect();
-    for blob in [
-        r#"{"plan":"paid","big":123456789012345678901234567890}"#,
-        r#"{"plan":"paid","huge":1e309}"#,
+    let blob = r#"{"plan":"paid","huge":1e309}"#;
+    let rebuilt = rebuild_all(&client, &["plan"], &[blob]).await;
+    assert_eq!(rebuilt[0], blob, "expected verbatim passthrough");
+}
+
+/// ClickHouse parses an integer past the 64-bit range, but `JSONExtractKeysAndValuesRaw` returns it
+/// as a quoted string, while `serde_json` reads the original token as a number. So a read key that
+/// holds such an integer reaches the VM as a string in the seeded row and as a number in the live
+/// row, and a condition on that key can evaluate differently. Pinned rather than hedged because
+/// the fix belongs in ClickHouse: the rebuild must stay on the simdjson parser.
+#[tokio::test]
+async fn an_integer_past_64_bits_rebuilds_as_a_string() {
+    let client = connect();
+    for (blob, digits) in [
+        (
+            r#"{"plan":"paid","big":123456789012345678901234567890}"#,
+            "123456789012345678901234567890",
+        ),
+        (
+            r#"{"plan":"paid","big":18446744073709551616}"#,
+            "18446744073709551616",
+        ),
+        (
+            r#"{"plan":"paid","big":-9223372036854775809}"#,
+            "-9223372036854775809",
+        ),
     ] {
-        let rebuilt = rebuild_all(&client, &["plan"], &[blob]).await;
-        assert_eq!(rebuilt[0], blob, "expected verbatim passthrough");
+        let rebuilt = rebuild_all(&client, &["big"], &[blob]).await;
+        assert_eq!(
+            parse(&rebuilt[0]),
+            Ok(Value::Object(Map::from_iter([(
+                "big".to_owned(),
+                Value::String(digits.to_owned())
+            )]))),
+            "{blob} rebuilt as {}",
+            rebuilt[0]
+        );
+        assert!(
+            matches!(parse(blob), Ok(Value::Object(map)) if map["big"].is_number()),
+            "serde_json is meant to read {blob} as a number"
+        );
     }
 }
 
-fn connect() -> Client {
+fn connect() -> ClickHouseClient {
     let config = Config::init_from_env().expect("the seeder config falls back to its defaults");
     build_client(&config).expect("the default ClickHouse client builds")
 }
 
 /// Run the production rebuild expression over `blobs`, in the blobs' own order.
-async fn rebuild_all(client: &Client, keys: &[&str], blobs: &[&str]) -> Vec<String> {
+async fn rebuild_all(client: &ClickHouseClient, keys: &[&str], blobs: &[&str]) -> Vec<String> {
     let keys = ProjectedKeys::new(keys.iter().map(|key| (*key).to_owned()).collect())
         .expect("every corpus case names at least one key");
     let sql = format!(

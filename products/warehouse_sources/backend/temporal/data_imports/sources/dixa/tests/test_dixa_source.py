@@ -39,5 +39,12 @@ class TestDixaSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only the exports surface has server-side updated_after filtering.
-        assert incremental == {"conversations"}
+        # Everything incremental is filtered server-side: the exports surface by updated_after
+        # (directly, or via the parent walk a fan-out child rides), the activity log by
+        # fromDatetime. The plain main-API lookups have no time filter at all.
+        assert incremental == {
+            "conversations",
+            "conversation_messages",
+            "conversation_ratings",
+            "conversation_activity_log",
+        }

@@ -4,64 +4,82 @@ import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
 
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 
-export const CorsPlugin: ReplayPlugin & {
+type CorsReplayPlugin = ReplayPlugin & {
     _replaceFontCssUrls: (value: string | null) => string | null
     _replaceFontUrl: (value: string) => string
     _replaceJSUrl: (value: string) => string
-} = {
-    _replaceFontCssUrls: (value: string | null): string | null => {
-        return (
-            value?.replace(
-                /url\("(https:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff)(?:[?#][^\s"]*)?)"\)/gi,
-                `url("${PROXY_URL}/proxy?url=$1")`
-            ) || null
-        )
-    },
+}
 
-    _replaceFontUrl: (value: string): string => {
-        return value.replace(
-            /^(https:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff)(?:[?#][^\s"]*)?)$/i,
-            `${PROXY_URL}/proxy?url=$1`
-        )
-    },
+// The token goes before `url`, because a font url can end in a `#` fragment, and the browser
+// does not send anything after a `#` to the proxy.
+function proxyUrl(targetUrl: string, token: string | null | undefined): string {
+    return token
+        ? `${PROXY_URL}/proxy?token=${encodeURIComponent(token)}&url=${targetUrl}`
+        : `${PROXY_URL}/proxy?url=${targetUrl}`
+}
 
-    _replaceJSUrl: (value: string): string => {
-        return value.replace(/^(https:\/\/[^\s"?#]+\.js(?:[?#][^\s"]*)?)$/i, `${PROXY_URL}/proxy?url=$1`)
-    },
+// getProxyToken runs for every url, so a token that the player refreshes reaches nodes it builds later.
+export function createCorsPlugin(getProxyToken: () => string | null | undefined): CorsReplayPlugin {
+    const plugin: CorsReplayPlugin = {
+        _replaceFontCssUrls: (value: string | null): string | null => {
+            return (
+                value?.replace(
+                    /url\("(https:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff)(?:[?#][^\s"]*)?)"\)/gi,
+                    (_, targetUrl: string) => `url("${proxyUrl(targetUrl, getProxyToken())}")`
+                ) || null
+            )
+        },
 
-    onBuild: (node) => {
-        if (node.nodeName === 'STYLE') {
-            const styleElement = node as HTMLStyleElement
-            const childNodes = styleElement.childNodes
-            for (let i = 0; i < childNodes.length; i++) {
-                if (childNodes[i].nodeType == 3) {
-                    const updatedContent = CorsPlugin._replaceFontCssUrls(childNodes[i].textContent)
-                    if (updatedContent !== childNodes[i].textContent) {
-                        childNodes[i].textContent = updatedContent
+        _replaceFontUrl: (value: string): string => {
+            return value.replace(/^(https:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff)(?:[?#][^\s"]*)?)$/i, (targetUrl) =>
+                proxyUrl(targetUrl, getProxyToken())
+            )
+        },
+
+        _replaceJSUrl: (value: string): string => {
+            return value.replace(/^(https:\/\/[^\s"?#]+\.js(?:[?#][^\s"]*)?)$/i, (targetUrl) =>
+                proxyUrl(targetUrl, getProxyToken())
+            )
+        },
+
+        onBuild: (node) => {
+            if (node.nodeName === 'STYLE') {
+                const styleElement = node as HTMLStyleElement
+                const childNodes = styleElement.childNodes
+                for (let i = 0; i < childNodes.length; i++) {
+                    if (childNodes[i].nodeType == 3) {
+                        const updatedContent = plugin._replaceFontCssUrls(childNodes[i].textContent)
+                        if (updatedContent !== childNodes[i].textContent) {
+                            childNodes[i].textContent = updatedContent
+                        }
                     }
                 }
             }
-        }
 
-        if (node.nodeName === 'LINK') {
-            const linkElement = node as HTMLLinkElement
-            const href = linkElement.href
-            if (!href) {
-                return
+            if (node.nodeName === 'LINK') {
+                const linkElement = node as HTMLLinkElement
+                const href = linkElement.href
+                if (!href) {
+                    return
+                }
+                if (linkElement.getAttribute('rel') == 'modulepreload') {
+                    linkElement.href = plugin._replaceJSUrl(href)
+                } else {
+                    linkElement.href = plugin._replaceFontUrl(href)
+                }
             }
-            if (linkElement.getAttribute('rel') == 'modulepreload') {
-                linkElement.href = CorsPlugin._replaceJSUrl(href)
-            } else {
-                linkElement.href = CorsPlugin._replaceFontUrl(href)
-            }
-        }
 
-        if (node.nodeName === 'SCRIPT') {
-            const scriptElement = node as HTMLScriptElement
-            scriptElement.src = CorsPlugin._replaceJSUrl(scriptElement.src)
-        }
-    },
+            if (node.nodeName === 'SCRIPT') {
+                const scriptElement = node as HTMLScriptElement
+                scriptElement.src = plugin._replaceJSUrl(scriptElement.src)
+            }
+        },
+    }
+    return plugin
 }
+
+// The headless renderer has no proxy token, so it calls the proxy without one.
+export const CorsPlugin = createCorsPlugin(() => null)
 
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
 const shopifyShorthandCSSFix =
@@ -79,6 +97,18 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     // recorded content escape the sandbox into the app origin. Canvas is replayed via
     // CanvasReplayerPlugin instead, which needs no in-frame scripting.
     UNSAFE_replayCanvas: false,
+}
+
+/**
+ * rrweb does not speed CSS animations and transitions up with playback, so at high speeds they run behind the page.
+ * Snap them to their end state instead: removing them outright leaves content a keyframe reveals stuck at opacity 0.
+ */
+export function speedDependentStyleRules(speed: number): string[] {
+    return speed >= 2
+        ? [
+              '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
+          ]
+        : []
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'

@@ -31,6 +31,11 @@ export function slackChannelDisplayName(channelValue: string): string {
     return channelValue.slice(pipe + 1).trim() || channelValue
 }
 
+/** The bare channel name (no `#`) of a `${channelId}|#${channelName}` picker value, or nothing for a bare id. */
+export function slackChannelName(channelValue: string): string | undefined {
+    return channelValue.includes('|') ? slackChannelDisplayName(channelValue).replace(/^#/, '') : undefined
+}
+
 function storageKey(integrationId: number): string | null {
     const teamId = getCurrentTeamIdOrNone()
     if (teamId == null) {

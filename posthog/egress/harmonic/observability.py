@@ -27,12 +27,17 @@ _METRIC_SOURCES = frozenset(
 )
 _METRIC_ENDPOINTS = frozenset({"/graphql", "/companies/{id}", "/enrichment_status"})
 
+# One-off: no other domain records request latency. A second domain that needs it moves the timing
+# into the base clients in `transport/transport.py`, which gives every domain the same metric.
+# nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains
 _request_duration = Histogram(
     "harmonic_api_request_duration_seconds",
     "Time spent waiting for a Harmonic HTTP response, excluding local rate-limit admission waits.",
     labelnames=["source", "priority", "endpoint", "outcome"],
     buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60),
 )
+# One-off: the bulk client runs its own pacing loop, and no other domain waits outside the limiter.
+# nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains
 _admission_wait = Histogram(
     "harmonic_api_admission_wait_seconds",
     "Time a Harmonic caller waits before attempting a rate-limited request.",

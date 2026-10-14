@@ -16,7 +16,7 @@
         "three": { "version": "0.179.1", "url": "https://esm.sh/three@0.179.1" },
         "framer-motion": {
             "version": "12.23.12",
-            "url": "https://esm.sh/framer-motion@12.23.12?external=react,react-dom"
+            "url": "https://esm.sh/framer-motion@12.23.12?external=react,react-dom&deps=motion-dom@12.23.12,motion-utils@12.23.6"
         },
         "zod": { "version": "3.25.76", "url": "https://esm.sh/zod@3.25.76" },
         "@tanstack/react-table": {

@@ -2,6 +2,7 @@ import uuid
 import random
 import asyncio
 import datetime as dt
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -19,20 +20,19 @@ from temporalio.testing import ActivityEnvironment
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
-from posthog.models.team.util import delete_batch_exports
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.logger import restored_structlog_config
 
+from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
-    truncate_events,
-    truncate_persons,
-    truncate_sessions,
-)
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_all
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -45,9 +45,7 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 @pytest_asyncio.fixture
 async def truncate_clickhouse_tables(clickhouse_client):
     yield
-    await truncate_events(clickhouse_client)
-    await truncate_persons(clickhouse_client)
-    await truncate_sessions(clickhouse_client)
+    await truncate_all(clickhouse_client)
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -103,8 +101,19 @@ def team(organization):
     team.save()
 
     yield team
-    delete_batch_exports(team_ids=[team.pk])
+    delete_batch_exports_for_teams([team.pk])
     team.delete()
+
+
+def _create_async_fixture_team(organization: Organization) -> Team:
+    # A test that builds a HogQL query creates the team's revenue analytics row in the test's transaction.
+    # The async fixtures create and delete the team through sync_to_async, on a different connection.
+    # That delete cannot cascade to the uncommitted row, so teardown fails its foreign key check.
+    # Creating the row here puts it on the same connection as the delete.
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = Team.objects.create(organization=organization, name=name)
+    get_or_create_team_extension(team, TeamRevenueAnalyticsConfig)
+    return team
 
 
 @pytest_asyncio.fixture
@@ -119,21 +128,19 @@ async def aorganization(db):
 
 @pytest_asyncio.fixture
 async def ateam(aorganization):
-    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+    team = await sync_to_async(_create_async_fixture_team)(aorganization)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(delete_batch_exports_for_teams)([team.pk])
     await sync_to_async(team.delete)()
 
 
 @pytest_asyncio.fixture
 async def another_ateam(aorganization):
-    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+    team = await sync_to_async(_create_async_fixture_team)(aorganization)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(delete_batch_exports_for_teams)([team.pk])
     await sync_to_async(team.delete)()
 
 
@@ -189,9 +196,11 @@ async def temporal_client():
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
-async def configure_logger_auto() -> None:
+async def configure_logger_auto() -> AsyncIterator[None]:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 @pytest.fixture
@@ -217,19 +226,6 @@ def exclude_events(request) -> list[str] | None:
     By decorating a test function with @pytest.mark.parametrize("exclude_events", ..., indirect=True)
     it's possible to set the exclude_events that will be used to create a BatchExport.
     Any list of event names can be used, or None (the default).
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def batch_export_schema(request) -> dict | None:
-    """A parametrizable fixture to configure a batch export schema.
-
-    By decorating a test function with @pytest.mark.parametrize("batch_export_schema", ..., indirect=True)
-    it's possible to set the batch_export_schema that will be used to create a BatchExport.
     """
     try:
         return request.param

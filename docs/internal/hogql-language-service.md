@@ -46,9 +46,8 @@ Built-in `posthog.*` namespaces are outside this rollout.
 
 ### Lazy-table traversal catalog
 
-The Go consumer accepts optional traversal metadata alongside the flat catalog.
-This is a consumer-first extension: existing Django snapshots do not publish these annotations yet.
-Deploy the Go consumer before enabling publication in Python, because older consumers reject unknown JSON fields.
+The Python publisher adds traversal metadata alongside the flat catalog using the same permission-filtered HogQL database.
+Deploy the Go traversal consumer before this publisher, because older consumers reject unknown JSON fields.
 Snapshots without traversal metadata keep their existing completion and validation behavior.
 
 A field can carry one of two optional annotations:
@@ -137,18 +136,37 @@ The cache budget includes the traversal graph and annotations; the catalog reque
 Cycles are allowed without recursive expansion.
 Each query path can follow at most 16 relation hops and also consumes the request's field-lookup work budget.
 
-This first consumer slice supports traversal from bound catalog sources, including sources inside CTE bodies.
+Traversal works from bound catalog sources, including sources inside CTE bodies.
 Direct top-level property containers retain their explicit namespace through the existing projected-field provenance rules.
 Projecting a relation or nested virtual property container through a CTE, subquery, or SELECT alias does not yet retain traversal provenance.
-Quoted path completion, nested JSON schemas, scalar traverser expression inference, and execution of lazy joins remain outside this slice.
+Quoted path completion, nested JSON schemas, scalar traverser expression inference, and execution of lazy joins remain unsupported by this graph.
 For deeper JSON paths under an explicit property namespace, validation checks the first property key but does not validate its descendants.
 
-The Python publisher follow-up must resolve `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets using the same permission-filtered database as the snapshot.
-It must publish only permitted fields, reuse canonical table schemas when they match the resolved target, and deduplicate virtual relation definitions.
-It must bound traversal during publication and isolate unresolvable edges without exposing denied targets.
-It must also distinguish traversal-capable revisions so cached flat snapshots refresh instead of hiding the new suggestions until expiry.
+The Python publisher resolves `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets from the snapshot's database.
+It follows the configured person and session schemas, including person-on-events virtual fields and parent-relative traversers used by custom joins.
+It reuses a canonical table only when the resolved object and permitted field set match; other permitted helper and virtual targets receive deduplicated inline definitions.
+Warehouse tables and views require a matching exported canonical schema; the publisher never copies them into inline definitions.
+Hidden fields and denied targets do not gain traversal metadata.
+An unresolvable edge or publication budget limit omits the affected traversal, while unrelated fields remain available.
+Omissions produce one aggregate warning per catalog build with reason counts, without table names, query text, or exception traces.
 Scalar traversers need no relation annotation.
 No Python resolver chains, join SQL, credentials, or executable expressions belong in the graph.
+
+For example, with the corresponding tables and properties available to the user:
+
+| SQL                                               | Completion behavior                                                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `SELECT e.person.\| FROM events AS e`             | Fields on the effective person target, not an assumed copy of `persons` |
+| `SELECT e.person.properties.\| FROM events AS e`  | Permitted person properties                                             |
+| `SELECT e.session.\| FROM events AS e`            | Fields on the configured session table                                  |
+| `SELECT e.group_0.properties.\| FROM events AS e` | Properties for group index 0 only                                       |
+| `SELECT e.pdi.person.\| FROM events AS e`         | Fields reached through the person distinct-ID helper                    |
+
+`CATALOG_VERSION` is the single version for catalog publication and Redis coordination.
+Revisions use `v2:<timestamp>`, and Redis coordination hashes the numeric version with the service target, team, and user.
+Django refreshes snapshots with older revision prefixes on use instead of accepting them until expiry.
+Older Django workers do not accept the new prefix; a mixed rollout can cause extra publications or Python fallback while the service is feature flagged.
+The frontend request and response contracts do not change, and the existing eligibility checks and Python fallback still apply.
 
 ## Query analysis
 
@@ -399,9 +417,9 @@ fails startup unless dedicated signing keys are configured.
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
 The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
-Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
+Django refreshes cached catalogs without the current version prefix before it uses their responses.
 Each request attempts at most one publication and one post-publication retry; marker and lease paths add only bounded Go rechecks.
-The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
+The retry must return the current catalog version, but a concurrent publication for the same team and user can supersede the requested revision.
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
 Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
@@ -415,11 +433,60 @@ Metadata also uses Python when `variables` is not null or `debug` is true.
 Expression languages and non-`HogQLQuery` source contexts remain on Python because they can require surrounding query resolution.
 Service failures preserve the original request, including its source context, for Python fallback.
 
-Go metadata returns diagnostics and logical table names, not the full Python compiler metadata.
+Go metadata returns diagnostics, logical table names, and source-positioned notices for resolved table and field references, not the full Python compiler metadata.
 `indexUsage: true` does not force Python fallback or enable index analysis in Go.
-Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset, and return an empty `notices` list.
-Python-only heuristic warnings, type notices, and actionable index warnings are not added to a successful Go response.
+Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset.
+The Django adapter maps Go notices into the existing metadata `notices` list, which the editor displays as hints.
+Older service responses without a `notices` field remain valid and produce an empty list.
+Malformed notices use the same Python fallback and sanitized error reporting as malformed diagnostics.
+Python-only heuristic warnings and actionable index warnings are not added to a successful Go response.
 Index analysis and compiler metadata parity remain separate follow-up work; this routing change does not add a second Python validation pass.
+
+### Table and field notices
+
+The Go validation response includes a separate `notices` array with `message`, `start`, and `end` fields.
+These notices identify resolved table references and report known types for fields written in the query.
+They use the published, permission-filtered catalog and the same scope resolution as validation.
+They do not execute a query, expand the Python compiler's internal expressions, or change whether a query is valid.
+Property definitions published as `Numeric` produce `Float` notices, matching Python's HogQL property conversion.
+
+```sql
+SELECT timestamp FROM events
+```
+
+This query produces a table notice for `events` and a `DateTime` field notice for `timestamp` when that type is published in the catalog.
+Warehouse alias notices identify the canonical catalog table, and CTE source notices identify the common table expression without adding it to `table_names`.
+Table notices mark named `FROM` and `JOIN` sources; alias declarations, qualifiers in field paths, and derived-subquery aliases do not receive separate table notices.
+
+```sql
+SELECT e.person.id FROM events AS e
+```
+
+The field notice uses the lazy relation's target schema when the catalog includes the `person` traversal.
+An older flat catalog cannot provide that traversal's type information.
+
+```sql
+SELECT * FROM events
+```
+
+This query produces a table notice, but no field notices for the columns represented by `*`.
+Generated field expressions have no matching token in the editor and must not produce hints at unrelated source positions.
+
+Notices remain separate from error and warning diagnostics, with at most 128 notices per response.
+Their source ranges follow the requested position encoding, including UTF-16 for the editor.
+Unknown or ambiguous fields do not receive a type hint.
+SELECT alias hints follow declaration order:
+
+```sql
+SELECT event AS v, v, timestamp AS v FROM events ORDER BY v
+```
+
+The middle `v` retains the `String` hint from `event`; the later duplicate declaration makes `ORDER BY v` ambiguous, so it receives no hint.
+Notice collection reuses the parsed query after validation and stops when its output or lookup budget is exhausted; it does not turn a valid query into an error.
+Expression type inference, physical ClickHouse table metadata, and property materialization details remain follow-up work.
+Unrecognized catalog type strings are omitted rather than converted into a guessed type.
+
+### Routing metrics
 
 For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
 Its bounded attributes are the operation, backend, and routing reason.

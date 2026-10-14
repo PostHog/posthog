@@ -11,14 +11,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
 import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

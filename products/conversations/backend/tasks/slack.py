@@ -16,14 +16,10 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_identity import (
-    resolve_posthog_user_for_slack,
-    resolve_slack_avatar_by_email,
-    resolve_slack_user,
-)
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_avatar_by_email, resolve_slack_user
 from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
@@ -52,6 +48,7 @@ from products.conversations.backend.services.delivery import (
     cleanup_delivery_snapshots,
     complete_slack_body_delivery,
     defer_delivery_part,
+    delivery_ticket_is_live,
     drain_delivery_retention,
     due_delivery_part_ids,
     fail_delivery_part,
@@ -818,7 +815,7 @@ def _slack_sender(*, client: Any, team: Team, payload: dict[str, Any], ticket_id
     author_icon_url: str | None = None
     if author_email:
         try:
-            author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+            author_icon_url = resolve_slack_avatar_by_email(client, author_email, workspace=client.workspace_id)
         except Exception:
             logger.warning("slack_delivery_avatar_lookup_failed", ticket_id=ticket_id, exc_info=True)
     return SlackSender(
@@ -1055,6 +1052,10 @@ def _process_slack_delivery_part(delivery_part_id: str) -> None:
     runtime = _load_slack_delivery_runtime(claim)
     if runtime is None:
         return
+    # The delete cancels open parts, but a part claimed before it can still reach this point.
+    if not delivery_ticket_is_live(part.delivery):
+        _fail_claimed_delivery_part(claim, error_code="ticket_deleted", error="The ticket was deleted")
+        return
     try:
         if part.part_key == DELIVERY_PART_KEY_BODY:
             _deliver_slack_body(claim, runtime)
@@ -1176,7 +1177,7 @@ def post_reply_to_slack(
     # Resolve the replying user's Slack profile picture
     author_icon_url: str | None = None
     if author_email:
-        author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+        author_icon_url = resolve_slack_avatar_by_email(client, author_email, workspace=client.workspace_id)
 
     icon_url = author_icon_url or bot_icon_url
     message_kwargs: dict = {

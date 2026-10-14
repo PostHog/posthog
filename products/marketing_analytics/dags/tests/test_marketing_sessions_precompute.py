@@ -1,13 +1,17 @@
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 import dagster
 from parameterized import parameterized
 
+from posthog.schema import DateRange, IntervalType
+
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -49,15 +53,31 @@ class TestMarketingSessionsPrecomputeDag(APIBaseTest):
     def test_a_raising_chunk_still_counts_as_a_failure(self) -> None:
         assert self._run(RuntimeError("boom")) == 1
 
-    @parameterized.expand([("default", 90, 181), ("short", 7, 98)])
-    def test_warmer_covers_display_plus_team_lookback_and_reachback(self, _name: str, lookback: int, span: int) -> None:
+    @parameterized.expand(
+        [
+            ("default", "UTC", "2024-07-05T12:00:00Z", 90, "2024-01-06T00:00:00Z"),
+            ("short", "UTC", "2024-07-05T12:00:00Z", 7, "2024-03-29T00:00:00Z"),
+            ("west_before_midnight", "America/Los_Angeles", "2024-07-05T02:00:00Z", 30, "2024-03-05T07:00:00Z"),
+            ("west_after_midnight", "America/Los_Angeles", "2024-07-05T12:00:00Z", 30, "2024-03-06T07:00:00Z"),
+            ("east", "Pacific/Auckland", "2024-07-05T16:00:00Z", 30, "2024-03-06T11:00:00Z"),
+            ("spring", "America/Los_Angeles", "2024-03-15T18:00:00Z", 30, "2023-11-15T08:00:00Z"),
+            ("fall", "America/Los_Angeles", "2024-11-15T18:00:00Z", 30, "2024-07-17T07:00:00Z"),
+            ("spring_day", "America/Los_Angeles", "2024-03-10T09:00:00Z", 30, "2023-11-10T08:00:00Z"),
+            ("fall_day", "America/Los_Angeles", "2024-11-03T08:00:00Z", 30, "2024-07-05T07:00:00Z"),
+        ]
+    )
+    def test_warmer_covers_display_plus_team_lookback_and_reachback(
+        self, _name: str, timezone: str, now: str, lookback: int, expected_start: str
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save(update_fields=["timezone"])
         config = self.team.marketing_analytics_config
         config.attribution_window_days = lookback
         config.save()
         module = "products.marketing_analytics.dags.marketing_sessions_precompute"
         with (
+            time_machine.travel(now, tick=False),
             patch(f"{module}.get_selected_team_ids", return_value=[self.team.pk]),
-            patch(f"{module}.PRECOMPUTE_WINDOW_DAYS", 90),
             patch(
                 "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.PRECOMPUTE_WINDOW_DAYS",
                 90,
@@ -67,4 +87,8 @@ class TestMarketingSessionsPrecomputeDag(APIBaseTest):
             with dagster.build_op_context() as context:
                 assert ensure_marketing_sessions_precompute_op(context) == {"teams": 1, "failures": 0}
         args = ensure.call_args.args
-        assert args[3] - args[2] == timedelta(days=span)
+        assert args[2] == datetime.fromisoformat(expected_start)
+        date_range = QueryDateRange(
+            DateRange(date_from="-90d"), self.team, IntervalType.DAY, datetime.fromisoformat(now)
+        )
+        assert args[3] == date_range.date_to().astimezone(UTC)

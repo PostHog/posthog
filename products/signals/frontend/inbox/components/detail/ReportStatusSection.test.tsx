@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
@@ -89,8 +89,8 @@ describe('ReportStatusSection', () => {
         expect(container).not.toHaveTextContent('Pull request')
     })
 
-    it('does not imply approval when GitHub has no review decision', () => {
-        render(
+    it('hides the review row when GitHub has no review decision', () => {
+        const { container } = render(
             <ReportStatusSection
                 report={makeReport({
                     pull_requests: [
@@ -110,6 +110,33 @@ describe('ReportStatusSection', () => {
             />
         )
 
-        expect(screen.getByText('Review unavailable')).toBeInTheDocument()
+        expect(within(container).getByText('Open')).toBeInTheDocument()
+        expect(within(container).queryByText('Review')).not.toBeInTheDocument()
+        expect(within(container).queryByText('Review unavailable')).not.toBeInTheDocument()
+    })
+
+    it('hides the merged time row when GitHub has no merge time', () => {
+        const { container } = render(
+            <ReportStatusSection
+                report={makeReport({
+                    pull_requests: [
+                        {
+                            id: 'pr-1',
+                            url: 'https://github.com/example/app/pull/42',
+                            state: 'merged',
+                            merged: true,
+                            review_decision: null,
+                            merged_at: null,
+                            claim_id: null,
+                            attached_at: null,
+                            attached_by: null,
+                        },
+                    ],
+                })}
+            />
+        )
+
+        expect(within(container).getAllByText('Merged')).toHaveLength(1)
+        expect(within(container).queryByText('Time unavailable')).not.toBeInTheDocument()
     })
 })

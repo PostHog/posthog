@@ -1,3 +1,4 @@
+import type { ExecutionMode } from "@posthog/shared";
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,7 @@ interface Props {
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
+  permissionMode?: ExecutionMode | null;
   contextWindow?: "200k" | "1m" | null;
   fastMode?: boolean | null;
   sandboxEnvironmentId?: string | null;
@@ -51,6 +53,7 @@ const NULL_RUNTIME = {
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
+  initial_permission_mode: null,
 };
 
 function render(initial: Props) {
@@ -186,6 +189,7 @@ describe("useWarmTask", () => {
         runtime_adapter: "claude",
         model: "claude-sonnet-4-6",
         reasoning_effort: "high",
+        initial_permission_mode: null,
       },
     },
   ])(
@@ -222,6 +226,7 @@ describe("useWarmTask", () => {
       runtime_adapter: "claude",
       model: "claude-opus-4-8",
       reasoning_effort: "high",
+      initial_permission_mode: null,
       context_window: "200k",
       fast_mode: true,
     });
@@ -272,6 +277,42 @@ describe("useWarmTask", () => {
     rerender({ ...composing, branch: "feature/x" });
     await flushDebounce();
     expect(mockWarmTask).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards the permission mode picked in the composer", async () => {
+    render({ ...composing, runtimeAdapter: "claude", permissionMode: "plan" });
+    await flushDebounce();
+
+    expect(mockWarmTask).toHaveBeenCalledWith({
+      repository: "acme/repo",
+      github_integration: 42,
+      branch: "main",
+      runtime_adapter: "claude",
+      model: null,
+      reasoning_effort: null,
+      initial_permission_mode: "plan",
+    });
+  });
+
+  it("re-warms when the permission mode changes", async () => {
+    const base = { ...composing, runtimeAdapter: "claude" };
+    const { rerender } = render({ ...base, permissionMode: "plan" });
+    await flushDebounce();
+    expect(mockWarmTask).toHaveBeenCalledOnce();
+
+    rerender({ ...base, permissionMode: "auto" });
+    await flushDebounce();
+
+    expect(mockWarmTask).toHaveBeenCalledTimes(2);
+    expect(mockWarmTask).toHaveBeenLastCalledWith({
+      repository: "acme/repo",
+      github_integration: 42,
+      branch: "main",
+      runtime_adapter: "claude",
+      model: null,
+      reasoning_effort: null,
+      initial_permission_mode: "auto",
+    });
   });
 
   it("swallows warm errors without throwing", async () => {

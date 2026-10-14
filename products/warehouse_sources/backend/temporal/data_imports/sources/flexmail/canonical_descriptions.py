@@ -17,6 +17,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "custom_fields": "The contact's values for the account's custom fields, keyed by custom field placeholder.",
         },
     },
+    "contact_interest_subscriptions": {
+        "description": "One row per contact and interest the contact is subscribed to, joining the contacts table to the interests table.",
+        "docs_url": "https://api.flexmail.eu/documentation/#get-/contacts/-id-/interest-subscriptions",
+        "columns": {
+            "contact_id": "Identifier of the contact the subscription belongs to.",
+            "interest_id": "Identifier of the interest the contact is subscribed to.",
+        },
+    },
+    "contact_sources": {
+        "description": "One row per contact and source, recording where the contact's data originated. Every Flexmail contact has at least one source.",
+        "docs_url": "https://api.flexmail.eu/documentation/#get-/contacts/-id-/sources",
+        "columns": {
+            "contact_id": "Identifier of the contact the source belongs to.",
+            "id": "Unique identifier of the source.",
+            "name": "The name of the source.",
+        },
+    },
     "custom_fields": {
         "description": "A custom field configured for contacts in your Flexmail account (free text, multiple choice, numeric, or date).",
         "docs_url": "https://api.flexmail.eu/documentation/#get-/custom-fields",

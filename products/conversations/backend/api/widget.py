@@ -17,6 +17,7 @@ import logging
 from dataclasses import field as dataclass_field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -55,7 +56,7 @@ from products.conversations.backend.cache import (
     set_cached_tickets,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
-from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, ChannelDetail
 from products.conversations.backend.services.identity import (
     canonicalize_claim_value,
     identity_claim_has_expired,
@@ -131,6 +132,10 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
             SIGNING_SECRET_STALE_COUNTER.inc()
             logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
 
+    # Kill switch (#66179): legacy tokens stop being verification candidates, but the
+    # staleness guard above already ran, so a row holding a retired key stays excluded.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return secrets
     return secrets + legacy_secrets
 
 
@@ -571,6 +576,9 @@ class WidgetMessagesView(APIView):
         message_list = []
         for m in messages:
             author_type = m.item_context.get("author_type", "customer") if m.item_context else "customer"
+            # Widget clients branch on customer and AI. A workflow reply is a staff message.
+            if author_type == WORKFLOW_AUTHOR_TYPE:
+                author_type = "support"
 
             # Get author name
             if m.created_by:
@@ -686,7 +694,7 @@ class WidgetTicketsView(APIView):
         # message_count, last_message_at, last_message_text are now denormalized on Ticket model
 
         # Order and paginate
-        tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
+        tickets = tickets_query.order_by("-created_at", "-id")[offset : offset + limit]
         total_count = tickets_query.count()
 
         # Serialize tickets

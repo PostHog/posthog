@@ -5,8 +5,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webhook_template import template
 
 SOURCE_ID = "source_test_123"
@@ -125,16 +124,30 @@ class TestWebflowWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result == {"httpResponse": {"status": 400, "body": "Stale delivery"}}
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
+    def test_missing_signing_secret_drops_delivery(self) -> None:
+        body = self._event()
+        globals = {
+            "request": {
+                "method": "POST",
+                "headers": {"x-webflow-signature": "abc", "x-webflow-timestamp": "1700000000000"},
+                "body": body,
+                "stringBody": json.dumps(body),
+                "query": {},
+            }
+        }
+
+        res = self.run_function(self._inputs(signing_secret="", signing_secrets=[]), globals=globals)
+
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Signing secret not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
     @parameterized.expand(
         [
             ("missing_signature", {"x-webflow-timestamp": "1700000000000"}, {}, "Missing signature"),
             ("missing_timestamp", {"x-webflow-signature": "abc"}, {}, "Missing signature"),
-            (
-                "no_secret_configured",
-                {"x-webflow-signature": "abc", "x-webflow-timestamp": "1700000000000"},
-                {"signing_secret": "", "signing_secrets": []},
-                "Signing secret not configured",
-            ),
         ]
     )
     def test_unverifiable_delivery_is_rejected(

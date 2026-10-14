@@ -119,12 +119,12 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             [] as LogsView[],
             {
                 loadViews: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(`${logsViewsUrl(values.currentTeamId)}/`)
                     return response.results
                 },
                 createView: async ({ name, filters }: { name: string; filters: LogsViewApiFilters }) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const created: LogsView = await api.create(`${logsViewsUrl(values.currentTeamId)}/`, {
                         name,
                         filters,
@@ -145,7 +145,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
     listeners(({ actions, values }) => ({
         deleteView: async ({ shortId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 await api.delete(`${logsViewsUrl(values.currentTeamId)}/${shortId}/`)
                 lemonToast.success('View deleted')
             } catch {

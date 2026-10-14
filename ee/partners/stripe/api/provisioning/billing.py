@@ -12,20 +12,23 @@ from typing import Any
 import requests
 import structlog
 
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from ee.billing.billing_manager import (
+    BillingManagedByPartnerError,
+    BillingManager,
+    BillingServiceResponseError,
+    build_billing_token,
+)
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
 
 def _build_billing_token(team: Team, user: User) -> str | None:
-    from posthog.cloud_utils import get_cached_instance_license
-
-    from ee.billing.billing_manager import build_billing_token
-
     license = get_cached_instance_license()
     if not license:
         return None
@@ -60,31 +63,29 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
 
     Returns True if activation succeeded, False otherwise.
     """
-    try:
-        billing_token = _build_billing_token(team, user)
-        if not billing_token:
-            capture_exception(Exception("No license found for SPT billing activation"))
-            return False
-
-        res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/activate/authorize",
-            headers={"Authorization": f"Bearer {billing_token}"},
-            json={"shared_payment_token": spt_token},
-            timeout=30,
-        )
-
-        if res.status_code not in (200, 201):
-            capture_exception(
-                Exception(f"Billing SPT activation failed: {res.status_code}"),
-                {"team_id": team.id, "org_id": str(team.organization_id), "status": res.status_code},
-            )
-            return False
-
-        logger.info("stripe_provisioning.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
-        return True
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
+    log_context = {"team_id": team.id, "org_id": str(team.organization_id)}
+    license = get_cached_instance_license()
+    if not license:
+        capture_exception(Exception("No license found for SPT billing activation"))
         return False
+
+    try:
+        BillingManager(license, user).authorize_with_shared_payment_token(team.organization, spt_token)
+    except BillingManagedByPartnerError:
+        logger.info("stripe_provisioning.spt_billing_refused_partner_managed", **log_context)
+        return False
+    except BillingServiceResponseError as error:
+        capture_exception(
+            Exception(f"Billing SPT activation failed: {error.status_code}"),
+            {**log_context, "status": error.status_code},
+        )
+        return False
+    except Exception:
+        capture_exception(additional_properties=log_context)
+        return False
+
+    logger.info("stripe_provisioning.spt_billing_activated", **log_context)
+    return True
 
 
 def extract_spt(payment_credentials: Any) -> str | None:

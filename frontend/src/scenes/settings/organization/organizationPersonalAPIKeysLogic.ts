@@ -63,6 +63,7 @@ export const organizationPersonalAPIKeysLogic = kea<organizationPersonalAPIKeysL
                 loadKeys: async () => {
                     // Page through everything — an incomplete list would be a security-audit blind spot.
                     const url = getPersonalApiKeysListUrl(ApiConfig.getCurrentOrganizationId())
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     return await api.loadPaginatedResults<OrganizationPersonalAPIKeyApi>(url)
                 },
             },

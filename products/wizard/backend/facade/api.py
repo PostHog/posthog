@@ -13,11 +13,14 @@ from contextlib import asynccontextmanager
 from typing import Any
 from uuid import UUID
 
+from redis.asyncio.client import PubSub
+
 from products.wizard.backend import metrics
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     CreateWizardRunInput,
     ListWizardRunsInput,
+    UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
     WizardProgram,
     WizardRunArtifactDTO,
@@ -26,6 +29,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunGitDiffArtifactDTO,
     WizardRunPage,
     WizardRunPullRequestArtifactDTO,
+    WizardRunTaskDTO,
     WizardSessionDTO,
 )
 from products.wizard.backend.facade.enums import WizardRunStage, WizardRunStatus
@@ -36,6 +40,7 @@ from products.wizard.backend.logic import (
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
+from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 
 
@@ -111,6 +116,12 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     return run_service.get_run(team_id, run_id)
 
 
+@asynccontextmanager
+async def subscribe_to_run_updates(team_id: int, run_id: UUID) -> AsyncIterator[PubSub]:
+    async with run_pubsub.subscribe(team_id, run_id) as subscription:
+        yield subscription
+
+
 def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
     return run_service.list_runs(params)
 
@@ -131,6 +142,12 @@ def update_run_status(
     error_code: str | None = None,
 ) -> WizardRunDTO:
     return run_service.transition_run(team_id, run_id, status, error_code=error_code)
+
+
+def update_run_task_list(
+    team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
+) -> tuple[WizardRunTaskDTO, ...]:
+    return run_service.update_run_task_list(team_id, run_id, tasks)
 
 
 def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> WizardRunGitDiffArtifactDTO | None:

@@ -1,4 +1,4 @@
-import { Message, PartitionMetadata, TopicPartitionOffset } from 'node-rdkafka'
+import { Assignment, Message, PartitionMetadata, TopicPartitionOffset } from 'node-rdkafka'
 
 import { HealthCheckResult } from '~/types'
 
@@ -26,7 +26,10 @@ export const START_AT_LATEST = { ['auto.offset.reset' as keyof RdKafkaConsumerCo
  * implementations to support it.
  */
 export interface KafkaConsumerInterface {
-    connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>): Promise<void>
+    connect(
+        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>,
+        onPartitionsRevoked?: (revokedPartitions: Assignment[]) => Promise<void>
+    ): Promise<void>
     disconnect(): Promise<void>
     isHealthy(): HealthCheckResult
     offsetsStore(offsets: TopicPartitionOffset[]): void

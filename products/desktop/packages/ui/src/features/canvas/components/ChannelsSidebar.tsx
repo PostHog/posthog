@@ -9,6 +9,7 @@ import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSi
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
+import { openActivityItemInRail } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
 import { WorkActivityColumn } from "@posthog/ui/features/canvas/components/work/WorkActivityColumn";
 import { WorkColumn } from "@posthog/ui/features/canvas/components/work/WorkColumn";
@@ -25,7 +26,6 @@ import {
   railPaneFoldsIntoWork,
 } from "@posthog/ui/features/canvas/railPane";
 import {
-  selectActivityItem,
   selectActivityReport,
   useActivitySelection,
 } from "@posthog/ui/features/canvas/stores/activityDetailStore";
@@ -44,10 +44,8 @@ import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
 import { TasksHeader } from "@posthog/ui/features/sidebar/components/TasksHeader";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
-import {
-  CHANNELS_SIDEBAR_MIN_WIDTH,
-  NAV_RAIL_WIDTH,
-} from "@posthog/ui/features/sidebar/constants";
+import { CHANNELS_SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import { useNavRailMetrics } from "@posthog/ui/features/sidebar/navRailSize";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -242,6 +240,7 @@ function ChannelsSidebarImpl() {
   }, [workspacesFetched, workspaces, hasCompletedOnboarding, setOpenAuto]);
 
   const channelsLayout = useChannelsLayout();
+  const { width: navRailWidth } = useNavRailMetrics();
   const peek = useSidebarPeekStore((s) => s.peek);
   useSidebarEdgeHoverPeek({
     enabled: !open && !isResizing,
@@ -249,7 +248,7 @@ function ChannelsSidebarImpl() {
     side: "left",
     width,
     // Hovering a rail button is not a request to slide the sidebar out.
-    offset: channelsLayout ? NAV_RAIL_WIDTH : 0,
+    offset: channelsLayout ? navRailWidth : 0,
     onReveal: beginSidebarPeek,
     onClose: () => endSidebarPeek(),
   });
@@ -362,7 +361,7 @@ function ChannelsSidebarImpl() {
               workActivityOpen={workActivityOpen}
               showsActivityDetail={showsActivityDetail}
               selectedActivityId={selectedActivityId}
-              onActivityActivate={selectActivityItem}
+              onActivityActivate={openActivityItemInRail}
               onActivityReportActivate={selectActivityReport}
               feedId={feedId}
               channelId={presentedChannelId}

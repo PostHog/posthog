@@ -6,13 +6,18 @@ import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonSelect, LemonS
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
+import { Onboarding } from 'scenes/marketing-analytics/Onboarding/Onboarding'
 import { suggestionsForSection } from 'scenes/marketing-analytics/Setup/sectionRouting'
 import { SuggestionRow } from 'scenes/marketing-analytics/Setup/SuggestionRow'
 import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
+import { MarketingAnalyticsSourceStatusBanner } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import {
     SetupSection,
@@ -36,7 +41,9 @@ import {
 import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
+import { DetectedSources } from './DetectedSources'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
+import { MarketingQueryError } from './MarketingQueryError'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
 import { TRAFFIC_CHART_METRICS } from './trafficChartSeries'
 
@@ -85,6 +92,9 @@ const SECTIONS = [
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { nativeSources, validExternalTables, loading, dataWarehouseSources } = useValues(marketingAnalyticsLogic)
+    const { showOnboarding } = useValues(marketingOnboardingLogic)
+    const { completeOnboarding } = useActions(marketingOnboardingLogic)
     const [selectedSection, setSelectedSection] = useState('acquisition')
     const [trafficBreakdown, setTrafficBreakdown] = useState(WebStatsBreakdown.InitialChannelType)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -105,6 +115,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { setDates, setCompareFilter, openSetup, reportDashboardSectionViewed, reportDashboardControlUsed } =
         useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
     const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', false)
     const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
@@ -146,7 +157,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
     }
     const overviewLogic = dataNodeLogic({ query, key: 'marketing-acquisition-overview' })
-    const { response, responseLoading, responseError } = useValues(overviewLogic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(overviewLogic)
     const { loadData } = useActions(overviewLogic)
     const overview = response as WebOverviewQueryResponse | undefined
     const customerOverviewLogic = dataNodeLogic({
@@ -158,10 +169,26 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         response: customerResponse,
         responseLoading: customersLoading,
         responseError: customersError,
+        responseErrorObject: customersErrorObject,
+        queryId: customersQueryId,
     } = useValues(customerOverviewLogic)
     const { loadData: loadCustomers } = useActions(customerOverviewLogic)
     const customerOverview = customerResponse as WebOverviewQueryResponse | undefined
     const reviewCustomerGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
+
+    const hasSearchConsole =
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+        !!dataWarehouseSources?.results.some((source) => source.source_type === 'GoogleSearchConsole')
+    if (
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
+        !loading &&
+        !hasSearchConsole &&
+        nativeSources.length === 0 &&
+        validExternalTables.length === 0 &&
+        showOnboarding
+    ) {
+        return <Onboarding completeOnboarding={completeOnboarding} />
+    }
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -189,8 +216,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     </>
                 )}
             </div>
+            <MarketingAnalyticsSourceStatusBanner />
+            <DetectedSources />
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-2 empty:hidden">
-                {sourceSuggestions.length > 0 && (
+                {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && sourceSuggestions.length > 0 && (
                     <div className="border rounded relative">
                         <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewSources}>
                             Review in Setup
@@ -284,12 +313,12 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             <div id="marketing-dashboard-section" className="flex flex-col gap-4">
                 {isTraffic &&
                     (responseError ? (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Retry', onClick: () => loadData('force_async') }}
-                        >
-                            Could not load traffic metrics. Try again.
-                        </LemonBanner>
+                        <MarketingQueryError
+                            message="Could not load traffic metrics. Try again."
+                            queryId={responseErrorObject?.queryId ?? queryId}
+                            onRetry={() => loadData('force_async')}
+                            loading={responseLoading}
+                        />
                     ) : (
                         [
                             { key: 'acquisition', title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
@@ -327,6 +356,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 configured={!!customerConversionGoal}
                                                 loading={customersLoading || responseLoading}
                                                 error={!!customersError}
+                                                queryId={customersErrorObject?.queryId ?? customersQueryId}
                                                 customerResults={customerOverview?.results}
                                                 trafficResults={overview?.results}
                                                 samplingRate={customerOverview?.samplingRate}

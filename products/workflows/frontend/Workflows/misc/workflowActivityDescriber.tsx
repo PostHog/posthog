@@ -216,6 +216,55 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'optimization_enabled' || logItem.activity == 'optimization_disabled') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                logItem.activity == 'optimization_enabled' ? 'Turned on suggestions' : 'Turned off suggestions',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} />{' '}
+                    {logItem.activity == 'optimization_enabled' ? 'turned on' : 'turned off'} suggestions for the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'proposal_approved') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Approved a suggested change',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> approved a suggested change into the staged draft of the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'proposal_rejected') {
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Rejected a suggested change',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> rejected a suggested change to the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'draft_discarded') {
         return {
             summary: activityLogSummary(

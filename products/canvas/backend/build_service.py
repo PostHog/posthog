@@ -19,6 +19,7 @@ exists elsewhere).
 
 import gzip
 import json
+import time
 import shutil
 import hashlib
 import subprocess
@@ -47,6 +48,7 @@ from posthog.storage import object_storage
 from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
     SYNTHETIC_INDEX_HTML,
@@ -70,6 +72,8 @@ logger = structlog.get_logger(__name__)
 MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
 MAX_PINNED_BUILDS_PER_CANVAS = 10
 MAX_BUILD_ATTEMPTS = 3
+PUBLISH_BUILD_WAIT_SECONDS = 3.0
+_PUBLISH_BUILD_POLL_SECONDS = 0.2
 
 
 @frozen
@@ -117,18 +121,6 @@ CANVAS_BUILD_ACTIVE = Gauge("posthog_canvas_builds_active", "Canvas builds curre
 
 
 CANVAS_BUILDER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "NODE_ENV": "production"}
-
-
-class CanvasBuildCapacityExceeded(Exception):
-    """The team already has the maximum number of in-flight builds."""
-
-
-class CanvasVersionConflict(Exception):
-    """A guarded publish was based on a version that is no longer the head."""
-
-    def __init__(self, current_version_id: str | None) -> None:
-        super().__init__("The canvas changed since it was read.")
-        self.current_version_id = current_version_id
 
 
 def node_executable() -> str:
@@ -674,6 +666,15 @@ def commit_source_project_draft(
     return version, build
 
 
+def wait_for_build_result(build: CanvasBuild) -> CanvasBuild:
+    deadline = time.monotonic() + PUBLISH_BUILD_WAIT_SECONDS
+    while True:
+        build = CanvasBuild.objects.unscoped().get(id=build.id)
+        if build.status not in CanvasBuild.ACTIVE_STATUSES or time.monotonic() >= deadline:
+            return build
+        time.sleep(_PUBLISH_BUILD_POLL_SECONDS)
+
+
 def publish_source_project(
     canvas: Canvas,
     *,
@@ -1214,6 +1215,7 @@ def _capture_build_completed(build: CanvasBuild, *, outcome: str) -> None:
                 event="canvas build completed",
                 properties={
                     "canvas_id": str(build.canvas_id),
+                    "canvas_kind": build.canvas.kind,
                     "build_id": str(build.id),
                     "source_version_id": str(build.source_version_id),
                     "outcome": outcome,

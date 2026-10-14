@@ -1,0 +1,71 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Corrupt pantry photo upload fails at the gateway",
+  "scenario": "A meal-planning app asks GPT-4o mini to read a photo of the user's pantry shelf, but the uploaded file arrives as zero bytes; the request fails upstream and the app captures the full OpenAI-shaped error response, headers included.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 1,
+    "libs": [
+      "posthog-node"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gpt-4o-mini"
+    ],
+    "content_types": [
+      "image_url",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "4.4.1",
+        "$lib": "posthog-node",
+        "$ai_output_tokens": 0,
+        "$ai_is_error": true,
+        "$ai_input_tokens": 0,
+        "$geoip_disable": true,
+        "$ai_latency": 0,
+        "$ai_model_parameters": {},
+        "$ai_http_status": 400,
+        "$ai_model": "gpt-4o-mini",
+        "$ai_trace_id": "a5f6efa2-af86-7adf-1c82-5cf6ba32bdeb",
+        "$ai_base_url": "",
+        "$ai_provider": "openai",
+        "$ai_error": "{\"status\": 424, \"headers\": {\"access-control-allow-headers\": \"Content-Type, Authorization\", \"expires\": \"no-cache, no-store\", \"cf-cache-status\": \"DYNAMIC\", \"cf-ray\": \"897f2a91b4c8e2b1-SJC\", \"connection\": \"keep-alive\", \"content-length\": \"137\", \"content-type\": \"application/json\", \"vary\": \"Origin, Accept-Encoding\", \"x-served-by-region\": \"us-east-1-gateway-03\", \"openai-processing-ms\": \"12\", \"openai-project\": \"proj_2EaqoBfoVuqp3nUwK21NDJCm\", \"openai-version\": \"2020-08-17\", \"server\": \"cloudflare\", \"set-cookie\": \"__cf_bm=8f21a943c50f4674ae8fb48526c48c0f0159d2e3b6a091725; path=/; expires=Thu, 24-Sep-2026 21:01:11 GMT; domain=.api.example.com; HttpOnly; Secure; SameSite=None, _cfuvid=a943c50f4674ae8fb48526c48c0f01a9d2e3b6a091725540f03bf; path=/; domain=.api.example.com; HttpOnly; Secure; SameSite=None\", \"content-security-policy\": \"default-src 'self'; frame-ancestors 'none'\", \"x-runtime-region-tag\": \"us-east\", \"x-cache-status-tag\": \"MISS\", \"x-ratelimit-remaining-tokens\": \"54735\", \"x-ratelimit-limit-tokens\": \"22914\", \"x-ratelimit-reset-tokens\": \"187285167\", \"x-ratelimit-remaining-requests\": \"43912\", \"x-ratelimit-limit-requests\": \"29875\", \"x-ratelimit-reset-requests\": \"116565172\", \"x-upstream-dependency-region\": \"sjc\", \"x-upstream-response-region\": \"sjc\", \"x-gateway-retry-after-sec\": \"6s\", \"x-request-id\": \"req_zbSjyGlKOHptFDbbEAZwlvc7KiJAX32k\"}, \"request_id\": \"req_zbSjyGlKOHptFDbbEAZwlvc7KiJAX32k\", \"error\": {\"message\": \"Internal server error\", \"type\": \"internal_server_error\", \"param\": null, \"code\": \"internal_error\"}, \"code\": \"internal_error\", \"param\": null, \"type\": \"internal_server_error\"}",
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "Analyze this photo of my pantry shelf and help me plan meals for the week. I just did a big grocery restock and I always lose track of what I actually bought versus what I meant to buy, so a fresh read of the shelf would help before I write a meal plan.\n\nPlease tell me:\n1. What canned goods do you see, and roughly how many of each?\n2. What grains, pasta, or rice are visible on the shelf?\n3. Any spices, sauces, or seasonings I should factor into meal ideas?\n4. Anything that looks close to\n   its expiry date based on\n   the packaging, if you can\n   read a date at all?\n5. Anything duplicated that I\n   probably don't need to\n   rebuy this week, since I\n   clearly already have it?\n6. Anything that looks like it\n   was pushed to the back and\n   might be older stock I\n   forgot about entirely?\n\nThen suggest:\n- Three dinner ideas using\n  mostly what's already here,\n  ideally simple weeknight meals\n- One or two things I should add\n  to my grocery list to round\n  out those meals properly\n- Whether anything on the shelf\n  should be used up soon before\n  it goes bad or stale\n\nKeep it short and practical, this is just for my own weekly planning, not a full recipe writeup with exact measurements or step-by-step instructions.",
+                "type": "text"
+              },
+              {
+                "image_url": {
+                  "detail": "auto",
+                  "url": "data:image/png;base64,⟦media:node_openai_corrupt_image_error__M1926286.png⟧"
+                },
+                "type": "image_url"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

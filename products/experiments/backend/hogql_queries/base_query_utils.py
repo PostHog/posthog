@@ -39,13 +39,11 @@ from products.product_analytics.backend.facade.queries import ALLOWED_SESSION_MA
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
     """
-    Check if the metric source uses session-level aggregation.
+    Session properties need special handling:
+    1. They are read from session.X instead of properties.X.
+    2. They need deduplication per session, so that a session with many events counts once.
 
-    Session properties require special handling:
-    1. They must be accessed via session.X instead of properties.X
-    2. They need deduplication per session to avoid event multiplication
-
-    Matches logic in trends/aggregation_operations.py:166-179
+    Keep in sync with the session property checks in product_analytics trends/aggregation_operations.py.
     """
     if not hasattr(source, "math_property"):
         return False
@@ -64,10 +62,7 @@ def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
 
 def validate_session_property(source: Union[EventsNode, ActionsNode]) -> str:
     """
-    Validate and return the session property name.
-
-    Raises ValueError for invalid properties.
-    Matches logic in trends/aggregation_operations.py:154-164
+    Keep in sync with the session property checks in product_analytics trends/aggregation_operations.py.
     """
     math_property = getattr(source, "math_property", None)
     if not math_property:
@@ -114,17 +109,14 @@ def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> b
 
 def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
     """
-    Returns the expression for extracting values from a given source (EventsNode, ActionsNode, or DataWarehouseNode).
-    For count metrics, returns 1. For property-based metrics, extracts the property value.
+    Return the per-row value that the metric aggregates.
     """
 
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
-        # Check if the source has a math type that indicates continuous values
         if hasattr(source, "math") and is_continuous(source.math):
-            # If the metric is a property math type, we need to extract the value from the event property
             metric_property = getattr(source, "math_property", None)
             if metric_property:
-                # Use the same property access pattern as trends to get property groups optimization
+                # Access the property the same way as trends, so that the property groups optimization applies.
                 return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
         elif hasattr(source, "math") and source.math == ExperimentMetricMathType.UNIQUE_SESSION:
             return ast.Field(chain=["$session_id"])
@@ -141,7 +133,6 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             and source.math == ExperimentMetricMathType.HOGQL
             and getattr(source, "math_hogql", None) is not None
         ):
-            # Extract the inner expression from the HogQL expression
             math_hogql = source.math_hogql
             if math_hogql:
                 tag_contains_user_hogql()
@@ -169,26 +160,22 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
                 )
             return parsed
 
-    # Default to count - emit 1 so we can easily sum it up
+    # Count metrics: each row contributes 1, so the sum is the event count.
     return ast.Constant(value=1)
 
 
 def event_or_action_to_filter(
     team: Team, entity_node: Union[EventsNode, ActionsNode, ExperimentEventExposureConfig]
 ) -> ast.Expr:
-    """
-    Returns the filter for a single entity node.
-    """
-
     if isinstance(entity_node, ActionsNode):
         try:
             action = Action.objects.get(pk=int(entity_node.id), team__project_id=team.project_id)
             event_filter = action_to_expr(action)
         except Action.DoesNotExist:
-            # If an action doesn't exist, we want to return no events
+            # A missing action matches no events, so that the query still runs.
             event_filter = ast.Constant(value=False)
     else:
-        # If event is None, we want to match all events (no event name filter)
+        # An event of None means "All events", so there is no event name filter.
         if entity_node.event is None:
             event_filter = ast.Constant(value=True)
         else:
@@ -206,10 +193,6 @@ def event_or_action_to_filter(
 
 
 def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode) -> ast.Expr:
-    """
-    Returns the filter for a data warehouse node, including all properties and fixedProperties.
-    """
-    # Collect all properties from both properties and fixedProperties
     all_properties = []
 
     if node.properties:
@@ -218,12 +201,9 @@ def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode)
     if node.fixedProperties:
         all_properties.extend(node.fixedProperties)
 
-    # If no properties, return True (no filtering)
     if not all_properties:
         return ast.Constant(value=True)
 
-    # Use property_to_expr to convert properties to HogQL expressions
-    # This follows the same pattern as TrendsQueryBuilder._events_filter()
     return property_to_expr(all_properties, team)
 
 
@@ -255,17 +235,13 @@ def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> dateti
 
     For an ordinary "current results" query the caller passes ``as_of = end_date or now``, so a stopped
     experiment resolves to ``end_date`` and a running one to ``now``. A recalc passes its frozen run
-    snapshot; a timeseries backfill passes each historical day — which is why an ``as_of`` *below*
-    ``end_date`` must win, so per-day points stay distinct instead of all collapsing onto ``end_date``.
+    snapshot. A timeseries backfill passes each historical day, which is why an ``as_of`` *below*
+    ``end_date`` must win: the per-day points stay distinct instead of all collapsing onto ``end_date``.
 
-    The historical "results keep growing after end_date" bug: the run snapshot (``now``, always at or
-    after a stopped experiment's ``end_date``) was used as the edge *instead of* ``end_date``, so the
-    window kept extending to now. Capping at ``end_date`` fixes it while preserving the sub-window.
-
-    Value-based on purpose. A caller holding a serialized query whose result is cached under a key
-    hashed from that query (the exposure runner) must pass the query's ``end_date`` here, not live
-    model state — otherwise the key can describe a window the result wasn't computed for. Callers that
-    hold the model use the :func:`experiment_window_end` wrapper.
+    The function takes values instead of the model on purpose. A caller holding a serialized query whose
+    result is cached under a key hashed from that query (the exposure runner) must pass the query's
+    ``end_date`` here, not live model state. Otherwise the key can describe a window the result wasn't
+    computed for. Callers that hold the model use the :func:`experiment_window_end` wrapper.
 
     ``as_of`` (and ``end_date`` when set) must be timezone-aware.
     """
@@ -277,11 +253,11 @@ def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> dateti
 def analysis_window(
     start_date: Optional[datetime], end_date: Optional[datetime], team: Team, as_of: datetime
 ) -> DateRange:
-    """Single source of truth for an experiment's analysis ``DateRange``, from raw start/end dates.
+    """Build an experiment's analysis ``DateRange`` from raw start/end dates.
 
-    Replaces the scattered ``override_end_date or end_date or now`` derivations. The upper edge always
-    comes from :func:`analysis_window_end` (earlier of ``as_of`` and ``end_date``), so no call site can
-    extend the window past ``end_date``. A draft experiment (no ``start_date``) has no window.
+    Derive every analysis window here. The upper edge always comes from :func:`analysis_window_end`
+    (earlier of ``as_of`` and ``end_date``), so no call site can extend the window past ``end_date``.
+    A draft experiment (no ``start_date``) has no window.
     """
     if start_date is None:
         return DateRange(date_from=None, date_to=None, explicitDate=True)
@@ -314,18 +290,16 @@ def funnel_steps_to_filter(
     team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
 ) -> ast.Expr:
     """
-    Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
+    Match a row if it matches any funnel step.
 
-    Note: This function filters out ExperimentDataWarehouseNode entries since they cannot be
-    evaluated as boolean filters (they require separate UNION ALL query pattern).
+    Data warehouse steps are skipped because they are not event filters. The funnel query
+    reads them through a separate UNION ALL.
     """
-    # Filter out DW nodes - they require UNION ALL pattern, not boolean filters
     event_and_action_steps = [step for step in funnel_steps if not isinstance(step, ExperimentDataWarehouseNode)]
 
-    # Guard against empty list (all DW nodes case)
     if not event_and_action_steps:
-        # Return a constant false expression - this prevents empty ast.Or
-        # This case should be caught earlier by validation, but we guard defensively
+        # Validation should reject a funnel with only data warehouse steps. Return False
+        # if one gets through, because an empty ast.Or is not a valid expression.
         return ast.Constant(value=False)
 
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in event_and_action_steps])
@@ -335,11 +309,10 @@ def funnel_evaluation_expr(
     team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str, include_exposure: bool = False
 ) -> ast.Expr:
     """
-    Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
-    Returns the highest step number (0-indexed) that the user reached.
+    Evaluate the funnel with the aggregate_funnel_array UDF.
 
-    When events_alias is provided, assumes that step conditions have been pre-calculated
-    as step_0, step_1, etc. fields in the aliased table.
+    The expression returns a tuple of (highest step reached, 0-indexed; uuid of that step's event).
+    The `events_alias` table must have precomputed `step_0`, `step_1`, ... columns.
     """
 
     if funnel_metric.conversion_window is not None and funnel_metric.conversion_window_unit is not None:
@@ -347,29 +320,25 @@ def funnel_evaluation_expr(
             funnel_metric.conversion_window, funnel_metric.conversion_window_unit
         )
     else:
-        # Default to include all events selected, so we just set a large value here (3 years)
+        # Without a conversion window, all events count. 3 years is large enough to act as no limit.
         conversion_window_seconds = 3 * 365 * 24 * 60 * 60
 
     num_steps = len(funnel_metric.series)
     if include_exposure:
         num_steps += 1
 
-    # Create field references with proper alias support
     timestamp_field = f"{events_alias}.timestamp"
     uuid_field = f"{events_alias}.uuid"
 
-    # When using an alias, assume step conditions are pre-calculated
     step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
 
     step_conditions_str = ", ".join(step_conditions)
 
-    # Determine funnel order type - default to "ordered" for backward compatibility
+    # Metrics saved without funnel_order_type use "ordered", the original behavior.
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
 
-    # Return tuple of (highest step reached, uuid of that step's event)
-    # aggregate_funnel_array returns an array of tuples where:
-    # result.1 is the step_reached (0-indexed)
-    # result.4 is an array of arrays of UUIDs for each step
+    # aggregate_funnel_array returns an array of tuples. result.1 is the step reached (0-indexed),
+    # and result.4 is an array of arrays of UUIDs for each step.
     expression = f"""
     arraySort(x -> -x.1,
         arrayMap(

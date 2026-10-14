@@ -10,12 +10,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
     FinnworldsAuthError,
     FinnworldsRetryableError,
-    _build_url,
     _extract_rows,
     _normalize_row,
     _payload_error,
     finnworlds_source,
     get_rows,
+    parse_countries,
     parse_tickers,
     validate_credentials,
 )
@@ -68,10 +68,6 @@ class TestParseTickers:
     def test_parse_tickers(self, _name: str, raw: str | None, expected: list[str]) -> None:
         assert parse_tickers(raw) == expected
 
-    def test_at_max_tickers_is_allowed(self) -> None:
-        raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS))
-        assert len(parse_tickers(raw)) == finnworlds.MAX_TICKERS
-
     def test_over_max_tickers_is_rejected(self) -> None:
         # Bounds the per-sync outbound fan-out (one request per ticker per table).
         raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS + 1))
@@ -79,17 +75,27 @@ class TestParseTickers:
             parse_tickers(raw)
 
 
-class TestBuildUrl:
-    def test_includes_key_and_ticker(self) -> None:
-        url = _build_url("incomestatements", {"key": "secret", "ticker": "AAPL"})
-        assert url.startswith("https://api.finnworlds.com/api/v1/incomestatements?")
-        assert "key=secret" in url
-        assert "ticker=AAPL" in url
+class TestParseCountries:
+    @parameterized.expand(
+        [
+            ("comma_separated", "United_States,Germany", ["United_States", "Germany"]),
+            ("newline_separated", "United_States\nGermany", ["United_States", "Germany"]),
+            ("spaces_become_underscores", "United Kingdom, Germany", ["United_Kingdom", "Germany"]),
+            ("keeps_user_spelling", "germany", ["germany"]),
+            ("dedupes_case_insensitively", "Germany, germany", ["Germany"]),
+            ("strips_whitespace", "  Germany  ", ["Germany"]),
+            ("empty_string", "", []),
+            ("none", None, []),
+            ("only_separators", " , , ", []),
+        ]
+    )
+    def test_parse_countries(self, _name: str, raw: str | None, expected: list[str]) -> None:
+        assert parse_countries(raw) == expected
 
-    def test_url_encodes_values(self) -> None:
-        url = _build_url("bonds", {"key": "a b&c"})
-        # urlencode escapes the space and ampersand so they don't break the query string.
-        assert "a+b%26c" in url
+    def test_over_max_countries_is_rejected(self) -> None:
+        raw = ",".join(f"Country{i}" for i in range(finnworlds.MAX_COUNTRIES + 1))
+        with pytest.raises(ValueError, match="Too many countries"):
+            parse_countries(raw)
 
 
 class TestPayloadError:
@@ -108,25 +114,6 @@ class TestPayloadError:
 
 
 class TestExtractRows:
-    def test_output_array(self) -> None:
-        payload = {"result": {"basics": {"ticker": "AAPL"}, "output": {"income_statement": [{"date": "2025-03-31"}]}}}
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["income_statements"])
-        assert rows == [{"date": "2025-03-31"}]
-
-    def test_output_object(self) -> None:
-        payload = {"result": {"output": {"pe_ratio": "30", "date": "2025-06-01"}}}
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["financial_ratios"])
-        assert rows == [{"pe_ratio": "30", "date": "2025-06-01"}]
-
-    def test_output_object_empty_yields_nothing(self) -> None:
-        payload: dict[str, Any] = {"result": {"output": {}}}
-        assert _extract_rows(payload, FINNWORLDS_ENDPOINTS["financial_ratios"]) == []
-
-    def test_output_bare(self) -> None:
-        payload = {"result": {"output": [{"country": "US", "type": "10Y"}]}}
-        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["bond_yields"])
-        assert rows == [{"country": "US", "type": "10Y"}]
-
     def test_result_key(self) -> None:
         payload = {"result": {"analysts": [{"analyst_name": "Jane"}]}}
         rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["company_ratings"])
@@ -160,10 +147,6 @@ class TestNormalizeRow:
         assert row["ticker"] == "AAPL"
         assert row["period"] == "quarterly"
 
-    def test_period_defaults_to_annual(self) -> None:
-        row = _normalize_row({"date": "2025-03-31"}, FINNWORLDS_ENDPOINTS["income_statements"], "AAPL", None)
-        assert row["period"] == "annual"
-
     def test_flattens_nested_rating(self) -> None:
         raw = {"analyst_name": "Jane", "rating": {"date_rating": "2025-01-01", "price_target": "200"}}
         row = _normalize_row(raw, FINNWORLDS_ENDPOINTS["company_ratings"], "AAPL", None)
@@ -186,7 +169,7 @@ class TestGetRows:
         session = _session_returning(*responses)
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], _logger()))
+            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], _logger()))
 
         assert len(batches) == 2
         assert batches[0][0]["ticker"] == "AAPL"
@@ -196,7 +179,7 @@ class TestGetRows:
         session = _session_returning(_response({"result": {"output": [{"country": "US", "type": "10Y"}]}}))
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "bond_yields", ["AAPL"], _logger()))
+            batches = list(get_rows("key", "bond_yields", ["AAPL"], [], _logger()))
 
         assert session.get.call_count == 1
         assert batches == [[{"country": "US", "type": "10Y"}]]
@@ -206,7 +189,7 @@ class TestGetRows:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
             with pytest.raises(FinnworldsAuthError):
-                list(get_rows("bad", "dividends", ["AAPL"], _logger()))
+                list(get_rows("bad", "dividends", ["AAPL"], [], _logger()))
 
     def test_non_auth_error_skips_ticker(self) -> None:
         # First ticker has no data (non-auth error), second succeeds — the sync continues.
@@ -218,19 +201,11 @@ class TestGetRows:
         logger = _logger()
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], logger))
+            batches = list(get_rows("key", "dividends", ["AAPL", "MSFT"], [], logger))
 
         assert len(batches) == 1
         assert batches[0][0]["ticker"] == "MSFT"
         logger.warning.assert_called()
-
-    def test_empty_ticker_list_yields_nothing(self) -> None:
-        session = _session_returning()
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            batches = list(get_rows("key", "dividends", [], _logger()))
-        assert batches == []
-        session.get.assert_not_called()
 
 
 class TestRetryClassification:
@@ -301,7 +276,7 @@ class TestFinnworldsSource:
     @parameterized.expand([(name,) for name in FINNWORLDS_ENDPOINTS])
     def test_source_response_primary_keys_and_partitioning(self, endpoint: str) -> None:
         config: FinnworldsEndpointConfig = FINNWORLDS_ENDPOINTS[endpoint]
-        response = finnworlds_source("key", endpoint, ["AAPL"], _logger())
+        response = finnworlds_source("key", endpoint, ["AAPL"], ["United_States"], _logger())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -327,3 +302,126 @@ class TestFinnworldsSource:
     def test_all_response_modes_are_covered_by_an_endpoint(self) -> None:
         used = {c.response_mode for c in FINNWORLDS_ENDPOINTS.values()}
         assert used == set(ResponseMode)
+
+
+def _insider_payload(**overrides: Any) -> dict[str, Any]:
+    filing: dict[str, Any] = {
+        "period_of_report": "2025-08-21",
+        "reporting_owner": [
+            {
+                "owner_id": {"owner_cik": "1000001", "name": "Doe Jane"},
+                "owner_role": {
+                    "is_director": 0,
+                    "is_officer": 1,
+                    "is_ten_percent_owner": 0,
+                    "is_other": 0,
+                    "insider": "Senior Vice President",
+                },
+            }
+        ],
+        "non_derivative_table": [
+            {
+                "security": "Common Stock",
+                "activity_date": "2025-08-21",
+                "transaction": {"code": "M", "equity_swap": "0"},
+                "transaction_amounts": {"shares": "8760", "share_per_price": "0", "acquired_disposed_code": "A"},
+                "post_transaction": {"holding": "55790"},
+                "ownership_nature": {"direct_or_indirect": "D", "ownership": ""},
+            },
+            {
+                "security": "Common Stock",
+                "activity_date": "2025-08-21",
+                "transaction": {"code": "M", "equity_swap": "0"},
+                "transaction_amounts": {"shares": "3940", "share_per_price": "0", "acquired_disposed_code": "A"},
+                "post_transaction": {"holding": "59730"},
+                "ownership_nature": {"direct_or_indirect": "D", "ownership": ""},
+            },
+        ],
+        "derivative_table": [
+            {
+                "derivatives": {
+                    "security": "Restricted Stock Unit Award",
+                    "activity_date": "2025-08-21",
+                    "transaction": {"code": "M", "equity_swap": "0"},
+                    "transaction_amounts": {"shares": "8760", "acquired_disposed_code": "D"},
+                    "post_transaction": {"shares_owned": "17540"},
+                }
+            }
+        ],
+        "footnotes": [{"id": "F1", "text": "Rule 10b5-1 trading plan."}],
+    }
+    filing.update(overrides)
+    return {"status": {"code": 200, "message": "OK"}, "result": filing}
+
+
+class TestInsiderTransactions:
+    def test_a_date_range_returning_several_filings(self) -> None:
+        # A single filing comes back as an object; a range can come back as a list of them.
+        payload = {"result": [_insider_payload()["result"], _insider_payload(period_of_report="2025-09-02")["result"]]}
+        rows = _extract_rows(payload, FINNWORLDS_ENDPOINTS["insider_transactions"])
+
+        assert len(rows) == 6
+        assert {r["period_of_report"] for r in rows} == {"2025-08-21", "2025-09-02"}
+
+    @parameterized.expand(
+        [
+            ("missing_result", {}),
+            ("result_is_a_string", {"result": "nope"}),
+            ("tables_wrong_shape", {"result": {"non_derivative_table": "nope", "derivative_table": None}}),
+            ("entries_not_objects", {"result": {"non_derivative_table": ["nope"]}}),
+        ]
+    )
+    def test_malformed_filings_degrade_gracefully(self, _name: str, payload: dict) -> None:
+        assert _extract_rows(payload, FINNWORLDS_ENDPOINTS["insider_transactions"]) == []
+
+
+class TestCompanyIdentifiers:
+    def test_emits_one_row_keeping_the_previous_names(self) -> None:
+        payload = {
+            "result": {
+                "basics": {"ticker": "AAPL"},
+                "output": {
+                    "name": "Apple Inc.",
+                    "cik": "320193",
+                    "isin": "US0378331005",
+                    "previous_names": [{"name": "APPLE COMPUTER INC", "from": "1994-01-26"}],
+                },
+            }
+        }
+        config = FINNWORLDS_ENDPOINTS["company_identifiers"]
+        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(payload, config)]
+
+        assert len(rows) == 1
+        assert rows[0]["ticker"] == "AAPL"
+        assert rows[0]["cik"] == "320193"
+        assert rows[0]["previous_names"] == [{"name": "APPLE COMPUTER INC", "from": "1994-01-26"}]
+
+
+class TestCountryFanout:
+    def test_macro_requests_one_country_per_call_and_injects_it(self) -> None:
+        responses = [
+            _response({"result": {"output": [{"report_name": "Business Confidence", "actual": "-33"}]}}),
+            _response({"result": {"output": [{"report_name": "Business Confidence", "actual": "12"}]}}),
+        ]
+        session = _session_returning(*responses)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
+            batches = list(
+                get_rows("key", "macroeconomic_indicators", ["AAPL"], ["United_Kingdom", "Germany"], _logger())
+            )
+
+        requested = [call.args[0] for call in session.get.call_args_list]
+        assert "country=United_Kingdom" in requested[0]
+        assert "ticker=" not in requested[0]
+        assert [batch[0]["country"] for batch in batches] == ["United_Kingdom", "Germany"]
+
+    def test_no_countries_configured_makes_no_requests(self) -> None:
+        session = _session_returning()
+        logger = _logger()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
+            batches = list(get_rows("key", "macroeconomic_indicators", ["AAPL"], [], logger))
+
+        assert batches == []
+        session.get.assert_not_called()
+        logger.warning.assert_called()

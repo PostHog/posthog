@@ -27,10 +27,12 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.dev_stack_image_refresh import reconcile_dev_stack_image
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.constants import (
@@ -39,6 +41,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
+from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -106,17 +109,6 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         },
     )
 
-    # A run that never starts its workflow never reaches the update_task_run_status activity, so
-    # loop bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
-    # Swallowed so a bookkeeping failure never masks the start failure being reported.
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
-        handle_loop_run_terminal,
-    )
-
-    try:
-        handle_loop_run_terminal(task_run)
-    except Exception:
-        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
     resume_workflow_step_for_run(task_run)
     return True
 
@@ -457,41 +449,6 @@ def execute_task_processing_workflow(
         )
 
 
-def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
-    """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
-    ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
-    ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down.
-
-    Signals scout runs are the exception. Their posture (``signal_scout_internal:*`` +
-    ``signal_scout_report:write``) is carried by neither ``"full"`` nor ``"read_only"``, so a scout
-    re-dispatched on this fallback with a generic posture loses every ``signals-scout-*`` tool — they
-    drop out of the MCP catalog and surface to the agent as "Unknown tool", burning the whole run
-    (it investigates, then can't emit a report, write scratchpad, or build its profile). Pin
-    scout-origin runs to the most-capable scout posture so a reconciled scout stays fully functional.
-    Over-granting the report scope to a non-report scout is harmless: the report endpoints
-    independently gate on the skill's ``allowed_tools`` opt-in.
-    """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
-        RunSource,
-        parse_run_state,
-    )
-
-    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
-        return "signals_scout_reports"
-    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
-    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
-        return "read_only"
-
-    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
-    # degrade to read_only, never escalate to the full write surface the generic fallback
-    # below grants (loop runs carry no run_source).
-    if task_run.task.origin_product == Task.OriginProduct.LOOP:
-        return "read_only"
-
-    run_source = parse_run_state(task_run.state).run_source
-    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
-
-
 def redispatch_orphaned_task_run(run_id: str) -> str:
     """Re-dispatch a run stuck in QUEUED whose create-time on_commit dispatch never fired.
 
@@ -538,27 +495,12 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
     if workflow_id_prefix:
         _record_prefixed_workflow_id(run_id, workflow_id)
-    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
-    # other run keeps the historical True default.
-    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
     workflow_input = ProcessTaskInput(
         run_id=run_id,
-        create_pr=dispatch_params.get("create_pr", default_create_pr),
+        create_pr=dispatch_params.get("create_pr", True),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
-        posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
+        posthog_mcp_scopes=dispatched_run_scopes(task, task_run.state),
     )
-
-    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
-    # this sweep recovers from, so dispatching without re-seeding would silently start
-    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
-    # is treated like any other transient recovery error: retried next sweep, with the
-    # 24h killer as the terminal backstop.
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
-        ensure_loop_skill_bundles_seeded,
-    )
-
-    if not ensure_loop_skill_bundles_seeded(task_run):
-        return "error"
 
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
     _capture_run_feature_flags(run_id)
@@ -616,6 +558,10 @@ def execute_bake_dev_stack_image_workflow(
     TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
     fresh one instead of blocking it.
     """
+    target = DevStackImageState.target(publish_name)
+    if target is not None:
+        reconcile_dev_stack_image(target, trigger=trigger)
+        return
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
@@ -689,11 +635,14 @@ def signal_task_followup_message(
     asyncio.run(signal())
 
 
-def signal_agent_text_delta(workflow_id: str, text: str) -> None:
-    """Push text into the live agent-design plan-block stream for a running task."""
+def signal_agent_final_text(workflow_id: str, text: str, trace_id: str | None = None) -> None:
+    """Give the live agent-design reply of a running task the turn's whole answer.
+
+    The relay replaces its streamed text deltas with this text, so the answer shows one time
+    even when this signal lands between two deltas."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("agent_text_delta", text))
+    asyncio.run(handle.signal("agent_final_text", {"text": text, "trace_id": trace_id}))
 
 
 def execute_posthog_code_agent_relay_workflow(

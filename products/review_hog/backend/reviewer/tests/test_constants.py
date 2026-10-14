@@ -180,6 +180,14 @@ _SONNET_ARM = ReviewArm(
     initial_permission_mode=None,
 )
 
+# The reviewer pin a report persisted before the model bump, sticky for that report's life.
+_LEGACY_CODEX_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-5.6-sol",
+    reasoning_effort=ReasoningEffort.XHIGH,
+    initial_permission_mode="full-access",
+)
+
 
 @pytest.mark.parametrize(
     "persisted,expected",
@@ -188,6 +196,18 @@ _SONNET_ARM = ReviewArm(
         pytest.param((None, None, None, None), DEFAULT_REVIEW_ARM, id="null-bundle"),
         # A persisted assignment that differs from the default pins is honored verbatim.
         pytest.param(("claude", "claude-sonnet-5", "xhigh", None), _SONNET_ARM, id="persisted-claude-arm"),
+        # An in-flight report keeps the previous reviewer pin. Deregistering the legacy model would
+        # move every such report onto the bumped default mid-review instead.
+        pytest.param(
+            ("codex", "gpt-5.6-sol", "xhigh", "full-access"), _LEGACY_CODEX_ARM, id="persisted-legacy-codex-arm"
+        ),
+        # The cheap tier's effort too: narrowing the legacy model's effort list would lift an
+        # in-flight cheap report to the full-strength default and cost money.
+        pytest.param(
+            ("codex", "gpt-5.6-sol", "low", "full-access"),
+            replace(_LEGACY_CODEX_ARM, reasoning_effort=ReasoningEffort.LOW),
+            id="persisted-legacy-codex-cheap-tier",
+        ),
         # A model that outlived its registration must degrade to the default reviewer, not send an
         # unroutable pin into a paid sandbox turn. Pinned at "high" deliberately: the Codex effort
         # registry accepts any unknown model at <=high, so only the membership check catches this.

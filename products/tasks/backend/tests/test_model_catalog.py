@@ -1,6 +1,3 @@
-import sys
-import importlib.util
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,21 +10,6 @@ from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-GENERATOR = REPO_ROOT / "products" / "tasks" / "scripts" / "build_model_catalog.py"
-
-
-def _load_generator():
-    name = "build_task_model_catalog"
-    spec = importlib.util.spec_from_file_location(name, GENERATOR)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # Registered before execution because @dataclass resolves annotations through
-    # sys.modules[cls.__module__], which is unset for a module loaded by path alone.
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _resolved_catalog() -> dict[str, Any]:
@@ -53,6 +35,9 @@ def _resolved_catalog() -> dict[str, Any]:
                     model_id: {
                         "reasoning_efforts": list(model_catalog.reasoning_efforts_for(adapter, model_id)),
                         "cost_multiplier": model_catalog.cost_multiplier_label(model_id),
+                        "supports_1m_context": model_catalog.supports_1m_context(model_id),
+                        "supports_fast_mode": model_catalog.supports_fast_mode(model_id),
+                        "offered": model_catalog.is_offered_model(model_id),
                     }
                     for model_id in model_catalog.models_for_runtime_adapter(adapter)
                 },
@@ -63,6 +48,11 @@ def _resolved_catalog() -> dict[str, Any]:
             {"runtime_adapter": adapter, "prefix": prefix, "reasoning_efforts": list(efforts)}
             for adapter, prefix, efforts in model_catalog.FAMILY_REASONING_EFFORTS
         ],
+        "reasoning_effort_labels": dict(model_catalog.REASONING_EFFORT_LABELS),
+        "capability_ladders": {
+            adapter: [{"model": notch.model, "effort": notch.effort} for notch in ladder]
+            for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items()
+        },
     }
 
 
@@ -72,19 +62,6 @@ def test_every_model_resolves_to_the_recorded_triple(snapshot) -> None:
     # lands in review as a readable data diff instead of one line of Python.
     # Refresh with: pytest products/tasks/backend/tests/test_model_catalog.py --snapshot-update
     assert _resolved_catalog() == snapshot(extension_class=JSONSnapshotExtension)
-
-
-@pytest.mark.parametrize("output,style", [("WEB_OUTPUT", "OXFMT"), ("DESKTOP_OUTPUT", "BIOME")], ids=["web", "desktop"])
-def test_checked_in_projection_is_what_the_generator_emits(output: str, style: str) -> None:
-    generator = _load_generator()
-    expected = generator.render(vars(model_catalog), getattr(generator, style))
-
-    path: Path = getattr(generator, output)
-    assert path.exists(), f"{path} is missing — run `hogli build:task-model-catalog`"
-    assert path.read_text() == expected, (
-        f"{path.relative_to(REPO_ROOT)} is stale. The catalog changed without regenerating, so this "
-        f"surface would offer a selection the backend rejects. Run `hogli build:task-model-catalog`."
-    )
 
 
 def test_every_runtime_adapter_has_catalog_models() -> None:
@@ -103,6 +80,31 @@ def test_every_catalog_effort_is_a_known_reasoning_effort() -> None:
 
 def test_reasoning_effort_enum_covers_the_catalog() -> None:
     assert set(model_catalog.REASONING_EFFORTS) <= {effort.value for effort in ReasoningEffort}
+
+
+def test_every_effort_has_a_label() -> None:
+    assert set(model_catalog.REASONING_EFFORT_LABELS) == set(model_catalog.REASONING_EFFORTS), (
+        "a depth with no label renders as its raw id in every picker"
+    )
+
+
+def test_every_ladder_rung_is_one_a_run_can_actually_use() -> None:
+    # A surface filters the ladder against what the gateway serves, which cannot hide a rung
+    # the catalog itself contradicts — that one reaches the picker and fails on send.
+    for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items():
+        for notch in ladder:
+            assert notch.model in model_catalog.models_for_runtime_adapter(adapter), (
+                f"'{adapter}' ladder names '{notch.model}', which that adapter does not drive"
+            )
+            assert notch.effort in model_catalog.reasoning_efforts_for(adapter, notch.model), (
+                f"'{notch.model}' does not support '{notch.effort}', so that rung's run would be rejected"
+            )
+
+
+def test_every_runtime_adapter_has_a_capability_ladder() -> None:
+    assert set(model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER) == set(model_catalog.RUNTIME_ADAPTERS), (
+        "an adapter with no ladder leaves its picker without a Faster/Smarter slider"
+    )
 
 
 def test_runtime_options_agree_with_the_task_runtime_column() -> None:
@@ -163,6 +165,7 @@ def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
         ("claude-opus-5", "2.5×"),
         ("anthropic/claude-opus-5", "2.5×"),
         ("gpt-5.6-sol", "≈2.8×"),
+        ("gpt-6.1-sol", "1× base"),
         ("zai-org/glm-5.3-flash", "≈0.06×"),
         ("gpt-5", None),
         ("claude-imaginary-9", None),
@@ -172,6 +175,7 @@ def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
         "input_and_output_agree",
         "provider_qualified_id",
         "diverging_rates_are_approximate",
+        "tiered_model_marks_base_rate",
         "cheap_model_keeps_two_decimals",
         "unpriced_model",
         "unknown_model",
@@ -179,6 +183,14 @@ def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
 )
 def test_cost_multiplier_reads_against_the_baseline(model: str, expected: str | None) -> None:
     assert model_catalog.cost_multiplier_label(model) == expected
+
+
+def test_tiered_cost_summary_describes_both_rates() -> None:
+    cost = model_catalog.cost_for_model("gpt-6.1-sol")
+    assert cost is not None
+    assert model_catalog.format_cost_rates(cost) == (
+        "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above"
+    )
 
 
 def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:

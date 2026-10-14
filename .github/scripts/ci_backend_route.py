@@ -6,8 +6,18 @@ to Depot CI` job, which Depot CI waits for before it runs anything, so Depot nev
 routes on its own and the tests never run on both engines. Once that job has concluded
 for a commit, every later run of the same commit repeats its answer, whatever the
 percent or the labels say by then, even after the rollout variable is deleted. A read of
-that record that keeps failing fails the run when the event would go to Depot, so
-nothing is routed anywhere, and otherwise leaves the event on GitHub Actions.
+that record that keeps failing stops routing, so a commit cannot run on both engines.
+
+Any other event goes to Depot only after Depot started a run for it. Depot compiles its run
+from the pull request's merge ref as soon as the event arrives, while GitHub Actions waits
+until GitHub has updated that ref. When the ref is missing, Depot ends the run with no
+workflows; when it stays stale, Depot fails to compile. Depot also cancels some runs under
+its concurrency policy before they start. Each case leaves the event with no Depot run, so
+it stays here.
+
+Merge queue batches have their own percent, CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT, so the
+merge gate moves to Depot separately from source pull requests. Batches ignore the routing
+labels, so setting that percent to 0 keeps every new batch on GitHub Actions.
 """
 
 import os
@@ -18,20 +28,36 @@ import hashlib
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
+
+from ci_backend_relay import (
+    EVENT_TIME,
+    MIRROR_APP_ID,
+    CheckReader,
+    CheckRunReader,
+    ReadFailedError,
+    ReadRefusedError,
+    event_check_name,
+    is_merge_queue,
+)
 
 LABEL_FORCE_GITHUB = "ci-backend-github"
 LABEL_FORCE_DEPOT = "ci-backend-depot"
 PERCENT_VARIABLE = "CI_BACKEND_DEPOT_PERCENT"
-# The Trunk merge queue tests each batch through a draft pull request on this branch.
-MERGE_QUEUE_PREFIX = "trunk-merge/"
 HANDOFF_CHECK = "Hand off backend tests to Depot CI"
 GITHUB_ACTIONS_APP_ID = 15368
 ENGINE_BY_HANDOFF_CONCLUSION = {"success": "depot", "skipped": "github"}
 API_ROOT = "https://api.github.com"
 API_ATTEMPTS = 3
 API_BACKOFF_SECONDS = 5
+# The first step of Depot's wait job in .depot/workflows/ci-backend.yml posts this check; change both.
+STARTED_JOB = "Depot run started"
+# How long after the event Depot's wait job may take to start before the event stays on GitHub Actions.
+DEPOT_START_SECONDS = 180
+DEPOT_POLL_SECONDS = 10
 
 
 class HandoffReadError(RuntimeError):
@@ -87,6 +113,15 @@ def handoff_conclusion(check_runs: list[dict], pr_number: int) -> str | None:
     return conclusions[0] if conclusions else None
 
 
+def by_bucket(pr_number: int | None, percent: int, label: str) -> Decision:
+    if pr_number is None:
+        return Decision("github", "no pull request number to hash")
+    bucket = bucket_of(pr_number)
+    if bucket < percent:
+        return Decision("depot", f"{label} {bucket} < {percent}%")
+    return Decision("github", f"{label} {bucket} >= {percent}%")
+
+
 def decide(
     event: str,
     percent: int,
@@ -96,14 +131,15 @@ def decide(
     is_draft: bool,
     prior_handoff: str | None = None,
     head_ref: str = "",
+    merge_queue_percent: int = 0,
 ) -> Decision:
     if event != "pull_request":
         return Decision("github", f"{event} events stay on GitHub Actions")
-    if head_ref.startswith(MERGE_QUEUE_PREFIX):
-        return Decision("github", "merge queue batches stay on GitHub Actions")
     prior_engine = ENGINE_BY_HANDOFF_CONCLUSION.get(prior_handoff or "")
     if prior_engine:
         return Decision(prior_engine, f"an earlier run of this commit chose {prior_engine}")
+    if is_merge_queue(head_ref):
+        return by_bucket(pr_number, merge_queue_percent, "merge queue bucket")
     if LABEL_FORCE_GITHUB in labels:
         return Decision("github", f"label {LABEL_FORCE_GITHUB}")
     if is_fork:
@@ -112,12 +148,7 @@ def decide(
         return Decision("github", "no-ci drafts skip on GitHub Actions and run nowhere else")
     if LABEL_FORCE_DEPOT in labels:
         return Decision("depot", f"label {LABEL_FORCE_DEPOT}")
-    if pr_number is None:
-        return Decision("github", "no pull request number to hash")
-    bucket = bucket_of(pr_number)
-    if bucket < percent:
-        return Decision("depot", f"bucket {bucket} < {percent}%")
-    return Decision("github", f"bucket {bucket} >= {percent}%")
+    return by_bucket(pr_number, percent, "bucket")
 
 
 def fetch_handoff_checks(repo: str, sha: str, token: str, *, opener: Any = None) -> list[dict]:
@@ -154,6 +185,36 @@ def fetch_handoff_checks(repo: str, sha: str, token: str, *, opener: Any = None)
     raise HandoffReadError(f"GET {url} exhausted {API_ATTEMPTS} attempts")
 
 
+def depot_started(
+    reader: CheckReader,
+    pr_number: int,
+    event_at: str,
+    *,
+    clock: Callable[[], float] = time.time,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Whether Depot started a run for this event, waiting up to DEPOT_START_SECONDS after it.
+
+    The started check names the event, so it identifies this event's run and no other.
+    """
+    try:
+        deadline = datetime.strptime(event_at, EVENT_TIME).replace(tzinfo=UTC).timestamp() + DEPOT_START_SECONDS
+    except ValueError:
+        return False
+    name = event_check_name(STARTED_JOB, pr_number, event_at)
+    while True:
+        try:
+            if reader.read(name):
+                return True
+        except ReadFailedError:
+            pass
+        except ReadRefusedError:
+            return False
+        if clock() >= deadline:
+            return False
+        sleep(DEPOT_POLL_SECONDS)
+
+
 def main() -> int:
     env = os.environ
     event = env.get("EVENT", "")
@@ -172,6 +233,7 @@ def main() -> int:
             is_draft=env.get("IS_DRAFT", "false") == "true",
             prior_handoff=prior_handoff,
             head_ref=env.get("HEAD_REF", ""),
+            merge_queue_percent=parse_percent(env.get("MERGE_QUEUE_PERCENT")),
         )
 
     prior_handoff = None
@@ -181,17 +243,22 @@ def main() -> int:
                 fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
             )
         except HandoffReadError as error:
-            if route_with(None).engine == "depot":
-                sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
-                return 1
-            # Staying on GitHub Actions never sends a commit to Depot twice. The worst case is
-            # a GitHub rerun of a commit Depot already tested, which costs runners, not safety.
-            sys.stdout.write(
-                f"::warning::Cannot read the earlier hand-off, so this event stays on GitHub Actions: {error}\n"
-            )
+            sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
+            return 1
         else:
             sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
     decision = route_with(prior_handoff)
+    if (
+        decision.engine == "depot"
+        and prior_handoff not in ENGINE_BY_HANDOFF_CONCLUSION
+        and pr_number is not None
+        and not depot_started(
+            CheckRunReader(env["REPO"], env["SHA"], env["GH_TOKEN"], pr_number=pr_number, app_ids=(MIRROR_APP_ID,)),
+            pr_number,
+            env.get("EVENT_AT", ""),
+        )
+    ):
+        decision = Decision("github", "Depot CI started no run for this event")
     sys.stdout.write(f"::notice::Backend CI engine: {decision.engine} ({decision.reason})\n")
     output_path = env.get("GITHUB_OUTPUT")
     if output_path:

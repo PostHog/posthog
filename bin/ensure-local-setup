@@ -30,7 +30,15 @@ from posthog.scopes import UNPRIVILEGED_SCOPES  # noqa: E402
 # adds a scope, so grant everything unprivileged plus the privileged/hidden scopes the wizard
 # needs — same broad ceiling the hedgebox demo matrix sets on this app. Local-dev only.
 WIZARD_SCOPES = sorted(
-    UNPRIVILEGED_SCOPES | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
+    UNPRIVILEGED_SCOPES
+    | {
+        "llm_gateway:read",
+        "llm_gateway:write",
+        "wizard_run:read",
+        "wizard_run:write",
+        "wizard_session:read",
+        "wizard_session:write",
+    }
 )
 
 

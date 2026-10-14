@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
 import { InstallationStatusNavButton } from '../InstallationStatusNavButton'
+import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
@@ -28,6 +29,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                 })}
             >
                 <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                <PostHogTeamCohortBanner isCollapsed={isLayoutNavCollapsed} />
             </div>
 
             <NavPanelAdvertisement />

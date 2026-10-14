@@ -159,6 +159,22 @@ def increment_emit_event_outcome(outcome: str) -> None:
     counter.add(1)
 
 
+def increment_backfill_remainder_outcome(outcome: str) -> None:
+    """Track whether a backfill learned what its window still owed (success/failed).
+
+    The walk is done either way, so a failure here is swallowed rather than retried, and the row
+    keeps a null count. Without this counter the only trace is one workflow log line.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter(
+        "llma_eval_backfill_remainder_outcome",
+        "Outcome of the backfill remainder measurement (success/failed)",
+    )
+    counter.add(1)
+
+
 def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> None:
     """Record queue depth indicator for alerting."""
     meter = get_metric_meter({"activity_type": activity_type})

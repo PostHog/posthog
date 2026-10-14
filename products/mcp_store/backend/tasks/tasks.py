@@ -43,7 +43,16 @@ def queue_sync_mcp_server_templates() -> None:
             logger.exception("Failed to release sync_mcp_server_templates lock")
 
 
-@shared_task(ignore_result=True)
+# A listing that fails here leaves the installation with no tool rows, and the
+# gateway refuses every call to a tool that has no row.
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(ToolsFetchError,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=5,
+)
 @skip_team_scope_audit
 def sync_installation_tools_task(installation_id: str) -> None:
     try:
@@ -51,11 +60,4 @@ def sync_installation_tools_task(installation_id: str) -> None:
     except MCPServerInstallation.DoesNotExist:
         logger.info("sync_installation_tools_task: installation gone", installation_id=installation_id)
         return
-    try:
-        sync_installation_tools(installation)
-    except ToolsFetchError as exc:
-        logger.info(
-            "sync_installation_tools_task: upstream fetch failed",
-            installation_id=installation_id,
-            error=str(exc),
-        )
+    sync_installation_tools(installation)

@@ -77,6 +77,7 @@ export type paymentEntryLogicType = MakeLogicType<paymentEntryLogicValues, payme
 export const paymentEntryLogic = kea<paymentEntryLogicType>([
     path(['scenes', 'billing', 'PaymentEntryLogic']),
     connect({
+        logic: [billingLogic],
         actions: [userLogic, ['loadUser'], organizationLogic, ['loadCurrentOrganization']],
     }),
     actions({
@@ -145,7 +146,12 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
     }),
     listeners(({ actions, values }) => ({
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
-            const { billing } = billingLogic.values
+            const { billing, billingManagedByPartnerNotice } = billingLogic.values
+
+            if (billingManagedByPartnerNotice) {
+                lemonToast.info(billingManagedByPartnerNotice)
+                return
+            }
 
             if (billing?.customer_id) {
                 // Returning customer — call POST API to activate subscription
@@ -160,6 +166,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     if (product?.type) {
                         body.intent_product = product.type
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create('api/billing/activate', body)
 
                     if (response.success) {
@@ -206,6 +213,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             actions.setLoading(true)
             actions.clearErrors()
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateAuthorizeCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
                 actions.setLoading(false)
@@ -227,6 +235,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 try {
                     const urlParams = new URLSearchParams(window.location.search)
                     const searchPaymentIntentId = urlParams.get('payment_intent')
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateAuthorizeStatusCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create('api/billing/activate/authorize/status', {
                         payment_intent_id: paymentIntentId || searchPaymentIntentId,
                     })

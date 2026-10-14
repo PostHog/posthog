@@ -1,0 +1,73 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Negative feedback on an expense-collection workflow step",
+  "scenario": "A guided expense-report assistant runs a multi-step workflow that collects merchant, category, and receipt details from the user before submitting a reimbursement request. This unit captures one workflow span for the collect-expense step plus a user feedback event marking that step negative.",
+  "summary": {
+    "events": {
+      "$ai_span": 1,
+      "$ai_feedback": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-edge"
+    ],
+    "providers": [],
+    "frameworks": [],
+    "models": [],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "request_id": "1bb55bc2cc9f92d432af0938",
+        "workflow_node_id": "collect",
+        "$lib": "posthog-edge",
+        "$lib_version": "5.36.2",
+        "current_step": "collect",
+        "$ai_span_name": "collect-expense",
+        "$ai_trace_id": "816cd625-e4fa-7688-c1a4-7acb8de903ae",
+        "conversation_stage": "collecting",
+        "$ai_span_id": "354b47d2-4d57-792f-fdbe-854c17904cc8",
+        "$geoip_disable": true,
+        "$ai_is_error": false,
+        "target": "collect",
+        "mode": "guided",
+        "workflow_target_node_id": "collect",
+        "$ai_latency": 3.501,
+        "source": "app",
+        "$ai_session_id": "sess_expense-report-7f3a9c1d2e6b8f04",
+        "$ai_error": null,
+        "override_id": null,
+        "$is_server": true,
+        "$ai_input_state": "{\"stage\": \"collecting\", \"line_items\": [], \"context\": \"User is mid-way through submitting a monthly expense report for reimbursement.\"}",
+        "$ai_output_state": "Step: collect-expense\nStatus: awaiting user input\nMissing fields:\n- merchant name\n- expense category\n- receipt image\nNext action: prompt user for the missing receipt photo before totals can be validated."
+      }
+    },
+    {
+      "event": "$ai_feedback",
+      "offset_ms": 5423,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_metric_name": "helpfulness",
+        "$ai_metric_value": 0,
+        "$lib": "posthog-edge",
+        "$ai_feedback_text": "negative",
+        "$geoip_disable": true,
+        "source": "app",
+        "step": "collect-expense",
+        "target": null,
+        "$ai_trace_id": "816cd625-e4fa-7688-c1a4-7acb8de903ae",
+        "action": "negative",
+        "$is_server": true,
+        "$lib_version": "5.36.2"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

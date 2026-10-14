@@ -34,18 +34,27 @@ def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
 
 
 class TestGetSchemas:
-    def test_all_endpoints_present(self) -> None:
-        schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             ("stock_list", False),
             ("company_profiles", False),
             ("income_statements", False),
+            ("key_metrics", False),
+            ("ratios", False),
+            ("key_metrics_ttm", False),
+            ("ratios_ttm", False),
+            ("dividends", False),
+            ("earnings", False),
             ("historical_prices", True),
             ("earnings_calendar", True),
             ("dividends_calendar", True),
+            ("available_exchanges", False),
+            ("available_sectors", False),
+            ("available_industries", False),
+            ("splits", False),
+            ("market_capitalization", False),
+            ("historical_market_capitalization", True),
+            ("institutional_positions_summary", False),
         ]
     )
     def test_incremental_support_matches_date_window(self, endpoint: str, expected_incremental: bool) -> None:
@@ -124,17 +133,6 @@ class TestSourceForPipeline:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
     )
-    def test_parses_symbols_and_plumbs_arguments(self, mock_source: MagicMock) -> None:
-        config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "aapl, msft"})
-        FinancialModellingSource().source_for_pipeline(config, MagicMock(), _inputs("company_profiles"))
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "k"
-        assert kwargs["symbols"] == ["AAPL", "MSFT"]
-        assert kwargs["endpoint"] == "company_profiles"
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
-    )
     def test_last_value_passed_only_when_incremental(self, mock_source: MagicMock) -> None:
         config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "AAPL"})
 
@@ -160,10 +158,6 @@ class TestSourceForPipeline:
 class TestPublicDocs:
     def test_lists_tables_without_credentials(self) -> None:
         assert FinancialModellingSource().lists_tables_without_credentials is True
-
-    def test_documented_tables_cover_every_endpoint(self) -> None:
-        tables = {t["name"] for t in FinancialModellingSource().get_documented_tables()}
-        assert tables == set(ENDPOINTS)
 
     def test_canonical_descriptions_keys_are_valid_endpoints(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS).issubset(set(ENDPOINTS))

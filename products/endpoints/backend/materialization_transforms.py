@@ -1283,37 +1283,62 @@ def _extract_aggregate_name(expr: ast.Expr) -> Optional[str]:
     return None
 
 
-@dataclass
+@frozen
 class MaterializedColumn:
     """A column in the materialized table with metadata for read-time re-aggregation."""
 
     expr: ast.Expr
     is_aggregate: bool
+    name: str  # the column name the endpoint declares, which a materialized read must keep
     reaggregate_fn: Optional[str] = None  # e.g. "sum" for count/sum, "min" for min, etc.
 
+    @property
+    def labeled_expr(self) -> ast.Expr:
+        if isinstance(self.expr, ast.Field) and self.expr.chain == [self.name]:
+            return self.expr
+        return ast.Alias(alias=self.name, expr=self.expr)
 
-def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[MaterializedColumn]:
+
+def _declared_name(expr: ast.Expr) -> str:
+    return expr.alias if isinstance(expr, ast.Alias) else expr.to_hogql()
+
+
+def transform_select_for_materialized_table(
+    select_exprs: list[ast.Expr], output_names: list[str]
+) -> list[MaterializedColumn]:
     """
     Transform SELECT expressions to reference pre-computed columns in materialized table.
 
+    `output_names` are the names the materialized table stores, in SELECT order. When their
+    count does not match `select_exprs`, each column falls back to its alias or HogQL text.
+
     Returns list of MaterializedColumn with re-aggregation metadata.
 
-    Examples:
-    - count() -> MaterializedColumn(Field(chain=["count()"]), is_aggregate=True, reaggregate_fn="sum")
-    - count() as total -> MaterializedColumn(Field(chain=["total"]), is_aggregate=True, reaggregate_fn="sum")
-    - toStartOfDay(timestamp) as date -> MaterializedColumn(Field(chain=["date"]), is_aggregate=False)
+    Examples, given the stored column each expression reads and the name it declares:
+    - count() -> reads "count()", name "count()", is_aggregate=True, reaggregate_fn="sum"
+    - count() as total -> reads "total", name "total", is_aggregate=True, reaggregate_fn="sum"
+    - toStartOfDay(timestamp) as date -> reads "date", name "date", is_aggregate=False
+    - toStartOfDay(timestamp) -> reads "toStartOfDay(toTimeZone(timestamp, 'UTC'))", name "toStartOfDay(timestamp)"
+    - e.event -> reads "event", name "event", is_aggregate=False
+    - properties.foo.bar -> reads "foo__bar", name "foo__bar", is_aggregate=False
     """
+    stored_names = (
+        output_names if len(output_names) == len(select_exprs) else [_declared_name(expr) for expr in select_exprs]
+    )
     result: list[MaterializedColumn] = []
-    for expr in select_exprs:
+    for expr, stored_name in zip(select_exprs, stored_names):
         agg_name = _extract_aggregate_name(expr)
         is_agg = agg_name is not None
         reagg = get_reaggregation(agg_name) if agg_name else None
         reaggregate_fn = reagg.reaggregate_fn if reagg else None
-        if isinstance(expr, ast.Alias):
-            field = ast.Field(chain=[expr.alias])
-        else:
-            field = ast.Field(chain=[expr.to_hogql()])
-        result.append(MaterializedColumn(expr=field, is_aggregate=is_agg, reaggregate_fn=reaggregate_fn))
+        result.append(
+            MaterializedColumn(
+                expr=ast.Field(chain=[stored_name]),
+                is_aggregate=is_agg,
+                name=stored_name if isinstance(expr, ast.Field) else _declared_name(expr),
+                reaggregate_fn=reaggregate_fn,
+            )
+        )
 
     return result
 

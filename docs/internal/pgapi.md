@@ -8,12 +8,12 @@ contract.
 
 ## Surfaces
 
-| path                              | what                                                                                                                                                                            | auth              |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, locks, sessions, tables, indexes, vacuum, events, logs, system, schema, settings, collector health, guarded raw SQL | identity required |
-| `/mcp`                            | MCP streamable HTTP, 19 read-only tools over the same query layer                                                                                                               | identity required |
-| `/`                               | embedded UI over `/api/v1`                                                                                                                                                      | identity required |
-| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                                           | none              |
+| path                              | what                                                                                                                                                                                                              | auth              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `/api/v1/*`                       | JSON API: servers, overview, queries, query tags, activity, locks, sessions, tables, indexes, vacuum, events, logs, CPU, checkpoints, system (both combined), schema, settings, collector health, guarded raw SQL | identity required |
+| `/mcp`                            | MCP streamable HTTP, 19 read-only tools over the same query layer                                                                                                                                                 | identity required |
+| `/`                               | embedded UI over `/api/v1`                                                                                                                                                                                        | identity required |
+| `/healthz`, `/readyz`, `/metrics` | probes and Prometheus                                                                                                                                                                                             | none              |
 
 ## Query tags
 

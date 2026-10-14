@@ -144,13 +144,20 @@ def _paginator(config: LightdashEndpointConfig) -> BasePaginator:
     return PageNumberPaginator(base_page=1, page_param="page", total_path=_PAGINATED_TOTAL_PATH)
 
 
+def _params(config: LightdashEndpointConfig) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.params)
+    if config.paginated:
+        params["pageSize"] = config.page_size
+    return params
+
+
 def get_resource(config: LightdashEndpointConfig) -> EndpointResource:
     if config.fanout:
         raise ValueError(f"Fan-out endpoint '{config.name}' must use the fan-out path")
 
     endpoint_config: Endpoint = {
         "path": config.path,
-        "params": {"pageSize": config.page_size} if config.paginated else {},
+        "params": _params(config),
         "data_selector": config.data_selector,
         "paginator": _paginator(config),
     }
@@ -168,7 +175,8 @@ def _make_source_response(config: LightdashEndpointConfig, items_fn: Callable[[]
         name=config.name,
         items=items_fn,
         primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
-        # Full refresh only — Lightdash exposes no server-side updated-since filter on any endpoint.
+        # Lightdash exposes no server-side updated-since filter on any endpoint; rows arrive in the
+        # endpoint's natural order or the ascending sort set in its params.
         sort_mode="asc",
         partition_count=1,
         partition_size=1,
@@ -209,8 +217,8 @@ def lightdash_source(
                 job_id=job_id,
                 db_incremental_field_last_value=None,
                 # `GET /api/v1/org/projects` (the parent) takes no page-size param at all — it
-                # always returns the full collection — so no size param is added to it. Only
-                # metrics_catalog's child request needs one, added below via child_params_extra.
+                # always returns the full collection — so no size param is added to it. Paginated
+                # children get theirs below via child_params_extra.
                 page_size_param=None,
                 parent_endpoint_extra={
                     "paginator": SinglePagePaginator(),
@@ -220,7 +228,7 @@ def lightdash_source(
                     "paginator": _paginator(config),
                     "data_selector": config.data_selector,
                 },
-                child_params_extra={"pageSize": config.page_size} if config.paginated else None,
+                child_params_extra=_params(config) or None,
             ),
         )
         return _make_source_response(config, lambda: dependent_resource)

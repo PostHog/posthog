@@ -174,6 +174,34 @@ def cells_markdown(count: int) -> dict[str, Any]:
 
 
 class TestMarkdownBlockSpans(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("paragraphs", "First paragraph.\n\nSecond paragraph."),
+            ("headings_and_table", "## Summary\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nClosing note."),
+            ("fenced_example", "```python\nx = 1\n\n\n<!--ph:phb-example-->\n```\n\nExplanation."),
+        ]
+    )
+    def test_anchored_cell_includes_all_its_markdown(self, _name: str, source: str) -> None:
+        markdown = f"# Title\n\n\n<!--ph:phb-cell-->\n{source}\n\n\nNext cell."
+        blocks = list(iter_markdown_blocks(markdown, group_anchored_prose=True))
+        assert [block.source for block in blocks] == ["# Title", source, "Next cell."]
+        assert blocks[1].node_id == "phb-cell"
+        assert markdown[blocks[1].start : blocks[1].end] == source
+
+    @parameterized.expand(
+        [
+            ("anchor", "<!--ph:phb-next-->\nNext cell."),
+            ("component", '<SQLV2 nodeId="next" code="select 1" />'),
+            ("comment", '<Comment ref="note" replies={[]} />'),
+        ]
+    )
+    def test_anchored_cell_stops_before_other_addressable_content(self, _name: str, following: str) -> None:
+        blocks = list(
+            iter_markdown_blocks(f"<!--ph:phb-cell-->\nFirst.\n\nSecond.\n\n{following}", group_anchored_prose=True)
+        )
+        assert len(blocks) == 2
+        assert blocks[0].source == "First.\n\nSecond."
+
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
@@ -272,16 +300,30 @@ class TestCellCountLimit(SimpleTestCase):
             ("under", MAX_NOTEBOOK_CELLS - 1, True),
             ("at_the_limit", MAX_NOTEBOOK_CELLS, True),
             ("over", MAX_NOTEBOOK_CELLS + 1, False),
+            ("prepared_insights_at_limit", MAX_NOTEBOOK_CELLS, True, "Query"),
+            ("prepared_insights_over_limit", MAX_NOTEBOOK_CELLS + 1, False, "Insight"),
         ]
     )
-    def test_growth_is_refused_past_the_ceiling(self, _name: str, next_count: int, allowed: bool) -> None:
+    def test_growth_is_refused_past_the_ceiling(
+        self, _name: str, next_count: int, allowed: bool, insight_tag: str | None = None
+    ) -> None:
         # Without a ceiling an agent adds cells in a loop, and every SQL or Python cell it adds
         # is a query or a sandbox execution. Nothing else bounds that.
+        content = (
+            cells_markdown(next_count)
+            if insight_tag is None
+            else markdown_content(
+                "\n\n".join(
+                    f'<{insight_tag} nodeId="i{index}" dataframeQuery="select 1" returnVariable="df_{index}" />'
+                    for index in range(next_count)
+                )
+            )
+        )
         if allowed:
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
             return
         with self.assertRaises(NotebookCellLimitExceeded):
-            validate_cell_count(None, cells_markdown(next_count))
+            validate_cell_count(None, content)
 
     @parameterized.expand([("unchanged", 0), ("shrinking", -1)])
     def test_a_notebook_already_over_the_ceiling_stays_editable(self, _name: str, delta: int) -> None:
@@ -445,7 +487,8 @@ class TestNotebookCellState(APIBaseTest):
     def test_state_endpoint_returns_cells_and_kernel(self, _mock_enabled) -> None:
         notebook = self._notebook(
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
-            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
+            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />\n\n\n'
+            "<!--ph:phb-note-->\nFirst paragraph.\n\nSecond paragraph."
         )
         notebook.variables = [{"name": "limit", "type": "number", "value": 10}]
         notebook.save()
@@ -464,5 +507,6 @@ class TestNotebookCellState(APIBaseTest):
         assert by_node["s"]["dependents"] == ["p"]
         assert by_node["p"]["status"] == "never_run"
         assert by_node["p"]["depends_on"] == ["s"]
+        assert by_node["phb-note"]["code"] == "First paragraph.\n\nSecond paragraph."
         assert by_node["s"]["last_run"]["run_id"]
         assert data["markdown"][by_node["s"]["start"] : by_node["s"]["end"]].startswith('<SQLV2 nodeId="s"')

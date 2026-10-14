@@ -24,7 +24,6 @@ const meta: Meta = {
         // API is set up so that everything except the call to load session recording metadata succeeds
         mswDecorator({
             get: {
-                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')
                     return [
@@ -121,7 +120,13 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes('raw_session_replay_events')) {
+                        return [200, { results: [[7]] }]
+                    }
+                    return [200, recordingEventsJson]
+                },
                 '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
             },
         }),

@@ -52,7 +52,7 @@ const WORKFLOW_FIXTURE = {
         },
     ],
     edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -509,6 +509,31 @@ describe('hogFlowEditorTestLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadSampleGlobals', 'setSampleGlobalsError'])
             expect(logic.values.sampleGlobalsError).toEqual('Failed to load matching events. Please try again.')
+        })
+    })
+
+    describe('showTestEvent', () => {
+        it.each([
+            [{ type: 'event', filters: {} }, true],
+            [{ type: 'webhook', template_id: 'template-source-webhook', inputs: {} }, true],
+            [{ type: 'tracking_pixel', template_id: 'template-source-tracking-pixel', inputs: {} }, true],
+            [{ type: 'schedule' }, false],
+            [{ type: 'manual', template_id: 'template-source-manual', inputs: {} }, false],
+            [{ type: 'batch', filters: { properties: [] } }, false],
+        ])('for a %o trigger is %s', async (config, expected) => {
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+            await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
+
+            flowLogic.actions.setWorkflowValue(
+                'actions',
+                WORKFLOW_FIXTURE.actions.map((action) =>
+                    action.id === 'trigger_node' ? { ...action, config } : action
+                )
+            )
+
+            expect(logic.values.showTestEvent).toBe(expected)
         })
     })
 

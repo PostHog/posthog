@@ -43,22 +43,14 @@ _CACHE_TTL_SECONDS = 30 * 60
 _NEGATIVE_CACHE_TTL_SECONDS = 30
 _FETCH_TIMEOUT_SECONDS = 3.0
 
-# Runtime + effort labels are UI strings with no run-config equivalent. A model's display
-# name is resolved by `display_name_for_model`, so a new model names itself and the catalog
-# overrides that only for the ids the derivation gets wrong.
+# A runtime's name is a UI string with no run-config equivalent, so it is written here. A
+# model's comes from `display_name_for_model`, and an effort's from the catalog.
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
 }
 
-REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
-    "low": "Low",
-    "medium": "Medium",
-    "high": "High",
-    "xhigh": "Extra high",
-    "max": "Max",
-    "ultracode": "Ultracode",
-}
+REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = model_catalog.REASONING_EFFORT_LABELS
 
 
 @dataclass(frozen=True)
@@ -223,6 +215,17 @@ def catalog_model_choices() -> tuple[ModelChoice, ...]:
     )
 
 
+@lru_cache(maxsize=1)
+def offered_model_choices() -> tuple[ModelChoice, ...]:
+    """The models a picker may offer: every catalog model except the retired ones.
+
+    A caller that recognises a model a person named, rather than asking them to choose one,
+    wants ``catalog_model_choices`` instead. A retired model still runs and still reads its
+    name and cost from the catalog.
+    """
+    return tuple(choice for choice in catalog_model_choices() if model_catalog.is_offered_model(choice.model))
+
+
 def runtime_adapter_for(model: str | None) -> str | None:
     """Which runtime drives this model, per the static run-config map.
 
@@ -290,6 +293,7 @@ __all__ = [
     "RuntimeGroup",
     "available_model_choices",
     "catalog_model_choices",
+    "offered_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
     "group_by_runtime",

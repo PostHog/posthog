@@ -6,9 +6,9 @@ from django.conf import settings
 from products.batch_exports.backend.service import BackfillDetails
 
 
-def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) -> bool:
+def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime | None]) -> bool:
     start_at, end_at = full_range
-    if start_at:
+    if start_at is not None and end_at is not None:
         return (end_at - start_at) == dt.timedelta(seconds=300)
     return False
 

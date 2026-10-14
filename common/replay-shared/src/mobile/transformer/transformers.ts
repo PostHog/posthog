@@ -91,6 +91,8 @@ const BODY_ID = 5
 const NAVIGATION_BAR_PARENT_ID = 7
 const KEYBOARD_PARENT_ID = 9
 export const STATUS_BAR_PARENT_ID = 11
+// icons are <img> too, so extractImgNodeFromMobileIncremental keys off this instead of tag or size
+export const SCREENSHOT_ATTRIBUTE = 'data-posthog-screenshot'
 
 // upper bound on rendered rating stars, guards against absurd `max` values in wireframe data
 const MAX_RATING_STARS = 100
@@ -275,6 +277,7 @@ function makeImageElement(
                 height: wireframe.height,
                 style: makeStylesString(wireframe),
                 'data-rrweb-id': wireframe.id,
+                ...(wireframe.type === 'screenshot' ? { [SCREENSHOT_ATTRIBUTE]: 'true' } : {}),
             },
             id: wireframe.id,
             childNodes: children,

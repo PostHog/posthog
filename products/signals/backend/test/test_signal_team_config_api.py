@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -8,17 +9,20 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
+from products.signals.backend.views import SignalTeamConfigViewSet
 
 
 class TestSignalTeamConfigAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # A SignalTeamConfig is auto-created for every team via register_team_extension_signal.
-        self.config = SignalTeamConfig.objects.get(team=self.team)
+        self.config = get_or_create_team_extension(self.team, SignalTeamConfig)
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/config/"
@@ -26,11 +30,61 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     def _activity(self) -> list[ActivityLog]:
         return list(ActivityLog.objects.filter(team_id=self.team.pk, scope="SignalTeamConfig").order_by("created_at"))
 
-    def test_get_config_includes_default_slack_notification_channel(self):
+    def test_admin_can_save_and_clear_roles_independently(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        initial = {field: f"Instructions for {role}." for role, field in STEERING_FIELDS.items()}
+        response = self.client.post(self._url(), initial, format="json")
+        assert response.status_code == 200, response.content
+        assert all(response.json()[field] == text for field, text in initial.items())
+
+        response = self.client.post(self._url(), {"research_instructions": ""}, format="json")
+        assert response.status_code == 200, response.content
+        saved = self.client.get(self._url()).json()
+        assert saved["research_instructions"] == ""
+        assert saved["scout_instructions"] == initial["scout_instructions"]
+        assert saved["implementation_instructions"] == initial["implementation_instructions"]
+        entries = self._activity()
+        assert len(entries) == 2
+        assert entries[0].user == self.user
+        assert entries[0].detail is not None
+        assert {change["field"] for change in entries[0].detail["changes"]} == {
+            "scout instructions",
+            "research instructions",
+            "implementation instructions",
+        }
+
+    def test_member_can_read_but_not_change_steering(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        assert self.client.get(self._url()).status_code == 200
+        for field in STEERING_FIELDS.values():
+            response = self.client.post(self._url(), {field: "New rules."}, format="json")
+            assert response.status_code == 403, response.content
+        assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
+
+    def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale_config = SignalTeamConfig.objects.get(pk=self.config.pk)
+        self.config.autostart_enabled = False
+        self.config.save(update_fields=["autostart_enabled"])
+
+        with patch.object(SignalTeamConfigViewSet, "_get_config", return_value=stale_config):
+            response = self.client.post(self._url(), {"research_instructions": "Check product intent."}, format="json")
+        assert response.status_code == 200, response.content
+        self.config.refresh_from_db()
+        assert self.config.autostart_enabled is False
+        assert self.config.research_instructions == "Check product intent."
+
+    def test_get_config_includes_default_settings(self):
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
+        for field in STEERING_FIELDS.values():
+            assert getattr(self.config, field) is None
+            assert data[field] == ""
         assert data["default_autostart_priority"] == "P4"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
@@ -182,6 +236,22 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "max_reports_per_day"
 
+    @parameterized.expand(
+        [
+            ("enable", {"pull_request_label_enabled": True, "pull_request_label": "ours"}, True, "ours"),
+            ("clear_name", {"pull_request_label": ""}, False, None),
+        ]
+    )
+    def test_update_pull_request_label(self, _name, sent, expected_enabled, expected_label):
+        response = self.client.post(self._url(), data=sent, format="json")
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["pull_request_label_enabled"] is expected_enabled
+        assert data["pull_request_label"] == expected_label
+        self.config.refresh_from_db()
+        assert self.config.pull_request_label_enabled is expected_enabled
+        assert self.config.pull_request_label == expected_label
+
     def test_reports_generated_today_is_zero_without_a_limit(self):
         # No limit set: the count is never shown, so the serializer reports 0 without counting even
         # when visible reports exist today.
@@ -308,6 +378,14 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(list(STEERING_FIELDS.values()))
+    def test_steering_rejects_oversized_instructions(self, field: str) -> None:
+        serializer = SignalTeamConfigSerializer(data={field: "x" * AGENT_STEERING_MAX_LENGTH}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        serializer = SignalTeamConfigSerializer(data={field: "x" * (AGENT_STEERING_MAX_LENGTH + 1)}, partial=True)
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
     # No DB needed: these are field-level rejections that short-circuit in to_internal_value.
     # The endpoint wiring guard lives in TestSignalTeamConfigAPI.
     @parameterized.expand(
@@ -325,3 +403,16 @@ class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
         serializer = SignalTeamConfigSerializer(data={"autostart_base_branches": value}, partial=True)
         assert not serializer.is_valid()
         assert "autostart_base_branches" in serializer.errors
+
+    @parameterized.expand([("blank", ""), ("whitespace", "   "), ("null", None)])
+    def test_pull_request_label_normalizes_an_empty_name_to_null(self, _name, value):
+        # One stored shape for "use the default", so a team that clears the box does not save a
+        # name GitHub would refuse.
+        serializer = SignalTeamConfigSerializer(data={"pull_request_label": value}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["pull_request_label"] is None
+
+    def test_pull_request_label_rejects_a_name_github_would_refuse(self):
+        serializer = SignalTeamConfigSerializer(data={"pull_request_label": "l" * 51}, partial=True)
+        assert not serializer.is_valid()
+        assert "pull_request_label" in serializer.errors

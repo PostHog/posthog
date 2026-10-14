@@ -2,6 +2,7 @@ import re
 import json
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -11,11 +12,17 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    CREATED_AT,
+    ID,
+    resolve_schema_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
     ShopifyGraphQLObject,
@@ -30,9 +37,11 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
     SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_COST_LIMITED_START_PAGE_SIZES,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
-    SHOPIFY_PAGE_SIZE_OVERRIDES,
+    SHOPIFY_MAX_PAGE_SIZE,
+    SHOPIFY_MAX_QUERY_COST,
 )
 
 logger = structlog.get_logger(__name__)
@@ -164,6 +173,20 @@ SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
     "reconnect your Shopify integration."
 )
 
+# The wizard shows these when the token check in `validate_credentials` fails. A supplied Admin API
+# access token skips the token endpoint, so this check is the first place a bad token or store id
+# surfaces, and the raw `requests` error names the store URL and the HTTP status.
+SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR = (
+    "Shopify rejected your access token for this store. Copy the Admin API access token again "
+    "from the app installed on your store, then reconnect."
+)
+SHOPIFY_STORE_FROZEN_ERROR = (
+    "Your Shopify store is frozen because of an unpaid bill. Settle your balance in Shopify, then reconnect."
+)
+SHOPIFY_CREDENTIALS_CHECK_ERROR = (
+    "PostHog couldn't verify your Shopify credentials. Check your store id and credentials, then try again."
+)
+
 
 @dataclasses.dataclass
 class ShopifyResumeConfig:
@@ -279,6 +302,51 @@ def _shopify_retry_wait(retry_state: RetryCallState) -> float:
     return backoff
 
 
+# The share of Shopify's single-query cost limit that a resized page aims for.
+_SHOPIFY_QUERY_COST_TARGET = 0.9
+# The share of the store's cost bucket that one request can ask for. Shopify throttles a request
+# when the bucket holds less than its requested cost, and every table of the source uses the bucket.
+_SHOPIFY_COST_BUCKET_SHARE = 0.5
+
+_SHOPIFY_MAX_COST_EXCEEDED_CODE = "MAX_COST_EXCEEDED"
+_SHOPIFY_MAX_COST_EXCEEDED_MESSAGE = "exceeds the single query max cost limit"
+
+
+class ShopifyQueryCostExceededError(Exception):
+    """Shopify rejected the query because its requested cost is above the single-query limit."""
+
+
+def _is_max_cost_exceeded(errors: Any) -> bool:
+    if not isinstance(errors, list):
+        return False
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        extensions = error.get("extensions")
+        if isinstance(extensions, dict) and extensions.get("code") == _SHOPIFY_MAX_COST_EXCEEDED_CODE:
+            return True
+        if _SHOPIFY_MAX_COST_EXCEEDED_MESSAGE in str(error.get("message", "")):
+            return True
+    return False
+
+
+def _page_size_for_cost(page_size: int, payload: Any) -> int:
+    """The page size that brings the requested cost of this query near Shopify's single-query limit.
+
+    Shopify sizes the requested cost from the `first` arguments, not from the rows it returns, so
+    the cost of one page predicts the cost of a larger one. Returns `page_size` when the response
+    has no usable cost.
+    """
+    requested, ok = safe_unwrap(payload, path="extensions.cost.requestedQueryCost")
+    if not ok or isinstance(requested, bool) or not isinstance(requested, int | float) or requested <= 0:
+        return page_size
+    target = SHOPIFY_MAX_QUERY_COST * _SHOPIFY_QUERY_COST_TARGET
+    bucket_size, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.maximumAvailable")
+    if ok and not isinstance(bucket_size, bool) and isinstance(bucket_size, int | float) and bucket_size > 0:
+        target = min(target, bucket_size * _SHOPIFY_COST_BUCKET_SHARE)
+    return min(SHOPIFY_MAX_PAGE_SIZE, int(page_size * target / requested))
+
+
 def _make_paginated_shopify_request(
     url: str,
     sess: requests.Session,
@@ -324,6 +392,8 @@ def _make_paginated_shopify_request(
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
             joined = "; ".join(error_messages)
+            if _is_max_cost_exceeded(payload["errors"]):
+                raise ShopifyQueryCostExceededError(f"Shopify GraphQL error: {joined}")
             raise Exception(f"Shopify GraphQL error: {joined}")
 
         if "data" not in payload:
@@ -331,8 +401,9 @@ def _make_paginated_shopify_request(
 
         return payload
 
-    pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
-    vars: dict[str, Any] = {"pageSize": pageSize}
+    starting_page_size = SHOPIFY_COST_LIMITED_START_PAGE_SIZES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
+    size_page_from_cost = graphql_object.name in SHOPIFY_COST_LIMITED_START_PAGE_SIZES
+    vars: dict[str, Any] = {"pageSize": starting_page_size}
     logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
         vars.update({"query": query})
@@ -341,7 +412,34 @@ def _make_paginated_shopify_request(
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
-        payload = execute(vars)
+        try:
+            payload = execute(vars)
+        except (
+            ShopifyQueryCostExceededError,
+            ShopifyRetryableError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
+            if not size_page_from_cost or vars["pageSize"] <= starting_page_size:
+                raise
+            # A grown page can be too costly or too slow for Shopify to answer. The starting size
+            # is known to work, so read the same cursor again at that size and stop growing.
+            logger.debug(
+                f"Shopify could not serve page size {vars['pageSize']} for {graphql_object.name}, "
+                f"using {starting_page_size}. {e}"
+            )
+            size_page_from_cost = False
+            vars["pageSize"] = starting_page_size
+            continue
+        if size_page_from_cost:
+            # The starting size already works, so the cost only ever grows the page from it.
+            next_page_size = max(starting_page_size, _page_size_for_cost(vars["pageSize"], payload))
+            if next_page_size != vars["pageSize"]:
+                logger.debug(
+                    f"Changing page size for {graphql_object.name} from {vars['pageSize']} to {next_page_size}. "
+                    f"Query cost: {payload['extensions']['cost']}"
+                )
+                vars["pageSize"] = next_page_size
         data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         if endpoint_config is not None:
             if endpoint_config.incremental_field_resolver:
@@ -539,6 +637,37 @@ def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | Non
     return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
 
 
+# The comparisons Shopify's search syntax has for a date field.
+CREATED_AT_FILTER_OPERATORS = (">", ">=", "<", "<=")
+
+
+def row_filter_search_terms(schema_name: str, row_filters: list[ValidatedRowFilter] | None) -> list[str]:
+    """Shopify search terms for the row filters of one resource.
+
+    Raises on a filter that has no search term. A filter that is dropped here would sync every
+    row while the schema still shows the filter.
+    """
+    if not row_filters:
+        return []
+    endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+    search_field = endpoint_config.created_at_search_field if endpoint_config else None
+    terms: list[str] = []
+    for row_filter in row_filters:
+        if (
+            search_field is None
+            or row_filter.column != CREATED_AT
+            or row_filter.operator not in CREATED_AT_FILTER_OPERATORS
+            or not isinstance(row_filter.value, datetime)
+        ):
+            raise ValueError(
+                f"Shopify cannot apply the row filter on {row_filter.column!r} to {schema_name}. "
+                "Remove the row filter in the schema's configuration to resume syncing."
+            )
+        value = row_filter.value if row_filter.value.tzinfo else row_filter.value.replace(tzinfo=UTC)
+        terms.append(f"{search_field}:{row_filter.operator}'{value.isoformat()}'")
+    return terms
+
+
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str | None,
@@ -551,11 +680,13 @@ def shopify_source(
     api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
     shopify_access_token: str | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _resolve_access_token(store_id, shopify_client_id, shopify_client_secret, shopify_access_token)
     schema_name = resolve_schema_name(graphql_object_name)
+    filter_terms = row_filter_search_terms(schema_name, row_filters)
 
     def get_rows():
         sess = make_tracked_session(
@@ -600,6 +731,7 @@ def shopify_source(
                 sess,
                 graphql_object,
                 logger,
+                query=" AND ".join(filter_terms) or None,
                 phase=PHASE_ALL,
                 initial_cursor=initial_cursor,
                 resumable_source_manager=resumable_source_manager,
@@ -618,7 +750,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating earliest objects from source: {query_filter} < {db_incremental_field_earliest_value}"
             )
-            query = f"{query_filter}:<'{db_incremental_field_earliest_value}'"
+            query = " AND ".join([f"{query_filter}:<'{db_incremental_field_earliest_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_EARLIEST else None
             )
@@ -638,7 +770,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating latest objects from source: {query_filter} > {db_incremental_field_last_value}"
             )
-            query = f"{query_filter}:>'{db_incremental_field_last_value}'"
+            query = " AND ".join([f"{query_filter}:>'{db_incremental_field_last_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_LATEST else None
             )
@@ -738,12 +870,25 @@ def validate_credentials(
     # A valid token can always read the shop resource.
     try:
         res = sess.post(api_url, json={"query": SHOPIFY_ACCESS_TOKEN_CHECK})
+    except requests.RequestException as e:
+        capture_exception(e)
+        raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
+    if res.status_code == 401:
+        raise Exception(
+            SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR if shopify_access_token else SHOPIFY_CREDENTIALS_CHECK_ERROR
+        )
+    if res.status_code == 402:
+        raise Exception(SHOPIFY_STORE_FROZEN_ERROR)
+    if res.status_code == 404:
+        raise Exception(SHOPIFY_STORE_NOT_FOUND_ERROR)
+    try:
         res.raise_for_status()
         data = res.json()
         if "errors" in data:
-            raise Exception(f"Failed to verify your Shopify credentials: {data['errors']}")
+            raise Exception(f"Shopify credential check returned errors: {_format_graphql_errors(data['errors'])}")
     except Exception as e:
-        raise Exception(f"Failed to verify your Shopify credentials: {e}")
+        capture_exception(e)
+        raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
 
     if resources is None:
         return True

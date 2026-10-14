@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import NoReturn
 from uuid import UUID
 
@@ -44,6 +45,19 @@ ACCOUNTS_TABLE_MAX_FILTER_VALUES = 100
 ACCOUNTS_TABLE_MAX_METRICS = 5
 ACCOUNTS_TABLE_MAX_PAGE_SIZE = 500
 ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
+ACCOUNTS_TABLE_MAX_FILTER_GROUPS = 10
+
+AccountsTableQueryFilter = (
+    AccountsTableSearchFilter
+    | AccountsTableTagsFilter
+    | AccountsTableAssignedToFilter
+    | AccountsTableAssignedFilter
+    | AccountsTableUnassignedFilter
+    | AccountsTableRelationshipFilter
+    | AccountsTableAccountIdFilter
+    | AccountsTableAccountFieldFilter
+    | AccountsTableCustomPropertyFilter
+)
 
 
 class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse]):
@@ -117,8 +131,10 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             custom_property_history_windows=custom_property_history_windows,
         )
 
-    def _filters(self) -> tuple[contracts.AccountTableFilter, ...]:
-        query_filters = self.query.filters or []
+    def _filters(
+        self, query_filters: Sequence[AccountsTableQueryFilter] | None = None
+    ) -> tuple[contracts.AccountTableFilter, ...]:
+        query_filters = (self.query.filters or []) if query_filters is None else query_filters
         if len(query_filters) > ACCOUNTS_TABLE_MAX_FILTERS:
             raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTERS} filters.")
         if sum(isinstance(filter_, AccountsTableSearchFilter) for filter_ in query_filters) > 1:
@@ -195,6 +211,18 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             raise ValidationError("Account table filter IDs must be valid UUIDs.") from error
         return tuple(filters)
 
+    def _filter_groups(self) -> tuple[tuple[contracts.AccountTableFilter, ...], ...]:
+        groups = self.query.filterGroups or []
+        if len(groups) > ACCOUNTS_TABLE_MAX_FILTER_GROUPS:
+            raise ValidationError(
+                f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTER_GROUPS} filter groups."
+            )
+        if any(not group for group in groups):
+            raise ValidationError("Account table filter groups cannot be empty.")
+        if len(self.query.filters or []) + sum(len(group) for group in groups) > ACCOUNTS_TABLE_MAX_FILTERS:
+            raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTERS} filters.")
+        return tuple(self._filters(group) for group in groups)
+
     def _sort(self) -> contracts.AccountTableSort | None:
         if self.query.sort is None:
             return None
@@ -269,6 +297,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         )
         offset = max(self.query.offset or 0, 0)
         filters = self._filters()
+        filter_groups = self._filter_groups()
 
         try:
             if self.query.metrics is not None:
@@ -276,6 +305,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     team_id=self.team.id,
                     user_access_control=user_access_control,
                     filters=filters,
+                    filter_groups=filter_groups,
                     metrics=self._metrics(),
                     include_churned=bool(self.query.includeChurned),
                     include_ignored=bool(self.query.includeIgnored),
@@ -292,6 +322,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                 user_access_control=user_access_control,
                 selection=self._column_selection(),
                 filters=filters,
+                filter_groups=filter_groups,
                 sort=self._sort(),
                 offset=offset,
                 limit=limit,

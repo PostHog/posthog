@@ -12,11 +12,10 @@ import {
 import { LemonTag, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRelease, ReleaseGitMetadata } from 'lib/components/Errors/types'
+import { GitMetadataParser } from 'lib/components/Git/gitMetadataParser'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-
-import { GitMetadataParser } from './gitMetadataParser'
 
 export interface ReleasesPopoverContentProps {
     release: ErrorTrackingRelease

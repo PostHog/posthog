@@ -1,11 +1,12 @@
 import base64
-import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -29,6 +30,8 @@ MAX_PAGES_PER_TARGET = 5
 # unbounded target list lets a saved config fan out into arbitrarily many charged requests per
 # scheduled sync.
 MAX_TARGETS = 25
+# The SERP table spends one billable request per keyword per sync, so bound the keyword list too.
+MAX_KEYWORDS = 50
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRIES = 5
 
@@ -41,11 +44,14 @@ class DataForSEOAPIError(Exception):
     """Raised on permanent body-level errors (auth, funds, invalid request)."""
 
 
-@dataclasses.dataclass
+@frozen
 class DataForSEOResumeConfig:
-    # The target currently being fetched and the next page offset within it. Targets are
-    # processed in config order, so on resume earlier targets are skipped entirely.
-    target: str
+    # Which fan-out value the sync is on and the next page offset within it: `target` for the
+    # target-scoped endpoints, `keyword` for the keyword-scoped ones. Values are processed in
+    # config order, so on resume earlier ones are skipped entirely. Both default to empty so
+    # state written by an older deploy still loads.
+    target: str = ""
+    keyword: str = ""
     offset: int = 0
 
 
@@ -85,6 +91,30 @@ def validate_targets(targets: str) -> tuple[list[str], str | None]:
         return parsed, "Enter at least one target domain (e.g. example.com)"
     if len(parsed) > MAX_TARGETS:
         return parsed, f"Too many target domains ({len(parsed)}); enter at most {MAX_TARGETS} distinct domains."
+    return parsed, None
+
+
+def parse_keywords(keywords: str) -> list[str]:
+    """Split the user's comma-separated keywords field into a de-duplicated, normalized list.
+
+    DataForSEO lower-cases keywords server-side, so normalizing here keeps the rows we sync
+    keyed the same way the API returns them.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in keywords.split(","):
+        keyword = " ".join(raw.split()).lower()
+        if keyword and keyword not in seen:
+            seen.add(keyword)
+            result.append(keyword)
+    return result
+
+
+def validate_keywords(keywords: str | None) -> tuple[list[str], str | None]:
+    """Parse and bound the keywords field. Returns the parsed list plus a user-facing error, if any."""
+    parsed = parse_keywords(keywords or "")
+    if len(parsed) > MAX_KEYWORDS:
+        return parsed, f"Too many keywords ({len(parsed)}); enter at most {MAX_KEYWORDS} distinct keywords."
     return parsed, None
 
 
@@ -206,6 +236,61 @@ def _parse_result_rows(results: list[dict[str, Any]], target: str | None) -> Ite
         yield {**result, "target": target}
 
 
+def _parse_keyword_monthly_searches(results: list[dict[str, Any]], _value: str | None) -> Iterator[dict[str, Any]]:
+    # One request covers every keyword, so the rows carry the keyword from the response rather
+    # than an injected fan-out value. Each keyword's history arrives as a nested
+    # keyword_info.monthly_searches array, which is flattened into one row per month.
+    for result in results:
+        items = result.get("items")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            keyword = item.get("keyword")
+            monthly_searches = (item.get("keyword_info") or {}).get("monthly_searches")
+            if not keyword or not isinstance(monthly_searches, list):
+                continue
+            for entry in monthly_searches:
+                if not isinstance(entry, dict):
+                    continue
+                year, month = entry.get("year"), entry.get("month")
+                if not isinstance(year, int) or not isinstance(month, int):
+                    continue
+                yield {
+                    "keyword": keyword,
+                    "se_type": item.get("se_type"),
+                    "location_code": item.get("location_code"),
+                    "language_code": item.get("language_code"),
+                    "search_partners": item.get("search_partners"),
+                    "year": year,
+                    "month": month,
+                    # `date` is the injected stable partition column (first day of the month).
+                    "date": f"{year:04d}-{month:02d}-01",
+                    "search_volume": entry.get("search_volume"),
+                }
+
+
+def _parse_serp_items(results: list[dict[str, Any]], keyword: str | None) -> Iterator[dict[str, Any]]:
+    # Stamp each SERP element with the keyword and the crawl metadata from its result block, so a
+    # snapshot can be told apart from the next one taken for the same keyword.
+    for result in results:
+        items = result.get("items")
+        if not isinstance(items, list):
+            continue
+        context = {
+            "keyword": result.get("keyword") or keyword,
+            "se_domain": result.get("se_domain"),
+            "location_code": result.get("location_code"),
+            "language_code": result.get("language_code"),
+            "check_url": result.get("check_url"),
+            "datetime": result.get("datetime"),
+        }
+        for item in items:
+            if isinstance(item, dict):
+                yield {**item, **context}
+
+
 def _parse_lookup_rows(results: list[dict[str, Any]], target: str | None) -> Iterator[dict[str, Any]]:
     # Lookup tables are global: their rows sit directly on tasks[].result[] and carry no target.
     yield from results
@@ -217,17 +302,34 @@ _PARSERS: dict[ParseKind, Callable[[list[dict[str, Any]], str | None], Iterator[
     "monthly_items": _parse_monthly_items,
     "result_rows": _parse_result_rows,
     "lookup_rows": _parse_lookup_rows,
+    "keyword_monthly_searches": _parse_keyword_monthly_searches,
+    "serp_items": _parse_serp_items,
 }
 
 
 def _payload(
     config: DataForSEOEndpointConfig,
-    target: str,
+    value: str | list[str],
     location_name: str,
     language_name: str,
     offset: int | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {"target": target, **config.extra_payload}
+) -> dict[str, Any] | None:
+    """Build the single-task request body, or None for the untargeted GET lookups.
+
+    `value` is the endpoint's fan-out value: a target domain, one keyword, or — for the batched
+    keyword endpoint — the whole keyword list.
+    """
+    if config.scope == "global":
+        return None
+
+    payload: dict[str, Any] = dict(config.extra_payload)
+    if config.scope == "target":
+        payload["target"] = value
+    elif config.scope == "keyword":
+        payload["keyword"] = value
+    else:
+        payload["keywords"] = value
+
     if config.localized:
         payload["location_name"] = location_name
         payload["language_name"] = language_name
@@ -247,10 +349,43 @@ def _has_more_pages(results: list[dict[str, Any]], item_count: int, next_offset:
     return item_count >= PAGE_SIZE
 
 
+def _next_page_offset(
+    config: DataForSEOEndpointConfig,
+    results: list[dict[str, Any]],
+    offset: int,
+    endpoint: str,
+    value: str,
+    logger: FilteringBoundLogger,
+) -> int | None:
+    """Offset of the next page for this fan-out value, or None once it is done."""
+    if not config.paginated:
+        return None
+
+    item_count = sum(len(result.get("items") or []) for result in results)
+    next_offset = offset + item_count
+    if not _has_more_pages(results, item_count, next_offset):
+        return None
+
+    if next_offset >= PAGE_SIZE * MAX_PAGES_PER_TARGET:
+        logger.warning(
+            f"DataForSEO: page cap reached, truncating results. endpoint={endpoint} value={value} "
+            f"rows_fetched={next_offset} max_rows={PAGE_SIZE * MAX_PAGES_PER_TARGET}"
+        )
+        return None
+    return next_offset
+
+
+def _resume_state(config: DataForSEOEndpointConfig, value: str, offset: int) -> DataForSEOResumeConfig:
+    if config.scope == "keyword":
+        return DataForSEOResumeConfig(keyword=value, offset=offset)
+    return DataForSEOResumeConfig(target=value, offset=offset)
+
+
 def get_rows(
     api_login: str,
     api_password: str,
     targets: list[str],
+    keywords: list[str],
     location_name: str,
     language_name: str,
     endpoint: str,
@@ -261,64 +396,60 @@ def get_rows(
     parser = _PARSERS[config.kind]
     session = _make_session(api_login, api_password)
 
-    if not config.targeted:
-        rows = list(parser(_request_task(session, config.method, config.path, None, logger), None))
+    # A lookup has no fan-out and the batched keyword endpoint covers every keyword in one
+    # request, so neither has a cursor to resume from.
+    if config.scope in ("global", "keyword_batch"):
+        payload = _payload(config, keywords, location_name, language_name)
+        rows = list(parser(_request_task(session, config.method, config.path, payload, logger), None))
         if rows:
             yield rows
         return
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_index, start_offset = 0, 0
-    # If the saved target was removed from the config since the state was written, start over.
-    if resume is not None and resume.target in targets:
-        start_index = targets.index(resume.target)
-        start_offset = resume.offset
-        logger.debug(f"DataForSEO: resuming endpoint={endpoint} from target={resume.target} offset={resume.offset}")
+    values = keywords if config.scope == "keyword" else targets
 
-    for index in range(start_index, len(targets)):
-        target = targets[index]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_value = (resume.keyword or resume.target) if resume is not None else None
+    start_index, start_offset = 0, 0
+    # If the saved value was removed from the config since the state was written, start over.
+    if resume is not None and resume_value in values:
+        start_index = values.index(resume_value)
+        start_offset = resume.offset
+        logger.debug(f"DataForSEO: resuming endpoint={endpoint} from value={resume_value} offset={resume.offset}")
+
+    for index in range(start_index, len(values)):
+        value = values[index]
         offset = start_offset if index == start_index else 0
-        next_target = targets[index + 1] if index + 1 < len(targets) else None
+        next_value = values[index + 1] if index + 1 < len(values) else None
 
         while True:
             results = _request_task(
                 session,
                 config.method,
                 config.path,
-                _payload(config, target, location_name, language_name, offset),
+                _payload(config, value, location_name, language_name, offset),
                 logger,
             )
-            rows = list(parser(results, target))
+            rows = list(parser(results, value))
             if rows:
                 yield rows
 
-            if not config.paginated:
-                break
-
-            item_count = sum(len(result.get("items") or []) for result in results)
-            next_offset = offset + item_count
-            if not _has_more_pages(results, item_count, next_offset):
-                break
-
-            if next_offset >= PAGE_SIZE * MAX_PAGES_PER_TARGET:
-                logger.warning(
-                    f"DataForSEO: page cap reached, truncating results. endpoint={endpoint} target={target} "
-                    f"rows_fetched={next_offset} max_rows={PAGE_SIZE * MAX_PAGES_PER_TARGET}"
-                )
+            next_offset = _next_page_offset(config, results, offset, endpoint, value, logger)
+            if next_offset is None:
                 break
 
             # Persist AFTER yielding — a crash re-yields the last page rather than skipping it.
-            resumable_source_manager.save_state(DataForSEOResumeConfig(target=target, offset=next_offset))
+            resumable_source_manager.save_state(_resume_state(config, value, next_offset))
             offset = next_offset
 
-        if next_target is not None:
-            resumable_source_manager.save_state(DataForSEOResumeConfig(target=next_target, offset=0))
+        if next_value is not None:
+            resumable_source_manager.save_state(_resume_state(config, next_value, 0))
 
 
 def dataforseo_source(
     api_login: str,
     api_password: str,
     targets: list[str],
+    keywords: list[str],
     location_name: str,
     language_name: str,
     endpoint: str,
@@ -333,6 +464,7 @@ def dataforseo_source(
             api_login=api_login,
             api_password=api_password,
             targets=targets,
+            keywords=keywords,
             location_name=location_name,
             language_name=language_name,
             endpoint=endpoint,

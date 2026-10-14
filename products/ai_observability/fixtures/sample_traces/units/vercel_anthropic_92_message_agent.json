@@ -1,0 +1,2838 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Diffing a clause-render viewport regression",
+  "scenario": "An internal engineering agent at a contract clause extraction and legal document review platform is debugging a regression in the before/after diff-preview renderer: after a viewport-resize fix shipped, the annotation rail on rendered clause pages comes out too narrow, and several matters have tripped a confidence-drop alert on their indemnification and termination clauses. Across a long tool-calling session it checks pipeline status, greps the codebase, runs Python snippets against sample contracts and rendered images, dispatches review subagents to cross-check extracted clauses against source text, and sends rendered pages to a separate multimodal pass to compare before/after layouts.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "anthropic"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "claude-opus-5"
+    ],
+    "content_types": [
+      "clause_after",
+      "clause_before",
+      "content",
+      "error-text",
+      "image-data",
+      "json",
+      "reasoning",
+      "text",
+      "tool-call",
+      "tool-result"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "build_tag": "2.14.0-rc2",
+        "$lib_version": "5.14.1",
+        "$ai_model": "claude-opus-5",
+        "$ai_base_url": "",
+        "model_provider": "anthropic-bedrock",
+        "$ai_framework": "vercel",
+        "$ai_framework_version": "6",
+        "$ai_lib": "posthog-ai",
+        "model_id": "claude-opus-5",
+        "$ai_provider": "anthropic",
+        "environment": "devbox",
+        "requires_human_review": false,
+        "$ai_tokens_source": "sdk",
+        "$ai_lib_version": "7.16.0",
+        "$lib": "posthog-node",
+        "extraction_session_id": "b70c1f3fc0b009b7e15ca797",
+        "$ai_output_tokens": 296,
+        "deployment_target": "clauseiq-worker@sha256:9f21a3c07b1e88f0",
+        "$geoip_disable": true,
+        "mode": "ai",
+        "$ai_latency": 2.292,
+        "$ai_input_tokens": 37252,
+        "$ai_model_parameters": {},
+        "$ai_http_status": 200,
+        "$ai_cache_read_input_tokens": 79428,
+        "$ai_trace_id": "7ffe009f-a7bd-71a2-8f9a-7130c6d55c9f",
+        "$ai_stop_reason": "tool-calls",
+        "extraction_request_id": "fea0bea45ec423f8bf449439",
+        "worker_pool": "render-farm",
+        "$ai_time_to_first_token": 1.902,
+        "$ai_cache_creation_5m_input_tokens": 0,
+        "$ai_cache_creation_1h_input_tokens": 0,
+        "$ai_tools_called": "execute_python_snippet",
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "content": "Resuming previous debugging session.",
+            "role": "posthog"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:02:01.877Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 3784, \"requestedWidth\": 1509, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=1&tok=aaa111111\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=1&tok=bbb1111111\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 17, \"assignedPort\": 16}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 16, \"assignedPort\": 17}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 16, \"assignedPort\": 17}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 7}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Confidence alert first seen 7 minutes ago; extraction has not re-run on the affected matter since the deploy.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_DYd9G6RCNUeRZJPJ99uuz9yj",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "import re\nfrom pathlib import Path\n\npattern = re.compile(\n    r\"(?is)\\bindemnif(?:y|ication)\\b.{0,600}?(?=\\n\\n|\\Z)\"\n)\ntext = Path(\"fixtures/matter-4471/msa.txt\").read_text()\nmatches = pattern.findall(text)\nprint(\"matches found:\", len(matches))\nfor m in matches[:2]:\n    print(\"---\")\n    print(repr(m[:120]))\n    print(\"length:\", len(m))\n\n# sanity check against the fixture's known clause count from the playbook\nexpected = 1\nprint(\"matches expected:\", expected, \"| matches found:\", len(matches))\n"
+                },
+                "toolCallId": "toolu_LmBqmkSf8jUGu8xEbaNcyM7I",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": [
+                      {
+                        "pos": [
+                          444,
+                          360
+                        ],
+                        "previewUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                        "srcUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                        "pageDim": [
+                          934,
+                          905
+                        ],
+                        "downloadUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                        "isFinal": true,
+                        "type": "clause_before"
+                      },
+                      {
+                        "pos": [
+                          0,
+                          0
+                        ],
+                        "previewUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                        "srcUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                        "pageDim": [
+                          934,
+                          905
+                        ],
+                        "downloadUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                        "isFinal": false,
+                        "type": "clause_after"
+                      }
+                    ],
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_LmBqmkSf8jUGu8xEbaNcyM7I",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "requestedWidth": 900,
+                  "requestedHeight": 430
+                },
+                "toolCallId": "toolu_fOyKB8zH1qfuzXAIrqAiGrRQ",
+                "toolName": "resize_viewport",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "actualRenderedWidth": 844,
+                    "actualRenderedHeight": 570,
+                    "originalRequestedWidth": 900,
+                    "originalRequestedHeight": 430,
+                    "exitCode": 0,
+                    "success": true
+                  }
+                },
+                "toolCallId": "toolu_fOyKB8zH1qfuzXAIrqAiGrRQ",
+                "toolName": "resize_viewport",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_LRXT1LngaNgiTJV2pwXNSgbM",
+                "toolName": "get_open_file",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "file: services/extraction-worker/src/clause_boundary.py\nlines 118-166 visible, cursor on line 141\ndiagnostics: 1 warning (unused variable `raw_span` on line 141, left over\nfrom an earlier debugging pass through this function; safe to remove\nonce the boundary regex change is confirmed working end to end)\nlast saved 2 minutes ago, no unsaved changes pending in this buffer",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_LRXT1LngaNgiTJV2pwXNSgbM",
+                "toolName": "get_open_file",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "requestedWidth": 900,
+                  "requestedHeight": 1440
+                },
+                "toolCallId": "toolu_bHQwZdzJ7Hj1ZlIph7eazNox",
+                "toolName": "resize_viewport",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "actualRenderedWidth": 866,
+                    "actualRenderedHeight": 1440,
+                    "originalRequestedWidth": 900,
+                    "originalRequestedHeight": 1440,
+                    "exitCode": 0,
+                    "success": true
+                  }
+                },
+                "toolCallId": "toolu_bHQwZdzJ7Hj1ZlIph7eazNox",
+                "toolName": "resize_viewport",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_dPULuvjTuR9orin0MycB2yv2",
+                "toolName": "get_open_file",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "file: services/render-worker/src/viewport.py\nlines 40-88 visible, cursor on line 62, inside the clamp_dimensions\nhelper that resize_viewport ultimately calls before taking a screenshot\ndiagnostics: 0 warnings, 0 errors reported by the language server\nlast saved 6 minutes ago, no unsaved changes pending in this buffer",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_dPULuvjTuR9orin0MycB2yv2",
+                "toolName": "get_open_file",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "Give me a minute to check.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "text": "any luck figuring out the cause yet?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "prompt": [
+                    {
+                      "text": "I'm going to walk you through a rendering bug before showing you anything,\nsince the setup matters more than usual here. ClauseIQ generates a\nbefore/after preview whenever a reviewer opens a matter with a confidence\nalert: \"before\" is the last render taken before the current deploy,\n\"after\" is a fresh render at the same viewport size, and the two are\nmeant to line up almost exactly except for the clause highlight itself.\nSince yesterday's deploy, several matters have started producing an\n\"after\" render where the right-hand annotation rail is visibly narrower\nthan in the \"before\" render, even though nothing in the annotation-rail\nCSS changed in that deploy. The only related change was a fix to how the\nrender worker resizes its shared Chromium viewport before taking a\nscreenshot, which is also the tool this session has been poking at.\n\nI'll fetch the two most recent before/after pairs and send them to you one\nat a time. For each pair, I want to know: does the annotation rail width\nlook like a rendering artifact from a stale or mid-resize viewport, or\ndoes it look like an intentional layout change that happens to coincide\nwith the deploy? I have not been able to tell from the raw pixel\ndimensions alone, since the viewport tool reports its own actual size\nback correctly even when the visible layout looks wrong, and the extraction\nconfidence score does not care about layout at all, only about the text\nit pulled out of the document, so none of the tools I have already run\nagainst this bug can actually confirm or rule out a visual regression\nthe way a second pair of eyes on the rendered image can.\n\nOne more thing worth flagging before the first image: the two renders in\neach pair were taken through the same shared render pool roughly twelve\nhours apart, so a difference caused purely by cache staleness rather than\na real code change is also on the table and worth calling out if you see\nsigns of it, such as a visibly older font rendering or stale highlight\ncolors in one of the two images."
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_UoKLWGGc9j3LIyUR4xDflsrc",
+                "toolName": "analyze_image",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "Understood. Send the first pair when ready; I'll focus on the rail width and flag anything that looks like a mid-resize capture.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_UoKLWGGc9j3LIyUR4xDflsrc",
+                "toolName": "analyze_image",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "url": "https://cdn.example.com/clauseiq/render-cache/matter-4471/diff-before.png?tok=a1b2c3d4e5"
+                },
+                "toolCallId": "toolu_V9thlYTXCJ6DVY28PW1kM0qW",
+                "toolName": "fetch_url",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "Image fetched: 900x1440 PNG, clause-diff render, matter 4471, captured before deploy, annotation rail width approx 240px.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Content-Type: image/png",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_V9thlYTXCJ6DVY28PW1kM0qW",
+                "toolName": "fetch_url",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "prompt": [
+                    {
+                      "imageUrl": "https://cdn.example.com/clauseiq/render-cache/matter-4471/diff-before.png?tok=a1b2c3d4e5"
+                    },
+                    {
+                      "text": "Here is the first pair. This image is the \"before\" render for matter\n4471, taken the day before the deploy at a 900x1440 viewport. The\nhighlighted block on the right is the indemnification clause that later\ntriggered the confidence alert. The annotation rail on the right holds\nthe reviewer's running notes and should span roughly a quarter of the\npage width at this viewport size, based on how the reviewer UI itself\nlays the same panel out at 900px wide.\n\nThe \"after\" render for the same matter, taken this morning at the same\nrequested 900x1440 viewport, shows that rail noticeably narrower, as if\nthe actual render happened at a taller, narrower viewport than what was\nrequested. Based on just this image, does the rail width and overall\nproportions look consistent with a 900-wide viewport to you, or does it\nlook like it was captured at something narrower, closer to what we'd\nexpect from a viewport still mid-transition between two requested sizes\nrather than settled at either one? I'd rather have your honest read on\nthis even if it turns out to be inconclusive from a single still image,\nsince a wrong guess here would send the rest of this session chasing the\nwrong half of the render pipeline for a while before anyone noticed."
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_HzxvQPaWt7ZknCUhdWAfUL6R",
+                "toolName": "analyze_image",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "At 900 wide the rail should read wider. This looks closer to 750-800px, consistent with a viewport still mid-resize when captured.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_HzxvQPaWt7ZknCUhdWAfUL6R",
+                "toolName": "analyze_image",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "url": "https://cdn.example.com/clauseiq/render-cache/matter-4471/diff-after.png?tok=b2c3d4e5f6"
+                },
+                "toolCallId": "toolu_SWDch05s1C0rZfQzXjAZifLA",
+                "toolName": "fetch_url",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "Image fetched: 844x1580 PNG, clause-diff render, matter 4471, captured after deploy, annotation rail width approx 165px.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Content-Type: image/png",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_SWDch05s1C0rZfQzXjAZifLA",
+                "toolName": "fetch_url",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "prompt": [
+                    {
+                      "imageUrl": "https://cdn.example.com/clauseiq/render-cache/matter-4471/diff-after.png?tok=b2c3d4e5f6"
+                    },
+                    {
+                      "text": "This is the \"after\" render for matter 4471. Note the actual dimensions\ncame back as 844x1580 even though 900x1440 was requested, which matches\nthe resize_viewport tool's own clamping behavior for this matter's page\ncontent, so the size mismatch alone isn't surprising on its own.\n\nWhat I want your read on is whether the annotation rail's proportion of\nthe page looks consistent with THIS actual 844x1580 size, or whether it\nstill looks too narrow even accounting for the smaller actual width. If\nthe rail is proportionally fine for 844px but just looks smaller because\nthe whole render shrank, that points at the viewport clamp itself being\nthe bug, and the fix belongs in how the clamp picks a size. If the rail\nlooks disproportionately narrow even relative to 844px, that points at\nthe annotation-rail CSS reacting badly to viewport height rather than\nwidth, which the clamp change on its own wouldn't explain, and the fix\nwould need to happen in the rail's own layout rules instead."
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_sgFlXGx5Z6ePHmMZOc2Ff8nU",
+                "toolName": "analyze_image",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "Disproportionately narrow even for 844px; should be closer to 210-220px. Smells like a height-driven CSS rule, not the width clamp.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_sgFlXGx5Z6ePHmMZOc2Ff8nU",
+                "toolName": "analyze_image",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "url": "https://cdn.example.com/clauseiq/render-cache/matter-5108/diff-after.png?tok=c3d4e5f6g7"
+                },
+                "toolCallId": "toolu_TyCZ5TyXRfihYvuIZUsmAHzQ",
+                "toolName": "fetch_url",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "Image fetched: 853x1580 PNG, clause-diff render, matter 5108, captured after deploy, annotation rail width approx 168px.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Content-Type: image/png",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_TyCZ5TyXRfihYvuIZUsmAHzQ",
+                "toolName": "fetch_url",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "docSource": "9.1 Indemnification. Each party (the \"Indemnifying Party\") shall\nindemnify, defend, and hold harmless the other party and its officers,\ndirectors, and employees (the \"Indemnified Party\") from and against any\nand all third-party claims, damages, liabilities, costs, and expenses,\nincluding reasonable attorneys' fees, arising out of or relating to:\n(a) the Indemnifying Party's breach of any representation or warranty\nset forth in Section 7; (b) the Indemnifying Party's gross negligence or\nwillful misconduct; or (c) any claim that the Indemnifying Party's\ndeliverables infringe a third party's intellectual property rights.\n9.2 Procedure. The Indemnified Party shall promptly notify the\nIndemnifying Party in writing of any claim subject to indemnification\nunder this Section 9, provided that failure to give prompt notice shall\nnot relieve the Indemnifying Party of its obligations except to the\nextent it is materially prejudiced by the delay.",
+                  "instructions": "Confirm this is the standard mutual indemnification carve-out; flag if the mutual language was dropped."
+                },
+                "toolCallId": "toolu_4XzoUJHdmZyI1T4TwJP47MXz",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 3,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 3,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_4XzoUJHdmZyI1T4TwJP47MXz",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_IjPnWqWz1wJFNHJ5v5YMDCJi",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:05:46.085Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 1440, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=2&tok=aaa222222\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=2&tok=bbb2222222\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Still investigating. No new alerts have fired since the last check; render pool ports are unchanged from the previous status check.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_IjPnWqWz1wJFNHJ5v5YMDCJi",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "requestedWidth": 900,
+                  "requestedHeight": 430
+                },
+                "toolCallId": "toolu_rKdq9SolEAOMdT0koMncLhCd",
+                "toolName": "resize_viewport",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "actualRenderedWidth": 844,
+                    "actualRenderedHeight": 570,
+                    "originalRequestedWidth": 900,
+                    "originalRequestedHeight": 430,
+                    "exitCode": 0,
+                    "success": true
+                  }
+                },
+                "toolCallId": "toolu_rKdq9SolEAOMdT0koMncLhCd",
+                "toolName": "resize_viewport",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_pC6rfFiA1faEYdHJTHh8AxiX",
+                "toolName": "get_open_file",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "file: services/extraction-worker/src/clause_boundary.py\nlines 118-166 visible, cursor on line 141\ndiagnostics: 0 warnings (the unused `raw_span` variable from the earlier\ndebugging pass has now been removed as part of cleaning up this patch)\nlast saved just now, no unsaved changes pending in this buffer",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_pC6rfFiA1faEYdHJTHh8AxiX",
+                "toolName": "get_open_file",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "from PIL import Image, ImageChops\n\nbefore = Image.open(\"render-cache/matter-4471/before.png\")\nafter = Image.open(\"render-cache/matter-4471/after.png\")\nprint(\"before size:\", before.size)\nprint(\"after size:\", after.size)\n\nresized = after.resize(before.size)\ndiff = ImageChops.difference(before.convert(\"RGB\"), resized.convert(\"RGB\"))\nbbox = diff.getbbox()\nprint(\"diff bbox:\", bbox)\n\nrail_before = before.crop((before.width - 240, 0, before.width, before.height))\nrail_after = after.crop((after.width - 165, 0, after.width, after.height))\nprint(\"rail widths:\", rail_before.width, rail_after.width)\n"
+                },
+                "toolCallId": "toolu_t9QIfitwi0Lsrb8DUlJSkEBq",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": [
+                      {
+                        "pos": [
+                          0,
+                          0
+                        ],
+                        "previewUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                        "pageDim": [
+                          1612,
+                          1097
+                        ],
+                        "clipMode": "resized",
+                        "downloadUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                        "isFinal": false,
+                        "type": "clause_before"
+                      },
+                      {
+                        "pos": [
+                          420,
+                          251
+                        ],
+                        "previewUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                        "pageDim": [
+                          1612,
+                          1097
+                        ],
+                        "clipMode": "resized",
+                        "downloadUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                        "isFinal": true,
+                        "type": "clause_after"
+                      }
+                    ],
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_t9QIfitwi0Lsrb8DUlJSkEBq",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {},
+                "toolCallId": "toolu_lmwI06S6LvYVL0qBke3LuWmA",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:06:20.786Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 430, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=3&tok=aaa333333\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=3&tok=bbb3333333\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 11, \"assignedPort\": 11}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 10, \"assignedPort\": 11}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 10, \"assignedPort\": 11}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 4}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Confidence still below threshold on the indemnification clause; render pool ports steady since the last check.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_lmwI06S6LvYVL0qBke3LuWmA",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "from clauseiq.render import viewport_config as vc\n\nprint(\"default:\", vc.DEFAULT_WIDTH, vc.DEFAULT_HEIGHT)\nprint(\"clamp min:\", vc.MIN_WIDTH, vc.MIN_HEIGHT)\nprint(\"clamp max:\", vc.MAX_WIDTH, vc.MAX_HEIGHT)\n"
+                },
+                "toolCallId": "toolu_lDflMfzGiM7WOSAqD0rmX5qZ",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": {
+                      "previewUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                      "srcUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                      "cdnUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2"
+                    },
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_lDflMfzGiM7WOSAqD0rmX5qZ",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "12.3 Termination for Convenience. Either party may terminate this\nAgreement for convenience upon sixty (60) days' prior written notice to\nthe other party. Upon termination under this Section 12.3, Customer\nshall pay all fees accrued through the effective date of termination,\nand Provider shall refund any prepaid fees for periods after that date\non a pro rata basis.",
+                  "instructions": "Check whether the termination-for-convenience notice period reads as 30 or 60 days; extraction returned 30 at 61% confidence."
+                },
+                "toolCallId": "toolu_NwAQl0Eum7am2jZs3nzqyIPj",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 2,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 2,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_NwAQl0Eum7am2jZs3nzqyIPj",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_7ljwKWnqYLfOt6fnJLXHN4yR",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:06:44.219Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 430, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=4&tok=aaa444444\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=4&tok=bbb4444444\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Re-render after the viewport patch looks closer to the original, but the after image still trims the right-hand annotation rail slightly.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_7ljwKWnqYLfOt6fnJLXHN4yR",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "from clauseiq.render import diff_preview\n\nresult = diff_preview.render(matter_id=\"4471\", width=900, height=1440)\nprint(\"actual size:\", result.actual_width, result.actual_height)\nprint(\"render url:\", result.url)\nprint(\"rail selector matched:\", result.annotation_rail_found)\n"
+                },
+                "toolCallId": "toolu_M2I3rkJtziWxoPlxLsieVUFa",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": {
+                      "previewUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2",
+                      "srcUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                      "dim": [
+                        1612,
+                        1097
+                      ],
+                      "cdnUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2"
+                    },
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_M2I3rkJtziWxoPlxLsieVUFa",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "8.4 Limitation of Liability. EXCEPT FOR CLAIMS ARISING UNDER SECTION 9\n(INDEMNIFICATION) OR A BREACH OF SECTION 6 (CONFIDENTIALITY), IN NO EVENT\nSHALL EITHER PARTY'S AGGREGATE LIABILITY UNDER THIS AGREEMENT EXCEED THE\nTOTAL FEES PAID OR PAYABLE BY CUSTOMER IN THE TWELVE (12) MONTHS\nPRECEDING THE EVENT GIVING RISE TO THE CLAIM. NEITHER PARTY SHALL BE\nLIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE\nDAMAGES, INCLUDING LOSS OF PROFITS OR DATA, REGARDLESS OF THE THEORY OF\nLIABILITY, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.\n9.1 Indemnification. Provider shall indemnify Customer against any\nthird-party claim that the Services, as delivered and used in accordance\nwith this Agreement, infringe a valid patent, copyright, or trade secret\nof a third party, and shall pay all damages finally awarded or agreed to\nin settlement, provided that Provider is given prompt notice, sole\ncontrol of the defense, and Customer's reasonable cooperation.\n9.2 Exclusions. Provider shall have no obligation under Section 9.1 to\nthe extent the claim arises from Customer's modification of the\nServices or combination of the Services with materials not provided by\nProvider.",
+                  "instructions": "This excerpt covers both the liability cap and indemnification; extraction split it into two clauses, confirm the boundary is right."
+                },
+                "toolCallId": "toolu_ZVp275eQS0G1Lz09ANeGMOdQ",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 8,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 8,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_ZVp275eQS0G1Lz09ANeGMOdQ",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_an6fJDmvDQlaydoS8CHxrN3H",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:07:10.041Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 430, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=5&tok=aaa555555\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=5&tok=bbb5555555\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Confidence recalculation queued for the affected matter; expect an updated score within a minute or two.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_an6fJDmvDQlaydoS8CHxrN3H",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "from clauseiq.extraction import confidence\n\nscore = confidence.recompute(matter_id=\"4471\", clause=\"indemnification\")\nprint(\"new score:\", score, \"threshold:\", confidence.THRESHOLD)\n"
+                },
+                "toolCallId": "toolu_fcIayhTm4IR3NVwTZsmSIqM6",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": {
+                      "beforeUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                      "afterUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2"
+                    },
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_fcIayhTm4IR3NVwTZsmSIqM6",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "5.2 Sub-processors. Processor may engage sub-processors to carry out\nspecific processing activities on behalf of Controller, provided that\nProcessor maintains a current list of sub-processors and notifies\nController of any intended changes, giving Controller the opportunity to\nobject on reasonable data protection grounds within fifteen (15) days.\n5.3 Audit Rights. Controller may, no more than once per twelve-month\nperiod, request that Processor provide a summary of its most recent\nthird-party security audit, or, where Controller reasonably believes a\nmaterial gap exists, conduct its own audit upon thirty (30) days' notice\nduring normal business hours.",
+                  "instructions": "Verify this DPA excerpt names a sub-processor list obligation; pipeline flagged low confidence on the audit-rights sentence."
+                },
+                "toolCallId": "toolu_mHpbBKlc6JViQ1iu3Mk01GKU",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 9,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 0,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_mHpbBKlc6JViQ1iu3Mk01GKU",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "10.1 Ownership. As between the parties, Customer owns all right, title,\nand interest in and to Customer Data. Provider hereby assigns to\nCustomer all right, title, and interest in and to any Work Product\ncreated specifically for Customer under a Statement of Work, effective\nimmediately upon creation, excluding any Provider Background IP\nincorporated therein, which Provider retains and hereby grants Customer\na non-exclusive, royalty-free, worldwide license to use solely as\nnecessary to receive the benefit of the Work Product.\n10.2 Further Assurance. Provider shall execute any documents and take\nany further actions reasonably requested by Customer to perfect the\nownership rights assigned under Section 10.1, at Customer's expense.",
+                  "instructions": "Confirm IP assignment is present-tense (\"hereby assigns\") rather than future (\"agrees to assign\"); this changes the risk rating."
+                },
+                "toolCallId": "toolu_X7RZsr5smfLs9AVPeZXwKEvV",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 3,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 3,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_X7RZsr5smfLs9AVPeZXwKEvV",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_OEIfGOPsnvqXALfgnwbAXfYX",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:07:40.444Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 430, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=6&tok=aaa666666\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=6&tok=bbb6666666\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Regex fix deployed to the sandbox worker only so far; production is still running the previous clause-boundary pattern unchanged.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_OEIfGOPsnvqXALfgnwbAXfYX",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "import re\nimport glob\n\nOLD = r\"(?is)\\bindemnif(?:y|ication)\\b.{0,400}?(?=\\n\\n|\\Z)\"\nNEW = r\"(?is)\\bindemnif(?:y|ication)\\b.{0,600}?(?=\\n\\n|\\Z)\"\n\nold_p, new_p = re.compile(OLD), re.compile(NEW)\nregressed = []\nfor path in sorted(glob.glob(\"fixtures/**/msa.txt\", recursive=True)):\n    text = open(path).read()\n    old_count = len(old_p.findall(text))\n    new_count = len(new_p.findall(text))\n    print(path, \"old:\", old_count, \"new:\", new_count)\n    if new_count < old_count:\n        regressed.append(path)\n\nprint(\"regressed fixtures:\", regressed)\n"
+                },
+                "toolCallId": "toolu_EjHsz3CsZ2R49weMGnsH776v",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [
+                      {
+                        "level": "info",
+                        "message": "[\"[render-diff:chunk]\", \"before/after bounding-box mismatch detected on annotation rail, matter 4471, diff width approximately 75px\", \"https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/diff-overlay.png\", 10]",
+                        "timestamp": "2026-08-06T22:07:54.368Z"
+                      },
+                      {
+                        "level": "info",
+                        "message": "[\"[render-diff:chunk]\", \"viewport clamp applied: requested 900x1440, actual rendered size 844x1580\", \"annotation rail CSS reacts to viewport height, not width\", 10]",
+                        "timestamp": "2026-08-06T22:07:54.424Z"
+                      }
+                    ],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": "discarded",
+                    "success": true,
+                    "outputKind": "discarded",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_EjHsz3CsZ2R49weMGnsH776v",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "code": "from clauseiq.dev import pool_status\n\nstatus = pool_status.snapshot()\nprint(\"resolved ports:\", [p[\"target\"] for p in status.resolvedPorts])\nfor p in status.resolvedPorts:\n    print(p[\"target\"], p[\"originalPort\"], \"->\", p[\"assignedPort\"])\n\nprint(\"triggered alerts:\", len(status.triggeredAlerts))\nfor a in status.triggeredAlerts:\n    print(a[\"ruleName\"], \"severity\", a[\"severity\"], \"minutes active\", a[\"minutesActive\"])\n\nprint(\"before render:\", status.beforeRenderUrl)\nprint(\"after render:\", status.afterRenderUrl)\nprint(\"requested size:\", status.requestedWidth, status.requestedHeight)\n"
+                },
+                "toolCallId": "toolu_dBpGs45n2fmp1xSLwUh9rbr2",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": true,
+                    "artifacts": {
+                      "beforeUrl": "https://cdn.example.com/clauseiq/render-cache/matter-4471/diff-before.png?tok=a1b2c3d4e5",
+                      "afterUrl": "https://cdn.example.com/clauseiq/render-cache/matter-5108/diff-after.png?tok=c3d4e5f6g7"
+                    },
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_dBpGs45n2fmp1xSLwUh9rbr2",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {},
+                "toolCallId": "toolu_52trtolZpUwhIGLwCndf7STo",
+                "toolName": "get_open_file",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "file: services/extraction-worker/tests/test_clause_boundary.py\nlines 1-40 visible, cursor on line 27, inside the fixture that loads\nthe sample MSA text used by every parameterized case in this file\ndiagnostics: 0 warnings, 0 errors reported by the language server\nlast saved 1 minute ago, no unsaved changes pending in this buffer",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_52trtolZpUwhIGLwCndf7STo",
+                "toolName": "get_open_file",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {},
+                "toolCallId": "toolu_rHhzJrg9o0x3TzSBJmrx7vYF",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:08:27.572Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 430, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=7&tok=aaa777777\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=7&tok=bbb7777777\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Alert minutesActive dropped from 7 down to 3, which is consistent with the regex fix reducing false negatives on this matter.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_rHhzJrg9o0x3TzSBJmrx7vYF",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "17.3 Assignment. Neither party may assign this Agreement without the\nprior written consent of the other party, except that either party may\nassign this Agreement without consent in connection with a merger,\nacquisition, or sale of all or substantially all of its assets.",
+                  "instructions": "Check whether auto-renewal requires affirmative notice to stop, or renews silently; extraction is unsure which paragraph controls."
+                },
+                "toolCallId": "toolu_hLAojtfHcSpxPIw6JaC696Fg",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 2,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 0,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_hLAojtfHcSpxPIw6JaC696Fg",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "13.1 Mutual Warranties. Each party represents and warrants that it has\nthe full corporate right and authority to enter into this Agreement and\nto perform its obligations hereunder, and that doing so does not\nconflict with any other agreement to which it is a party.\n13.2 Provider Warranties. Provider warrants that the Services will be\nperformed in a professional manner consistent with generally accepted\nindustry standards.\n13.3 Disclaimer. EXCEPT AS EXPRESSLY SET FORTH IN THIS SECTION 13, THE\nSERVICES ARE PROVIDED \"AS IS\" AND PROVIDER DISCLAIMS ALL OTHER\nWARRANTIES, EXPRESS OR IMPLIED, INCLUDING THE IMPLIED WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND\nNON-INFRINGEMENT.",
+                  "instructions": "Confirm whether assignment requires consent for a change of control specifically, or only for a direct assignment."
+                },
+                "toolCallId": "toolu_CdRu6K9ubU18K2yijcD2INBL",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 3,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 4,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_CdRu6K9ubU18K2yijcD2INBL",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "16.1 Force Majeure. Neither party shall be liable for any delay or\nfailure to perform resulting from causes beyond its reasonable control,\nincluding acts of God, fire, flood, war, and governmental action.",
+                  "instructions": "Check whether notice must go to a named individual or just a department address; low confidence on the addressee."
+                },
+                "toolCallId": "toolu_nG3934JYbHPQFZeju0xpI8M3",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "error-text",
+                  "value": "Subagent dispatch failed: concurrent review-agent limit (4) reached for\nthis workspace. Retry once an in-flight review completes, or split this\nbatch into smaller calls rather than retrying immediately.\nrequest_id=req_8f2c1a9e0b3d4f56"
+                },
+                "toolCallId": "toolu_nG3934JYbHPQFZeju0xpI8M3",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "docSource": "14.6 Governing Law; Venue. This Agreement is governed by the laws of\nthe State of Delaware, without regard to its conflict-of-laws\nprinciples. Each party consents to the exclusive jurisdiction of the\nstate and federal courts located in New Castle County, Delaware for any\ndispute arising out of or relating to this Agreement.",
+                  "instructions": "Quick check: does this force majeure clause name pandemics, or only \"acts of God\"?"
+                },
+                "toolCallId": "toolu_u1BHoLfBLdwRt3hQlKreL39F",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "error-text",
+                  "value": "Subagent dispatch failed: concurrent review-agent limit (4) reached for\nthis workspace. Retry once an in-flight review completes, or split this\nbatch into smaller calls rather than retrying immediately.\nrequest_id=req_8f2c1a9e0b3d4f56"
+                },
+                "toolCallId": "toolu_u1BHoLfBLdwRt3hQlKreL39F",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {},
+                "toolCallId": "toolu_YdvY7ZTxV8yL9RiXUuSj59d2",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:08:58.297Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 430, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=8&tok=aaa888888\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=8&tok=bbb8888888\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Diff render now matches the expected layout for this matter; confirming against a second matter before calling the fix complete.",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_YdvY7ZTxV8yL9RiXUuSj59d2",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "import re\n\npattern = re.compile(r\"(?is)\\btermination\\b.{0,400}?(?=\\n\\n|\\Z)\")\ntext = open(\"fixtures/matter-4471/msa.txt\").read()\nprint(len(pattern.findall(text)))\n"
+                },
+                "toolCallId": "toolu_WuThHIdYRkPLe31rXYJMWHxO",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": {
+                      "beforeUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/before.png?d=1&v=2",
+                      "afterUrl": "https://cdn.example.com/clauseiq/sandbox/render-cache/matter-4471/after.png?d=1&v=2"
+                    },
+                    "success": true,
+                    "outputKind": "stdout",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_WuThHIdYRkPLe31rXYJMWHxO",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "code": "from clauseiq.render import viewport_config as vc\n\nprint(\"before:\", vc.MIN_HEIGHT, vc.MAX_HEIGHT)\n\nvc.MIN_HEIGHT = 1200\nvc.MAX_HEIGHT = 1600\n\nprint(\"after:\", vc.MIN_HEIGHT, vc.MAX_HEIGHT)\nprint(\"note: this only affects the current sandbox process, not the deployed worker\")\nprint(\"re-run resize_viewport next to confirm the new clamp actually takes effect\")\n"
+                },
+                "toolCallId": "toolu_zgZIpdvkupRu4NOm0CZLIFIs",
+                "toolName": "execute_python_snippet",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "action": "run_code",
+                    "logMessages": [],
+                    "executionError": null,
+                    "truncated": false,
+                    "artifacts": "no_output",
+                    "success": true,
+                    "outputKind": "text",
+                    "hasActiveAlerts": false
+                  }
+                },
+                "toolCallId": "toolu_zgZIpdvkupRu4NOm0CZLIFIs",
+                "toolName": "execute_python_snippet",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "requestedWidth": 900,
+                  "requestedHeight": 1440
+                },
+                "toolCallId": "toolu_ZDZhFYmYdtu2tRLnY29hQNfV",
+                "toolName": "resize_viewport",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "actualRenderedWidth": 853,
+                    "actualRenderedHeight": 1580,
+                    "originalRequestedWidth": 900,
+                    "originalRequestedHeight": 1440,
+                    "exitCode": 0,
+                    "success": true
+                  }
+                },
+                "toolCallId": "toolu_ZDZhFYmYdtu2tRLnY29hQNfV",
+                "toolName": "resize_viewport",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_LfIqKVCEHPN3Synlb8opdVWH",
+                "toolName": "get_open_file",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "file: services/render-worker/src/diff_preview.py\nlines 1-52 visible, cursor on line 18, near the call into the shared\nChromium render pool that both before and after screenshots go through\ndiagnostics: 1 warning (missing return type annotation on `render_diff`,\nunrelated to the current bug and pre-existing before this session)\nlast saved 3 minutes ago, no unsaved changes pending in this buffer",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_LfIqKVCEHPN3Synlb8opdVWH",
+                "toolName": "get_open_file",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "15.2 Notices. All notices under this Agreement shall be in writing and\ndelivered to the addresses set forth on the signature page, or to such\nother address as either party designates in writing, and shall be\ndeemed given upon receipt if delivered by courier or three days after\nmailing if sent by certified mail.",
+                  "instructions": "Check whether the warranty disclaimer is conspicuous enough to be enforceable; extraction can't judge formatting."
+                },
+                "toolCallId": "toolu_VA0BdIxIMQPXgS1RwrhIwefE",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 2,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 0,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_VA0BdIxIMQPXgS1RwrhIwefE",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "6.1 Confidential Information. \"Confidential Information\" means any\nnon-public information disclosed by either party, whether orally, in\nwriting, or by inspection, that is designated as confidential or that a\nreasonable person would understand to be confidential given the nature\nof the information and the circumstances of disclosure, including but\nnot limited to pricing, product roadmaps, source code, and customer\nlists.\n6.2 Exclusions. Confidential Information does not include information\nthat: (a) is or becomes publicly available through no fault of the\nreceiving party; (b) was rightfully known to the receiving party prior\nto disclosure; (c) is independently developed without use of the\ndisclosing party's Confidential Information; or (d) is rightfully\nobtained from a third party without restriction on disclosure.",
+                  "instructions": "Confirm the confidentiality carve-outs list is exhaustive or illustrative; pipeline can't tell from \"including but not limited to\"."
+                },
+                "toolCallId": "toolu_2cEwslnBgJghve9xWShlOg9c",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "itemsFound": 9,
+                    "content": "Reviewed the excerpt against the source contract text; findings below.",
+                    "itemsFlagged": 9,
+                    "followUpNote": "No further action needed unless legal flags additional risk here."
+                  }
+                },
+                "toolCallId": "toolu_2cEwslnBgJghve9xWShlOg9c",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "input": {
+                  "docSource": "3.4 Auto-Renewal. This Agreement shall automatically renew for\nsuccessive one-year terms unless either party provides written notice of\nnon-renewal at least ninety (90) days prior to the end of the then-\ncurrent term. Fees for each renewal term shall increase by the greater\nof five percent (5%) or the change in CPI over the preceding term.",
+                  "instructions": "Confirm governing law and venue are consistent within this excerpt; extraction flagged a possible mismatch between clauses."
+                },
+                "toolCallId": "toolu_vSwGJ0AbvEDUBKAj5BAdbkyJ",
+                "toolName": "spawn_review_agent",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "error-text",
+                  "value": "Subagent dispatch failed: concurrent review-agent limit (4) reached for\nthis workspace. Retry once an in-flight review completes, or split this\nbatch into smaller calls rather than retrying immediately.\nrequest_id=req_8f2c1a9e0b3d4f56"
+                },
+                "toolCallId": "toolu_vSwGJ0AbvEDUBKAj5BAdbkyJ",
+                "toolName": "spawn_review_agent",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {},
+                "toolCallId": "toolu_L6dtuEf4VGbaS4JBZ2muajNP",
+                "toolName": "pipeline_status",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "content",
+                  "value": [
+                    {
+                      "text": "{\"success\": true, \"action\": \"pipeline_status\", \"logMessages\": [{\"level\": \"log\", \"message\": \"Deprecated render-cache adapter is still enabled; migrate before v4.0.\", \"timestamp\": \"2026-08-06T22:09:56.667Z\"}], \"executionError\": null, \"hasActiveAlerts\": true, \"requestedHeight\": 1440, \"requestedWidth\": 900, \"exitCode\": 0, \"beforeRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/before.png?run=b70c1f3f&seq=9&tok=aaa999999\", \"afterRenderUrl\": \"https://cdn.example.com/clauseiq/status/preview/after.png?run=b70c1f3f&seq=9&tok=bbb9999999\", \"resolvedPorts\": [{\"target\": \"clause-render-worker (headless Chromium render pool)\", \"status\": \"flagged\", \"originalPort\": 5, \"assignedPort\": 5}, {\"target\": \"extraction-api (clause-extraction HTTP service)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}, {\"target\": \"matter-search-index (local dev search shard)\", \"status\": \"flagged\", \"originalPort\": 4, \"assignedPort\": 4}], \"triggeredAlerts\": [{\"severity\": 1, \"status\": \"confirmed\", \"ruleName\": \"clause_confidence_drop\", \"minutesActive\": 1}], \"errors\": [], \"reportMeta\": {\"summary\": \"### How to read this report\\n- logMessages: warnings the worker printed since the last check.\\n- resolvedPorts: dev proxy ports remapped after a conflict on boot.\\n- triggeredAlerts: confidence or latency thresholds currently breached.\\n- beforeRenderUrl / afterRenderUrl: latest clause-diff preview pair.\\n- requestedWidth / requestedHeight: viewport used for that render.\\n\\nA triggered alert clears itself once a later extraction pass on the\\nsame matter comes back above threshold; it does not require a manual\\nreset. If resolvedPorts is non-empty on every check, something outside\\nthis sandbox is holding one of the render pool's ports, and restarting\\njust the worker will not fix it.\\n\\nThis block does not change between pipeline_status calls; only the\\nsurrounding fields do.\"}}",
+                      "type": "text"
+                    },
+                    {
+                      "text": "Known caveat: the render pool currently shares its Chromium instances\nacross matters rather than spawning one per render, so a viewport resize\nissued for one preview stays in effect for whichever render runs next,\neven if it belongs to an unrelated matter. This has been true since the\npool was introduced to cut render latency and is tracked separately from\nwhatever confidence regression this session is investigating; do not\nassume a stale viewport size explains a bad render unless you actually\nresized it for a different purpose earlier in this same session.",
+                      "type": "text"
+                    },
+                    {
+                      "data": "data:application/octet-stream;base64,⟦media:vercel_anthropic_92_message_agent__M7184418.png⟧",
+                      "mediaType": "image/webp",
+                      "type": "image-data"
+                    }
+                  ]
+                },
+                "toolCallId": "toolu_L6dtuEf4VGbaS4JBZ2muajNP",
+                "toolName": "pipeline_status",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "function": {
+                  "arguments": "{\"code\": \"import re\\n\\npattern = re.compile(r\\\"(?is)\\\\btermination\\\\b.{0,400}?(?=\\\\n\\\\n|\\\\Z)\\\")\\ntext = open(\\\"fixtures/matter-4471/msa.txt\\\").read()\\nprint(len(pattern.findall(text)))\\n\"}",
+                  "name": "execute_python_snippet"
+                },
+                "id": "toolu_ZTK7g57rFPenLf4k0rPjaZsv",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "description": "Dispatches a scoped review subagent to cross-check an extracted clause against its source contract text.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "docSource": {
+                  "description": "The exact excerpt of the source contract this subagent should review, copied\nverbatim from the matter's canonical document. Include enough surrounding\ncontext that a clause boundary is unambiguous:\n- The full clause heading, if the contract uses numbered sections.\n- At least one paragraph before and after the clause under review.\n- Any defined terms referenced inline, even if defined elsewhere.\n- Redline or tracked-change markers exactly as they appear in the source.\nDo not summarize or paraphrase the excerpt. Paste the raw text so the\nsubagent can quote it back precisely in its findings. If the excerpt spans\nmore than one clause, keep them together rather than splitting the call,\nsince cross-references between adjacent clauses are often where the\nextraction pipeline loses confidence. When in doubt, include more text\nrather than less; the subagent is instructed to ignore irrelevant\nboilerplate on its own. Preserve original line breaks and numbering so\nthat any citation the subagent returns can be matched back to the source\nPDF page and paragraph.\n\nA few other things worth knowing before you call this:\n- The subagent has no memory of earlier calls, so restate any defined term\n  you rely on rather than assuming it remembers a prior excerpt.\n- It cannot fetch the document itself; if the excerpt you pasted is missing\n  a cross-referenced section, either paste that section too or explicitly\n  say the reference could not be resolved.\n- Very long excerpts, beyond a few pages, are usually a sign the review\n  should be split by clause type instead of by document, since a single\n  subagent call rarely stays focused across that much unrelated language.",
+                  "type": "string"
+                },
+                "instructions": {
+                  "description": "What to look for in the excerpt, e.g. which clause type to extract, what confidence threshold triggered the review, or what the pipeline flagged as ambiguous. Be specific about what a good answer looks like, since the subagent has no other context about why this excerpt was pulled out.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "instructions",
+                "docSource"
+              ],
+              "type": "object"
+            },
+            "name": "spawn_review_agent",
+            "type": "function"
+          },
+          {
+            "description": "Attaches structured review annotations to one or more extracted clauses in the\ncurrent matter. Use this after a human or subagent reviewer has finished\nchecking a batch of clauses, to persist flags, confidence overrides, and\nreviewer notes back onto the clause records so they show up in the matter's\nreview queue. This does not modify the underlying document; it only writes\nannotation metadata alongside the extraction.\n\nAnnotations are additive: calling this twice for the same clause key merges\nthe new findings and citations into the existing ones rather than replacing\nthem, so it is safe to call once per reviewer even when several people look\nat the same clause. The optional textEdits field lets you correct the\nnormalized clause text itself, which is useful when the extraction pipeline\ntrimmed a clause boundary incorrectly and a reviewer wants the corrected\ntext to flow into the next confidence recalculation, rather than only\nrecording that something was wrong.\n\nreviewerIds is separate from the source and citedBy fields on individual\nfindings: it records who signed off on the batch as a whole, while the\nper-finding fields record who actually surfaced each individual issue,\nwhich are often different people once a review has gone through more than\none pass. metadataPatch exists as an escape hatch for anything the\nstructured fields do not cover yet; prefer a structured finding whenever\none fits, since metadataPatch values are not searchable from the review\nqueue the way findings and citations are, and tend to get forgotten.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "annotations": {
+                  "additionalProperties": false,
+                  "description": "One annotation per clause key being updated.",
+                  "properties": {
+                    "customMessage": {
+                      "description": "Free-text note shown to the next reviewer.",
+                      "type": "string"
+                    },
+                    "matchConfidence": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "extractedText": {
+                          "type": "string"
+                        },
+                        "flags": {
+                          "items": {
+                            "enum": [
+                              "ambiguous",
+                              "nonstandard",
+                              "missing",
+                              "outdated"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "normalizedText": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "citations": {
+                      "description": "Page and paragraph references supporting this annotation, so a later reviewer can jump straight to the source.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                },
+                "reviewerIds": {
+                  "description": "Ids of the reviewers who signed off on this batch.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "textEdits": {
+                  "description": "Find-and-replace pairs to apply to the normalized clause text before re-scoring.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "from": {
+                        "type": "string"
+                      },
+                      "to": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "to"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "metadataPatch": {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "additionalProperties": {},
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "description": "Arbitrary key-value metadata to merge into the clause record, for fields not covered by the structured properties above. Values can be plain strings or small nested objects; avoid putting anything here that should really be a citation or a finding, since those are searchable and this is not. This field exists mainly so a one-off integration detail does not block shipping a review, not as the primary way to record a reviewer's opinion about a clause; if you find yourself reaching for it often for the same kind of detail, that is usually a sign it belongs as a proper structured field on findings instead.",
+                  "type": "object"
+                },
+                "reviewNotes": {
+                  "description": "Structured findings, one entry per distinct issue raised against the clause.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "severity": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "level": {
+                            "enum": [
+                              "blocking",
+                              "title",
+                              "advisory"
+                            ],
+                            "type": "string"
+                          },
+                          "weight": {
+                            "type": "number"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "context": {
+                        "additionalProperties": false,
+                        "description": "Where this finding came from and how much it should weigh.",
+                        "properties": {
+                          "description": {
+                            "description": "Short human-readable description of the finding.",
+                            "type": "string"
+                          },
+                          "relatedClauseKeys": {
+                            "description": "Other clause keys in the same matter that this finding also applies to.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "team": {
+                            "type": "string"
+                          },
+                          "action": {
+                            "enum": [
+                              "hold",
+                              "escalate",
+                              "action_EFqBRTsxA0",
+                              "resolve",
+                              "blocking"
+                            ],
+                            "type": "string"
+                          },
+                          "affectedParties": {
+                            "description": "Contracting parties this finding is relevant to.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "category": {
+                            "enum": [
+                              "pricing",
+                              "risk",
+                              "notice",
+                              "term",
+                              "iplaw",
+                              "privacy",
+                              "renewal",
+                              "compliance",
+                              "indemnification"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "description"
+                        ],
+                        "type": "object"
+                      },
+                      "key": {
+                        "description": "Stable identifier for the clause being annotated, matching the extraction pipeline's clause key.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "source": {
+                        "additionalProperties": false,
+                        "description": "Where this annotation's supporting evidence came from, human or automated.",
+                        "properties": {
+                          "message": {
+                            "description": "Short explanation of why this source supports the annotation, in the reviewer's own words rather than a restatement of the clause text.",
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "additionalProperties": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "description": {
+                                  "description": "Short label for this piece of evidence.",
+                                  "type": "string"
+                                },
+                                "weight": {
+                                  "type": [
+                                    "string",
+                                    "number"
+                                  ]
+                                },
+                                "type": {
+                                  "enum": [
+                                    "text",
+                                    "number",
+                                    "boolean",
+                                    "url"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "description"
+                              ],
+                              "type": "object"
+                            },
+                            "description": "Supporting evidence keyed by an arbitrary evidence id.",
+                            "type": "object"
+                          },
+                          "citedBy": {
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "description": "Which reviewer or subagent role contributed each cited excerpt, keyed by role name, so a later audit can tell which citations came from an automated pass versus a human sign-off.",
+                            "propertyNames": {
+                              "enum": [
+                                "human",
+                                "llm",
+                                "doc",
+                                "web",
+                                "diff",
+                                "other"
+                              ]
+                            },
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "message"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "name": "annotate_clauses",
+            "type": "function"
+          },
+          {
+            "description": "Returns the current status of the local clause-extraction and render pipeline, including recent logs and any active alerts.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "pipeline_status",
+            "type": "function"
+          },
+          {
+            "description": "Runs a short Python snippet against the local extraction sandbox and returns captured stdout, stderr, and any rendered artifacts.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "description": "The Python source to execute. Runs with the sandbox's virtualenv already active; avoid installing packages.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code"
+              ],
+              "type": "object"
+            },
+            "name": "execute_python_snippet",
+            "type": "function"
+          },
+          {
+            "description": "Runs one or more ripgrep-style searches against the ClauseIQ monorepo and returns matching lines with file and line context. Prefer batching related lookups into one call rather than several separate ones.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "queries": {
+                  "description": "One or more search queries to run against the repository.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "restrictToDirectories": {
+                        "description": "Glob patterns limiting the search to specific directories, such as the extraction worker or the renderer service. Leave empty to search the whole monorepo, which is slower but occasionally necessary.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "caseSensitive": {
+                        "default": false,
+                        "description": "Whether the search should be case sensitive.",
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "description": "The literal string or regular expression to search for.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "target"
+                    ],
+                    "type": "object"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "queries"
+              ],
+              "type": "object"
+            },
+            "name": "search_codebase",
+            "type": "function"
+          },
+          {
+            "description": "Fetches a URL and returns its extracted text content, used for reference pages and rendered preview assets.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "description": "The URL to fetch content from.",
+                  "format": "uri",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "type": "object"
+            },
+            "name": "fetch_url",
+            "type": "function"
+          },
+          {
+            "description": "Returns a snapshot of the file currently open in the editor, including its path, visible line range, and any inline diagnostics reported by the language server. Useful for confirming which module the agent is looking at before proposing an edit, without re-reading the whole file. The snapshot reflects whatever the human collaborator has open at the moment the tool is called, so it can change between calls even without any tool making an edit; treat it as a hint about where attention is focused rather than an authoritative source for file contents.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "get_open_file",
+            "type": "function"
+          },
+          {
+            "description": "Resizes the headless Chromium viewport used by the document renderer before generating a clause-diff preview image. The renderer clamps requested dimensions to the configured minimum and maximum, so the returned size may differ slightly from what was requested; always read back the actual size before comparing two renders pixel for pixel. This is a shared viewport used by every render call in the current session, so resizing it affects the next preview regardless of which document or matter it belongs to; there is no way to pin a size to a single render. If you are chasing a layout bug that only reproduces at a specific size, resize once, run every comparison you need at that size, and resize back before moving on to unrelated work so you do not leave the sandbox in an unexpected state for whoever inspects it next.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "requestedWidth": {
+                  "description": "Desired viewport width in pixels.",
+                  "maximum": 1819,
+                  "minimum": 331,
+                  "type": "integer"
+                },
+                "requestedHeight": {
+                  "description": "Desired viewport height in pixels.",
+                  "maximum": 4381,
+                  "minimum": 323,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "requestedHeight",
+                "requestedWidth"
+              ],
+              "type": "object"
+            },
+            "name": "resize_viewport",
+            "type": "function"
+          },
+          {
+            "description": "Fetches a single document record, including its current extraction results and confidence scores per clause, by its internal document identifier. Use search_matter_documents first if you only know the matter or a keyword from the document title.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "includeSupersededRevisions": {
+                  "default": false,
+                  "description": "When true, the response also includes revisions of this document that have\nsince been superseded by a newer upload, such as an earlier draft of the\nmaster service agreement before the final signed version replaced it.\nThis is mostly useful when a reviewer reports that a clause \"used to\" read\ndifferently, and you need to confirm whether that was an editing mistake or\na real change made by the counterparty between drafts. Superseded revisions\nare excluded by default because they roughly double the size of the\nresponse and are rarely needed for a routine confidence check. Set this to\ntrue only when you already suspect a versioning issue rather than an\nextraction bug.",
+                  "type": "boolean"
+                },
+                "queryId": {
+                  "description": "The document's internal identifier, as returned by search_matter_documents\nor search_clause_library. This is not the same as the matter id: a single\nmatter can have many documents attached to it, such as the base agreement,\namendments, and side letters, each with its own document id. If you only\nhave a matter id, call search_matter_documents first to list the documents\nattached to it and pick the one you need.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "queryId"
+              ],
+              "type": "object"
+            },
+            "name": "get_document_by_id",
+            "type": "function"
+          },
+          {
+            "description": "Sends a question, optionally alongside one or more images, to a separate\nmultimodal reasoning pass and returns its answer. Use this to get a second\nopinion on a rendered page or a diff screenshot, since the primary model in\nthis session does not see images directly. You can call it with text alone\nto frame context before attaching an image in a follow-up call.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "prompt": {
+                  "description": "An ordered list of content blocks making up the question. Each block is\neither a text block or an image block; mix them freely, for example a short\nblock of framing text followed by one image and then a follow-up question.\nKeep each individual text block focused on one point so the response stays\neasy to map back to what was asked. Image blocks must reference a URL the\ntool can fetch directly; local file paths are not supported here.\n\nA few practical notes from prior use:\n- The reasoning pass behind this tool is stateless between calls, so repeat\n  any earlier framing you still need rather than assuming it is remembered.\n- When comparing two renders, it helps far more to attach both images in\n  the same call than to ask about them in two separate calls, since the\n  model can then describe differences directly instead of summarizing each\n  image in isolation and leaving you to compare the two summaries yourself.\n- If an image URL is not publicly reachable, the call still returns an\n  answer, but it will say the image could not be loaded rather than\n  failing outright, so check the response text rather than only the\n  absence of an error.",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "text": {
+                            "description": "A block of plain text making up part of the question.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "text"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "imageUrl": {
+                            "description": "URL of an image to include in the question.",
+                            "format": "uri",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "imageUrl"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "prompt"
+              ],
+              "type": "object"
+            },
+            "name": "analyze_image",
+            "type": "function"
+          },
+          {
+            "description": "Renders a preview image of a clause-diff view for a document, showing\nhighlighted extracted clauses against the surrounding contract text. Used\nto visually confirm that a rendering or extraction fix actually changed\nwhat a reviewer would see, rather than only changing the raw JSON output.\nEither imageUrl or a document reference must be supplied so the renderer\nknows what to draw.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "targetSelector": {
+                  "description": "CSS-style selector identifying which clause block to center the preview\non, for example the highlighted span for a specific clause key. Leave blank\nto render the full page instead of a single clause.",
+                  "type": "string"
+                },
+                "compareImageUrl": {
+                  "description": "URL of a prior render to diff this preview against, used when checking whether a fix changed the visible output.",
+                  "format": "uri",
+                  "type": "string"
+                },
+                "crop": {
+                  "description": "Whether to crop the render tightly around the highlighted clause instead of showing the full page. Cropped renders load faster and are easier to eyeball side by side, but hide layout regressions elsewhere on the page.",
+                  "type": "boolean"
+                },
+                "focusArea": {
+                  "description": "Named region of the page to bias the crop toward when crop is true, such\nas the right-hand annotation rail versus the main body text. Ignored when\ncrop is false or no target selector is given. Accepted values roughly\ncorrespond to the panels the reviewer UI itself uses, so if you are unsure\nwhich value to pass, it is usually safe to leave this unset and let the\nrenderer default to centering on the target selector's own bounding box\ninstead of trying to guess a named region.",
+                  "type": "string"
+                },
+                "renderQuality": {
+                  "description": "Rendering quality preset. Higher settings take longer and produce a\nlarger image, but are worth it when a reviewer needs to zoom in on faint\nhighlight colors a lower-resolution render would blur together. \"auto\"\npicks a setting based on how the preview will be used, favoring speed for\na quick sanity check and fidelity once notes are attached.",
+                  "enum": [
+                    "auto",
+                    "medium",
+                    "ultra_hd",
+                    "retina",
+                    "low",
+                    "fit_page",
+                    "high_resolution"
+                  ],
+                  "type": "string"
+                },
+                "imageUrl": {
+                  "description": "URL of the source document render to base the preview on, if not rendering fresh from the document id.",
+                  "format": "uri",
+                  "type": "string"
+                },
+                "renderMode": {
+                  "description": "Controls how much of the surrounding page is included around the\nhighlighted clause versus just the clause block itself. \"preview\" matches\nwhat a reviewer sees by default in the review queue; \"full\" includes the\nentire page so layout regressions elsewhere are visible too.",
+                  "enum": [
+                    "preview",
+                    "full",
+                    "auto",
+                    "flat"
+                  ],
+                  "type": "string"
+                },
+                "altText": {
+                  "description": "Accessible description of the rendered image, used when the preview is embedded in a reviewer-facing summary rather than viewed directly.",
+                  "type": "string"
+                },
+                "scale": {
+                  "description": "Free-text note to stamp in the corner of the rendered preview, such as a build tag or a timestamp, useful for telling two very similar-looking renders apart when comparing several fix attempts side by side.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "imageUrl"
+              ],
+              "type": "object"
+            },
+            "name": "generate_preview",
+            "type": "function"
+          },
+          {
+            "description": "Looks up the status of an asynchronous clause-extraction job, including how many documents have completed, how many failed, and the average confidence score across whatever has finished so far.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "queryId": {
+                  "description": "The extraction job's identifier, as returned when the job was queued.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "queryId"
+              ],
+              "type": "object"
+            },
+            "name": "get_extraction_job_status",
+            "type": "function"
+          },
+          {
+            "description": "Lists the review queues currently active across all organizations on this environment, along with how many clauses are waiting in each. Useful for a quick sanity check that a queue is actually draining after a fix, without having to pick an organization first.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "list_active_review_queues",
+            "type": "function"
+          },
+          {
+            "description": "Lists matters belonging to an organization, with optional filters. A matter groups together the documents, extracted clauses, and review history for a single deal or engagement, such as a vendor MSA or an NDA batch. This tool covers the common list views used while triaging extraction quality: filter by practiceArea to narrow to a specific line of legal work such as procurement or employment; filter by matterCategory to distinguish, for example, a template-based NDA from a heavily negotiated MSA; pass includeClosed to widen the list to matters that have already been signed off, which is normally excluded to keep the default view focused on open work; and pass primaryReviewer to see only the matters assigned to a specific reviewer, which is handy when reproducing a bug a specific person reported rather than a systemic one. When organizationId is omitted the tool falls back to whichever organization the current session is scoped to, if any; omit it entirely only when you are certain the session already has exactly one organization in scope, since running it unscoped against a workspace with many organizations returns a very large, mostly irrelevant list.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "practiceArea": {
+                  "description": "Restrict to matters tagged with this practice area, such as procurement, employment, or data privacy. Practice areas are set when a matter is created and rarely change afterward, so this filters cleanly even on older matters.",
+                  "type": "string"
+                },
+                "matterCategory": {
+                  "description": "Restrict to matters of this category, such as msa, nda, amendment, or side_letter. Categories are looser than practice areas and can be edited later, so a mistagged matter can be moved into the right category without recreating it.",
+                  "type": "string"
+                },
+                "includeClosed": {
+                  "description": "Whether to include matters that have already been closed out.",
+                  "type": "boolean"
+                },
+                "primaryReviewer": {
+                  "description": "Restrict to matters where this user is the primary assigned reviewer, rather than a secondary reviewer or an observer added later for visibility only. Pass the reviewer's user id, not their display name, since names are not guaranteed unique across an organization.",
+                  "type": "string"
+                },
+                "organizationId": {
+                  "description": "The organization to list matters for. Falls back to the session's scoped organization if omitted, which is fine for a single-tenant debugging session but should be passed explicitly once more than one organization is in play.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "list_organization_matters",
+            "type": "function"
+          },
+          {
+            "description": "Searches the organization's curated clause library and playbook templates for clauses matching a free-text query, such as \"limitation of liability cap\" or \"data processing addendum\". Returns the canonical playbook language alongside any organization-specific fallback language, so an extracted clause can be compared against what the legal team has actually approved rather than only against a generic industry template. Results are ranked by text similarity, not by which matters currently use them, so a query with very generic terms can return a long tail of loosely related entries; adding a clause category or a defined term from the contract usually narrows this quickly.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "description": "Maximum number of clause library entries to return.",
+                  "maximum": 23,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "organizationId": {
+                  "description": "The organization whose clause library to search.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "query": {
+                  "description": "Free-text search query, such as a clause title or a defined term from the contract. Very short queries of one or two words tend to return the broadest, least useful set of matches.",
+                  "minLength": 2,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId",
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "search_clause_library",
+            "type": "function"
+          },
+          {
+            "description": "Lists matters whose extraction confidence has dropped below the organization's review threshold on at least one clause, ordered by how recently the drop was detected. This is the primary tool for checking whether a pipeline regression is isolated to one matter or affects the workspace broadly. Each entry includes the clause categories that triggered the flag, such as indemnification or termination, and how many clauses in that matter are affected; a fix that is working should show this list shrinking on successive calls rather than staying flat. Note that the list only reflects the most recent extraction pass for each matter, so a matter that was flagged an hour ago and has not been re-extracted since will keep showing its old confidence score until the pipeline runs again for it, even if the underlying fix would produce a better score on retry.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "clauseCategory": {
+                  "description": "Restrict to matters flagged because of a low-confidence clause in this category, such as indemnification, termination, or limitation_of_liability.",
+                  "type": "string"
+                },
+                "includeClosed": {
+                  "description": "Whether to include matters that have already been closed out.",
+                  "type": "boolean"
+                },
+                "organizationId": {
+                  "description": "The organization to check for pending confidence reviews.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sinceDetectedAt": {
+                  "description": "Only include matters where the confidence drop was first detected after this timestamp, useful for scoping a check to just what happened since a specific deploy.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId"
+              ],
+              "type": "object"
+            },
+            "name": "list_matters_pending_confidence_review",
+            "type": "function"
+          },
+          {
+            "description": "Lists individual clause-extraction pipeline events within a time range: a job starting or completing, a confidence recalculation, a render request, or an alert firing. Use this to reconstruct exactly what the pipeline did around the time a regression was first reported, rather than relying on memory of when a deploy happened. Each event records which matter and, where relevant, which clause category and document it applied to, so a sequence of events for a single matter usually tells the whole story of a confidence drop: a job started, ran the current extraction model against the document, computed a lower score than the prior pass for one clause category, and an alert fired because that score crossed the organization's threshold. Filter by eventKind to isolate just the alert-firing events across many matters, or by clauseCategory to see whether a regression is concentrated in one category such as indemnification, or spread across several unrelated ones, which usually points to a rendering or tokenization bug rather than a model regression specific to that clause type. Pair with organizationId scoped narrowly, since this can return a large volume of events for a busy workspace over even a short time window, and the includeInternalDebugEvents flag is almost always noise unless you are specifically debugging the pipeline's own internals rather than a customer-visible confidence issue.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "matterId": {
+                  "description": "Restrict to events for this matter only, rather than the whole organization. Combine with clauseCategory to narrow further to one clause type within that matter.",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "Start of the time range to list events for, inclusive of the boundary.",
+                  "type": "string"
+                },
+                "limit": {
+                  "description": "Maximum number of events to return, most recent first.",
+                  "maximum": 95,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "includeInternalDebugEvents": {
+                  "description": "Whether to include low-level internal debug events alongside the normal pipeline events.",
+                  "type": "boolean"
+                },
+                "organizationId": {
+                  "description": "The organization to list extraction events for. Required, since this endpoint does not fall back to a default scope the way some of the read-only list tools do.",
+                  "type": "string"
+                },
+                "clauseCategory": {
+                  "description": "Restrict to events for clauses of this category, matching the same categories used elsewhere in the API.",
+                  "type": "string"
+                },
+                "eventKind": {
+                  "description": "Restrict to events of this kind, such as only the moments a confidence alert first fired rather than every job and render event in between.",
+                  "enum": [
+                    "extraction_confidence_drop",
+                    "job_started",
+                    "job_completed"
+                  ],
+                  "type": "string"
+                },
+                "sortOrder": {
+                  "description": "Whether to return the oldest or the most recent matching events first in the list.",
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ],
+                  "type": "string"
+                },
+                "to": {
+                  "description": "End of the time range to list events for, inclusive of the boundary. Defaults to now if omitted.",
+                  "type": "string"
+                },
+                "verbosity": {
+                  "description": "How much rendering detail to include for events that produced a preview image. \"none\" omits image data entirely, keeping the response small; \"thumbnail\" includes a small preview link for each such event, which is useful when scanning a long history for the moment a render started looking wrong.",
+                  "enum": [
+                    "none",
+                    "thumbnail",
+                    "full"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "list_clause_extraction_events_in_range",
+            "type": "function"
+          },
+          {
+            "description": "Lists the organization's approved playbook clause templates, the source of truth the extraction pipeline scores extracted clauses against when computing a confidence value for standard versus nonstandard language. Templates are grouped by playbook; call get_playbook_by_key_and_org if you already know which playbook you care about and want its full template set in one call rather than the flattened list this tool returns across every playbook.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "description": "Maximum number of playbook templates to return across the organization's playbooks.",
+                  "maximum": 95,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "organizationId": {
+                  "description": "The organization whose playbook templates to list.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId"
+              ],
+              "type": "object"
+            },
+            "name": "list_organization_playbook_templates",
+            "type": "function"
+          },
+          {
+            "description": "Searches the full text of every document attached to an organization's matters, such as base agreements, amendments, and exhibits, and returns the matching documents along with their matter and extraction status. Unlike search_clause_library, which searches curated playbook language, this searches the raw uploaded contract text, so it is the right tool when you need to find where a specific phrase actually appears in a customer's paperwork rather than in the organization's approved templates. Results are paginated with limit and offset since a broad query across a large workspace can match hundreds of documents.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "description": "Maximum number of documents to return per page of results.",
+                  "maximum": 95,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Number of matching documents to skip before returning results, for paging through a large result set.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "organizationId": {
+                  "description": "The organization whose clause library to search.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "query": {
+                  "description": "Free-text query matched against document titles and their extracted text content, ranked by relevance.",
+                  "minLength": 2,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId",
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "search_matter_documents_fulltext",
+            "type": "function"
+          },
+          {
+            "description": "Fetches a single playbook by its key, including every approved clause template it contains and the fallback language used when an extracted clause matches no existing template closely enough. Playbook keys are stable across edits, so this is safe to cache for the duration of a debugging session rather than re-fetching on every call. Use list_organization_playbook_templates first if you do not already know which playbook key covers the clause category you are investigating.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "playbookKey": {
+                  "description": "The playbook's unique key.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "organizationId": {
+                  "description": "The organization that owns this playbook.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId",
+                "playbookKey"
+              ],
+              "type": "object"
+            },
+            "name": "get_playbook_by_key_and_org",
+            "type": "function"
+          },
+          {
+            "description": "Returns a summary of an organization's ClauseIQ usage: active matters, documents processed in the last billing period, and the current average extraction confidence across clause categories. Useful as a quick, single-call sanity check for whether a fix improved things at the workspace level as a whole, before drilling into individual matters or extraction events to confirm exactly why the average moved.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "organizationId": {
+                  "description": "The organization to summarize, required for every call.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId"
+              ],
+              "type": "object"
+            },
+            "name": "get_organization_usage_and_confidence_summary",
+            "type": "function"
+          },
+          {
+            "description": "Answers a free-text question against a single playbook's approved language, useful for checking whether a specific fallback position actually exists in the playbook before assuming the extraction pipeline invented language that was never approved by legal. Answers are grounded strictly in the playbook's own text and will say so plainly when nothing in the playbook addresses the question asked, rather than guessing at an answer.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "playbookKey": {
+                  "description": "The playbook to ask the question against.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "organizationId": {
+                  "description": "The organization that owns this playbook.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "question": {
+                  "description": "The question to answer against the playbook.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId",
+                "playbookKey",
+                "question"
+              ],
+              "type": "object"
+            },
+            "name": "ask_playbook_fallback_question",
+            "type": "function"
+          },
+          {
+            "description": "Returns the active clause-extraction configuration for an organization and environment: the confidence thresholds that trigger a review flag per clause category, which playbook is bound as the default fallback, and the render settings used for diff previews. Compare staging against production when a regression only reproduces in one environment, since thresholds are sometimes tuned separately while a fix is being validated before it is promoted, and a threshold loosened in staging to unblock testing can easily be forgotten and left out of sync with production for weeks afterward, quietly masking the exact regression you are trying to reproduce. The optional matterId narrows the response to any matter-level overrides layered on top of the organization defaults, which matters most for a large customer who negotiated a bespoke threshold for one particularly sensitive matter; without it, the response only reflects the organization defaults, and a matter-level override is invisible, which can make a confidence drop look like a pipeline bug when it is actually working exactly as configured for that customer's matter alone.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "environment": {
+                  "default": "prod",
+                  "enum": [
+                    "staging",
+                    "prod"
+                  ],
+                  "type": "string"
+                },
+                "organizationId": {
+                  "description": "The organization whose configuration to read. Required in every environment.",
+                  "pattern": "^org_[a-z0-9]+$",
+                  "type": "string"
+                },
+                "matterId": {
+                  "pattern": "^org_[a-z0-9]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId"
+              ],
+              "type": "object"
+            },
+            "name": "get_extraction_configuration",
+            "type": "function"
+          },
+          {
+            "description": "Lists confidence-threshold alerts that have fired for an organization, each\ncovering one clause category on one matter crossing below its configured\nthreshold. An alert stays active until either the confidence recovers on a\nlater extraction pass or a reviewer manually clears it, so a growing list\nhere alongside a shrinking list from list_matters_pending_confidence_review\nusually means new matters are being affected faster than existing ones are\nrecovering, which is the pattern worth chasing down before declaring a fix\ncomplete. Pair this with list_clause_extraction_events_in_range when you\nneed to see exactly which extraction run caused a given alert to fire,\nrather than only that it fired.\n\nThis always returns active alerts only; a cleared alert drops off the list\nentirely rather than being marked cleared in place, so a workspace that has\nbeen running for a while does not accumulate a long tail of stale entries\nhere. Use responseDetail to control how much evidence comes back per\nalert: \"summary\" is enough for a first pass across many matters, while\n\"full\" is worth the extra payload once you have narrowed down to a\nhandful of alerts you actually need to investigate, since it also\nincludes the confidence history leading up to the point the alert fired.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "description": "How much detail to include per alert. \"summary\" keeps the response small and is enough for a first pass across many matters; \"full\" includes the evidence and confidence history behind each alert, which is worth the extra payload once you have narrowed down to a handful of alerts.",
+                  "enum": [
+                    "summary",
+                    "full"
+                  ],
+                  "type": "string"
+                },
+                "clauseCategory": {
+                  "description": "Restrict to alerts for this clause category, such as indemnification or termination, rather than every category the alert list would otherwise cover across the organization.",
+                  "type": "string"
+                },
+                "organizationId": {
+                  "description": "The organization to list confidence alerts for.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "matterId": {
+                  "description": "Restrict to alerts for this matter only, instead of every matter in the organization, which is the fastest way to check one specific customer's status.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "organizationId"
+              ],
+              "type": "object"
+            },
+            "name": "list_confidence_alerts",
+            "type": "function"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [
+    "stress"
+  ],
+  "why": "92-message history in one generation"
+}

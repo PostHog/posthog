@@ -20,6 +20,18 @@ describe('dashboard resize compactor', () => {
         ])
     })
 
+    it('restores displaced tiles even where they overlap a free-form drag', () => {
+        const layout: Layout = [
+            { i: 'active', x: 6, y: 0, w: 6, h: 4, minW: 2 },
+            { i: 'neighbor', x: 6, y: 4, w: 6, h: 4, minW: 2 },
+        ]
+
+        expect(restoreUnmovedItemPositions(layout, baseline, 'active', undefined, true)).toEqual([
+            { i: 'active', x: 6, y: 0, w: 6, h: 4, minW: 2 },
+            { i: 'neighbor', x: 6, y: 0, w: 6, h: 4, minW: 2 },
+        ])
+    })
+
     test.each([
         {
             name: 'shrinks a neighbor that still meets its minimum width',

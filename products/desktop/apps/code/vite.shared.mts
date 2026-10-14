@@ -57,12 +57,32 @@ const baseAliases: Alias[] = [
 
 export const workspaceAliases: Alias[] = [
   {
+    find: /^@posthog\/agent-contracts\/(.+)$/,
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent-contracts/src/$1",
+    ),
+  },
+  {
+    find: /^@posthog\/agent-contracts$/,
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent-contracts/src/index.ts",
+    ),
+  },
+  {
     find: /^@posthog\/agent\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/agent/src/$1.ts"),
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent/src/$1.ts",
+    ),
   },
   {
     find: "@posthog/agent",
-    replacement: path.resolve(__dirname, "../../packages/agent/src/index.ts"),
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent/src/index.ts",
+    ),
   },
   {
     find: /^@posthog\/shared\/(.+)$/,
@@ -76,7 +96,7 @@ export const workspaceAliases: Alias[] = [
     find: "@posthog/enricher",
     replacement: path.resolve(
       __dirname,
-      "../../packages/enricher/src/index.ts",
+      "../../../../packages/agent/packages/enricher/src/index.ts",
     ),
   },
   {
@@ -90,10 +110,6 @@ export const workspaceAliases: Alias[] = [
   {
     find: /^@posthog\/api-client\/(.+)$/,
     replacement: path.resolve(__dirname, "../../packages/api-client/src/$1"),
-  },
-  {
-    find: /^@posthog\/quick-ask\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/quick-ask/src/$1"),
   },
   {
     find: /^@posthog\/ui\/(.+)$/,
@@ -138,7 +154,10 @@ export const mainAliases: Alias[] = [
   },
   {
     find: /^@posthog\/git\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/git/src/$1"),
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/git/src/$1",
+    ),
   },
   ...workspaceAliases,
 ];

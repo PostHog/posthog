@@ -22,28 +22,28 @@ import { teamLogic } from 'scenes/teamLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { type SDK } from '~/types'
 
-import { DOCS_URL_BY_PRODUCT_PATH, ONBOARDING_TOOLS, resolveSetup, toolIconType } from '../../shared/useCases'
+import { DOCS_URL_BY_PRODUCT_PATH, ONBOARDING_PRODUCTS, resolveSetup, productIconType } from '../../shared/useCases'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 import { InstallationTracker } from './InstallationTracker'
 
-/** A quiet reminder of what the install feeds: the use case's tools, as icons and names. */
+/** A quiet reminder of what the install feeds: the use case's products, as icons and names. */
 function ProductsBeingInstalled(): JSX.Element {
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
-    const tools = resolveSetup(selectedUseCase).tools.map((key) => ONBOARDING_TOOLS[key])
+    const products = resolveSetup(selectedUseCase).products.map((key) => ONBOARDING_PRODUCTS[key])
     return (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted">
-            <span>Tools for your setup:</span>
-            {tools.map((tool) => (
+            <span>Products for your setup:</span>
+            {products.map((product) => (
                 <Link
-                    key={tool.productPath}
-                    to={DOCS_URL_BY_PRODUCT_PATH[tool.productPath]}
+                    key={product.productPath}
+                    to={DOCS_URL_BY_PRODUCT_PATH[product.productPath]}
                     target="_blank"
                     className="flex items-center gap-1 text-muted hover:text-default"
                 >
                     <span className="flex text-sm group/colorful-product-icons colorful-product-icons-true">
-                        {iconForType(toolIconType(tool))}
+                        {iconForType(productIconType(product))}
                     </span>
-                    {tool.displayName ?? tool.productPath}
+                    {product.displayName ?? product.productPath}
                 </Link>
             ))}
         </div>

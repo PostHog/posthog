@@ -93,7 +93,7 @@ describe('wizardRunDetailsLogic', () => {
     })
 
     it('loads run details and artifacts through separate endpoints', async () => {
-        logic.actions.selectRun(makeRun())
+        logic.actions.selectRun(makeRun(), 'wizard_datatable')
 
         await expectLogic(logic)
             .toFinishAllListeners()
@@ -107,13 +107,20 @@ describe('wizardRunDetailsLogic', () => {
         expect(mockLoadWizardRunArtifacts).toHaveBeenCalledWith(expect.any(String), 'run-1')
         expect(mockLoadWizardRunArtifactContent).not.toHaveBeenCalled()
         expect(posthog.capture).toHaveBeenCalledWith(
-            'wizard run viewed',
+            'wizard run detail dialog opened',
             expect.objectContaining({
                 wizard_run_id: 'run-1',
                 task_run_id: 'run-1',
                 run_surface: 'cloud',
                 version: '2.6.0',
+                source: 'wizard_datatable',
             })
+        )
+
+        logic.actions.selectRun(null)
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'wizard run detail dialog closed',
+            expect.objectContaining({ wizard_run_id: 'run-1' })
         )
     })
 
@@ -133,10 +140,11 @@ describe('wizardRunDetailsLogic', () => {
         })
         expect(mockLoadWizardRunArtifactContent).toHaveBeenCalledWith(expect.any(String), 'run-1', 'artifact-1')
         expect(posthog.capture).toHaveBeenCalledWith(
-            'wizard run diff opened',
+            'artifact clicked',
             expect.objectContaining({
                 wizard_run_id: 'run-1',
-                artifact_type: 'git_diff',
+                type: 'diff',
+                source: 'artifacts_section',
             })
         )
         expect(JSON.stringify(jest.mocked(posthog.capture).mock.calls)).not.toContain('diff content')
@@ -175,9 +183,9 @@ describe('wizardRunDetailsLogic', () => {
         logic.actions.loadRunDetails({ runId: 'run-1' })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockLoadWizardRunArtifacts).toHaveBeenCalledTimes(2)
-        expect(jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'wizard run viewed')).toHaveLength(
-            1
-        )
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'wizard run detail dialog opened')
+        ).toHaveLength(1)
     })
 
     it('does not download a diff that is too large to render', async () => {

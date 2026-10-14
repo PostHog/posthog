@@ -2,12 +2,15 @@ import re
 import json
 import base64
 from pathlib import Path
+from urllib.parse import unquote
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
+import dns.resolver
 from cryptography.hazmat.primitives import hashes as crypto_hashes
 from cryptography.hazmat.primitives.asymmetric import (
     padding as asym_padding,
@@ -17,6 +20,7 @@ from parameterized import parameterized
 
 from posthog.domain_connect import (
     DOMAIN_CONNECT_PROVIDERS,
+    EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC,
     DomainConnectSigningKeyMissing,
     build_sync_apply_url,
     discover_domain_connect,
@@ -49,7 +53,7 @@ def _extract_template_variables(template: dict) -> set[str]:
     return variables
 
 
-class TestExtractRootDomainAndHost(BaseTest):
+class TestExtractRootDomainAndHost(SimpleTestCase):
     @parameterized.expand(
         [
             ("simple subdomain", "ph.example.com", ("example.com", "ph")),
@@ -69,7 +73,7 @@ class TestExtractRootDomainAndHost(BaseTest):
         self.assertEqual(domain_parts.host, expected[1], f"Failed host for {name}: {full_domain}")
 
 
-class TestGetServiceIdForRegion(BaseTest):
+class TestGetServiceIdForRegion(SimpleTestCase):
     @parameterized.expand(
         [
             ("US deployment", "US", "email-verification-us"),
@@ -84,7 +88,7 @@ class TestGetServiceIdForRegion(BaseTest):
             self.assertEqual(get_service_id_for_region("email-verification"), expected)
 
 
-class TestBuildSyncApplyUrl(BaseTest):
+class TestBuildSyncApplyUrl(SimpleTestCase):
     def test_basic_url(self) -> None:
         url = build_sync_apply_url(
             url_sync_ux="https://dns.provider.example/sync",
@@ -138,10 +142,19 @@ class TestBuildSyncApplyUrl(BaseTest):
             host="ph",
             private_key=private_key,
             key_id="_dcpubkeyv1",
+            group_ids=("dkim", "spf"),
         )
 
-        self.assertIn("sig=", url)
-        self.assertIn("key=_dcpubkeyv1", url)
+        signed_query, signature_params = url.split("?", 1)[1].split("&sig=", 1)
+        self.assertIn("groupId=dkim%2Cspf", signed_query)
+        self.assertIn("key=_dcpubkeyv1", signature_params)
+        signature = unquote(signature_params.split("&key=", 1)[0])
+        private_key.public_key().verify(
+            base64.b64decode(signature),
+            signed_query.encode("utf-8"),
+            asym_padding.PKCS1v15(),
+            crypto_hashes.SHA256(),
+        )
 
     def test_url_without_signing_key_has_no_sig(self) -> None:
         url = build_sync_apply_url(
@@ -157,7 +170,7 @@ class TestBuildSyncApplyUrl(BaseTest):
         self.assertNotIn("key=", url)
 
 
-class TestSignQueryString(BaseTest):
+class TestSignQueryString(SimpleTestCase):
     def test_sign_and_verify(self) -> None:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = private_key.public_key()
@@ -175,7 +188,7 @@ class TestSignQueryString(BaseTest):
         )
 
 
-class TestDiscoverDomainConnect(BaseTest):
+class TestDiscoverDomainConnect(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -223,7 +236,7 @@ class TestDiscoverDomainConnect(BaseTest):
         self.assertIsNone(result)
 
 
-class TestGetAvailableProviders(BaseTest):
+class TestGetAvailableProviders(SimpleTestCase):
     def test_returns_all_providers(self) -> None:
         with patch.dict(
             DOMAIN_CONNECT_PROVIDERS,
@@ -244,7 +257,7 @@ class TestGetAvailableProviders(BaseTest):
         self.assertEqual(providers, [])
 
 
-class TestGenerateApplyUrl(BaseTest):
+class TestGenerateApplyUrl(SimpleTestCase):
     def test_rejects_unknown_provider_endpoint(self) -> None:
         with self.assertRaises(ValueError, msg="Unsupported provider endpoint"):
             generate_apply_url(
@@ -335,8 +348,51 @@ class TestTemplateResolverAlignment(BaseTest):
 
     @parameterized.expand(
         [
-            ("subdomain sender", "posthog.com.email-verification-us.json", "US", "news.example.com", "news"),
-            ("root domain sender", "posthog.com.email-verification-eu.json", "EU", "example.com", ""),
+            (
+                "subdomain sender without a dmarc record",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                dns.resolver.NXDOMAIN(),
+                True,
+            ),
+            (
+                "root sender without a dmarc record",
+                "posthog.com.email-verification-eu.json",
+                "EU",
+                "example.com",
+                "",
+                dns.resolver.NoAnswer(),
+                True,
+            ),
+            (
+                "sender with an existing dmarc record",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                [MagicMock(strings=[b"v=DMARC1; p=reject;"])],
+                False,
+            ),
+            (
+                "sender whose dmarc lookup times out",
+                "posthog.com.email-verification-eu.json",
+                "EU",
+                "example.com",
+                "",
+                dns.resolver.Timeout(),
+                False,
+            ),
+            (
+                "sender whose dmarc record is not utf-8",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                [MagicMock(strings=[b"\xff"])],
+                False,
+            ),
         ]
     )
     @patch("posthog.models.integration.EmailIntegration")
@@ -348,6 +404,8 @@ class TestTemplateResolverAlignment(BaseTest):
         region: str,
         sender_domain: str,
         expected_host: str,
+        dmarc_lookup: Exception | list[MagicMock],
+        applies_dmarc: bool,
         mock_integration_cls: MagicMock,
         mock_email_cls: MagicMock,
     ) -> None:
@@ -375,8 +433,17 @@ class TestTemplateResolverAlignment(BaseTest):
         }
         mock_email_cls.return_value = mock_email
 
-        with self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"):
+        with (
+            self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"),
+            patch("posthog.domain_connect.dns.resolver.resolve") as mock_resolve,
+        ):
+            if isinstance(dmarc_lookup, Exception):
+                mock_resolve.side_effect = dmarc_lookup
+            else:
+                mock_resolve.return_value = dmarc_lookup
             resolved = resolve_email_context(1, 1)
+
+        mock_resolve.assert_called_once_with(f"_dmarc.{sender_domain}", "TXT", lifetime=5)
 
         self.assertEqual(set(resolved.variables.keys()), expected_vars)
         self.assertEqual(resolved.service_id, template["serviceId"])
@@ -385,3 +452,10 @@ class TestTemplateResolverAlignment(BaseTest):
         self.assertEqual(resolved.variables["verifyToken"], "verify-token-123")
         self.assertEqual(resolved.variables["dkim1"], "aaa")
         self.assertEqual(resolved.variables["mailFromSub"], "feedback")
+
+        template_groups = {record["groupId"] for record in template["records"]}
+        if applies_dmarc:
+            self.assertEqual(resolved.group_ids, ())
+        else:
+            self.assertEqual(resolved.group_ids, EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC)
+            self.assertEqual(template_groups - set(resolved.group_ids), {"dmarc"})

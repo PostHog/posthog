@@ -116,6 +116,7 @@ export const approvalLogic = kea<approvalLogicType>([
                         return null
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsRetrieve() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get<ChangeRequest>(
                         `api/projects/${values.currentTeamId}/change_requests/${props.id}/`
                     )
@@ -175,6 +176,7 @@ export const approvalLogic = kea<approvalLogicType>([
         return {
             approveChangeRequest: async ({ reason }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsApproveCreate() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.create(
                         `api/projects/${values.currentTeamId}/change_requests/${props.id}/approve/`,
                         { reason: reason || '' }
@@ -196,6 +198,7 @@ export const approvalLogic = kea<approvalLogicType>([
             },
             rejectChangeRequest: async ({ reason }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsRejectCreate() from 'products/platform_features/frontend/generated/api' instead.
                     await api.create(`api/projects/${values.currentTeamId}/change_requests/${props.id}/reject/`, {
                         reason,
                     })
@@ -207,6 +210,7 @@ export const approvalLogic = kea<approvalLogicType>([
             },
             cancelChangeRequest: async ({ reason }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. changeRequestsCancelCreate() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     await api.create(`api/projects/${values.currentTeamId}/change_requests/${props.id}/cancel/`, {
                         reason,
                     })

@@ -1,15 +1,19 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, PropertyDefinition, Team, User
+from posthog.models.event.util import bulk_create_events
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
 
@@ -526,3 +530,49 @@ class TestTaggersAccessControl(APIBaseTest):
         )
         assert edit_response.status_code == status.HTTP_200_OK
         assert edit_response.data["name"] == "Renamed by editor"
+
+
+class TestTaggerPreviewPropertyAccess(ClickhouseTestMixin, APIBaseTest):
+    def test_hog_preview_masks_member_restricted_properties(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        reader = self._create_user("restricted-tagger-reader@example.com")
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "tagger-test-person",
+                    "timestamp": datetime.now(UTC),
+                    "properties": {"private_note": "private-tagger-input", "public_note": "public-tagger-input"},
+                }
+            ]
+        )
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            for user, can_read_private in ((self.user, True), (reader, False)):
+                self.client.force_login(user)
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/taggers/test_hog/",
+                    {
+                        "source": "print(properties.private_note); print(properties.public_note); return []",
+                        "sample_count": 1,
+                    },
+                    format="json",
+                )
+                assert response.status_code == status.HTTP_200_OK, response.data
+                assert len(response.data["results"]) == 1
+                result = response.data["results"][0]
+                assert result["error"] is None
+                assert "public-tagger-input" in result["reasoning"]
+                assert ("private-tagger-input" in result["reasoning"]) is can_read_private

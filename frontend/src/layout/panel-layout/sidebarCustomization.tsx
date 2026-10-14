@@ -78,7 +78,8 @@ export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [
                 description: 'Everything saved in your project, organized in folders.',
                 icon: <IconFolderOpen />,
             },
-            { key: 'tools', label: 'Tools', description: 'Browse all PostHog tools.', icon: <IconApps /> },
+            // User.ui_configuration stores this key, so renaming it resets saved sidebar settings.
+            { key: 'tools', label: 'Products', description: 'Browse all PostHog products.', icon: <IconApps /> },
             {
                 key: 'starred',
                 label: 'Starred',
@@ -95,9 +96,10 @@ export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [
         items: [],
     },
     {
+        // User.ui_configuration stores this key, so renaming it resets saved sidebar settings.
         key: 'my_tools',
-        label: 'My Tools',
-        description: 'The tools you picked for quick access.',
+        label: 'My products',
+        description: 'The products you picked for quick access.',
         icon: <IconApps />,
         items: [],
     },

@@ -99,6 +99,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
             symbols=config.symbols,
             exchange=config.exchange,
             logger=inputs.logger,
+            indices=config.indices,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
@@ -116,7 +117,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
 
 Create a free API key in your [Finnhub dashboard](https://finnhub.io/dashboard).
 
-Per-company tables (company profile, quote, company news, basic financials, recommendation trends, earnings surprises) are synced for each ticker you list in **Symbols**. Market-wide tables (stock symbols, market news, IPO calendar, earnings calendar, countries) sync without any symbols.
+Per-company tables (company profile, quote, company news, basic financials, recommendation trends, earnings surprises, stock candles, as-reported financials, SEC filings, insider transactions, dividends, peers) are synced for each ticker you list in **Symbols**. The index constituents table is synced for each index you list in **Indices**. Market-wide tables (stock symbols, market news, IPO calendar, earnings calendar, economic calendar, countries) sync without any symbols.
 
 Note: the free tier is rate limited to 60 requests/minute, and some endpoints require a paid plan.""",
             iconPath="/static/services/finnhub.png",
@@ -138,6 +139,14 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="AAPL, MSFT, GOOGL",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="indices",
+                        label="Indices (comma-separated)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="^GSPC, ^IBEX",
                         secret=False,
                     ),
                     SourceFieldInputConfig(

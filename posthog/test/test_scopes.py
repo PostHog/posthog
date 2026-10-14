@@ -119,7 +119,7 @@ class TestScopeSets(SimpleTestCase):
         self.assertIn(scope, UNPRIVILEGED_SCOPES)
 
     def test_scopes_module_loadable_via_runpy_like_mcp_codegen(self) -> None:
-        # MCP scope codegen at bin/build-mcp-oauth-scopes.py loads this module via
+        # The MCP scope projection at posthog/scopes_projection.py loads this module via
         # runpy.run_path (bypassing posthog/__init__.py which pulls in Django).
         # Mirror that mechanism here so the test actually catches a regression
         # where someone adds a Django-requiring import to posthog/scopes.py.

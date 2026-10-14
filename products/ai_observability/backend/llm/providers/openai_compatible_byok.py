@@ -78,7 +78,10 @@ class OpenAICompatibleByokAdapter(OpenAIAdapter):
                 base_url=cls.BASE_URL,
                 timeout=OpenAIConfig.TIMEOUT,
             )
-            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
+            # `created` is required by the OpenAI schema but arbitrary endpoints omit it, and the
+            # SDK then hands back None. Sorting two of those raises, and the except below would
+            # turn that into an empty picker with nothing explaining why.
+            return [m.id for m in sorted(client.models.list(), key=lambda m: m.created or 0, reverse=True)]
         except Exception:
             logger.exception("Error listing %s models", cls.PROVIDER_DISPLAY_NAME)
             return []

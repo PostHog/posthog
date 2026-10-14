@@ -13,9 +13,11 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
-import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import {
+  GLOBAL_HOTKEY_OPTIONS,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -29,6 +31,7 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToCommandCenter,
   navigateToFolderSettings,
   navigateToInbox,
 } from "@posthog/ui/router/navigationBridge";
@@ -49,12 +52,6 @@ interface GlobalEventHandlersProps {
   onToggleShortcutsSheet: () => void;
   visualTaskOrder: TaskData[];
 }
-
-const GLOBAL_HOTKEY_OPTIONS = {
-  enableOnFormTags: true,
-  enableOnContentEditable: true,
-  preventDefault: true,
-} as const;
 
 function useGlobalEventHandlers({
   allTasks,
@@ -100,7 +97,6 @@ function useGlobalEventHandlers({
   );
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const inboxAvailable = useInboxAvailable();
   const channelsLayout = useChannelsLayout();
   const spacesTabs = useSpacesTabs();
   const browserTabStripMounted = channelsLayout ? spacesTabs : true;
@@ -244,10 +240,12 @@ function useGlobalEventHandlers({
     onToggleShortcutsSheet,
     GLOBAL_HOTKEY_OPTIONS,
   );
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
-    ...GLOBAL_HOTKEY_OPTIONS,
-    enabled: inboxAvailable,
-  });
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(
+    SHORTCUTS.COMMAND_CENTER,
+    navigateToCommandCenter,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, GLOBAL_HOTKEY_OPTIONS, [
     handlePrevTask,
   ]);

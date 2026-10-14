@@ -48,10 +48,12 @@ class ClickhouseCloudSource(ResumableSource[ClickhouseCloudSourceConfig, Clickho
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your ClickHouse Cloud API key to pull your organization's usage costs, service inventory, and audit log into the PostHog Data warehouse.
 
+This source reads your ClickHouse Cloud account, not the data in it. To sync tables out of a ClickHouse Cloud service, use the **ClickHouse** source instead.
+
 Generate an API key from your [ClickHouse Cloud console](https://console.clickhouse.cloud/) under your organization's **API keys** settings. Keys with the **Admin** role can read every table; a **Developer**-scoped key may not have access to the usage cost and audit log tables.""",
             iconPath="/static/services/clickhouse_cloud.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse-cloud",
-            keywords=["clickhouse", "cloud costs", "finops", "billing"],
+            keywords=["clickhouse", "cloud costs", "finops", "billing", "usage", "audit log"],
             fields=cast(
                 list[FieldType],
                 [

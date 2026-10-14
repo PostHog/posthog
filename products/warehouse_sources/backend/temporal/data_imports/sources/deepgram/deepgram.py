@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.s
     DEEPGRAM_ENDPOINTS,
     DeepgramEndpointConfig,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 DEEPGRAM_BASE_URL = "https://api.deepgram.com/v1"
 
@@ -114,6 +115,26 @@ def _format_start_value(value: Any) -> str:
     return str(value)
 
 
+def _format_start_date(value: Any) -> str:
+    """Format an incremental cursor value for the usage and billing endpoints' `start` filter.
+
+    Those endpoints accept whole days only (YYYY-MM-DD) and reject a timestamp, so a datetime cursor
+    is truncated to its UTC date. The boundary day is therefore re-read in full each sync. The merge
+    collapses that re-read on the composite primary key, which is also what keeps an in-progress
+    day's totals current. Future-dated cursors are capped at today so we never ask for a window that
+    has not started.
+    """
+    today = datetime.now(UTC).date()
+    if isinstance(value, datetime):
+        aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        resolved = aware.astimezone(UTC).date()
+    elif isinstance(value, date):
+        resolved = value
+    else:
+        return str(value)[:10]
+    return min(resolved, today).isoformat()
+
+
 def _redact_url_userinfo(url: str) -> str:
     """Strip embedded userinfo (`user:pass@`) from a URL.
 
@@ -131,48 +152,135 @@ def _redact_url_userinfo(url: str) -> str:
     return urlunsplit(parts._replace(netloc=host))
 
 
-def _make_child_map(config: DeepgramEndpointConfig) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def _grouping_key(row: dict[str, Any], dimensions: list[str]) -> str:
+    """Build the stable slice identifier an aggregate row is keyed on.
+
+    Each dimension is null unless the request grouped by it, so no single dimension can key the row.
+    Joining all of them gives one non-null value per slice, and an empty string when the response is
+    grouped by period alone. The merge predicate then stays exact whichever grouping comes back.
+    """
+    parts = []
+    for dimension in dimensions:
+        value = row.get(dimension)
+        if isinstance(value, list):
+            parts.append(",".join(str(item) for item in value))
+        else:
+            parts.append("" if value is None else str(value))
+    return "|".join(parts)
+
+
+def _expand_models(row: dict[str, Any]) -> list[dict[str, Any]]:
+    # The catalogue arrives as two parallel arrays; each model becomes a row tagged with the array it
+    # came from, which is the only place the speech-to-text / text-to-speech split is recorded.
+    parent_id = row.get(_PARENT_ID_KEY)
+    return [
+        {**model, "model_type": model_type, _PARENT_ID_KEY: parent_id}
+        for model_type in ("stt", "tts")
+        for model in row.get(model_type) or []
+    ]
+
+
+def _expand_usage_fields(row: dict[str, Any]) -> list[dict[str, Any]]:
+    parent_id = row.get(_PARENT_ID_KEY)
+    rows: list[dict[str, Any]] = [
+        {
+            _PARENT_ID_KEY: parent_id,
+            "field": "models",
+            "value": model.get("model_id"),
+            "name": model.get("name"),
+            "language": model.get("language"),
+            "version": model.get("version"),
+        }
+        for model in row.get("models") or []
+    ]
+    rows.extend(
+        {_PARENT_ID_KEY: parent_id, "field": field, "value": value}
+        for field in ("tags", "processing_methods", "features")
+        for value in row.get(field) or []
+    )
+    return rows
+
+
+def _expand_billing_fields(row: dict[str, Any]) -> list[dict[str, Any]]:
+    parent_id = row.get(_PARENT_ID_KEY)
+    rows: list[dict[str, Any]] = [
+        {_PARENT_ID_KEY: parent_id, "field": field, "value": value}
+        for field in ("accessors", "deployments", "tags")
+        for value in row.get(field) or []
+    ]
+    # Line items arrive as a name -> human-readable description map rather than a list.
+    rows.extend(
+        {_PARENT_ID_KEY: parent_id, "field": "line_items", "value": name, "description": description}
+        for name, description in (row.get("line_items") or {}).items()
+    )
+    return rows
+
+
+# Endpoints whose response body is several parallel collections instead of one list of rows. Each
+# expander turns one body into the rows the table holds; `data_key="$"` hands it the whole body.
+_ROW_EXPANDERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
+    "models": _expand_models,
+    "usage_fields": _expand_usage_fields,
+    "billing_fields": _expand_billing_fields,
+}
+
+
+def _normalize_row(config: DeepgramEndpointConfig, row: dict[str, Any]) -> dict[str, Any]:
+    if config.flatten_key and isinstance(row.get(config.flatten_key), dict):
+        nested = row.pop(config.flatten_key)
+        row = {**row, **nested}
+    # Fan-out rows carry the parent project's id so the composite primary key stays unique table-wide.
+    if _PARENT_ID_KEY in row:
+        row[_PARENT_ID_FIELD] = row.pop(_PARENT_ID_KEY)
+    # Request-log rows can echo the callback URL, which may embed Basic Auth credentials.
+    if isinstance(row.get("callback"), str):
+        row["callback"] = _redact_url_userinfo(row["callback"])
+    if config.grouping_dimensions:
+        row["grouping_key"] = _grouping_key(row, config.grouping_dimensions)
+    # A row missing a required primary-key field would let the delta merge build a partial predicate
+    # and overwrite unrelated rows in the same project, so fail loudly instead of emitting it.
+    for primary_key in config.primary_keys:
+        if row.get(primary_key) is None:
+            raise ValueError(f"Deepgram {config.name} row missing required primary key '{primary_key}'")
+    return row
+
+
+def _make_child_map(
+    config: DeepgramEndpointConfig,
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
     """Per-row transform for a fanned-out (project-scoped) endpoint.
 
     Reproduces the old ``_transform_row``: flatten a nested sub-object into the row root, lift the
     framework's parent-id key back to the flat ``project_id`` column, redact any callback credentials,
-    and fail loud on a row missing a required primary key.
+    and fail loud on a row missing a required primary key. Endpoints with a row expander return the
+    several rows their single response body carries.
     """
+    expand = _ROW_EXPANDERS.get(config.name)
 
-    def _map(row: dict[str, Any]) -> dict[str, Any]:
-        if config.flatten_key and isinstance(row.get(config.flatten_key), dict):
-            nested = row.pop(config.flatten_key)
-            row = {**row, **nested}
-        # Fan-out rows carry the parent project's id so the composite primary key stays unique table-wide.
-        if _PARENT_ID_KEY in row:
-            row[_PARENT_ID_FIELD] = row.pop(_PARENT_ID_KEY)
-        # Request-log rows can echo the callback URL, which may embed Basic Auth credentials.
-        if isinstance(row.get("callback"), str):
-            row["callback"] = _redact_url_userinfo(row["callback"])
-        # A row missing a required primary-key field would let the delta merge build a partial predicate
-        # and overwrite unrelated rows in the same project, so fail loudly instead of emitting it.
-        for primary_key in config.primary_keys:
-            if row.get(primary_key) is None:
-                raise ValueError(f"Deepgram {config.name} row missing required primary key '{primary_key}'")
-        return row
+    def _map(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        if expand is None:
+            return _normalize_row(config, row)
+        return [_normalize_row(config, expanded) for expanded in expand(row)]
 
     return _map
 
 
 def _incremental_config(
-    should_use_incremental_field: bool, db_incremental_field_last_value: Any
+    config: DeepgramEndpointConfig, should_use_incremental_field: bool, db_incremental_field_last_value: Any
 ) -> IncrementalConfig | None:
-    """Server-side `start` filter for the requests log, only when we have a cursor to filter on.
+    """Server-side `start` filter for an incremental endpoint, only when we have a cursor to filter on.
 
-    Mirrors the old behaviour: no filter on a first (full) sync, and the persisted watermark is
-    formatted (and future-clamped) the way Deepgram's `start` expects.
+    No filter on a first (full) sync. The persisted watermark is formatted (and future-clamped) the
+    way the endpoint's `start` expects: whole seconds for the requests log, whole days for the usage
+    and billing aggregates.
     """
     if not should_use_incremental_field or db_incremental_field_last_value is None:
         return None
+    cursor = config.incremental_fields[0]
     return {
         "start_param": "start",
-        "cursor_path": "created",
-        "convert": _format_start_value,
+        "cursor_path": cursor["field"],
+        "convert": _format_start_date if cursor["field_type"] == IncrementalFieldType.Date else _format_start_value,
     }
 
 
@@ -248,7 +356,7 @@ def deepgram_source(
 ) -> SourceResponse:
     config = DEEPGRAM_ENDPOINTS[endpoint]
     incremental = (
-        _incremental_config(should_use_incremental_field, db_incremental_field_last_value)
+        _incremental_config(config, should_use_incremental_field, db_incremental_field_last_value)
         if config.supports_incremental
         else None
     )
@@ -291,11 +399,12 @@ def deepgram_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        # The requests log's default order isn't documented and can't be curl-verified without a live
-        # token, so we use "desc": the pipeline finalises the incremental watermark (max `created`) only
-        # at job end rather than checkpointing per batch, which stays correct regardless of the actual
-        # arrival order. The `start` filter still bounds each incremental sync server-side, so this is
-        # not a re-fetch-all-history situation. Full-refresh endpoints keep the default "asc".
+        # Deepgram documents no default order for any of the incremental endpoints, and it can't be
+        # curl-verified without a live token, so we use "desc": the pipeline finalises the incremental
+        # watermark only at job end rather than checkpointing per batch, which stays correct regardless
+        # of the actual arrival order. The `start` filter still bounds each incremental sync
+        # server-side, so this is not a re-fetch-all-history situation. Full-refresh endpoints keep
+        # the default "asc".
         sort_mode="desc" if config.supports_incremental else "asc",
         partition_count=1,
         partition_size=1,

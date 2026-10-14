@@ -17,7 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
-from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
+from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
 from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportInsertInputs,
@@ -38,6 +38,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     insert_into_s3_from_stage,
     s3_default_fields,
 )
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
@@ -47,6 +48,7 @@ EXTERNAL_LOGGER = get_logger()
 FILE_DOWNLOAD_PREFIX = (
     "batch-exports/{batch_export_id}/{batch_export_run_id}/{{data_interval_start}}-{{data_interval_end}}"
 )
+FILE_DOWNLOAD_UNBOUNDED_PREFIX = "batch-exports/{batch_export_id}/{batch_export_run_id}"
 
 # This export runs the same S3 write as a batch export, so it fails the same way. It has no
 # Integration, so the integration errors an S3 batch export can raise are not reachable here.
@@ -181,20 +183,20 @@ FileDownloadIds = list[uuid.UUID]
 @activity.defn
 async def generate_file_downloads(inputs: GenerateFileDownloadsInputs) -> FileDownloadIds:
     """Generate file downloads for given keys."""
-    existing = [
-        file_download
-        async for file_download in BatchExportFileDownload.objects.filter(
-            team_id=inputs.team_id, key__in=inputs.keys
-        ).all()
-    ]
-    file_downloads = [file_download.id for file_download in existing]
-    keys = set(inputs.keys) - {file_download.key for file_download in existing}
-
-    if not keys:
-        # There is nothing to do, maybe we completed everything in a previous attempt.
-        return file_downloads
-
     async with Heartbeater():
+        existing = [
+            file_download
+            async for file_download in BatchExportFileDownload.objects.filter(
+                team_id=inputs.team_id, key__in=inputs.keys
+            ).all()
+        ]
+        file_downloads = [file_download.id for file_download in existing]
+        keys = set(inputs.keys) - {file_download.key for file_download in existing}
+
+        if not keys:
+            # There is nothing to do, maybe we completed everything in a previous attempt.
+            return file_downloads
+
         credentials = await _get_temporary_credentials_to_head_object(
             inputs.s3_bucket.name,
             f"batch-exports/{inputs.batch_export_id}/{inputs.batch_export_run_id}",
@@ -245,47 +247,64 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
     After obtaining the credentials, we simply run the same function as an S3 batch
     export targeting our own file download bucket.
     """
-    prefix = FILE_DOWNLOAD_PREFIX.format(
-        batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
-    )
-
-    refresh_credentials = functools.partial(
-        _get_temporary_credentials_for_multipart_upload,
-        inputs.s3_bucket.name,
-        f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
-        role_arn=inputs.aws_role_arn,
-    )
-
-    s3_insert_inputs = S3InsertInputs(
-        bucket_name=inputs.s3_bucket.name,
-        region=inputs.s3_bucket.region,
-        prefix=prefix,
-        compression=inputs.compression,
-        file_format=inputs.file_format,
-        max_file_size_mb=inputs.max_file_size_mb,
-        data_interval_start=inputs.batch_export.data_interval_start,
-        data_interval_end=inputs.batch_export.data_interval_end,
-        exclude_events=inputs.batch_export.exclude_events,
-        include_events=inputs.batch_export.include_events,
-        team_id=inputs.batch_export.team_id,
-        run_id=inputs.batch_export.run_id,
-        stage_folder=inputs.batch_export.stage_folder,
-        batch_export_model=inputs.batch_export.batch_export_model,
-        batch_export_id=inputs.batch_export.batch_export_id,
-        destination_default_fields=inputs.batch_export.destination_default_fields,
-        # These files live in a PostHog bucket, expire on a lifecycle rule, and are reached through
-        # a key stored on `BatchExportFileDownload`. No customer pipeline matches on their names, so
-        # there is nothing to grandfather and they always use the standard extension.
-        legacy_parquet_extension=False,
-    )
-    # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
-    # so the call runs under the heartbeater rather than ahead of it.
     async with Heartbeater():
+        prefix = FILE_DOWNLOAD_PREFIX.format(
+            batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
+        )
+        file_name_prefix = None
+        if inputs.batch_export.on_demand and (
+            inputs.batch_export.data_interval_start is None or inputs.batch_export.data_interval_end is None
+        ):
+            run_id = inputs.batch_export.run_id
+            if run_id is None:
+                raise MissingRequiredInputsError("An on-demand file download requires a run_id")
+            prefix = FILE_DOWNLOAD_UNBOUNDED_PREFIX.format(
+                batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=run_id
+            )
+            run = await BatchExportRun.objects.aget(
+                id=run_id, batch_export_on_demand__team_id=inputs.batch_export.team_id
+            )
+            file_name_prefix = f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}"
+
+        refresh_credentials = functools.partial(
+            _get_temporary_credentials_for_multipart_upload,
+            inputs.s3_bucket.name,
+            f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
+            role_arn=inputs.aws_role_arn,
+        )
+
+        s3_insert_inputs = S3InsertInputs(
+            bucket_name=inputs.s3_bucket.name,
+            region=inputs.s3_bucket.region,
+            prefix=prefix,
+            compression=inputs.compression,
+            file_format=inputs.file_format,
+            max_file_size_mb=inputs.max_file_size_mb,
+            data_interval_start=inputs.batch_export.data_interval_start,
+            data_interval_end=inputs.batch_export.data_interval_end,
+            exclude_events=inputs.batch_export.exclude_events,
+            include_events=inputs.batch_export.include_events,
+            team_id=inputs.batch_export.team_id,
+            run_id=inputs.batch_export.run_id,
+            stage_folder=inputs.batch_export.stage_folder,
+            batch_export_model=inputs.batch_export.batch_export_model,
+            batch_export_id=inputs.batch_export.batch_export_id,
+            destination_default_fields=inputs.batch_export.destination_default_fields,
+            # These files live in a PostHog bucket, expire on a lifecycle rule, and are reached through
+            # a key stored on `BatchExportFileDownload`. No customer pipeline matches on their names, so
+            # there is nothing to grandfather and they always use the standard extension.
+            legacy_parquet_extension=False,
+            on_demand=inputs.batch_export.on_demand,
+        )
+        # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
+        # so the call runs under the heartbeater rather than ahead of it.
         resolved_credentials = ResolvedS3Credentials(
             credentials=await refresh_credentials(),
             refresh_using=refresh_credentials,
         )
-        return await insert_into_s3_from_stage(s3_insert_inputs, resolved_credentials)
+        return await insert_into_s3_from_stage(
+            s3_insert_inputs, resolved_credentials, file_name_prefix=file_name_prefix
+        )
 
 
 @dataclasses.dataclass
@@ -321,27 +340,40 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
         Notably, this workflow can be scheduled and ran outside of a schedule. So we
         use the data bounds when they are set.
         """
-        if inputs.data_interval_start and inputs.data_interval_end:
+        on_demand = inputs.batch_export_run_id is not None
+        incomplete_interval = inputs.data_interval_start is None or inputs.data_interval_end is None
+        data_interval: DataInterval | None = None
+        if on_demand and incomplete_interval:
+            assert inputs.batch_export_model is not None and inputs.batch_export_model.name == "hogql", (
+                "Only on-demand HogQL exports can omit interval bounds"
+            )
+            interval = None
+            data_interval_start = inputs.data_interval_start
+            data_interval_end = inputs.data_interval_end
+        elif inputs.data_interval_start and inputs.data_interval_end:
             # Allow this workflow to be ran outside of a schedule
             data_interval = DataInterval(
                 start=dt.datetime.fromisoformat(inputs.data_interval_start),
                 end=dt.datetime.fromisoformat(inputs.data_interval_end),
             )
             should_backfill_from_beginning = False
+            interval = f"every {int((data_interval.end - data_interval.start).total_seconds())} seconds"
+            data_interval_start = data_interval.start.isoformat()
+            data_interval_end = data_interval.end.isoformat()
         else:
             is_backfill = inputs.get_is_backfill()
             is_earliest_backfill = inputs.get_is_earliest_backfill()
             data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
 
             should_backfill_from_beginning = is_backfill and is_earliest_backfill
+            interval = f"every {int((data_interval.end - data_interval.start).total_seconds())} seconds"
+            data_interval_start = data_interval.start.isoformat() if not should_backfill_from_beginning else None
+            data_interval_end = data_interval.end.isoformat()
 
-        interval_delta = data_interval.end - data_interval.start
-
-        on_demand = False
         if inputs.batch_export_run_id is not None:
             run_id = str(inputs.batch_export_run_id)
-            on_demand = True
         else:
+            assert data_interval is not None
             start_batch_export_run_inputs = StartBatchExportRunInputs(
                 team_id=inputs.team_id,
                 batch_export_id=inputs.batch_export_id,
@@ -376,8 +408,8 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
                 batch_export_id=inputs.batch_export_id,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
-                data_interval_end=data_interval.end.isoformat(),
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
                 destination_default_fields=s3_default_fields(),
                 on_demand=on_demand,
             ),
@@ -393,7 +425,9 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
         result = await execute_batch_export_using_internal_stage(
             export_to_file_download_bucket_with_temporary_credentials,
             export_inputs,  # type: ignore
-            interval=f"every {int(interval_delta.total_seconds())} seconds",
+            interval=interval,
+            main_activity_timeout_seconds=inputs.main_activity_timeout_seconds,
+            stage_activity_timeout_seconds=inputs.stage_activity_timeout_seconds,
         )
 
         # A failed run gets no download links, even where some files did reach the bucket. The

@@ -150,7 +150,27 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                         upstream?.edges.length === 0 && (
                             <p className="text-secondary py-8 text-center">No connected models yet.</p>
                         )}
-                    {targetView && upstreamLoading && <Spinner />}
+                    {targetView && upstreamLoading && !upstream && (
+                        <div
+                            className={
+                                tabbed
+                                    ? 'h-[min(45vh,500px)] border border-border rounded-md overflow-hidden'
+                                    : 'h-[500px] border border-border rounded-md overflow-hidden'
+                            }
+                        >
+                            <LineageGraph
+                                nodes={[]}
+                                edges={[]}
+                                loading
+                                loadingCenter={{
+                                    name: targetView.name,
+                                    type: targetView.is_materialized ? 'matview' : 'view',
+                                }}
+                                variant="full"
+                                fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
+                            />
+                        </div>
+                    )}
                     {targetView && upstreamLoadFailed && !upstreamLoading && (
                         <LemonBanner
                             type="warning"

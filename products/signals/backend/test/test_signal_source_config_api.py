@@ -1,11 +1,16 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.serializers import SignalSourceConfigSerializer
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -208,6 +213,18 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         if expected_status == status.HTTP_201_CREATED:
             assert response.json()["config"] == config
 
+    def test_create_linear_config_persists_team_ids(self):
+        # Wiring guard for the serializer-level matrix in TestSignalSourceConfigSerializerValidation.
+        config = {"linear_team_ids": ["team-1", "team-2"], "steering": "Skip chores"}
+        response = self.client.post(
+            self._url(),
+            data={"source_product": "linear", "source_type": "issue", "config": config},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["config"] == config
+        assert SignalSourceConfig.objects.get(id=response.json()["id"]).config == config
+
     # --- List ---
 
     def test_list_source_configs(self):
@@ -399,6 +416,41 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
 
+class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("valid", {"linear_team_ids": ["team-1", "team-2"]}, True),
+            ("empty_list_means_all_teams", {"linear_team_ids": []}, True),
+            ("at_cap", {"linear_team_ids": [f"team-{i}" for i in range(100)]}, True),
+            ("over_cap", {"linear_team_ids": [f"team-{i}" for i in range(101)]}, False),
+            ("at_id_length_cap", {"linear_team_ids": ["t" * 255]}, True),
+            ("over_id_length_cap", {"linear_team_ids": ["t" * 256]}, False),
+            ("not_a_list", {"linear_team_ids": "team-1"}, False),
+            ("null", {"linear_team_ids": None}, False),
+            ("non_string_entry", {"linear_team_ids": ["team-1", 2]}, False),
+            ("blank_entry", {"linear_team_ids": ["team-1", " "]}, False),
+        ]
+    )
+    def test_linear_team_ids(self, _name, config, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": "linear", "source_type": "issue", "config": config}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "linear_team_ids" in str(serializer.errors["config"])
+
+    def test_linear_team_ids_are_stored_stripped(self):
+        serializer = SignalSourceConfigSerializer(
+            data={
+                "source_product": "linear",
+                "source_type": "issue",
+                "config": {"linear_team_ids": [" team-1 ", "team-2"]},
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
+
+
 class TestScoutSourceCanonicalization(APIBaseTest):
     """The scout source config is a project-level singleton: the scout fleet canonicalizes child
     environments to the parent team and the emit preflight gates on the parent team's row, so the
@@ -485,6 +537,54 @@ class TestScoutSourceCanonicalization(APIBaseTest):
             enabled=True,
         )
         assert self.client.get(self._child_url()).json()["results"] == []
+
+    def _child_scoped_api_key_auth(self) -> str:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["task:read", "task:write"],
+            scoped_teams=[self.child_team.id],
+        )
+        self.client.logout()
+        return f"Bearer {raw}"
+
+    def test_child_scoped_api_key_lists_only_child_rows(self):
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="signals_scout", source_type="cross_source_issue"
+        )
+        child_row = SignalSourceConfig.objects.create(
+            team=self.child_team, source_product="session_replay", source_type="session_analysis_cluster"
+        )
+        response = self.client.get(self._child_url(), HTTP_AUTHORIZATION=self._child_scoped_api_key_auth())
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(child_row.id)]
+
+    @parameterized.expand([("get",), ("patch",), ("delete",)])
+    def test_child_scoped_api_key_cannot_touch_canonical_scout_row(self, method: str):
+        scout_row = SignalSourceConfig.objects.create(
+            team=self.team, source_product="signals_scout", source_type="cross_source_issue", enabled=True
+        )
+        response = getattr(self.client, method)(
+            self._child_url(str(scout_row.id)),
+            {"enabled": False},
+            format="json",
+            HTTP_AUTHORIZATION=self._child_scoped_api_key_auth(),
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        scout_row.refresh_from_db()
+        assert scout_row.enabled is True
+
+    def test_child_scoped_api_key_cannot_create_canonical_scout_row(self):
+        response = self.client.post(
+            self._child_url(),
+            {"source_product": "signals_scout", "source_type": "cross_source_issue", "enabled": False},
+            format="json",
+            HTTP_AUTHORIZATION=self._child_scoped_api_key_auth(),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not SignalSourceConfig.objects.filter(source_product="signals_scout").exists()
 
 
 class TestIsSourceEnabledGating(APIBaseTest):

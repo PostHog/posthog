@@ -26,6 +26,7 @@ export const sidePanelMaxAPI = {
             sessionStorage.setItem('max_session_id', sessionId)
         }
 
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
         const response = await api.createResponse(`/max/chat/`, {
             message,
             role: 'user',

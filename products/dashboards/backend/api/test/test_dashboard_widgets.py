@@ -2,9 +2,11 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, PropertyMock, patch
+from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from drf_spectacular.generators import SchemaGenerator
 from parameterized import parameterized
@@ -144,6 +146,21 @@ class TestDashboardWidgets(APIBaseTest):
         assert updated_tile["widget"]["name"] == "Renamed"
         assert updated_tile["widget"]["config"]["limit"] == 5
         assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_marking_widget_tiles_does_not_load_each_widget_separately(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        for _ in range(3):
+            _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+
+        with CaptureQueriesContext(connection) as queries:
+            self.dashboard_api.update_dashboard(
+                dashboard_id, {"tiles": [{"id": tile_id, "badge": "winner"} for tile_id in tile_ids]}
+            )
+
+        widget_lookups = [query["sql"] for query in queries if 'FROM "posthog_dashboardwidget" WHERE' in query["sql"]]
+        assert widget_lookups == []
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_duplicate_dashboard_copies_widget_name_with_suffix(self) -> None:
@@ -518,6 +535,8 @@ class TestDashboardWidgets(APIBaseTest):
         tile = source_json["tiles"][0]
         tile["widget"]["name"] = "Top errors"
         tile["widget"]["description"] = "Weekly summary"
+        tile["group_key"] = "plans"
+        tile["badge"] = "winner"
         self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{source_id}",
             {"tiles": [tile]},
@@ -541,6 +560,8 @@ class TestDashboardWidgets(APIBaseTest):
         assert dest_widget["description"] == "Weekly summary"
         assert dest_widget["config"]["limit"] == 7
         assert dest_dashboard["tiles"][0]["layouts"] == source_dashboard["tiles"][0]["layouts"]
+        assert source_dashboard["tiles"][0]["group_key"] == "plans"
+        assert (dest_dashboard["tiles"][0]["group_key"], dest_dashboard["tiles"][0]["badge"]) == (None, "winner")
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_move_tile_moves_widget_tile(self) -> None:
@@ -549,6 +570,9 @@ class TestDashboardWidgets(APIBaseTest):
         _, source_json = self.dashboard_api.create_widget_tile(source_id, config={"limit": 9})
         tile = source_json["tiles"][0]
         widget_id = tile["widget"]["id"]
+        self.dashboard_api.update_dashboard(
+            source_id, {"tiles": [{"id": tile["id"], "group_key": "plans", "badge": "winner"}]}
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{source_id}/move_tile",
@@ -563,6 +587,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(dest_dashboard["tiles"]) == 1
         assert dest_dashboard["tiles"][0]["widget"]["id"] == widget_id
         assert dest_dashboard["tiles"][0]["widget"]["config"]["limit"] == 9
+        assert (dest_dashboard["tiles"][0]["group_key"], dest_dashboard["tiles"][0]["badge"]) == (None, "winner")
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_widget_catalog_lists_registered_types(self) -> None:
@@ -594,6 +619,20 @@ class TestDashboardWidgets(APIBaseTest):
         assert tile["widget"]["config"]["limit"] == 8
         assert tile["widget"]["name"] == "Errors"
         assert tile["layouts"]["sm"]["w"] == 6
+
+    @parameterized.expand([({},), ({"notebookShortId": None, "snapshotId": None},)])
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    def test_batch_add_rejects_notebook_widgets_without_saved_results(
+        self, config: dict[str, object], _flag: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "notebook_widget", "config": config}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Add this widget from a notebook" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard_id=dashboard_id).exists()
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_widgets_batch_endpoint_rejects_legacy_error_tracking_widget_type(self) -> None:

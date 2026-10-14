@@ -19,6 +19,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -59,7 +60,6 @@ import { SkillOwners } from './SkillOwners'
 import {
     SkillPublishReviewModal,
     openArchiveSkillDialog,
-    openPublishToCommunityDialog,
     openRenameSkillDialog,
     publishToCommunityDisabledReason,
 } from './skillSceneComponents'

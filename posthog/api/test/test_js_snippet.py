@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 import posthog.models.js_snippet_versioning as sv
@@ -145,3 +146,25 @@ class TestJsSnippetVersionAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get(f"/api/projects/{self.team.id}/js-snippet/version/")
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("resolve_with_read", "get", "resolve/?pin=1.358.0", ["project:read"], status.HTTP_200_OK),
+            ("version_with_read", "get", "version/", ["project:read"], status.HTTP_200_OK),
+            ("update_with_write", "patch", "version/", ["project:write"], status.HTTP_200_OK),
+            ("update_with_read_only", "patch", "version/", ["project:read"], status.HTTP_403_FORBIDDEN),
+            ("resolve_with_other_scope", "get", "resolve/?pin=1.358.0", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
+    def test_scoped_credentials_reach_the_handlers(
+        self, _name: str, method: str, path: str, scopes: list[str], expected_status: int
+    ):
+        self.client.logout()
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/js-snippet/{path}",
+            data=json.dumps({"js_snippet_version": "1.358.0"}) if method == "patch" else None,
+            content_type="application/json",
+            headers={"authorization": f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"},
+        )
+        assert response.status_code == expected_status

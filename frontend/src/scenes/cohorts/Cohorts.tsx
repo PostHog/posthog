@@ -19,8 +19,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -274,7 +274,7 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey="cohorts" />
+            <ActivitySceneTabs activeKey="cohorts" />
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Cohorts].name}

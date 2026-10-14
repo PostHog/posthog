@@ -1,12 +1,7 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields
-
-logger = logging.getLogger(__name__)
 
 
 class GitHubSyncStatus(models.TextChoices):
@@ -51,6 +46,3 @@ class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
     class Meta:
         app_label = "data_modeling"
         db_table = "posthog_datamodelinggithubsyncconfig"
-
-
-register_team_extension_signal(GitHubSyncConfig, logger=logger)

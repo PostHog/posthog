@@ -8,7 +8,7 @@ from dateutil import parser
 from requests import PreparedRequest, Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
@@ -60,7 +60,7 @@ def list_advertisers(access_token: str) -> list[dict]:
     # Mask the app secret (a query param) and the access token (a header) so neither lands in
     # request telemetry / captured samples. `timeout` guards the oauth_accounts web worker: TikTok
     # has no default timeout, so a hung connection would otherwise pin the worker indefinitely.
-    resolved = integration_secrets.get_secrets(["TIKTOK_ADS_CLIENT_ID", "TIKTOK_ADS_CLIENT_SECRET"])
+    resolved = credentials_service.get_secrets(["TIKTOK_ADS_CLIENT_ID", "TIKTOK_ADS_CLIENT_SECRET"])
     app_secret = resolved["TIKTOK_ADS_CLIENT_SECRET"]
     session = make_tracked_session(
         headers={"Access-Token": access_token, "Content-Type": "application/json"},
@@ -142,6 +142,17 @@ TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE = (
     "tables, which have been disabled. Your campaign, ad and report tables keep syncing. If your TikTok "
     "admin can grant creative asset access, reconnect the TikTok Ads integration and grant it when TikTok "
     "asks. Otherwise leave these two tables unselected."
+)
+
+
+# TikTok's 40001 wording for a token issued without a scope one endpoint needs. Its own text tells an
+# app developer to reauthorize their API app, which a customer can't act on and which names the
+# endpoint and error code. Reconnecting issues a new token with the scopes PostHog's app holds.
+TIKTOK_MISSING_SCOPE_FRAGMENT = "The access token lacks the required scope"
+
+TIKTOK_MISSING_SCOPE_MESSAGE = (
+    "TikTok denied access to this table because your connection is missing a permission. Reconnect "
+    "your TikTok Ads integration and approve every permission TikTok asks for."
 )
 
 

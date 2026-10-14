@@ -1,6 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
+
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { UserProductListItem } from '~/queries/schema/schema-general'
@@ -17,7 +21,7 @@ const productRow = (productPath: string): UserProductListItem => ({
     updated_at: '2026-01-01T00:00:00Z',
 })
 
-function toolRow(container: HTMLElement, slug: string): HTMLElement {
+function renderedProductRow(container: HTMLElement, slug: string): HTMLElement {
     const row = container.querySelector<HTMLElement>(`[data-attr="flat-nav-tool-${slug}"]`)
     if (!row) {
         throw new Error(`No flat-nav row rendered for "${slug}"`)
@@ -32,7 +36,7 @@ describe('FlatNavProducts', () => {
                 '/api/projects/:team_id/conversations/tickets/unread_count': () => [200, { count: 3 }],
             },
         })
-        // customProductsLogic seeds the picked tools from the page context rather than fetching them
+        // customProductsLogic seeds the picked products from the page context rather than fetching them
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
             custom_products: [
@@ -55,7 +59,7 @@ describe('FlatNavProducts', () => {
         const { container } = render(<FlatNavProducts />)
 
         await waitFor(() => {
-            const row = toolRow(container, slug)
+            const row = renderedProductRow(container, slug)
             expect(row.querySelector('.LemonBadge')?.textContent ?? null).toBe(expectedCount)
             expect(row.querySelector('svg')).not.toBeNull()
         })
@@ -72,9 +76,23 @@ describe('FlatNavProducts', () => {
         const { container } = render(<FlatNavProducts />)
 
         await waitFor(() => {
-            const row = toolRow(container, slug)
+            const row = renderedProductRow(container, slug)
             const menuButton = row.parentElement?.querySelector('[data-attr^="flat-nav-tool-menu-"]')
             expect(menuButton?.getAttribute('data-attr') ?? null).toBe(menuAttr)
         })
+    })
+
+    // The dashboards list scene mounts only after the navigation, so the modal opens from the URL alone
+    it('opens the new dashboard modal from another page', async () => {
+        router.actions.push(urls.currentProject(urls.insights()))
+        const { container, findByText } = render(<FlatNavProducts />)
+
+        await waitFor(() => renderedProductRow(container, 'dashboards'))
+        fireEvent.click(container.querySelector('[data-attr="flat-nav-tool-menu-dashboards"]')!)
+        fireEvent.click(await findByText('New dashboard'))
+
+        expect(router.values.location.pathname).toBe(urls.currentProject(urls.dashboards()))
+        newDashboardLogic.mount()
+        expect(newDashboardLogic.values.newDashboardModalVisible).toBe(true)
     })
 })

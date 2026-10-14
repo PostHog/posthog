@@ -6,15 +6,8 @@ import json
 
 import unittest
 
-from products.posthog_ai.eval_harness.log_parser import (
-    EXEC_TOOL_NAME,
-    INFO_SYNTHETIC_PREFIX,
-    SKILL_TOOL_NAME,
-    LogParser,
-    SkillCall,
-    ToolCall,
-    normalize_tool_name,
-)
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
+from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, SKILL_TOOL_NAME, LogParser, SkillCall, ToolCall
 
 
 def _notification(**params) -> dict:
@@ -446,15 +439,3 @@ class TestLogParserModels(unittest.TestCase):
         call = SkillCall(name="x", call_id="c", output="", is_error=False, position=0)
         with self.assertRaises(Exception):
             call.name = "y"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
-
-
-class TestNormalizeToolName(unittest.TestCase):
-    def test_strips_mcp_prefix(self):
-        self.assertEqual(normalize_tool_name("mcp__posthog__query-trends"), "query-trends")
-
-    def test_passes_through_bare_names(self):
-        self.assertEqual(normalize_tool_name("query-trends"), "query-trends")
-
-    def test_handles_empty_and_none(self):
-        self.assertEqual(normalize_tool_name(None), "")
-        self.assertEqual(normalize_tool_name(""), "")

@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
+    THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerResumeConfig,
     aws_cost_explorer_source,
@@ -52,6 +53,18 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
             "Enter both an AWS access key ID and a secret access key."
         )
         return errors
+
+    def get_retryable_errors(self) -> set[str]:
+        # `send_operation` already exhausts a transport-level retry (429/5xx) and, for the
+        # app-level throttling codes, a tenacity retry loop before any of these reach here. AWS's
+        # own server-side hiccups (a generic InternalFailure, or a 5xx with no recognizable AWS
+        # error type) recover the same way. Temporal retries the whole activity next, so log these
+        # at warning instead of raising an error tracking issue for a transient AWS outage.
+        return {f"AWS Cost Explorer request failed: {code}" for code in THROTTLING_ERROR_CODES} | {
+            "AWS Cost Explorer request failed: InternalFailure",
+            "AWS Cost Explorer request failed: ServiceUnavailable",
+            "AWS Cost Explorer request failed: HTTP 5",
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.canonical_descriptions import (

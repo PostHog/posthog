@@ -2,39 +2,39 @@ import React, { useCallback, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import blushingHog from './hogs/blushing-hog.png'
-import detectiveHog from './hogs/detective-hog.png'
-import experimentsHog from './hogs/experiments-hog.png'
-import explorerHog from './hogs/explorer-hog.png'
-import featureFlagHog from './hogs/feature-flag-hog.png'
-import heartHog from './hogs/heart-hog.png'
-import mailHog from './hogs/mail-hog.png'
-import microphoneHog from './hogs/microphone-hog.png'
-import professorHog from './hogs/professor-hog.png'
-import runningHog from './hogs/running-hog.png'
-import spaceHog from './hogs/space-hog.png'
-import starHog from './hogs/star-hog.png'
-import surprisedHog from './hogs/surprised-hog.png'
-import tronHog from './hogs/tron-hog.png'
-import wavingHog from './hogs/waving-hog.png'
+import chartHog from './hogs/chart.png'
+import coffeeRunHog from './hogs/coffee-run.png'
+import drManhattanHog from './hogs/dr-manhattan.png'
+import experimentHog from './hogs/experiment.png'
+import explorerHog from './hogs/explorer.png'
+import heartHog from './hogs/heart.png'
+import mailboxHog from './hogs/mailbox.png'
+import noirHog from './hogs/noir.png'
+import partyHog from './hogs/party.png'
+import reporterHog from './hogs/reporter.png'
+import rocketHog from './hogs/rocket.png'
+import shockedHog from './hogs/shocked.png'
+import starHog from './hogs/star.png'
+import successHog from './hogs/success.png'
+import surveyHog from './hogs/survey.png'
 
-// Confetti hogs are bundled inline at 64×64 from ./hogs so this animation stays self-contained and lightweight.
+// Confetti hogs are vendored from @posthog/brand, downscaled to 64x64 so this animation stays self-contained and lightweight.
 const images: string[] = [
-    surprisedHog,
-    blushingHog,
+    shockedHog,
+    successHog,
     explorerHog,
-    runningHog,
-    spaceHog,
-    tronHog,
+    coffeeRunHog,
+    rocketHog,
+    drManhattanHog,
     heartHog,
     starHog,
-    professorHog,
-    detectiveHog,
-    mailHog,
-    featureFlagHog,
-    experimentsHog,
-    wavingHog,
-    microphoneHog,
+    chartHog,
+    noirHog,
+    mailboxHog,
+    surveyHog,
+    experimentHog,
+    partyHog,
+    reporterHog,
 ]
 
 interface Particle {

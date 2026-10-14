@@ -6,6 +6,7 @@ const MaxQueryBytes = 64 << 10
 const MaxNestingDepth = 128
 const MaxSuggestionInputBytes = 128
 const MaxDiagnostics = 25
+const MaxNotices = 128
 const MaxCTEProjectedFields = 16 << 10
 const MaxFieldLookupWork = 1 << 20
 const MaxRelationTraversalHops = 16

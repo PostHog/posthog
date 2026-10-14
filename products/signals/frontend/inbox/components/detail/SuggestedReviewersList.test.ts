@@ -54,14 +54,12 @@ describe('buildReviewerItems', () => {
                 ],
             },
             {
-                kind: 'person',
-                key: 'rowan',
-                reviewer: reviewer(
-                    'rowan',
-                    `${sharedReason} `,
-                    'Runtime ownership scout',
-                    'signals-scout-runtime-ownership'
-                ),
+                kind: 'reason-group',
+                key: JSON.stringify(['reason-group', `${sharedReason} `, 'scout', null]),
+                reason: `${sharedReason} `,
+                reviewers: [
+                    reviewer('rowan', `${sharedReason} `, 'Runtime ownership scout', 'signals-scout-runtime-ownership'),
+                ],
             },
             {
                 kind: 'person',

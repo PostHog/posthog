@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
 import products.alerts.backend.presentation.views.alert as alert
+from products.product_analytics.backend.presentation.events_retention import EventsRetentionViewSet
 from products.product_analytics.backend.presentation.insight import InsightViewSet
 from products.product_analytics.backend.presentation.insight_ee import EnterpriseInsightsViewSet
 from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
@@ -45,5 +46,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"paths_v2",
         PathsV2ViewSet,
         "project_paths_v2",
+        ["team_id"],
+    )
+
+    routers.projects.register(
+        r"events_retention",
+        EventsRetentionViewSet,
+        "project_events_retention",
         ["team_id"],
     )

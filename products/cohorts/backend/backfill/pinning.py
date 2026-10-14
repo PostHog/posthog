@@ -5,6 +5,7 @@ import structlog
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
+from products.cohorts.backend.parity.eligibility import is_action_key, leaf_drop_reason
 
 _INTERVAL_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
 logger = structlog.get_logger(__name__)
@@ -26,6 +27,17 @@ def derive_window_days(time_value: object, time_interval: object) -> int:
     return normalized_time_value * _INTERVAL_DAYS.get(time_interval, 0)
 
 
+def leaf_unpinnable_reason(leaf: dict[str, Any]) -> str | None:
+    """The catalog's drop label for a leaf the seeder could never resolve, or ``None``.
+
+    Every leaf type, not only behavioral: a cohort that loses any leaf classifies
+    ``Excluded(HasDroppedLeaf)``, so one refused `person_metadata` leaf takes the whole cohort out
+    of composition. Delegates to the processor mirror, which already carries the 16-byte hash and
+    HogVM header rules a second copy here would have to restate.
+    """
+    return leaf_drop_reason(leaf)
+
+
 def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any], list[str]]:
     conditions: list[dict[str, Any]] = []
     event_names: set[str] = set()
@@ -37,7 +49,9 @@ def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any
                 continue
 
             event_key = leaf.get("key")
-            is_action = leaf.get("event_type") == "actions" or isinstance(event_key, int)
+            # The seeder drops an action-keyed condition, so reading `event_type` here as well would
+            # drop a leaf the gate admits.
+            is_action = is_action_key(event_key)
             event_name = event_key if isinstance(event_key, str) and not is_action else None
             if event_name is not None:
                 event_names.add(event_name)

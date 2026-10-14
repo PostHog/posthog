@@ -160,6 +160,29 @@ export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording whether a human adopted an AI draft.')
 
 /**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const conversationsTicketsNotesCreateBodyMessageMax = 5000
+
+export const ConversationsTicketsNotesCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyMessageMax)
+            .describe(
+                'Note content in markdown. The note is visible to your team only and is never sent to the customer.'
+            ),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+    })
+    .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
+
+/**
  * Update a private note on a ticket.
  *
  * Only the note's author can edit it. Customer-facing replies cannot be
@@ -310,7 +333,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         .max(conversationsTicketsComposeCreateBodyEmailSubjectMax)
         .optional()
         .describe('Email subject line.'),
-    email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
+    email_config_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ID of the support email channel to send from. Omit it to send from the team's default support channel."
+        ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
     tags: zod

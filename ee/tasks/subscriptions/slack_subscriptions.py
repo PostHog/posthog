@@ -10,6 +10,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import channel_id_from_target
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
@@ -176,7 +177,7 @@ def _prepare_slack_gallery(
         lines.append(explore_hint)
 
     return SlackGallery(
-        channel=subscription.target_value.split("|")[0],
+        channel=channel_id_from_target(subscription.target_value),
         initial_comment="\n\n".join(lines),
         file_uploads=file_uploads,
     )
@@ -244,7 +245,7 @@ def _prepare_slack_message(
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
 
-    channel = subscription.target_value.split("|")[0]
+    channel = channel_id_from_target(subscription.target_value)
     first_asset, *other_assets = assets
 
     title = _subscription_title(subscription, resource_info, is_new_subscription)
@@ -339,7 +340,7 @@ def send_slack_message_with_integration(
         is_new_subscription,
         integration=integration,
     )
-    slack_integration = SlackIntegration(integration)
+    slack_integration = SlackIntegration(integration, source="subscriptions")
 
     # Send main message
     message_res = slack_integration.client.chat_postMessage(
@@ -401,7 +402,7 @@ async def deliver_slack_message_data(
     message_data: SlackMessage,
 ) -> SlackDeliveryResult:
     # shared send path: callers build the SlackMessage; retry + partial-failure handling are shared
-    slack_integration = SlackIntegration(integration)
+    slack_integration = SlackIntegration(integration, source="subscriptions")
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
@@ -454,7 +455,7 @@ async def deliver_slack_message_data(
 async def deliver_slack_gallery(
     integration: Integration, subscription: Subscription, gallery: SlackGallery
 ) -> SlackDeliveryResult:
-    slack_integration = SlackIntegration(integration)
+    slack_integration = SlackIntegration(integration, source="subscriptions")
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
         if not gallery.file_uploads:

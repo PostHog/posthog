@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -54,7 +53,7 @@ export function DashboardTemplateCopyScene(props: DashboardTemplateCopyLogicProp
         ? `Copy "${sourceTemplate.template_name}" to another project`
         : 'Copy template to another project'
 
-    const templatesListUrl = combineUrl(urls.dashboards(), { tab: DashboardsTab.Templates }).url
+    const templatesListUrl = urls.dashboardTemplates()
     const loadFailed = sourceTemplateLoadFailed
     const hasDestinationProjects = teamOptions.length > 0
     const showNoDestinationsEmptyState = !sourceTemplateLoading && !loadFailed && !hasDestinationProjects

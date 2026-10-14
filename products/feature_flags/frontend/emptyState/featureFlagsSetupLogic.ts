@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -81,6 +82,13 @@ export const featureFlagsSetupLogic = kea<featureFlagsSetupLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        // Undo of a deleted flag brings it back without remounting the gate, so no count runs on its own.
+        // The flag list reloads after Undo, and that reload is the signal to count again.
+        [featureFlagsLogic.actionTypes.loadFeatureFlagsSuccess]: () => {
+            if (values.setupStatus !== 'has-data') {
+                actions.loadFlagCount()
+            }
+        },
         loadFlagCountSuccess: ({ flagCount }) => {
             actions.setDetectedStatus(flagCount !== null && flagCount > 0 ? 'has-data' : 'needs-setup')
         },

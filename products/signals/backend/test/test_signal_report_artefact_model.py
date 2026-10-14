@@ -7,6 +7,8 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
     ArtefactContentValidationError,
     Dismissal,
     NoteArtefact,
@@ -298,6 +300,83 @@ class TestSignalReportArtefactHelpers(BaseTest):
         assert rows.count() == 2
         # Current status is the latest row.
         assert json.loads(rows[1].content)["priority"] == "P0"
+
+    def test_latest_content_breaks_a_created_at_tie_by_id(self):
+        report = self._report()
+        first = self._append_priority(report, "P2")
+        second = self._append_priority(report, "P0")
+        SignalReportArtefact.objects.filter(id__in=[first.id, second.id]).update(created_at=first.created_at)
+
+        latest = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=PriorityAssessment
+        )
+
+        expected = Priority.P0 if second.id > first.id else Priority.P2
+        assert latest is not None and latest.priority == expected
+
+    def test_latest_content_is_none_when_the_newest_row_does_not_parse(self):
+        report = self._report()
+        self._append_priority(report, "P2")
+        newest = self._append_priority(report, "P0")
+        SignalReportArtefact.objects.filter(id=newest.id).update(content=json.dumps({"explanation": "no priority"}))
+
+        assert (
+            SignalReportArtefact.latest_content(
+                team_id=self.team.id, report_id=str(report.id), model=PriorityAssessment
+            )
+            is None
+        )
+
+    def _append_actionability(
+        self, report: SignalReport, choice: str, *, already_addressed: bool = False
+    ) -> SignalReportArtefact:
+        return SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ActionabilityAssessment(
+                actionability=ActionabilityChoice(choice),
+                already_addressed=already_addressed,
+                explanation="because",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def _cached_actionability(self, report: SignalReport) -> tuple[str | None, bool | None]:
+        row = SignalReport.objects.filter(id=report.id).values("latest_actionability", "latest_already_addressed")[0]
+        return row["latest_actionability"], row["latest_already_addressed"]
+
+    def test_cached_actionability_follows_the_newest_judgment(self):
+        report = self._report()
+        assert self._cached_actionability(report) == (None, None)
+
+        first = self._append_actionability(report, "not_actionable")
+        assert self._cached_actionability(report) == ("not_actionable", False)
+
+        second = self._append_actionability(report, "immediately_actionable", already_addressed=True)
+        assert self._cached_actionability(report) == ("immediately_actionable", True)
+
+        second.update_content(
+            json.dumps({"explanation": "x", "actionability": "requires_human_input", "already_addressed": False})
+        )
+        assert self._cached_actionability(report) == ("requires_human_input", False)
+
+        second.delete()
+        assert self._cached_actionability(report) == ("not_actionable", False)
+
+        first.delete()
+        assert self._cached_actionability(report) == (None, None)
+
+    def test_cached_actionability_skips_a_judgment_that_is_not_an_object(self):
+        report = self._report()
+        self._append_actionability(report, "immediately_actionable")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content='"not an object"',
+        )
+
+        assert self._cached_actionability(report) == ("immediately_actionable", False)
 
     def test_append_status_rejects_log_content(self):
         report = self._report()

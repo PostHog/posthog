@@ -1,21 +1,35 @@
 import logging
 import dataclasses
+from collections.abc import Callable
 from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import COASSEMBLE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import (
+    COASSEMBLE_ENDPOINTS,
+    PAGE_SIZE,
+    CoassembleEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -24,23 +38,18 @@ logger = logging.getLogger(__name__)
 
 # Single shared host — Coassemble has no per-workspace subdomains.
 COASSEMBLE_BASE_URL = "https://api.coassemble.com/api/v1/headless"
-# The documented default page size for every list endpoint. We request it explicitly so the
-# "short page means last page" termination check compares against the size the server enforces.
-PAGE_SIZE = 100
-# Hard cap on trackings pages per course (PAGE_SIZE * cap rows) so a paging bug on the vendor side
-# can never produce an unbounded scan of a single course.
-MAX_TRACKING_PAGES_PER_COURSE = 1_000
+# Hard cap on child pages per fan-out parent (page_size * cap rows) so a paging bug on the vendor
+# side can never produce an unbounded scan of a single parent.
+MAX_FAN_OUT_PAGES_PER_PARENT = 1_000
 # Cheap list probe used to confirm credentials are genuine. The workspace API key is
 # workspace-wide, so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/courses"
 
-# Trackings can only be listed per course: `id` is a required QUERY param. The framework binds
-# resolve params via path templating, so the query string rides in the path (requests merges the
-# remaining params into it).
-TRACKINGS_CHILD_PATH = f"{COASSEMBLE_ENDPOINTS['course_trackings'].path}?id={{id}}"
+# The only endpoint that can carry a bookmark saved before the fan-out moved onto the framework.
+LEGACY_FAN_OUT_ENDPOINT = "course_trackings"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CoassembleResumeConfig:
     # Next page to fetch (0-indexed page-number pagination). Deterministic, so a crashed sync
     # resumes from the page after the last one yielded; merge dedupes the re-pulled page on the
@@ -50,16 +59,17 @@ class CoassembleResumeConfig:
     # still parses (and is translated into fanout_state on load); no longer written.
     completed_course_ids: list[int] = dataclasses.field(default_factory=list)
     current_course_id: int | None = None
-    # Framework fan-out resume state for the course_trackings endpoint:
+    # Framework fan-out resume state for a fan-out endpoint:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
     fanout_state: dict | None = None
 
 
 class CoassemblePageNumberPaginator(PageNumberPaginator):
     """0-indexed page-number pagination where every list endpoint serves fixed-length pages, so a
-    short page marks the end of the collection (we always request PAGE_SIZE — no extra empty-page
-    request). ``max_pages`` caps how many pages one paginate call fetches (the runaway-course guard
-    for trackings); the paginator is deep-copied per fan-out parent, so the cap is per course.
+    short page marks the end of the collection (we always request the endpoint's page size — no
+    extra empty-page request). ``max_pages`` caps how many pages one paginate call fetches (the
+    runaway-parent guard for fan-outs); the paginator is deep-copied per fan-out parent, so the cap
+    is per parent.
     """
 
     def __init__(self, page_size: int = PAGE_SIZE, max_pages: Optional[int] = None) -> None:
@@ -75,7 +85,7 @@ class CoassemblePageNumberPaginator(PageNumberPaginator):
             self._has_next_page = False
         if self.max_pages is not None and self._pages_fetched >= self.max_pages and self._has_next_page:
             logger.warning(
-                "Coassemble: hit trackings page cap (%s); remaining rows for this parent are skipped this sync",
+                "Coassemble: hit fan-out page cap (%s); remaining rows for this parent are skipped this sync",
                 self.max_pages,
             )
             self._has_next_page = False
@@ -102,32 +112,34 @@ def _client_config(workspace_id: str, api_key: str) -> ClientConfig:
     }
 
 
+def _paginator(config: CoassembleEndpointConfig, max_pages: Optional[int] = None) -> BasePaginator:
+    if config.page_size is None:
+        return SinglePagePaginator()
+    return CoassemblePageNumberPaginator(page_size=config.page_size, max_pages=max_pages)
+
+
+def _endpoint_resource(config: CoassembleEndpointConfig, max_pages: Optional[int] = None) -> EndpointResource:
+    # Endpoints document a JSON array (or, where `data_selector` is set, an array under one
+    # envelope key); a 200 body of any other shape means the response shape changed — fail loud
+    # instead of silently syncing 0 rows.
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {"length": config.page_size} if config.page_size is not None else {},
+        "paginator": _paginator(config, max_pages),
+        "data_selector": config.data_selector,
+        "data_selector_required": True,
+    }
+    return {"name": config.name, "endpoint": endpoint}
+
+
 def _standard_resource(
-    workspace_id: str,
-    api_key: str,
-    endpoint: str,
+    client_config: ClientConfig,
+    config: CoassembleEndpointConfig,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[CoassembleResumeConfig],
 ) -> Resource:
-    config = COASSEMBLE_ENDPOINTS[endpoint]
-
-    # List endpoints document a plain JSON array; a 200 body of any other shape means the response
-    # shape changed — fail loud instead of silently syncing 0 rows.
-    rest_config: RESTAPIConfig = {
-        "client": _client_config(workspace_id, api_key),
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"length": PAGE_SIZE},
-                    "paginator": CoassemblePageNumberPaginator(),
-                    "data_selector_required": True,
-                },
-            }
-        ],
-    }
+    rest_config: RESTAPIConfig = {"client": client_config, "resources": [_endpoint_resource(config)]}
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if manager.can_resume():
@@ -151,17 +163,20 @@ def _standard_resource(
     )
 
 
-def _tracking_child_path(course_id: int) -> str:
-    return TRACKINGS_CHILD_PATH.format(id=course_id)
+def _stamp_parent_value(parent_name: str, parent_field: str, column: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    injected_key = make_parent_key_name(parent_name, parent_field)
+
+    def stamp(row: dict[str, Any]) -> dict[str, Any]:
+        value = row.pop(injected_key, None)
+        if value is not None:
+            row[column] = value
+        return row
+
+    return stamp
 
 
-def _stamp_course_id(row: dict[str, Any]) -> dict[str, Any]:
-    # include_from_parent lands the parent course id as `_courses_id`; rename it to the plain
-    # `course_id` column tracking rows carry (also part of the primary key — see settings.py).
-    value = row.pop("_courses_id", None)
-    if value is not None:
-        row["course_id"] = value
-    return row
+def _legacy_child_path(course_id: int) -> str:
+    return COASSEMBLE_ENDPOINTS[LEGACY_FAN_OUT_ENDPOINT].path.format(id=course_id)
 
 
 def _translate_legacy_fanout_state(resume: CoassembleResumeConfig) -> Optional[dict[str, Any]]:
@@ -173,65 +188,59 @@ def _translate_legacy_fanout_state(resume: CoassembleResumeConfig) -> Optional[d
     """
     if not resume.completed_course_ids and resume.current_course_id is None:
         return None
-    current = _tracking_child_path(resume.current_course_id) if resume.current_course_id is not None else None
+    current = _legacy_child_path(resume.current_course_id) if resume.current_course_id is not None else None
     return {
-        "completed": [_tracking_child_path(course_id) for course_id in resume.completed_course_ids],
+        "completed": [_legacy_child_path(course_id) for course_id in resume.completed_course_ids],
         "current": current,
         "child_state": {"page": resume.next_page} if current is not None else None,
     }
 
 
-def _trackings_resource(
-    workspace_id: str,
-    api_key: str,
+def _initial_fan_out_state(
+    config: CoassembleEndpointConfig, manager: ResumableSourceManager[CoassembleResumeConfig]
+) -> Optional[dict[str, Any]]:
+    if not manager.can_resume():
+        return None
+    resume = manager.load_state()
+    if resume is None:
+        return None
+    if resume.fanout_state is not None:
+        return resume.fanout_state
+    if config.name != LEGACY_FAN_OUT_ENDPOINT:
+        return None
+    return _translate_legacy_fanout_state(resume)
+
+
+def _fan_out_resource(
+    client_config: ClientConfig,
+    config: CoassembleEndpointConfig,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[CoassembleResumeConfig],
 ) -> Resource:
-    """Fan out over every course, listing its trackings and stamping the parent `course_id`.
+    """Fan out over a parent endpoint, listing the child rows per parent and stamping the parent
+    reference onto each row.
 
-    /trackings requires an `id` (the course id), so trackings can only be pulled per course. Full
-    refresh — re-pulled rows on resume are deduped by the (course_id, id) primary key on merge.
+    Full refresh — re-pulled rows on resume are deduped by the endpoint's primary key on merge.
     """
-    courses_config = COASSEMBLE_ENDPOINTS["courses"]
+    fan_out = config.fan_out
+    assert fan_out is not None
+    parent_config = COASSEMBLE_ENDPOINTS[fan_out.parent]
+
+    child = _endpoint_resource(config, max_pages=MAX_FAN_OUT_PAGES_PER_PARENT)
+    child_endpoint = child["endpoint"]
+    assert isinstance(child_endpoint, dict)
+    child_endpoint["params"] = {
+        **(child_endpoint.get("params") or {}),
+        fan_out.param: {"type": "resolve", "resource": parent_config.name, "field": fan_out.resolve_field},
+    }
+    child["include_from_parent"] = [fan_out.resolve_field]
+    child["data_map"] = _stamp_parent_value(parent_config.name, fan_out.resolve_field, fan_out.stamp_column)
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(workspace_id, api_key),
-        "resources": [
-            {
-                "name": "courses",
-                "endpoint": {
-                    "path": courses_config.path,
-                    "params": {"length": PAGE_SIZE},
-                    "paginator": CoassemblePageNumberPaginator(),
-                    "data_selector_required": True,
-                },
-            },
-            {
-                "name": "course_trackings",
-                "endpoint": {
-                    "path": TRACKINGS_CHILD_PATH,
-                    "params": {
-                        "id": {"type": "resolve", "resource": "courses", "field": "id"},
-                        "length": PAGE_SIZE,
-                    },
-                    "paginator": CoassemblePageNumberPaginator(max_pages=MAX_TRACKING_PAGES_PER_COURSE),
-                    "data_selector_required": True,
-                },
-                "include_from_parent": ["id"],
-                "data_map": _stamp_course_id,
-            },
-        ],
+        "client": client_config,
+        "resources": [_endpoint_resource(parent_config), child],
     }
-
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if manager.can_resume():
-        resume = manager.load_state()
-        if resume is not None:
-            if resume.fanout_state is not None:
-                initial_paginator_state = resume.fanout_state
-            else:
-                initial_paginator_state = _translate_legacy_fanout_state(resume)
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
@@ -243,9 +252,9 @@ def _trackings_resource(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
+        initial_paginator_state=_initial_fan_out_state(config, manager),
     )
-    return next(r for r in resources if r.name == "course_trackings")
+    return next(r for r in resources if r.name == config.name)
 
 
 def coassemble_source(
@@ -257,11 +266,12 @@ def coassemble_source(
     resumable_source_manager: ResumableSourceManager[CoassembleResumeConfig],
 ) -> SourceResponse:
     config = COASSEMBLE_ENDPOINTS[endpoint]
+    client_config = _client_config(workspace_id, api_key)
 
-    if config.fan_out_by_course:
-        resource = _trackings_resource(workspace_id, api_key, team_id, job_id, resumable_source_manager)
+    if config.fan_out is not None:
+        resource = _fan_out_resource(client_config, config, team_id, job_id, resumable_source_manager)
     else:
-        resource = _standard_resource(workspace_id, api_key, endpoint, team_id, job_id, resumable_source_manager)
+        resource = _standard_resource(client_config, config, team_id, job_id, resumable_source_manager)
 
     return SourceResponse(
         name=endpoint,

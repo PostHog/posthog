@@ -21,7 +21,7 @@ import type {
     WizardRunCreateRequestApi,
 } from './generated/api.schemas'
 import { wizardEventProperties, wizardRunEventProperties } from './wizardAnalytics'
-import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
+import { type WizardRunDetailSource, wizardRunDetailsLogic } from './wizardRunDetailsLogic'
 import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
@@ -86,7 +86,13 @@ export interface wizardLibraryLogicActions {
     setLibraryEnvironment: (environment: RunEnvironmentEnumApi) => { environment: RunEnvironmentEnumApi }
     setLibrarySearch: (search: string) => { search: string }
     setRepository: (repository: string) => { repository: string }
-    selectRun: (run: WizardRunApi | null) => { run: WizardRunApi | null }
+    selectRun: (
+        run: WizardRunApi | null,
+        source?: WizardRunDetailSource
+    ) => {
+        run: WizardRunApi | null
+        source?: WizardRunDetailSource
+    }
 }
 
 export interface wizardLibraryLogicMeta {
@@ -228,7 +234,6 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
                     posthog.capture('wizard run create requested', properties)
                     try {
                         const run = await wizardRunsCreate(projectId, body)
-                        posthog.capture('wizard run create succeeded', wizardRunEventProperties(run))
                         return run
                     } catch (error) {
                         posthog.capture('wizard run create failed', {
@@ -318,7 +323,7 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             }
 
             posthog.capture(
-                'wizard library opened',
+                'wizard run library opened',
                 wizardEventProperties(
                     values.currentProjectId,
                     WIZARD_LOCAL_RUNS_VISIBLE ? values.libraryEnvironment : 'cloud'
@@ -339,7 +344,22 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             const environment =
                 WIZARD_LOCAL_RUNS_VISIBLE && !program.supported_environments.includes('cloud') ? 'local' : 'cloud'
 
+            posthog.capture('wizard run library item selected', {
+                ...wizardEventProperties(values.currentProjectId, environment),
+                program_id: program.id,
+                program: program.name,
+                wizard_version: program.wizard_version,
+            })
             actions.setLibraryEnvironment(environment)
+        },
+        setRepository: ({ repository }) => {
+            if (repository) {
+                posthog.capture('wizard run library repository selected', {
+                    ...wizardEventProperties(values.currentProjectId, values.libraryEnvironment),
+                    workspace_type: 'git_repository',
+                    program_id: values.selectedProgram?.id,
+                })
+            }
         },
         copyCommand: () => {
             const program = values.selectedProgram
@@ -413,7 +433,7 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
 
             // Follow the new run in the drawer so the old failed run cannot reappear.
             if (createRunRequest) {
-                actions.selectRun(createRunRequest)
+                actions.selectRun(createRunRequest, 'wizard_library')
             }
 
             actions.closeLibrary()

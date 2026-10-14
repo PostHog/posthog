@@ -24,7 +24,7 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
+import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
@@ -46,6 +46,13 @@ const LogsViewerModal = lazyWithRetry(() =>
     }))
 )
 
+// The compose ticket modal anchors the support rich text editor (tiptap and prosemirror).
+const ComposeTicketModal = lazyWithRetry(() =>
+    import('products/conversations/frontend/components/ComposeTicket/ComposeTicketModal').then((m) => ({
+        default: m.ComposeTicketModal,
+    }))
+)
+
 export function GlobalModals(): JSX.Element {
     const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)
     const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
@@ -54,6 +61,8 @@ export function GlobalModals(): JSX.Element {
     // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
     const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
     const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
+    const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
+    const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
@@ -90,7 +99,11 @@ export function GlobalModals(): JSX.Element {
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
             <MaybePhaiOnboarding />
-            <ComposeTicketModal />
+            {shouldRenderComposeTicketModal ? (
+                <Suspense fallback={null}>
+                    <ComposeTicketModal />
+                </Suspense>
+            ) : null}
         </>
     )
 }

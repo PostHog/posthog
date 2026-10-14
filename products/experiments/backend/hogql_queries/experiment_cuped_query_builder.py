@@ -22,9 +22,9 @@ class CupedQueryBuilder:
     --------------
     When CUPED is enabled, the query output includes:
 
-    - ``covariate_sum``        — sum of the per-entity covariate
-    - ``covariate_sum_squares``— sum of the squared per-entity covariate
-    - ``covariate_sum_product``— sum of (metric value x covariate) per entity
+    - ``covariate_sum``: sum of the per-entity covariate
+    - ``covariate_sum_squares``: sum of the squared per-entity covariate
+    - ``covariate_sum_product``: sum of (metric value x covariate) per entity
 
     These three sums are consumed by ``cuped_adjust`` downstream. For mean
     metrics the covariate is the pre-window metric value; for funnel metrics it
@@ -38,10 +38,6 @@ class CupedQueryBuilder:
     ``date_from`` rolls back by ``lookback_days`` (see
     ``extend_date_from_for_funnel_cuped`` for the funnel case; mean metrics widen
     via ``build_metric_predicate``'s ``cuped_lookback_days`` argument).
-
-    To keep the move behavior-preserving, this class holds a reference to the
-    owning ``ExperimentQueryBuilder`` and reaches through it for the CUPED
-    config.
     """
 
     def __init__(self, builder: "ExperimentQueryBuilder"):
@@ -82,9 +78,9 @@ class CupedQueryBuilder:
         Per-entity binary covariate for funnel CUPED: 1 if the entity fired the
         funnel's last step inside the pre-exposure window, else 0.
 
-        The covariate has to be binary to keep the same Bernoulli scale as the
-        post-window proportion metric, and aligns with the example pattern of
-        treating the conversion event as both the metric and the covariate.
+        The covariate is binary so that it has the same Bernoulli scale as the
+        post-window proportion metric. The conversion event is both the metric
+        and the covariate.
         """
         return parse_expr(
             f"coalesce(maxIf(1, {events_alias}.step_{last_step_index} = 1 AND {{pre_window}}), 0)",
@@ -120,10 +116,10 @@ class CupedQueryBuilder:
         aliases (`covariate_sum`, `covariate_sum_squares`, `covariate_sum_product`)
         to the outer SELECT.
 
-        Asserts the expected `entity_metrics` CTE shape: this method is called
-        right after the funnel SELECT is parsed in the funnel builder, so the
-        shape is an invariant — a violation means the SQL above changed without
-        updating CUPED, and we want a loud failure rather than zeroed covariates.
+        Asserts the expected `entity_metrics` CTE shape. The funnel builder calls
+        this method right after it parses the funnel SELECT, so the shape is an
+        invariant. A violation means the funnel SQL changed without an update to
+        CUPED, and a loud failure is better than zeroed covariates.
         """
         assert query.ctes is not None and "entity_metrics" in query.ctes
         entity_metrics_cte = query.ctes["entity_metrics"]
@@ -144,7 +140,6 @@ class CupedQueryBuilder:
         """
         Roll the funnel's `date_from` back by `lookback_days` when CUPED is
         enabled, so the same scan also feeds the CUPED pre-exposure window.
-        Returns the input unchanged when CUPED is off.
         """
         if not self._b.cuped_config.enabled:
             return date_from

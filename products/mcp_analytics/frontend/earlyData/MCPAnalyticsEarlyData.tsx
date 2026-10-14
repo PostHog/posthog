@@ -4,6 +4,7 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { McpSharedFilters } from '../components/McpSharedFilters'
 import { formatNumber } from '../dashboard/formatters'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import { ActivityCallers } from './ActivityCallers'
@@ -20,8 +21,17 @@ import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
  * the Dashboard tab but can always come here for recency.
  */
 export function MCPAnalyticsActivityDashboard(): JSX.Element {
+    const { harnessRowsLoading, modelRowsLoading, overviewLoading } = useValues(mcpEarlyDataLogic)
+    const { refreshAll } = useActions(mcpEarlyDataLogic)
+
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
+            <McpSharedFilters
+                pageKey="mcp-activity"
+                dataAttrPrefix="mcp-activity"
+                onRefresh={refreshAll}
+                refreshing={overviewLoading || harnessRowsLoading || modelRowsLoading}
+            />
             <ActivitySummary />
             <ActivityNextSteps />
             <ActivityFeed />

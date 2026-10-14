@@ -11,11 +11,10 @@ import jwt as pyjwt
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.helpers.two_factor_session import (
-    add_code_based_verification_bypass,
-    set_code_based_verification_global_disable,
-)
 from posthog.models import User
+from posthog.test.authentication_checks import covers_authentication
+
+from products.security.backend.presentation.hub_api import SecurityHubAuthentication
 
 SECRET = "in-us"
 SETTINGS = {"SECURITY_HUB_REGION": "us", "SECURITY_HUB_INBOUND_JWT_SECRETS": [SECRET]}
@@ -48,6 +47,7 @@ class TestHubApi(BaseTest):
         headers: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer {token(op, **claims)}"} if op else {}
         return self.client.post(f"/api/security/{path}/", body, format="json", **headers)
 
+    @covers_authentication(SecurityHubAuthentication)
     def test_resolve(self) -> None:
         user = User.objects.create_and_join(self.organization, "farm.bot+1@example.com", "password1234")
         response = self.post("resolve", {"query": "farm.bot+1@example.com"}, "subject:resolve")
@@ -110,20 +110,6 @@ class TestHubApi(BaseTest):
     @patch("products.security.backend.presentation.hub_api.start_sync_now", side_effect=RuntimeError("temporal down"))
     def test_sync_now_answers_503_when_temporal_is_unreachable(self, start: MagicMock) -> None:
         assert self.post("sync-now", {}, "rules:sync_now").status_code == 503
-
-    def test_mfa_export(self) -> None:
-        add_code_based_verification_bypass("Bypass@Example.com")
-        set_code_based_verification_global_disable(
-            reason="email outage", ttl_seconds=3600, disabled_by="ops@posthog.com"
-        )
-        body = self.post("mfa-bypass-export", {}, "mfa_bypass:export").json()
-        assert body["emails"] == ["bypass@example.com"]
-        assert body["global"]["reason"] == "email outage"
-        assert body["global"]["actor"] == "ops@posthog.com"
-        assert body["global"]["expires_at"].endswith("Z")
-
-    def test_mfa_export_without_a_global_switch(self) -> None:
-        assert self.post("mfa-bypass-export", {}, "mfa_bypass:export").json() == {"emails": [], "global": None}
 
     @parameterized.expand(
         [

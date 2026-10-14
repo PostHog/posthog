@@ -39,9 +39,8 @@ const sectionHasRecalculatingMetric =
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
-    results: NewExperimentQueryResponse[]
+    results: (NewExperimentQueryResponse | undefined)[]
     errors: any[]
-    metricIndexes: number[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
@@ -53,7 +52,6 @@ export function MetricsTable({
     metrics,
     results,
     errors,
-    metricIndexes,
     isSecondary,
     getInsightType,
     showDetailsModal = true,
@@ -126,7 +124,7 @@ export function MetricsTable({
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
-    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse) => {
+    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse | undefined) => {
         const allVariants: ExperimentVariantResult[] = []
 
         // Include main variant results
@@ -165,8 +163,7 @@ export function MetricsTable({
     }
 
     const hasColdMetric = isLaunched(experiment) && metrics.some((_, index) => !results[index] && !errors[index])
-    const sectionLoading =
-        sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric || exposuresLoading
+    const sectionLoading = sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric
 
     return (
         <DndContext
@@ -200,9 +197,8 @@ export function MetricsTable({
                     />
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>
                         {metrics.map((metric, index) => {
-                            const result = results[index]
+                            const result = results[index] ?? null
                             const error = errors[index]
-                            const metricIndex = metricIndexes[index]
 
                             const isLoading = !result && !error && isLaunched(experiment)
 
@@ -221,7 +217,6 @@ export function MetricsTable({
                                             result={result}
                                             experiment={experiment}
                                             metricType={getInsightType(metric)}
-                                            metricIndex={metricIndex}
                                             displayOrder={index}
                                             axisRange={axisRange}
                                             isSecondary={isSecondary}

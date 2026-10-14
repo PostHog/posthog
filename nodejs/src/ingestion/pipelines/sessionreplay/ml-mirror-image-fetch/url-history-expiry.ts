@@ -9,21 +9,24 @@ export function urlHistoryExpiresAtMs(
     seenTtlSeconds: number,
     cache?: HttpCacheMetadata
 ): number {
-    const minimumNextFetchAtMs = nowMs + seenTtlSeconds * 1000
-    const explicitNextFetchAtMs = cache ? nowMs + explicitFreshnessLifetimeMs(cache, nowMs) : 0
     const month = parseImageRef(ref)?.sessionMonth
-    const partitionExpiresAtMs = month ? Date.parse(`${month}-01T00:00:00Z`) : undefined
-    let nextFetchAtMs = Math.max(minimumNextFetchAtMs, explicitNextFetchAtMs)
-    if (partitionExpiresAtMs !== undefined) {
-        const end = new Date(partitionExpiresAtMs)
+    if (month !== undefined) {
+        // The stored image is write-once per team, month and URL, so a fetch before the month partition ends cannot change it, and HTTP freshness does not shorten this.
+        const end = new Date(`${month}-01T00:00:00Z`)
         end.setUTCMonth(end.getUTCMonth() + 1)
         end.setUTCDate(end.getUTCDate() + 8)
-        const hasExplicitFreshness =
-            cache?.expires !== undefined ||
-            /(?:^|,)\s*(?:s-maxage|max-age|no-cache|no-store|private|must-revalidate)(?:\s*(?:=|,|$))/i.test(
-                cache?.cacheControl ?? ''
-            )
-        nextFetchAtMs = Math.min(end.getTime(), hasExplicitFreshness ? explicitNextFetchAtMs : Infinity)
+        return end.getTime()
     }
-    return nextFetchAtMs
+    const minimumNextFetchAtMs = nowMs + seenTtlSeconds * 1000
+    const explicitNextFetchAtMs = cache ? nowMs + explicitFreshnessLifetimeMs(cache, nowMs) : 0
+    return Math.max(minimumNextFetchAtMs, explicitNextFetchAtMs)
+}
+
+export function storedUrlHistoryCache(
+    ref: string,
+    cache: HttpCacheMetadata | undefined
+): HttpCacheMetadata | undefined {
+    const isMonthScoped = parseImageRef(ref)?.sessionMonth !== undefined
+    const forbidsStoring = /(?:^|,)\s*no-store\s*(?:,|$)/i.test(cache?.cacheControl ?? '')
+    return isMonthScoped && forbidsStoring ? undefined : cache
 }

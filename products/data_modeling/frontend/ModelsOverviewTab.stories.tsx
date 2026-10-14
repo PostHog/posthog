@@ -2,19 +2,19 @@ import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ModelsOverviewTab } from 'scenes/models/tabs/ModelsOverviewTab'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ModelsOverviewTab } from './ModelsOverviewTab'
+
 const nodes = ['attention', 'behind'].flatMap((group) =>
     Array.from({ length: 12 }, (_, index) => ({
         id: `${group}-${index + 1}`,
         name: `${group}_model_${index + 1}`,
         type: 'matview',
-        dag: 'example-dag',
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         last_run_at: '2026-09-14T00:00:00Z',
@@ -39,7 +39,6 @@ const healthyNodes = Array.from({ length: 3 }, (_, index) => ({
     id: `healthy-${index + 1}`,
     name: `healthy_model_${index + 1}`,
     type: 'matview',
-    dag: 'example-dag',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     last_run_at: '2026-09-15T00:00:00Z',

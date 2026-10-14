@@ -1,0 +1,44 @@
+rules:
+    - id: api-route-path-underscore-in-products
+      message: |
+          This API route uses a hyphen in a path segment. API paths use underscores
+          (`set_default`, not `set-default`), so that the URL, the view name and the JSON fields all
+          read the same way. This covers a route passed to `path()`, `re_path()` or
+          `opt_slash_path()` in a product `urls.py`, `routes.py` or `hub_api.py`. Product routes
+          sit under an `api/` mount.
+
+          Change the literal to use underscores. Route names (`name="..."`) and `<converter:param>`
+          values are not checked.
+
+          A hyphenated path that has already shipped keeps its name, because SDKs, MCP tools and
+          customer scripts call it. It carries `# nosemgrep: api-route-path-underscore-in-products` on the line
+          above. Use the same comment, with a reason, when a provider or an external contract
+          dictates the path. Routes in `webhook_urlpatterns` are not checked.
+      severity: WARNING
+      languages: [python]
+      paths:
+          include:
+              - 'products/**/backend/**/urls.py'
+              - 'products/**/backend/**/routes.py'
+              - 'products/**/backend/**/hub_api.py'
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      patterns:
+          - pattern-either:
+                - pattern: path("$PATH", ...)
+                - pattern: re_path("$PATH", ...)
+                - pattern: opt_slash_path("$PATH", ...)
+          # A product mounts `webhook_urlpatterns` at `webhooks/<product>/`: not an API route.
+          - pattern-not-inside: |
+                webhook_urlpatterns = [...]
+          - pattern-not-inside: |
+                webhook_urlpatterns: $T = [...]
+          # Same segment check as `api-path-underscore`. Product modules declare routes relative
+          # to an API mount, so every route counts. `^` may start a `re_path` pattern.
+          - metavariable-regex:
+                metavariable: $PATH
+                regex: '^(?:\^)?(?:.*/)?[A-Za-z0-9_]+-[A-Za-z0-9_-]*(?=/|\(|\?|\$|$)'
+      metadata:
+          category: best-practice

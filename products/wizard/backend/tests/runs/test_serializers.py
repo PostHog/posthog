@@ -2,7 +2,26 @@ import pytest
 
 from products.wizard.backend.facade.contracts import GitRepositoryWorkspace, LocalFolderWorkspace
 from products.wizard.backend.facade.enums import WizardRunEnvironment
-from products.wizard.backend.presentation.runs.serializers import WizardRunCreateRequestSerializer
+from products.wizard.backend.presentation.runs.serializers import (
+    UpdateWizardRunTaskListSerializer,
+    WizardRunCreateRequestSerializer,
+)
+
+
+@pytest.mark.parametrize(
+    "tasks",
+    (
+        [{"name": "Install SDK"}],
+        [{"name": "Install SDK", "status": "unknown"}],
+        [{"name": "Install SDK", "status": "created"}, {"name": "Install SDK", "status": "running"}],
+        [{"name": " ", "status": "created"}],
+        [{"name": str(i), "status": "created"} for i in range(101)],
+    ),
+)
+def test_task_snapshot_rejects_invalid_tasks(tasks: list[dict[str, str]]) -> None:
+    serializer = UpdateWizardRunTaskListSerializer(data={"tasks": tasks})
+    assert not serializer.is_valid()
+    assert "tasks" in serializer.errors
 
 
 @pytest.mark.parametrize(

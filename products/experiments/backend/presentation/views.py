@@ -43,7 +43,7 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -68,6 +68,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.api import get_experiment_health_findings
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -94,9 +95,12 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
-    ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricsRecalculationJobSerializer,
+    ExperimentMetricsRecalculationLatestSerializer,
+    ExperimentMetricsRecalculationRunSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
     ExperimentSessionBucketResponseSerializer,
@@ -121,6 +125,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -131,7 +136,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance_from_stats,
 )
 from products.experiments.backend.session_buckets import (
-    SessionBucket,
+    ExperimentSessionBucket,
     SessionBucketUnavailable,
     finalize_session_bucket,
     get_experiment_session_bucket,
@@ -148,9 +153,6 @@ from products.experiments.backend.setup_context import (
     EXPERIMENT_SETUP_CONTEXT_FLAG,
     SetupContextInputs,
     build_setup_context,
-)
-from products.experiments.backend.temporal.models import (
-    ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -322,7 +324,7 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         name="search",
         location=OpenApiParameter.QUERY,
         type=str,
-        description="Free-text search applied to the experiment name (case-insensitive).",
+        description="Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
         required=False,
     ),
     OpenApiParameter(
@@ -518,6 +520,10 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
+        if self.action == "health":
+            # The facade reads the experiment again with the joins its checks need, so the object lookup
+            # here only checks access.
+            queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
@@ -608,6 +614,30 @@ class EnterpriseExperimentsViewSet(
         effective_level = user_permissions.team(self.team).effective_membership_level
         if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
+
+    def _check_copy_target_access(self, request: Request, target_team: Team) -> None:
+        """Authorize the target project of a cross-project copy.
+
+        Every class in the permission stack resolves against `view.team`, which is the source
+        project in the URL, so the target project is not checked at all by the time the action
+        body runs. This applies the same gates the target project's own `POST /experiments/`
+        would apply: the credential's project scope, project membership, and experiment editor
+        access in the target.
+        """
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams is not None and target_team.id not in scoped_teams:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {target_team.id}.")
+
+        user = cast(User, request.user)
+        effective_level = UserPermissions(user=user).team(target_team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            raise PermissionDenied("You do not have write access to the target project.")
+
+        target_access_control = UserAccessControl(user=user, team=target_team)
+        if not target_access_control.check_access_level_for_object(
+            target_team, required_level="member"
+        ) or not target_access_control.check_access_level_for_resource("experiment", required_level="editor"):
+            raise PermissionDenied("You do not have permission to create experiments in the target project.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -860,6 +890,23 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Health check findings for this experiment: problems in its configuration and its feature flag
+        that keep it from producing trustworthy results, each with a fix.
+
+        The checks here read the experiment, its flag and its linked metrics. The checks that read
+        exposures come with the exposure query.
+        """
+        experiment: Experiment = self.get_object()
+        findings = get_experiment_health_findings(team_id=self.team_id, experiment_id=experiment.id)
+        return Response(ExperimentHealthSerializer({"findings": findings}).data)
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,
@@ -1215,11 +1262,7 @@ class EnterpriseExperimentsViewSet(
         if target_team is None:
             return Response({"detail": "Target team not found."}, status=404)
 
-        user_permissions = UserPermissions(user=cast(User, request.user))
-        target_team_permissions = user_permissions.team(target_team)
-        effective_level = target_team_permissions.effective_membership_level
-        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
-            return Response({"detail": "You do not have write access to the target project."}, status=403)
+        self._check_copy_target_access(request, target_team)
 
         feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
         name = request_serializer.validated_data.get("name")
@@ -1341,8 +1384,14 @@ class EnterpriseExperimentsViewSet(
     @extend_schema(
         request=RecalculateMetricsRequestSerializer,
         responses={
-            200: ExperimentMetricsRecalculationSerializer,
-            201: ExperimentMetricsRecalculationSerializer,
+            200: ExperimentMetricsRecalculationJobSerializer,
+            201: ExperimentMetricsRecalculationJobSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A manual trigger arrived less than five minutes after the latest completed run finished. "
+                    "Retry-After carries the seconds until the next run is allowed."
+                )
+            ),
         },
     )
     @action(
@@ -1355,7 +1404,8 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. The response payload intentionally does not
+        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1378,43 +1428,18 @@ class EnterpriseExperimentsViewSet(
         is_existing = result.get("is_existing", False)
 
         if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(
-                            recalculation_id=recalculation_id,
-                            fairness_key=str(experiment.team.organization_id),
-                        ),
-                        id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-                # where only discovery ran, the rollback wins deliberately: the mark_started and
-                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
-                # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
-                    team=self.team,
-                    id=recalculation_id,
-                    status=ExperimentMetricsRecalculation.Status.PENDING,
-                    query_to__isnull=True,
-                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+            start_metrics_recalculation_workflow(
+                str(result["id"]),
+                team_id=experiment.team_id,
+                organization_id=str(experiment.team.organization_id),
+            )
 
         return Response(
-            ExperimentMetricsRecalculationSerializer(result).data,
+            ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if is_existing else 201,
         )
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
     @action(
         methods=["GET"],
         detail=True,
@@ -1429,7 +1454,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_recalculation(recalc, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1437,12 +1462,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            if active_run is not None:
-                fallback["active_run"] = active_run
-            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+            return Response(_serialize_latest(fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_recalculation(active, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -1461,7 +1484,7 @@ class EnterpriseExperimentsViewSet(
                 ),
             )
         ],
-        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+        responses={200: ExperimentMetricsRecalculationRunSerializer, 404: None},
     )
     @action(
         methods=["GET"],
@@ -1477,7 +1500,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -1770,7 +1793,7 @@ class EnterpriseExperimentsViewSet(
                 # property-level access control.
                 user=cast(User, request.user),
                 experiment=experiment,
-                bucket=SessionBucket(request.validated_data["bucket"]),
+                bucket=ExperimentSessionBucket(request.validated_data["bucket"]),
                 metric_uuids=request.validated_data["metric_uuids"],
                 variant=request.validated_data["variant"],
                 limit=request.validated_data["limit"],
@@ -1866,10 +1889,14 @@ class EnterpriseExperimentsViewSet(
             return False
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
+def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    return payload
+
+
+def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
-    return ExperimentMetricsRecalculationSerializer(payload).data
+    return ExperimentMetricsRecalculationLatestSerializer(payload).data

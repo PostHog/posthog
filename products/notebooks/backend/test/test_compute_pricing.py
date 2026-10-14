@@ -128,7 +128,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         )
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -149,7 +149,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert payload["restart_required"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -184,7 +184,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["restarted"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -207,7 +207,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["restarted"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=False,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -227,7 +227,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["restarted"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -265,7 +265,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert status_payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -342,10 +342,10 @@ class TestComputeOptionsEndpoint(APIBaseTest):
 
         assert payload["status"] == expected_status
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        "products.notebooks.backend.sql_v2_dispatch.sandbox_is_running",
         return_value=True,
     )
     def test_a_run_reusing_a_live_sandbox_discloses_nothing(
@@ -363,7 +363,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["starts_sandbox"] is False
 
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     def test_a_run_with_no_live_sandbox_discloses_the_start(self, _flag: MagicMock, _workflow: MagicMock) -> None:
         # The client used to answer this from a kernel poll up to ten seconds old, which stayed
         # silent through a sandbox that timed out between polls.
@@ -378,7 +378,38 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["starts_sandbox"] is True
 
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_the_disclosure_ignores_the_sandbox_this_run_starts(self, _flag: MagicMock) -> None:
+        # The sandbox lane provisions a kernel of its own. Read after the handoff, the
+        # disclosure can see that kernel and report that this run started nothing — silence
+        # exactly when the user is first being charged.
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        self._live_kernel(notebook)
+        sandbox_up = False
+
+        def provision(*_args: object, **_kwargs: object) -> None:
+            nonlocal sandbox_up
+            sandbox_up = True
+
+        with (
+            patch(
+                "products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow",
+                side_effect=provision,
+            ),
+            patch(
+                "products.notebooks.backend.sql_v2_dispatch.sandbox_is_running",
+                side_effect=lambda *_a, **_k: sandbox_up,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/run/",
+                {"node_id": "n1", "code": "print(1)", "node_type": "python"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["starts_sandbox"] is True
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_a_pure_hogql_run_never_discloses_a_sandbox(self, _flag: MagicMock, _direct: MagicMock) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
 

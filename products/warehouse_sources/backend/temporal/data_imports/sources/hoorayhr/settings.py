@@ -18,9 +18,9 @@ class HoorayHREndpointConfig:
 # HoorayHR's public API (OpenAPI spec at https://api.hoorayhr.io/swagger.json) exposes no pagination,
 # no cursors, and no server-side timestamp filters on any of these list endpoints — each returns the
 # full collection as one bare JSON array, so every table is full refresh only (matching the Airbyte
-# connector's capabilities). Report-style endpoints that require date-range parameters
-# (/attendance-report, /working-today, /public-holidays) are point-in-time views, not warehouse
-# tables, and are deliberately not synced.
+# connector's capabilities). Report-style endpoints (/attendance-report, /working-today) aggregate
+# data we already sync over a caller-chosen window and are point-in-time views, not warehouse tables,
+# so they are deliberately not synced.
 HOORAYHR_ENDPOINTS: dict[str, HoorayHREndpointConfig] = {
     "users": HoorayHREndpointConfig(name="users", path="/users", partition_key="createdAt"),
     "time_off": HoorayHREndpointConfig(name="time_off", path="/time-off", partition_key="createdAt"),
@@ -48,10 +48,25 @@ HOORAYHR_ENDPOINTS: dict[str, HoorayHREndpointConfig] = {
     "work_location_categories": HoorayHREndpointConfig(
         name="work_location_categories", path="/work-location-categories", partition_key="createdAt"
     ),
+    "external_leave_types": HoorayHREndpointConfig(
+        name="external_leave_types", path="/external-leave-types", partition_key="createdAt"
+    ),
+    "external_leave_budgets": HoorayHREndpointConfig(
+        name="external_leave_budgets", path="/external-leave-budgets", partition_key="createdAt"
+    ),
+    # Requires a date window of at most one year, so it is fetched one calendar year at a time (see
+    # PUBLIC_HOLIDAYS_YEARS_*). A holiday in several policies comes back once per policy with no policy
+    # id; those records are merged into one row per (id, date).
+    "public_holidays": HoorayHREndpointConfig(
+        name="public_holidays", path="/public-holidays", primary_keys=["id", "date"]
+    ),
     # Rows are teams (with member/leader user-id arrays), keyed by teamId; no timestamps exposed.
     "teams_information": HoorayHREndpointConfig(
         name="teams_information", path="/teams-information", primary_keys=["teamId"]
     ),
 }
+
+PUBLIC_HOLIDAYS_YEARS_BACK = 1
+PUBLIC_HOLIDAYS_YEARS_AHEAD = 1
 
 ENDPOINTS = tuple(HOORAYHR_ENDPOINTS.keys())

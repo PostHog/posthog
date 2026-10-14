@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api-error'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -9,6 +10,18 @@ import { logsAlertsList } from 'products/logs/frontend/generated/api'
 import { alertsList } from '../generated/api'
 import { hasEffectiveResourceAccess } from '../utils'
 
+// The frontend access check can pass while the backend still answers 403. Treat that kind as unreadable.
+async function countUnlessForbidden(request: Promise<{ count: number }>): Promise<number | null> {
+    try {
+        return (await request).count
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+            return null
+        }
+        throw error
+    }
+}
+
 /**
  * Setup detection for the alerts empty state. The scene serves both alert kinds, so
  * either one counts as set up - a project alerting only on logs must not be told it
@@ -18,6 +31,8 @@ import { hasEffectiveResourceAccess } from '../utils'
 export const alertsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ALERTS,
     path: ['products', 'alerts', 'frontend', 'emptyState', 'alertsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const canViewInsightAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Insight)
         const canViewLogAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Logs)
@@ -27,11 +42,14 @@ export const alertsSetupLogic = createSetupDetectionLogic({
         }
 
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
-        const [insightAlerts, logAlerts] = await Promise.all([
-            canViewInsightAlerts ? alertsList(projectId, { limit: 1 }) : null,
-            canViewLogAlerts ? logsAlertsList(projectId, { limit: 1 }) : null,
+        const counts = await Promise.all([
+            canViewInsightAlerts ? countUnlessForbidden(alertsList(projectId, { limit: 1 })) : null,
+            canViewLogAlerts ? countUnlessForbidden(logsAlertsList(projectId, { limit: 1 })) : null,
         ])
-        const count = (insightAlerts?.count ?? 0) + (logAlerts?.count ?? 0)
-        return count > 0 ? 'has-data' : 'needs-setup'
+        const readableCounts = counts.filter((count): count is number => count !== null)
+        if (readableCounts.length === 0) {
+            return 'unknown'
+        }
+        return readableCounts.some((count) => count > 0) ? 'has-data' : 'needs-setup'
     },
 })

@@ -41,6 +41,11 @@ _PARENT_PROBE_PATHS = {
     "organisation": "/organisations/",
     "project": "/projects/",
     "environment": "/projects/",
+    "identity": "/projects/",
+    "environment_feature": "/projects/",
+    "versioned_environment_feature": "/projects/",
+    "project_feature_environment": "/projects/",
+    "project_segment_environment": "/projects/",
 }
 
 
@@ -65,7 +70,7 @@ class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConf
             keywords=["feature flags", "remote config"],
             label="Flagsmith",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Flagsmith organisation API key to pull your projects, environments, feature flags, flag states, segments, and audit log into the PostHog Data warehouse.
+            caption="""Enter your Flagsmith organisation API key to pull your projects, environments, feature flags, flag states, segments, identities, and audit log into the PostHog Data warehouse.
 
 Create an organisation API key under **Organisation Settings > API Keys** in your Flagsmith dashboard. Note that organisation API keys grant admin access to every project in the organisation, so store them carefully.
 

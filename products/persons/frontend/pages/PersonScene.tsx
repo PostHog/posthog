@@ -48,7 +48,7 @@ import {
     PropertyDefinitionType,
 } from '~/types'
 
-import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { RelatedGroups } from 'products/groups/frontend/components/RelatedGroups'
 
@@ -162,7 +162,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
         try {
             // Prepare toolbar flags on backend and get cache key
             // This posts to the user API, which has no generated function.
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
             const response = await api.create('api/user/prepare_toolbar_preloaded_flags', {
                 distinct_id: distinctId,
             })

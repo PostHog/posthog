@@ -11,6 +11,11 @@ import { urls } from 'scenes/urls'
 import { ApiConfig } from '~/lib/api'
 import { Breadcrumb } from '~/types'
 
+import {
+    clonePayloadPreservingFiles,
+    findUploadedFiles,
+    readJsonFile,
+} from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { externalDataSourcesStoreCredentialsCreate } from 'products/warehouse_sources/frontend/generated/api'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -36,24 +41,14 @@ const buildCredentialsPayload = async (
 ): Promise<Record<string, any>> => {
     const payload: Record<string, any> = {}
     for (const field of fields) {
-        const value = formPayload[field.name]
-        if (field.type === 'file-upload') {
-            if (value?.[0]) {
-                try {
-                    // Assumes we're loading a JSON file, same as the wizard's submit
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const fileReader = new FileReader()
-                        fileReader.onload = (e) => resolve(e.target?.result as string)
-                        fileReader.onerror = (e) => reject(e)
-                        fileReader.readAsText(value[0])
-                    })
-                    payload[field.name] = JSON.parse(loadedFile)
-                } catch (e) {
-                    throw new FileUploadParseError(field.name, e)
-                }
-            }
-        } else {
-            payload[field.name] = value
+        payload[field.name] = clonePayloadPreservingFiles(formPayload[field.name])
+    }
+    for (const { field, container, file } of findUploadedFiles(fields, payload)) {
+        try {
+            // Assumes we're loading a JSON file, same as the wizard's submit
+            container[field.name] = await readJsonFile(file)
+        } catch (e) {
+            throw new FileUploadParseError(field.name, e)
         }
     }
     return payload

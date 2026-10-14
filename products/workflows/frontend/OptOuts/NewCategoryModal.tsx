@@ -6,15 +6,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea, Link }
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { newCategoryLogic } from './newCategoryLogic'
-
-interface MessageCategory {
-    id: string
-    key: string
-    name: string
-    description: string
-    public_description: string
-    category_type: string
-}
+import type { MessageCategory } from './optOutCategoriesLogic'
 
 interface NewCategoryModalProps {
     isOpen: boolean

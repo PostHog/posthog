@@ -59,10 +59,8 @@ import {
   useTaskRepositoryDraftStore,
 } from "../stores/taskRepositoryDraftStore";
 import type { PendingKickoff } from "./ChannelFeedView";
-import {
-  TaskRepositoryChip,
-  TaskRepositoryDialog,
-} from "./TaskRepositoryDialog";
+import { TaskRepositoryChip } from "./TaskRepositoryChip";
+import { TaskRepositoryDialog } from "./TaskRepositoryDialog";
 
 export interface ChannelHomeComposerHandle {
   /** Drop a starter prompt into the editor and apply its mode, if any. */
@@ -512,10 +510,19 @@ export const ChannelHomeComposer = forwardRef<
         />
         <TaskRepositoryChip
           cloud={workspaceMode === "cloud"}
-          repositoryCount={taskRepositories.length}
+          repositories={taskRepositories}
+          integrationId={taskGithubIntegration}
           hasFolder={!!taskFolder}
           disabled={isBusy || cloudGithubUnavailable}
-          onOpen={() => setRepositoryDialogOpen(true)}
+          onRepositoriesChange={(repositories, githubIntegration) =>
+            setRepositoryDraft(channelId, {
+              repositories,
+              githubIntegration,
+              folder: taskFolder,
+            })
+          }
+          onOpenSettings={() => setRepositoryDialogOpen(true)}
+          settingsOpen={repositoryDialogOpen}
         />
       </div>
 

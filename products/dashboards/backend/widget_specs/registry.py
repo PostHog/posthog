@@ -9,24 +9,29 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
+    CANVAS_APP_WIDGET_TYPE,
     CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
+    NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
+    CanvasAppWidgetConfig,
     ConversationsRecentTicketsWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
+    NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
 )
 
 DashboardWidgetType = Literal[
+    "notebook_widget",
     "activity_events_list",
     "error_tracking_list",
     "session_replay_list",
@@ -35,6 +40,7 @@ DashboardWidgetType = Literal[
     "survey_results",
     "logs_list",
     "conversations_recent_tickets",
+    "canvas_app",
 ]
 
 __all__ = [
@@ -112,6 +118,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.activity_events_list import (  # noqa: PLC0415
         run_activity_events_list_widget,
     )
+    from products.dashboards.backend.widgets.canvas_app import run_canvas_app_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.conversations_recent_tickets import (  # noqa: PLC0415
         run_conversations_recent_tickets_widget,
     )
@@ -119,10 +126,27 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
 
     return {
+        NOTEBOOK_WIDGET_TYPE: WidgetSpec(
+            widget_type=NOTEBOOK_WIDGET_TYPE,
+            config_model=NotebookWidgetConfig,
+            query_fn=run_notebook_widget,
+            required_scopes=("notebook:read", "query:read"),
+            group_id="notebooks",
+            group_label="Notebooks",
+            label="Notebook widget",
+            description="A generated notebook widget with saved dataframe results. Add it from a notebook widget's menu. Dashboard filters do not change notebook variables.",
+            required_product_access=None,
+            product_access_denied_message=None,
+            availability_requirements=(),
+            form_fields=(),
+            filter_fields=(),
+            creation_flag="notebook-generated-widgets",
+        ),
         ACTIVITY_EVENTS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
             config_model=ActivityEventsListWidgetConfig,
@@ -246,6 +270,22 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
+        ),
+        CANVAS_APP_WIDGET_TYPE: WidgetSpec(
+            widget_type=CANVAS_APP_WIDGET_TYPE,
+            config_model=CanvasAppWidgetConfig,
+            query_fn=run_canvas_app_widget,
+            required_scopes=("canvas:read",),
+            group_id="canvas",
+            group_label="Canvas",
+            label="Canvas app",
+            description="A published canvas app rendered in a tile. It reads data and acts with each viewer's own permissions.",
+            required_product_access=None,
+            product_access_denied_message=None,
+            availability_requirements=(),
+            form_fields=("canvasId",),
+            filter_fields=(),
+            creation_flag="small-software-apps",
         ),
     }
 

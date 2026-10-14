@@ -83,7 +83,7 @@ from products.signals.backend.scout_harness.tools.profile import (
 from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestProjectContext(BaseTest):
@@ -716,16 +716,16 @@ class TestRecentHogFunctions(BaseTest):
 
 class TestRecentHogFlows(BaseTest):
     def test_total_active_counts_excludes_archived(self) -> None:
-        HogFlow.objects.create(team=self.team, name="draft", status="draft")
-        HogFlow.objects.create(team=self.team, name="active", status="active")
-        HogFlow.objects.create(team=self.team, name="archived", status="archived")
+        create_workflow_for_test(team_id=self.team.id, name="draft", status="draft")
+        create_workflow_for_test(team_id=self.team.id, name="active", status="active")
+        create_workflow_for_test(team_id=self.team.id, name="archived", status="archived")
         result = _recent_hog_flows(self.team)
         assert result["total_count"] == 3
         assert result["active_count"] == 2  # everything except archived
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        HogFlow.objects.create(team=other, name="x", status="active")
+        create_workflow_for_test(team_id=other.id, name="x", status="active")
         result = _recent_hog_flows(self.team)
         assert result["total_count"] == 0
 

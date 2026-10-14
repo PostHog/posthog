@@ -377,7 +377,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
 
     listeners(({ actions, values }) => ({
         loadTaggers: async () => {
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use taggersList() from 'products/ai_observability/frontend/generated/api' instead.
             const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/taggers/`)
             actions.loadTaggersSuccess(response.results)
         },
@@ -390,7 +390,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
             if (!tagger) {
                 return
             }
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use taggersPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
             await api.update(`api/projects/${teamLogic.values.currentTeamId}/taggers/${id}/`, {
                 enabled: !tagger.enabled,
             })

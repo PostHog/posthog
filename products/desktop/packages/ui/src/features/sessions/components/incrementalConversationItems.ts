@@ -266,6 +266,7 @@ function assembleItems(
         childItems: new Map(turn.context.childItems),
         turnCancelled: turn.context.turnCancelled,
         turnComplete: turn.context.turnComplete,
+        isImplicit: turn.context.isImplicit,
       }
     : null;
 

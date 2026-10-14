@@ -1,6 +1,7 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
+import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -50,14 +51,7 @@ function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any |
     const checksLimit = Math.min(data.adds.length, 3)
     for (let i = 0; i < checksLimit; i++) {
         const node = data.adds[i]?.node
-        if (
-            node &&
-            node.type === 2 &&
-            node.tagName === 'img' &&
-            node.attributes?.['data-rrweb-id'] &&
-            node.attributes?.width &&
-            node.attributes?.height
-        ) {
+        if (node && node.type === 2 && node.tagName === 'img' && node.attributes?.[SCREENSHOT_ATTRIBUTE]) {
             return node
         }
     }

@@ -1,7 +1,7 @@
 // Domain types, error classes and discriminated unions for the agent-proxy.
 // Shapes defined here must stay compatible with the Python counterparts in
-// products/tasks/backend/stream/redis_stream.py and
-// products/tasks/backend/proxy/event_ingest.py — both sides share the same
+// products/tasks/backend/logic/stream/redis_stream.py and
+// products/tasks/backend/logic/stream/event_ingest.py — both sides share the same
 // Redis stream and HTTP contracts.
 
 import type { Redis } from 'ioredis'
@@ -171,7 +171,14 @@ export type IngestLine = IngestEventLine | IngestCompleteLine
 // Side-effect callback kind (matches Python callback contract in docs/DESIGN.md)
 // ---------------------------------------------------------------------------
 
-export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'turn_failed' | 'command_dispatched' | 'agent_activity'
+export type SideEffectKind =
+    | 'heartbeat'
+    | 'awaiting_input'
+    | 'turn_failed'
+    | 'command_dispatched'
+    | 'agent_activity'
+    | 'budget_steer'
+    | 'process_killed'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface

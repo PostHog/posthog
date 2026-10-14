@@ -28,7 +28,7 @@ export function SignalSourcesPanel(): JSX.Element {
         loadSources,
         loadSourceConfigs,
         loadVisionScanners,
-        loadToolDataEvents,
+        loadProductDataEvents,
         closeDataSourceSetup,
         onDataSourceSetupComplete,
     } = useActions(signalSourcesLogic)
@@ -37,7 +37,7 @@ export function SignalSourcesPanel(): JSX.Element {
         loadSources()
         loadSourceConfigs()
         loadVisionScanners()
-        loadToolDataEvents()
+        loadProductDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     if (dataSourceSetupSource !== null) {

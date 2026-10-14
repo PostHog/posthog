@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 import { AppMetricsSeriesOverride, AppMetricsTimeSeriesChart } from './AppMetricsTimeSeriesChart'
 
@@ -10,6 +12,7 @@ export function AppMetricsTrends({
     loading,
     metricLabels,
     seriesColors,
+    className,
 }: {
     appMetricsTrends: AppMetricsTimeSeriesResponse | null
     loading: boolean
@@ -17,6 +20,7 @@ export function AppMetricsTrends({
     metricLabels?: Record<string, string>
     /** Optional colors keyed by series name, so a metric reads the same color here as in its tile. */
     seriesColors?: Record<string, string>
+    className?: string
 }): JSX.Element {
     const seriesOverrides = useMemo(() => {
         // Identical to the previous label-only behavior when `seriesColors` is unset, so callers that
@@ -37,7 +41,7 @@ export function AppMetricsTrends({
     }, [metricLabels, seriesColors])
 
     return (
-        <div className="relative border rounded min-h-[20rem] h-[70vh] bg-surface-primary">
+        <div className={cn('relative border rounded min-h-[20rem] h-[70vh] bg-surface-primary', className)}>
             {loading ? (
                 <SpinnerOverlay />
             ) : !appMetricsTrends ? (

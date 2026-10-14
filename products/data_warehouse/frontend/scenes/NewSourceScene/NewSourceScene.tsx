@@ -49,6 +49,7 @@ import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
+import { SourceCatalogSkeleton } from './SourceCatalogSkeleton'
 import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -107,7 +108,12 @@ export function NewSourceScene(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return (
+            <SceneContent>
+                <SceneTitleSection name="New data warehouse source" resourceType={{ type: 'data_pipeline' }} />
+                <SourceCatalogSkeleton />
+            </SceneContent>
+        )
     }
 
     if (availableSources === null) {
@@ -202,7 +208,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return <SourceCatalogSkeleton />
     }
 
     if (availableSources === null) {
@@ -563,7 +569,7 @@ function DatabaseFirewallHint(): JSX.Element | null {
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
-    const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
+    const { selectedConnector, source, sourceConnectionDetails, prefixRequired } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         2,
         sourceConnectionDetails?.access_method,
@@ -612,6 +618,7 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 sourceConfig={selectedConnector}
                 initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
                 showAccessMethodSelector={false}
+                prefixRequired={prefixRequired}
                 sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>

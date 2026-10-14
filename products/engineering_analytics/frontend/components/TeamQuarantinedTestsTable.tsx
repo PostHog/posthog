@@ -7,16 +7,18 @@ import { githubFileUrl } from '../lib/github'
 import { TrunkQuarantinedTestRow } from '../scenes/engineeringAnalyticsLogic'
 import { TestIdCell } from './TestIdCell'
 
-/** One team's quarantined tests, rendered inside the debt table's expanded row. */
+/** One team's quarantined tests, shown in the debt table's expanded row and on the team page. */
 export function TeamQuarantinedTestsTable({
     tests,
     ttlDays,
     repository,
+    loading = false,
 }: {
     tests: TrunkQuarantinedTestRow[]
     ttlDays: number
     /** 'owner/name' the test file paths are relative to, for the GitHub links. */
     repository: string
+    loading?: boolean
 }): JSX.Element {
     const columns: LemonTableColumns<TrunkQuarantinedTestRow> = [
         {
@@ -79,7 +81,9 @@ export function TeamQuarantinedTestsTable({
             columns={columns}
             dataSource={tests}
             rowKey={(row) => `${row.runner}:${row.nodeid}`}
+            loading={loading}
             useURLForSorting={false}
+            emptyState="No quarantined tests belong to this team."
             nouns={['test', 'tests']}
         />
     )

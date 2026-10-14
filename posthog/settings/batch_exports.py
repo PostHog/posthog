@@ -177,6 +177,9 @@ BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS: int = get_from_env(
 BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME: int = get_from_env(
     "BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME", 900, type_cast=int
 )  # 15 minutes (deliberately under the file-download stage timeout of 20 minutes)
+BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS: int = get_from_env(
+    "BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS", 6 * 60 * 60, type_cast=int
+)
 BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE: int = get_from_env(
     "BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE", 50 * 1024**3, type_cast=int
 )  # 50GiB (rather arbitrary for now, can always increase later)

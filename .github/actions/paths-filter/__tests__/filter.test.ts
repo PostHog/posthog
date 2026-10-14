@@ -1,3 +1,7 @@
+import {readFileSync} from 'node:fs'
+import path from 'node:path'
+
+import * as jsyaml from 'js-yaml'
 import {Filter} from '../src/filter'
 import {File, ChangeStatus} from '../src/file'
 
@@ -28,6 +32,41 @@ describe('yaml filter parsing tests', () => {
 })
 
 describe('matching tests', () => {
+  test('builds the Docker image when frontend source changes', () => {
+    const workflowYaml = readFileSync(
+      path.join(__dirname, '../../../../.github/workflows/container-images-ci.yml'),
+      'utf8'
+    )
+    const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
+    const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
+    const files = modified([
+      'products/posthog_ai/frontend/logics/runStreamLogic.ts',
+      'products/cdp/frontend/emptyState/WebScriptPreview.scss',
+      'products/cdp/frontend/emptyState/preview.svg',
+      'packages/agent/packages/agent-contracts/src/acp-conversation.ts',
+      'bin/turbo',
+      'patches/kea@4.0.0-pre.6.patch',
+      'frontend/src/logics/example.test.ts',
+      'frontend/src/logics/example.spec.tsx',
+      'products/cdp/frontend/emptyState/WebScriptPreview.stories.tsx',
+      'products/cdp/frontend/emptyState/WebScriptPreview.test.tsx',
+      'products/cdp/frontend/emptyState/WebScriptPreview.spec.tsx',
+      'products/desktop/src/App.tsx',
+      'posthog/api/example.py'
+    ])
+
+    expect(new Filter(filtersYaml).match(files).build_inputs).toEqual(files.slice(0, 6))
+  })
+
+  test('runs frontend consumer tests when replay-shared source changes', () => {
+    const workflowYaml = readFileSync(path.join(__dirname, '../../../../.github/workflows/ci-frontend.yml'), 'utf8')
+    const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
+    const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
+    const files = modified(['common/replay-shared/src/mobile/transformer/transformers.ts'])
+
+    expect(new Filter(filtersYaml).match(files).frontend_code).toEqual(files)
+  })
+
   test('matches single inline rule', () => {
     const yaml = `
     src: "src/**/*.js"

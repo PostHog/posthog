@@ -455,12 +455,12 @@ describe('MCPClientProfile', () => {
     })
 
     describe('isInlineExecUiHost()', () => {
-        it.each([['ClaudeCode'], ['Cowork']])('is true for the %s vendor client', (vendorClient) => {
-            expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(true)
+        it('is true for the ClaudeCode vendor client', () => {
+            expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isInlineExecUiHost()).toBe(true)
         })
 
-        // Claude.ai renders via the separate render-ui tool, not the inline exec payload.
-        it.each([['ClaudeAI'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
+        // Claude.ai and Cowork render via the separate render-ui tool, not the inline exec payload.
+        it.each([['ClaudeAI'], ['Cowork'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
             'is false for the %s vendor client',
             (vendorClient) => {
                 expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(false)
@@ -485,6 +485,20 @@ describe('MCPClientProfile', () => {
             [{}, false],
         ])('resolves %j to %s', (input, expected) => {
             expect(new MCPClientProfile(input).isClaudeChatHost()).toBe(expected)
+        })
+    })
+
+    describe('isAnthropicConnector()', () => {
+        it.each([
+            [{ clientName: 'Anthropic/ClaudeAI', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'Cowork', userAgent: 'Claude-User' }, true],
+            [{ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'claude-code', vendorClient: 'ClaudeCode' }, false],
+            [{ vendorClient: 'ClaudeCode' }, false],
+            [{}, false],
+        ])('resolves %j to %s', (input, expected) => {
+            expect(new MCPClientProfile(input).isAnthropicConnector()).toBe(expected)
         })
     })
 

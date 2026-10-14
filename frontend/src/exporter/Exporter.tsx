@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Suspense, useEffect, useSyncExternalStore } from 'react'
 
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
+
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -27,7 +29,6 @@ const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapSce
 const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
 const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
-const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
 const LazyQueryScene = lazyWithRetry(() => import('./scenes/ExporterQueryScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
@@ -86,7 +87,6 @@ export function Exporter(props: ExportedData): JSX.Element {
         themes,
         accessToken,
         exportToken,
-        interview,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
@@ -127,14 +127,6 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     if (type === ExportType.Unlock) {
         return <ExporterLogin whitelabel={whitelabel} />
-    }
-
-    if (type === ExportType.Interview && interview) {
-        return (
-            <Suspense fallback={<ExportedSceneSkeleton />}>
-                <LazyInterviewScene interview={interview} accessToken={accessToken} />
-            </Suspense>
-        )
     }
 
     return (
@@ -226,7 +218,11 @@ export function Exporter(props: ExportedData): JSX.Element {
                         />
                     </Suspense>
                 ) : dashboard ? (
-                    <Suspense fallback={<ExportedSceneSkeleton />}>
+                    <Suspense
+                        fallback={
+                            <DashboardLoadingState showControls={false} tileCount={dashboard.tiles?.length ?? 0} />
+                        }
+                    >
                         <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
                     </Suspense>
                 ) : recording ? (

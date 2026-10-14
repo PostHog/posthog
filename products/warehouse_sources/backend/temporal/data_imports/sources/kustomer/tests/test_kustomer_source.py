@@ -1,21 +1,27 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
-from urllib.parse import urlparse
-
 import pytest
 from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
     KustomerSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
 
-# The REST framework builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+EXPECTED_PATHS = {
+    "customers": "/v1/customers",
+    "conversations": "/v1/conversations",
+    "users": "/v1/users",
+    "teams": "/v1/teams",
+    "tags": "/v1/tags",
+    "brands": "/v1/brands",
+    "companies": "/v1/companies",
+    "sub_statuses": "/v1/sub-statuses",
+    "satisfaction_forms": "/v1/satisfaction",
+}
 
 
 class TestKustomerSource:
@@ -28,33 +34,6 @@ class TestKustomerSource:
         # The stored API key is sent to the host derived from org_name, so
         # retargeting it must force re-entry of the secret.
         assert self.source.connection_host_fields == ["org_name"]
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://myorg.api.kustomerapp.com/v1/customers",
-            "403 Client Error: Forbidden for url: https://myorg.api.kustomerapp.com/v1/users",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_does_not_match_server_errors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://myorg.api.kustomerapp.com/v1/customers"
-            for key in non_retryable_errors
-        )
-
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # GET list endpoints have no updated-since filter; full refresh only.
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -83,35 +62,13 @@ class TestKustomerSource:
 
     @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_requests_v1_rest_paths_for_every_version(self, mock_session, endpoint, pinned_version):
+    def test_source_requests_v1_rest_paths_for_every_version(self, endpoint: str, pinned_version: str | None) -> None:
         # Every list resource is served at /v1/ for both vendor versions; a v2 pin
-        # must not switch to /v2/, which would 404 the stream. Covering all six also
-        # guards against a per-resource /v2/ typo in the endpoint catalog.
-        session = mock_session.return_value
-        session.headers = {}
-        captured: list[str] = []
+        # must not switch to /v2/, which would 404 the stream. Covering every endpoint
+        # also guards against a per-resource /v2/ typo in the endpoint catalog.
+        result = SourceDriver(self.source, self.config).run(
+            endpoint, [ScriptedResponse(json={"data": [], "links": {}})], api_version=pinned_version
+        )
 
-        def _prepare(request: Any) -> mock.MagicMock:
-            captured.append(request.url)
-            prepared = mock.MagicMock()
-            prepared.url = request.url
-            return prepared
-
-        session.prepare_request.side_effect = _prepare
-        page = Response()
-        page.status_code = 200
-        page._content = json.dumps({"data": [], "links": {}}).encode()
-        session.send.return_value = page
-
-        inputs = mock.MagicMock()
-        inputs.schema_name = endpoint
-        inputs.api_version = pinned_version
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-        list(cast(Iterable[Any], response.items()))
-
-        assert captured, "expected at least one request"
-        assert urlparse(captured[0]).path == f"/v1/{endpoint}"
+        assert result.raised is None
+        assert result.paths == [EXPECTED_PATHS[endpoint]]

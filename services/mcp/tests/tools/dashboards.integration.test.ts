@@ -122,6 +122,18 @@ describe('Dashboards', { concurrent: false }, () => {
             })
             createdResources.insights.push(insight.id)
 
+            const otherInsight = await context.api.request<{ id: number }>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
+                    name: generateUniqueKey('Other Layout Insight'),
+                    query: SAMPLE_HOGQL_QUERIES.topEvents,
+                    saved: true,
+                    dashboards: [createdDashboard.id],
+                },
+            })
+            createdResources.insights.push(otherInsight.id)
+
             const dashboardResult = await getTool.handler(context, { id: createdDashboard.id })
             const dashboard = parseToolResponse(dashboardResult)
             const tile = dashboard.tiles.find((item: { insight?: { id: number } }) => item.insight?.id === insight.id)
@@ -140,6 +152,11 @@ describe('Dashboards', { concurrent: false }, () => {
             )
 
             expect(updatedTile?.layouts).toEqual(layouts)
+            expect(
+                updatedDashboard.tiles.some(
+                    (item: { insight?: { id: number } }) => item.insight?.id === otherInsight.id
+                )
+            ).toBe(true)
         })
     })
 
@@ -483,6 +500,13 @@ describe('Dashboards', { concurrent: false }, () => {
 
             expect(reorderResponse.id).toBe(dashboard.id)
             expect(reorderResponse._posthogUrl).toContain('/dashboard/')
+
+            const omittedTile = reorderResponse.tiles.find((tile: { id: number }) => tile.id === tileIds[0])
+            await reorderTiles.handler(context, { id: dashboard.id, tile_order: [tileIds[1]] })
+            const afterPartialReorder = parseToolResponse(await getOneDashboard.handler(context, { id: dashboard.id }))
+            expect(afterPartialReorder.tiles.find((tile: { id: number }) => tile.id === tileIds[0])?.layouts).toEqual(
+                omittedTile?.layouts
+            )
 
             // Verify insight2 is still on dashboard2 after reordering dashboard1
             const dashboard2WithTiles = parseToolResponse(await getOneDashboard.handler(context, { id: dashboard2.id }))

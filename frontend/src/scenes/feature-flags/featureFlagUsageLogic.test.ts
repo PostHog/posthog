@@ -1,17 +1,34 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
+import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagUsageLogic } from './featureFlagUsageLogic'
-import { DEFAULT_USAGE_DATE_RANGE } from './featureFlagUsageQueries'
+import { DEFAULT_USAGE_DATE_RANGE, FlagUsageQuery } from './featureFlagUsageQueries'
 
 const FLAG_ID = 1
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+}
+
+// Every chart reads the events table unless a test moves the team off the Events mode.
+function trendsSource(query: FlagUsageQuery): TrendsQuery {
+    if (query.kind !== NodeKind.InsightVizNode) {
+        throw new Error(`Expected an events-table trend, got ${query.kind}`)
+    }
+    return query.source
+}
 
 function flag(overrides: Partial<FeatureFlagType> = {}): FeatureFlagType {
     return {
@@ -39,6 +56,36 @@ describe('featureFlagUsageLogic', () => {
     })
 
     it.each([
+        ['events', FlagEvaluationsModeEnumApi.Number0, false],
+        ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, true],
+        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, true],
+    ])('reads flag_evaluations for the %s mode: %s', (_name, mode, readsEvaluations) => {
+        setFlagEvaluationsMode(mode)
+
+        expect(logic.values.readsFlagEvaluationsTable).toEqual(readsEvaluations)
+        expect(logic.values.usageCharts.map((chart) => chart.query.kind)).toEqual(
+            readsEvaluations
+                ? [NodeKind.DataVisualizationNode, NodeKind.DataVisualizationNode]
+                : [NodeKind.InsightVizNode, NodeKind.InsightVizNode]
+        )
+    })
+
+    it('holds the date range inside the retention window when reading flag_evaluations', async () => {
+        setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
+
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-180d', null)
+        }).toMatchValues({
+            selectedDateRange: { date_from: '-180d', date_to: null },
+            dateRange: { date_from: '-90d', date_to: null },
+        })
+
+        const optionKeys = logic.values.dateOptions?.map((option) => option.key)
+        expect(optionKeys).toContain('Last 90 days')
+        expect(optionKeys).not.toContain('All time')
+    })
+
+    it.each([
         [false, ['total-volume', 'unique-callers']],
         [true, ['total-volume', 'unique-callers', 'feature-view', 'feature-interaction']],
     ])('renders the enriched charts only when has_enriched_analytics is %s', (hasEnriched, expectedKeys) => {
@@ -56,8 +103,8 @@ describe('featureFlagUsageLogic', () => {
 
         expect(logic.values.usageCharts).toHaveLength(4)
         for (const chart of logic.values.usageCharts) {
-            expect(chart.query.source.dateRange).toEqual({ date_from: '-24h', date_to: null })
-            expect(chart.query.source.interval).toEqual('hour')
+            expect(trendsSource(chart.query).dateRange).toEqual({ date_from: '-24h', date_to: null })
+            expect(trendsSource(chart.query).interval).toEqual('hour')
         }
     })
 
@@ -65,7 +112,9 @@ describe('featureFlagUsageLogic', () => {
         featureFlagLogic({ id: FLAG_ID }).actions.loadFeatureFlagSuccess(flag({ key: 'renamed-feature' }))
 
         for (const chart of logic.values.usageCharts) {
-            expect(chart.query.source.properties).toEqual([expect.objectContaining({ value: 'renamed-feature' })])
+            expect(trendsSource(chart.query).properties).toEqual([
+                expect.objectContaining({ value: 'renamed-feature' }),
+            ])
         }
     })
 

@@ -1,7 +1,5 @@
 """DRF serializers for security."""
 
-from typing import Any
-
 from rest_framework import serializers
 
 
@@ -70,20 +68,3 @@ class OrgMemberCountResponseSerializer(serializers.Serializer):
 
 class PosthogMembershipResponseSerializer(serializers.Serializer):
     has_posthog_account = serializers.BooleanField(help_text="Whether the target holds a posthog.com account.")
-
-
-class GlobalBypassSerializer(serializers.Serializer):
-    reason = serializers.CharField(help_text="Why the global bypass was set.")
-    actor = serializers.CharField(allow_null=True, help_text="Who set it.")
-    expires_at = serializers.DateTimeField(help_text="When it expires.")
-
-
-class MfaExportResponseSerializer(serializers.Serializer):
-    emails = serializers.ListField(child=serializers.CharField(), help_text="Addresses on the legacy bypass list.")
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        # "global" is a keyword, so this field cannot be declared in the class body.
-        self.fields["global"] = GlobalBypassSerializer(
-            source="global_bypass", allow_null=True, help_text="The global switch, when one is set."
-        )

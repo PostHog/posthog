@@ -55,6 +55,17 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
     }
 }
 
+/**
+ * The id a request carries to group its events by, most specific first. MCP 2026-07-28
+ * removed `initialize` and the `Mcp-Session-Id` header, so for those clients only the
+ * agent's handle is ever present. One definition because two callers must agree on the
+ * order: `getEffectiveSessionUuid` turns this into `$session_id`, and the executor hands
+ * the same value to the SDK, which mints a handle only when nothing was carried.
+ */
+export function resolveSessionKey(requestContext: MCPRequestContext): string | undefined {
+    return requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId
+}
+
 export function buildMCPSessionAnalyticsProperties(sessionContext: MCPSessionContext | null): Record<string, unknown> {
     if (!sessionContext) {
         return {}

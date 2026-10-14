@@ -45,7 +45,7 @@ import { editorContentToTiptapJson } from "../tiptap/markdownDoc";
 import { insertPastedMarkdown } from "../tiptap/markdownPaste";
 import { getPromptEditorAttributes } from "../tiptap/promptEditorAttributes";
 import { type DraftContext, useDraftSync } from "../tiptap/useDraftSync";
-import { htmlToMarkdown } from "../utils/htmlToMarkdown";
+import { convertClipboardHtml } from "../utils/htmlToMarkdown";
 import {
   persistImageFile,
   persistTextContent,
@@ -629,10 +629,13 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
             return true;
           }
 
-          // Editor is plain-text, so preserve pasted formatting as Markdown.
+          // Preserve rich formatting as Markdown. A standalone code block uses
+          // plain text so selection-copy matches the code block's copy button.
           const html = event.clipboardData?.getData("text/html");
-          const markdown = html ? htmlToMarkdown(html, clipboardText) : null;
-          const effectiveText = markdown ?? clipboardText;
+          const convertedHtml = html
+            ? convertClipboardHtml(html, clipboardText)
+            : null;
+          const effectiveText = convertedHtml?.text ?? clipboardText;
 
           // Auto-convert long pasted text into a file attachment
           const autoConvertThreshold =
@@ -679,15 +682,21 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
           // Lists, fences and inline code paste as nodes; input rules only fire
           // while typing, so without this they would stay literal text.
-          if (effectiveText && insertPastedMarkdown(view, effectiveText)) {
+          if (
+            effectiveText &&
+            convertedHtml?.kind !== "plain" &&
+            insertPastedMarkdown(view, effectiveText)
+          ) {
             event.preventDefault();
             return true;
           }
 
           // Insert inline; ProseMirror would otherwise drop the HTML formatting.
-          if (markdown) {
+          if (convertedHtml) {
             event.preventDefault();
-            view.dispatch(view.state.tr.insertText(markdown, from, to));
+            view.dispatch(
+              view.state.tr.insertText(convertedHtml.text, from, to),
+            );
             return true;
           }
 

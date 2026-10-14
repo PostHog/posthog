@@ -5,6 +5,7 @@ import { LemonInput, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -15,9 +16,14 @@ import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { logsRetentionFormLogic } from './logsRetentionFormLogic'
 import { isValidLogsRetentionDays } from './logsRetentionPeriod'
 import { LogsRetentionPeriodPicker } from './LogsRetentionPeriodPicker'
+import { LOGS_RETENTION_PRODUCT, RetentionRulesProduct } from './retentionRulesProduct'
 import { buildRetentionProjection, retentionProjectionText } from './retentionStorageProjection'
 
-export function LogsRetentionForm(): JSX.Element {
+export function LogsRetentionForm({
+    product = LOGS_RETENTION_PRODUCT,
+}: {
+    product?: RetentionRulesProduct
+} = {}): JSX.Element {
     const { retentionForm, retentionFormErrors, suggestedName, suggestedNameLoading } =
         useValues(logsRetentionFormLogic)
     const { setRetentionFormValue, applySuggestedName } = useActions(logsRetentionFormLogic)
@@ -50,7 +56,7 @@ export function LogsRetentionForm(): JSX.Element {
                     <LemonInput
                         value={retentionForm.name}
                         onChange={(v) => setRetentionFormValue('name', v)}
-                        placeholder="e.g. Keep payment logs for 30 days"
+                        placeholder={`e.g. Keep payment ${product.recordNounPlural} for 30 days`}
                     />
                 </LemonField.Pure>
                 <LemonField.Pure label="Enabled">
@@ -62,7 +68,10 @@ export function LogsRetentionForm(): JSX.Element {
             </div>
 
             <SceneSection title="Retention" titleSize="sm">
-                <LemonField.Pure label="Keep matching logs for" error={retentionFormErrors.retention_days}>
+                <LemonField.Pure
+                    label={`Keep matching ${product.recordNounPlural} for`}
+                    error={retentionFormErrors.retention_days}
+                >
                     <LogsRetentionPeriodPicker
                         value={retentionForm.retention_days}
                         onChange={(days) => setRetentionFormValue('retention_days', days)}
@@ -76,33 +85,40 @@ export function LogsRetentionForm(): JSX.Element {
             <SceneSection
                 title="Match"
                 titleSize="sm"
-                description="Logs matching these filters use the retention above instead of the environment default. The first matching rule wins."
+                description={`${capitalizeFirstLetter(product.recordNounPlural)} matching these filters use the retention above instead of the environment default. The first matching rule wins.`}
             >
                 <DropRuleFilterEditor
                     filterGroup={retentionForm.filter_group}
                     onChange={(group) => setRetentionFormValue('filter_group', group)}
+                    taxonomicGroupTypes={product.taxonomicGroupTypes}
                 />
-                {!hasFilters && <p className="text-danger text-xs mt-1 mb-0">Add at least one filter to match logs.</p>}
-                <LogsFilterVolumeSparkline
-                    filterGroup={retentionForm.filter_group}
-                    metric="bytes"
-                    renderCaption={({ points }) => {
-                        const projection = retentionDaysValid
-                            ? buildRetentionProjection(points, retentionForm.retention_days)
-                            : null
-                        if (!projection) {
-                            return null
-                        }
-                        return (
-                            <div className="flex items-center gap-1 text-xs text-muted">
-                                <span>{retentionProjectionText(projection, retentionForm.retention_days)}</span>
-                                <Tooltip title="Estimated from uncompressed ingested bytes over the last 24 hours — the same measure logs usage is billed on. Batch-level byte counts are spread evenly across records, so this is an approximation.">
-                                    <IconInfo className="shrink-0" />
-                                </Tooltip>
-                            </div>
-                        )
-                    }}
-                />
+                {!hasFilters && (
+                    <p className="text-danger text-xs mt-1 mb-0">
+                        Add at least one filter to match {product.recordNounPlural}.
+                    </p>
+                )}
+                {product.showVolumePreview && (
+                    <LogsFilterVolumeSparkline
+                        filterGroup={retentionForm.filter_group}
+                        metric="bytes"
+                        renderCaption={({ points }) => {
+                            const projection = retentionDaysValid
+                                ? buildRetentionProjection(points, retentionForm.retention_days)
+                                : null
+                            if (!projection) {
+                                return null
+                            }
+                            return (
+                                <div className="flex items-center gap-1 text-xs text-muted">
+                                    <span>{retentionProjectionText(projection, retentionForm.retention_days)}</span>
+                                    <Tooltip title="Estimated from uncompressed ingested bytes over the last 24 hours — the same measure logs usage is billed on. Batch-level byte counts are spread evenly across records, so this is an approximation.">
+                                        <IconInfo className="shrink-0" />
+                                    </Tooltip>
+                                </div>
+                            )
+                        }}
+                    />
+                )}
             </SceneSection>
         </div>
     )

@@ -5,7 +5,7 @@ from html import escape
 import time_machine
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -20,7 +20,7 @@ from posthog.api.csp import (
 from posthog.sampling import sample_on_property
 
 
-class TestCSPModule(TestCase):
+class TestCSPModule(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
@@ -280,6 +280,8 @@ class TestCSPModule(TestCase):
         assert event["distinct_id"] == "test-user"
         assert event["properties"]["$session_id"] == "test-session"
         assert event["properties"]["$csp_version"] == "1"
+        assert event["options"] == {"process_person_profile": False}
+        assert "$process_person_profile" not in event["properties"]
 
     @time_machine.travel("2023-01-01 12:00:00", tick=False)
     def test_sample_csp_report(self):

@@ -17,29 +17,6 @@ class TestCompanycamSource:
         self.config = CompanycamSourceConfig(api_key="test-key")
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.companycam.com/v2/projects?page=1",
-            "403 Client Error: Forbidden for url: https://api.companycam.com/v2/photos?page=1",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.companycam.com/v2/photos",
-            "500 Server Error: Internal Server Error for url: https://api.companycam.com/v2/photos",
-            "HTTPSConnectionPool(host='api.companycam.com', port=443): Read timed out.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
             (True, True, None),

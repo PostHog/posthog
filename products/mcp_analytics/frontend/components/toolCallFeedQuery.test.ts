@@ -29,6 +29,7 @@ describe('tool call feed queries', () => {
         expect(MCP_ACTIVITY_MAX_ROWS).toBeGreaterThan(MCP_ACTIVITY_PAGE_SIZE)
         expect(MCP_ACTIVITY_COLUMNS).toContain('*')
         expect(MCP_ACTIVITY_COLUMNS.find((column) => column.endsWith('-- Tool'))).toContain('$mcp_exec_tool_call_name')
+        expect(MCP_ACTIVITY_COLUMNS.find((column) => column.endsWith('-- Model'))).toContain('$mcp_llm_model')
     })
 
     it('narrows the feed to failed calls without dropping other filters or stacking itself', () => {

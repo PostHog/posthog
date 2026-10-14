@@ -41,6 +41,7 @@ class _RecordingBackend:
     without a real box."""
 
     def __init__(self):
+        self.web_port = 8000
         self.files: dict[str, bytes | str] = {}
         self.long_runs: dict[str, str] = {}
         self.attached = False

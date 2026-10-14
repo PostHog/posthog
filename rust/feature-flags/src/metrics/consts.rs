@@ -88,6 +88,7 @@ pub const GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER: &str =
 // (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
 pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
 pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER: &str = "flags_batch_eval_person_retries_total";
 pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
@@ -389,8 +390,9 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
     "flags_flag_definitions_reads_dedicated_redis";
 
-// Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
-// worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
+// Flag definitions self-heal: a request enqueued a rebuild request for a Celery worker to
+// drain. Labels: result (ok = enqueued, error = redis zadd failed), trigger (cache_miss =
+// nothing served the request, s3_hit = Redis lost the entry and S3 answered).
 pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
     "flags_flag_definitions_rebuild_requested_total";
 

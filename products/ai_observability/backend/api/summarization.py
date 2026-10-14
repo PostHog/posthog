@@ -11,7 +11,7 @@ Endpoints:
 
 import time
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache
 
@@ -49,11 +49,22 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
 )
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
+from products.ai_observability.backend.summarization.budget import (
+    batch_text_repr_budget,
+    bounded_text_repr,
+    text_repr_budget,
+)
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
-from products.ai_observability.backend.summarization.utils import get_summary_cache_key
+from products.ai_observability.backend.summarization.utils import (
+    get_summarization_lookup_date_range,
+    get_summary_cache_key,
+)
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -61,10 +72,17 @@ from products.ai_observability.backend.text_repr.formatters import (
     llm_trace_to_formatter_format,
 )
 
+if TYPE_CHECKING:
+    from posthog.models import User
+
 logger = structlog.get_logger(__name__)
 
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
+
+
+def _compact_cache_key(cache_key: str) -> str:
+    return f"{cache_key}:compact"
 
 
 # Request/Response Serializers
@@ -88,6 +106,12 @@ class SummarizeRequestSerializer(serializers.Serializer):
         default=False,
         required=False,
         help_text="Force regenerate summary, bypassing cache",
+    )
+    compact_context = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Bound the input to a cost-conscious size instead of the full model context window. "
+        "Use it when you summarize many traces at once and need only a short result such as the title.",
     )
     model = serializers.CharField(
         default=None,
@@ -251,7 +275,34 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             mode: Summary detail level ('minimal' or 'detailed')
             model: LLM model
         """
-        return get_summary_cache_key(self.team_id, summarize_type, entity_id, mode, model)
+        return get_summary_cache_key(
+            self.team_id,
+            summarize_type,
+            entity_id,
+            mode,
+            model,
+            restricted_properties=get_restricted_properties_with_group_type_index_for_team(
+                user=cast("User", self.request.user), team_id=self.team_id
+            ),
+        )
+
+    @staticmethod
+    def _get_cached_summary(cache_key: str, compact_context: bool) -> dict | None:
+        """Read a cached summary. A full-context summary also serves a compact request, but not the opposite."""
+        if compact_context:
+            compact_result = cache.get(_compact_cache_key(cache_key))
+            if compact_result is not None:
+                return compact_result
+        return cache.get(cache_key)
+
+    @staticmethod
+    def _cache_summary(cache_key: str, result: dict, compact_context: bool) -> None:
+        if compact_context:
+            cache.set(_compact_cache_key(cache_key), result, timeout=3600)
+            return
+        cache.set(cache_key, result, timeout=3600)
+        # A compact request reads the compact entry first, so an older one would hide this newer summary.
+        cache.delete(_compact_cache_key(cache_key))
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -293,6 +344,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         )
         runner = TraceQueryRunner(
             team=self.team,
+            user=cast("User", self.request.user),
             query=TraceQuery(traceId=trace_id, dateRange=date_range),
         )
         response = runner.calculate()
@@ -344,6 +396,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     "date_to": date_to_expr,
                 },
                 team=self.team,
+                user=cast("User", self.request.user),
             )
 
         if not result.results:
@@ -400,6 +453,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                 query=query,
                 placeholders=placeholders,
                 team=self.team,
+                user=cast("User", self.request.user),
                 query_type="LLMAnalyticsSummarizationHeavyFetch",
             )
         except AIEventsExpiredError:
@@ -411,17 +465,22 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
 
         return dict(zip(HEAVY_COLUMN_NAMES, result.results[0]))
 
-    def _generate_text_repr(self, summarize_type: str, entity_data: dict, model: str | None = None) -> str:
+    def _generate_text_repr(
+        self, summarize_type: str, entity_data: dict, model: str | None = None, compact_context: bool = False
+    ) -> str:
         """Generate line-numbered text representation for summarization.
 
         Args:
             summarize_type: 'trace' or 'event'
             entity_data: Dict containing trace/event data
+            compact_context: Bound the text to the batch ceiling instead of the model window
 
         Returns:
             Line-numbered text representation
         """
-        budget = text_repr_budget(model)
+        # Each trace of an agent session can repeat the full conversation, so a fan-out over a session
+        # at the model window pays for a huge trace on every call.
+        budget = batch_text_repr_budget(model) if compact_context else text_repr_budget(model)
         options: FormatterOptions = {
             "include_line_numbers": True,
             "truncated": False,
@@ -585,6 +644,7 @@ The response includes the structured summary, the text representation, and metad
             summarize_type = serializer.validated_data["summarize_type"]
             mode = serializer.validated_data["mode"]
             force_refresh = serializer.validated_data["force_refresh"]
+            compact_context = serializer.validated_data["compact_context"]
             model = serializer.validated_data.get("model")
             # Treat empty string as None for model
             if model == "":
@@ -603,10 +663,26 @@ The response includes the structured summary, the text representation, and metad
             else:
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
+                restrictions = get_restricted_properties_with_group_type_index_for_team(
+                    user=cast("User", request.user), team_id=self.team_id
+                )
+                # Client payloads may contain values fetched before permissions changed, so refetch to mask them.
+                # Formatters render only event properties. Other restrictions must not force a lookup
+                # that could reject a client-only entity without protecting any formatted content.
+                if split_restricted_property_names(restrictions).event:
+                    if summarize_type == "trace":
+                        trace_id = entity_id
+                    else:
+                        generation_id = entity_id
+                        date_range = get_summarization_lookup_date_range(
+                            entity_data["event"].get("timestamp"), date_from=date_from, date_to=date_to
+                        )
+                        date_from = date_range.date_from
+                        date_to = date_range.date_to
 
             cache_key = self._get_cache_key(summarize_type, entity_id, mode, model)
             if not force_refresh:
-                cached_result = cache.get(cache_key)
+                cached_result = self._get_cached_summary(cache_key, compact_context)
                 if cached_result is not None:
                     logger.info(
                         "Returning cached summary",
@@ -625,7 +701,7 @@ The response includes the structured summary, the text representation, and metad
             if entity_data is None:
                 raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
-            text_repr = self._generate_text_repr(summarize_type, entity_data, model)
+            text_repr = self._generate_text_repr(summarize_type, entity_data, model, compact_context)
 
             start_time = time.time()
             user_distinct_id = getattr(request.user, "distinct_id", None)
@@ -641,7 +717,7 @@ The response includes the structured summary, the text representation, and metad
 
             result = self._build_summary_response(summary, text_repr, summarize_type)
 
-            cache.set(cache_key, result, timeout=3600)
+            self._cache_summary(cache_key, result, compact_context)
             logger.info(
                 "Generated and cached new summary",
                 summarize_type=summarize_type,
@@ -661,6 +737,7 @@ The response includes the structured summary, the text representation, and metad
                     "mode": mode,
                     "text_repr_length": len(text_repr),
                     "force_refresh": force_refresh,
+                    "compact_context": compact_context,
                     "duration_seconds": duration_seconds,
                 },
                 team=self.team,
@@ -704,7 +781,7 @@ with their titles.
         """,
         tags=["AI observability"],
     )
-    @action(detail=False, methods=["post"], url_path="batch_check")
+    @action(detail=False, methods=["post"], url_path="batch_check", required_scopes=["llm_analytics:read"])
     @llma_track_latency("llma_summarize_batch_check")
     @monitor(feature=None, endpoint="llma_summarize_batch_check", method="POST")
     def batch_check(self, request: Request, **kwargs) -> Response:
@@ -728,8 +805,9 @@ with their titles.
 
         summaries = []
         for trace_id in trace_ids:
-            cache_key = self._get_cache_key("trace", trace_id, mode, model)
-            cached_result = cache.get(cache_key)
+            cached_result = self._get_cached_summary(
+                self._get_cache_key("trace", trace_id, mode, model), compact_context=True
+            )
             if cached_result is not None:
                 summary_data = cached_result.get("summary", {})
                 title = summary_data.get("title", "Untitled trace")

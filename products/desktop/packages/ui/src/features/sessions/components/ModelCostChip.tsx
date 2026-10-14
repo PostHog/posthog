@@ -1,12 +1,11 @@
 import {
-  formatModelRates,
   MODEL_COST_BASELINE_NAME,
   type ModelCostInfo,
 } from "@posthog/core/billing/modelPricing";
 
 /** The exact rates behind a multiplier, for the chip's title. */
 export function modelCostTitle(cost: ModelCostInfo): string {
-  return `Cost per token vs ${MODEL_COST_BASELINE_NAME} · ${formatModelRates(cost.price)}`;
+  return `Cost per token vs ${MODEL_COST_BASELINE_NAME} · ${cost.summary}`;
 }
 
 /**

@@ -68,6 +68,26 @@ def increment_safety_blocked(source_product: str = "unknown") -> None:
     ).add(1)
 
 
+def increment_safety_cache_lookup(result: str) -> None:
+    """Count safety verdict cache lookups by hit, miss, or error."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"result": result}).create_counter(
+        "signals_safety_cache_lookups_total",
+        "Safety verdict cache lookups by result",
+    ).add(1)
+
+
+def increment_safety_cache_write_error() -> None:
+    """Count failed safety verdict cache writes."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter().create_counter(
+        "signals_safety_cache_write_errors_total",
+        "Failed safety verdict cache writes",
+    ).add(1)
+
+
 def increment_dropped(stage: str, reason: str, count: int = 1) -> None:
     """Count signals lost to an error, attributed to a stage and reason."""
     if not _in_temporal_context() or count <= 0:

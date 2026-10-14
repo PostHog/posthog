@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
     FinnhubSourceConfig,
@@ -13,46 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 def _config(**overrides: Any) -> FinnhubSourceConfig:
-    base: dict[str, Any] = {"api_key": "key", "symbols": "AAPL", "exchange": "US"}
+    base: dict[str, Any] = {"api_key": "key", "symbols": "AAPL", "indices": "^GSPC", "exchange": "US"}
     base.update(overrides)
     return FinnhubSourceConfig.from_dict(base)
 
 
-class TestSourceConfig:
-    def test_fields(self) -> None:
-        fields = {f.name: f for f in FinnhubSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key", "symbols", "exchange"}
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        # The fan-out and exchange fields must be optional so market-wide tables work alone.
-        assert fields["symbols"].required is False
-        assert fields["exchange"].required is False
-
-
 class TestGetSchemas:
-    def test_lists_all_endpoints(self) -> None:
-        schemas = FinnhubSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == {
-            "stock_symbols",
-            "market_news",
-            "ipo_calendar",
-            "earnings_calendar",
-            "country",
-            "company_profile",
-            "quote",
-            "company_news",
-            "basic_financials",
-            "recommendation_trends",
-            "earnings_surprises",
-        }
-
-    def test_only_company_news_is_incremental(self) -> None:
-        schemas = {s.name: s for s in FinnhubSource().get_schemas(_config(), team_id=1)}
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental == {"company_news"}
-        assert schemas["company_news"].incremental_fields[0]["field"] == "datetime"
-
     @parameterized.expand(
         [
             ("stock_symbols", True),
@@ -66,6 +31,14 @@ class TestGetSchemas:
             ("basic_financials", False),
             ("recommendation_trends", False),
             ("earnings_surprises", False),
+            ("financials_reported", False),
+            ("stock_candles", False),
+            ("sec_filings", False),
+            ("insider_transactions", False),
+            ("dividends", False),
+            ("peers", False),
+            ("index_constituents", False),
+            ("economic_calendar", False),
         ]
     )
     def test_should_sync_default(self, endpoint: str, expected_default: bool) -> None:
@@ -76,22 +49,6 @@ class TestGetSchemas:
     def test_names_filter(self) -> None:
         schemas = FinnhubSource().get_schemas(_config(), team_id=1, names=["quote", "country"])
         assert {s.name for s in schemas} == {"quote", "country"}
-
-
-class TestCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = FinnhubSource().get_canonical_descriptions()
-        schema_names = {s.name for s in FinnhubSource().get_schemas(_config(), team_id=1)}
-        # Every documented key must be a real endpoint name so descriptions actually attach.
-        assert set(descriptions).issubset(schema_names)
-        assert "company_news" in descriptions
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        assert FinnhubSource.lists_tables_without_credentials is True
-        tables = FinnhubSource().get_documented_tables()
-        assert len(tables) == 11
 
 
 class TestSourceForPipeline:

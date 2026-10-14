@@ -5,7 +5,12 @@ import { IconLlmAnalytics, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyResponseStatus, isScaleTwoRating } from 'scenes/surveys/utils'
+import {
+    getSurveyResponseStatus,
+    isScaleTwoRating,
+    surveyResponseColumnId,
+    surveyResponseColumnLabel,
+} from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
@@ -39,7 +44,7 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
  * - On thumb questions, render the icon + "Thumbs up/down" instead of the raw `1`/`2` value.
  */
 export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
-    const { survey } = useValues(surveyLogic)
+    const { survey, responseColumns } = useValues(surveyLogic)
 
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {
@@ -59,6 +64,12 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
                 title: 'Person',
                 render: ({ record }) => <PersonDisplay person={(record as EventType[])[0].person} />,
             },
+            ...Object.fromEntries(
+                responseColumns.map((column): [string, QueryContextColumn] => [
+                    surveyResponseColumnId(column),
+                    { title: surveyResponseColumnLabel(column) },
+                ])
+            ),
             actions: {
                 title: ' ',
                 render: ({ record }) => <EventRowActions event={(record as EventType[])[0]} />,
@@ -109,5 +120,5 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
         })
 
         return columns
-    }, [survey.questions])
+    }, [survey.questions, responseColumns])
 }

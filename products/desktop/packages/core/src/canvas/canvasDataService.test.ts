@@ -27,6 +27,9 @@ function makeService() {
 function insight(partial: Partial<InsightFetchResult>): InsightFetchResult {
   return {
     shortId: "abc123",
+    name: null,
+    sourceKind: "TrendsQuery",
+    display: null,
     queryKind: "TrendsQuery",
     columns: [],
     results: [],

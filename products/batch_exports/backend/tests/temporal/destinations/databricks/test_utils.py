@@ -51,15 +51,17 @@ def test_events_table_fields_match_the_exported_fields():
     # `_inserted_at` only tracks progress and is never exported.
     exported = sorted(field["alias"] for field in databricks_default_fields() if field["alias"] != "_inserted_at")
 
+    assert "person_id" in exported
     assert sorted(name for name, _ in _events_table_fields("VARIANT")) == exported
 
 
-def test_events_table_fields_drop_columns_missing_from_staged_data():
-    # A run that staged its data before `created_at` was added has no such column to copy, so
+@pytest.mark.parametrize("missing_column", ["created_at", "person_id"])
+def test_events_table_fields_drop_columns_missing_from_staged_data(missing_column: str) -> None:
+    # A run that staged its data before a column was added has no such column to copy, so
     # dropping it keeps the copy working instead of wedging the run on a retry loop.
-    staged = [field["alias"] for field in databricks_default_fields() if field["alias"] != "created_at"]
+    staged = [field["alias"] for field in databricks_default_fields() if field["alias"] != missing_column]
 
-    assert "created_at" not in _events_table_field_names(staged, schema=None)
+    assert missing_column not in _events_table_field_names(staged, schema=None)
 
 
 def test_events_table_fields_follow_a_custom_schema():

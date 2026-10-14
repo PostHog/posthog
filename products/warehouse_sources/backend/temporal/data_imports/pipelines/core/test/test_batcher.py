@@ -505,3 +505,87 @@ def test_batching_pa_table_converts_primary_key_binary_column_to_hex():
     assert result_table.column("sk_load").to_pylist() == ["bdd640", None]
     assert result_table.schema.field("sk_load").type == pa.string()
     assert result_table.column("payload").to_pylist() == [b"\x01", b"\x02"]
+
+
+def _sparse_key_rows(count: int, start: int = 0) -> list[dict]:
+    """Rows shaped like a source that merges per-row custom properties into the row itself."""
+    return [{"id": str(i), f"trait_{i}": "x"} for i in range(start, start + count)]
+
+
+def _feed_until_yield(batcher: Batcher, rows: list[dict]) -> int:
+    """Batch rows one at a time, stopping at the first yield. Returns how many were taken."""
+    for taken, row in enumerate(rows, start=1):
+        batcher.batch(row)
+        if batcher.should_yield():
+            return taken
+    return len(rows)
+
+
+def _sparse_key_batcher(logger: object, max_buffer_cells: int = 400) -> Batcher:
+    """Row and byte caps held far out of reach, so only the cell cap can fire."""
+    return Batcher(
+        logger=logger,  # type: ignore[arg-type]
+        chunk_size=100_000,
+        chunk_size_bytes=2**40,
+        max_buffer_cells=max_buffer_cells,
+    )
+
+
+def test_batcher_flushes_sparse_key_rows_before_the_row_and_byte_caps():
+    batcher = _sparse_key_batcher(mock.MagicMock())
+
+    # 20 rows carry 21 keys, the first point at which the product crosses 400.
+    assert _feed_until_yield(batcher, _sparse_key_rows(40)) == 20
+    assert batcher.get_table().num_rows == 20
+
+
+def test_batcher_keeps_dense_rows_on_the_row_cap():
+    # The cell cap must not shrink an ordinary batch, whose key set does not grow with its rows.
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=50, chunk_size_bytes=2**40, max_buffer_cells=400)
+
+    for i in range(49):
+        batcher.batch({"id": str(i), "name": "n"})
+
+    assert batcher.should_yield() is False
+
+    batcher.batch({"id": "49", "name": "n"})
+
+    assert batcher.should_yield() is True
+    assert batcher.get_table().num_rows == 50
+
+
+def test_batcher_cell_cap_resets_between_batches():
+    # The key set is per-buffer. Carrying it across flushes would trip the cap on every later row.
+    batcher = _sparse_key_batcher(mock.MagicMock())
+
+    _feed_until_yield(batcher, _sparse_key_rows(40))
+    assert batcher.get_table().num_rows == 20
+
+    assert _feed_until_yield(batcher, _sparse_key_rows(40, start=100)) == 20
+    assert batcher.get_table().num_rows == 20
+
+
+def test_batcher_logs_the_shape_when_the_cell_cap_flushes():
+    # The log is the only signal that names which source has the quadratic row shape.
+    logger = mock.MagicMock()
+    batcher = _sparse_key_batcher(logger)
+
+    _feed_until_yield(batcher, _sparse_key_rows(40))
+
+    logger.info.assert_called_once()
+    assert logger.info.call_args.args[0] == "batcher_flush_on_cell_cap"
+    assert logger.info.call_args.kwargs["row_count"] == 20
+    assert logger.info.call_args.kwargs["column_count"] == 21
+
+
+def test_batcher_cell_cap_applies_to_list_items():
+    # A source that yields pages, not single rows, reaches the cap through the list branch.
+    batcher = _sparse_key_batcher(mock.MagicMock())
+
+    batcher.batch(_sparse_key_rows(10))
+    assert batcher.should_yield() is False
+
+    batcher.batch(_sparse_key_rows(10, start=10))
+
+    assert batcher.should_yield() is True
+    assert batcher.get_table().num_rows == 20

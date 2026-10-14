@@ -4,12 +4,15 @@
 #
 # Marker state is only trusted from the identity the sweep posts as: reads and the comment
 # chosen for update are restricted to comments authored by MQ_TRIAGE_BOT_LOGIN. A commenter
-# can otherwise plant a marker to spoof "already triaged" and skip a PR. Fail closed: with
-# the login unset, `get` returns nothing and `set` always creates, so a fuzzy match never
-# trusts or overwrites another author's comment.
+# can otherwise plant a marker to spoof "already requeued" and stop the sweep acting on a PR.
+# Fail closed: with the login unset, `get` returns nothing and `set` always creates, so a fuzzy
+# match never trusts or overwrites another author's comment.
+#
+# A marker exists only where the sweep requeued, since that is the only action it comments on.
 #
 # A failed GitHub read exits 5. "No marker" and "could not look" must not print the same thing:
-# the first means triage this PR, the second means the sweep is blind and has to stop.
+# the first means this head has not been requeued, the second means the sweep is blind and has
+# to stop.
 set -euo pipefail
 
 MARKER_RE='<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->'
@@ -150,8 +153,8 @@ own_comment_bodies() {
 }
 
 # A marker written under a different login is invisible to `get` and unreachable by the
-# `set` upsert, so the sweep re-triages every PR and appends a comment each time. That is
-# indistinguishable from "never triaged", so report it instead of returning empty.
+# `set` upsert, so the sweep requeues a head it already requeued and appends a comment each
+# time. That is indistinguishable from "never requeued", so report it instead of returning empty.
 #
 # Only another App identity can mean that, so match bot authors and a complete marker. A human
 # who pastes marker-shaped text would otherwise halt every sweep that reaches their PR.

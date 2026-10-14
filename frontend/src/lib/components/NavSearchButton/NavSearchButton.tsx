@@ -16,7 +16,7 @@ export function NavSearchButton({
     return (
         <ButtonPrimitive
             iconOnly={!showShortcut}
-            className={showShortcut ? 'shrink-0' : undefined}
+            className={showShortcut ? 'shrink-0 px-1' : undefined}
             aria-label="Search"
             data-attr={showShortcut ? 'nav-search-bar' : 'nav-search'}
             tooltip={

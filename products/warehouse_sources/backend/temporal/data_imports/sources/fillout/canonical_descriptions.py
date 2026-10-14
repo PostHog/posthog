@@ -11,6 +11,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The name of the form.",
         },
     },
+    "form_metadata": {
+        "description": "The question catalog for a Fillout form: every question, calculation, URL parameter, scheduling and payment field, with the ids that submission answers reference.",
+        "docs_url": "https://www.fillout.com/help/api-reference/get-form-metadata",
+        "columns": {
+            "form_id": "The public identifier of the form this metadata describes.",
+            "id": "The public identifier of the form.",
+            "name": "The name of the form.",
+            "questions": "The form's questions, each with id, name, and type.",
+            "calculations": "The form's calculation fields, each with id, name, and type.",
+            "urlParameters": "The URL parameters the form accepts, each with id and name.",
+            "scheduling": "The form's Fillout Scheduling fields, each with id and name.",
+            "payments": "The form's Fillout Payments fields, each with id and name.",
+            "quiz": "Quiz configuration, present only when quiz mode is enabled on the form.",
+        },
+    },
     "submissions": {
         "description": "A single finished submission (response) to a Fillout form.",
         "docs_url": "https://www.fillout.com/help/api-reference/get-all-submissions",

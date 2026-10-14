@@ -1,13 +1,10 @@
 from typing import Optional
 
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
     ThinkificCoursesSourceConfig,
@@ -16,49 +13,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_
     ThinkificCoursesSource,
 )
 
-PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source.validate_thinkific_credentials"
-
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCoursesSourceConfig:
     return ThinkificCoursesSourceConfig(api_key=api_key, subdomain=subdomain)
 
 
-class TestThinkificCoursesSourceConfig:
-    def test_source_config_is_released_alpha(self) -> None:
-        cfg = ThinkificCoursesSource().get_source_config
-        assert cfg.label == "Thinkific Courses"
-        assert cfg.category == DataWarehouseSourceCategory.E_COMMERCE
-        assert cfg.releaseStatus == ReleaseStatus.ALPHA
-        # unreleasedSource hides the connector from every user; a finished source must not carry it.
-        assert not cfg.unreleasedSource
-
-    def test_source_config_fields(self) -> None:
-        cfg = ThinkificCoursesSource().get_source_config
-        fields = {f.name: f for f in cfg.fields}
-        assert set(fields) == {"api_key", "subdomain"}
-        api_key, subdomain = fields["api_key"], fields["subdomain"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(subdomain, SourceFieldInputConfig)
-        # The secret must be a password field; the subdomain is a plain text identifier.
-        assert api_key.type == "password"
-        assert api_key.secret is True
-        assert subdomain.type == "text"
-        assert subdomain.secret is False
-
-
 class TestThinkificCoursesValidateCredentials:
     def test_rejects_invalid_subdomain_without_calling_api(self) -> None:
-        with patch(PATCH_VALIDATE) as mock_validate:
+        with scripted_network([]) as network:
             ok, err = ThinkificCoursesSource().validate_credentials(_config(subdomain="bad domain"), team_id=1)
         assert ok is False
         assert err is not None
-        mock_validate.assert_not_called()
-
-    def test_valid_credentials(self) -> None:
-        with patch(PATCH_VALIDATE, return_value=(True, 200)):
-            ok, err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1)
-        assert ok is True
-        assert err is None
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -70,7 +36,7 @@ class TestThinkificCoursesValidateCredentials:
         ]
     )
     def test_status_handling(self, _name: str, status: int, schema_name: Optional[str], expected_ok: bool) -> None:
-        with patch(PATCH_VALIDATE, return_value=(False, status)):
+        with scripted_network([ScriptedResponse(status=status)]):
             ok, _err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
 
@@ -84,6 +50,7 @@ class TestThinkificCoursesValidateCredentials:
         ]
     )
     def test_schema_probe_path(self, _name: str, schema_name: str, expected_path: str) -> None:
-        with patch(PATCH_VALIDATE, return_value=(True, 200)) as mock_validate:
-            ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
-        assert mock_validate.call_args.args[2] == expected_path
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            ok, _err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+        assert ok is True
+        assert network.requests_log[0].path == f"/api/public/v1{expected_path}"

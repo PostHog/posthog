@@ -15,3 +15,35 @@ Opening the heatmap menu while access is loading does not enable heatmaps. A con
 This is a toolbar UI gate. The rollout flag does not add entitlement enforcement to the heatmap data endpoints.
 
 The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request pending to cover the loading state. Its screenshot test waits for “Checking plan access…” to appear and sets `waitForLoadersToDisappear: false` so the visible spinner does not time out the test.
+
+## Saved heatmap data URLs
+
+Capture requests reject malformed data URLs, using the same URL validation as other saved heatmap writes.
+Wildcards in the URL path are supported.
+
+Saving a heatmap from the toolbar keeps the captured page URL separate from the heatmap data URL.
+The saved data URL preserves the toolbar's selected URL pattern, including wildcards, for both responsive captures and the single-width fallback.
+Capture requests without a data URL keep using the exact page URL.
+
+A heatmap editor with resource-level access can change the data URL of a toolbar capture in the page settings without replacing its screenshot.
+Changing the captured page or its rendering settings still requires a new capture from the toolbar.
+Object-level editor access alone does not allow changing either URL.
+
+Saving again retries all configured page widths and creates a new heatmap.
+It does not add missing widths to an existing heatmap.
+
+## Screenshot capture
+
+Saving a heatmap uses the browser's current page to capture screenshots at several widths.
+Screenshots are JPEG images on a white background.
+Web fonts the page uses are embedded at every width.
+Canvases keep their size at every width.
+Images and video posters that cannot load, cannot decode, or answer with an error status such as 403 leave blank areas without changing the layout.
+Unreadable canvases and video frames also leave their original space in the screenshot.
+Image, font, and stylesheet fetches share a 15-second deadline for each capture.
+Stylesheets that miss this deadline are skipped so later capture widths can continue.
+This deadline does not bound the whole rendering process.
+An image that is still loading when a width finishes waiting stays blank at that width and every later width, so one slow host delays a save once instead of at every width.
+Capturing never changes the page's own stylesheets.
+Failed resource fetches are not cached, so later widths and save attempts can load a recovered resource.
+Successfully loaded resources remain cached.

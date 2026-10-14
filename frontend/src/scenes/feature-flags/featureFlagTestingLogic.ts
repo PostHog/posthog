@@ -45,8 +45,8 @@ const testEvaluationConcurrencyController = new ConcurrencyController(TEST_EVALU
 
 // Build the request body for a single evaluation. Shared by the single-ID and
 // batch paths so groups/timestamp are parsed and validated identically. Throws on
-// invalid groups or timestamp — callers let that fail the loader so the error
-// surfaces once via testError rather than per distinct ID.
+// invalid groups or timestamp. submitTestEvaluation checks the form with
+// testFormValidationError first, so this throw does not reach the loaders.
 function buildEvaluationRequest(formData: TestFormData, distinctId: string): FeatureFlagTestEvaluationRequestApi {
     const data: FeatureFlagTestEvaluationRequestApi = {}
 
@@ -70,34 +70,38 @@ function buildEvaluationRequest(formData: TestFormData, distinctId: string): Fea
     return data
 }
 
+// A loader that throws an error without an HTTP status is reported to error tracking,
+// so invalid user input must stop before a loader runs.
+function testFormValidationError(formData: TestFormData): string | null {
+    try {
+        buildEvaluationRequest(formData, '')
+        return null
+    } catch (e) {
+        return e instanceof Error ? e.message : String(e)
+    }
+}
+
 // Map an evaluation failure to the user-facing message. Shared by the single-ID
 // and batch failure handlers so both surface the same friendly rewrites.
 function evaluationErrorMessage(error: string, errorObject?: unknown): string {
-    const apiError = errorObject as ApiError
-    if (apiError?.detail) {
-        const errorDetail = apiError.detail
+    const apiError = errorObject as ApiError | undefined
+    // ApiError.message already holds the body's `error` field, which test_evaluation uses for its own failures.
+    const message = apiError?.detail || apiError?.message || error || ''
+    const lowerMessage = message.toLowerCase()
 
-        if (errorDetail.includes('Failed to build person properties at specified timestamp')) {
-            return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-        }
-
-        if (errorDetail.includes('person') && errorDetail.includes('not found')) {
-            return 'Person not found. This person may not have existed at the selected timestamp.'
-        }
-
-        if (errorDetail.includes('timestamp') || errorDetail.toLowerCase() === 'invalid timestamp') {
-            return 'Invalid timestamp. Please select a valid date and time.'
-        }
-
-        return errorDetail
-    }
-
-    const errorMessage = apiError?.message || error || ''
-    if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
+    if (lowerMessage.includes('failed to build person properties at specified timestamp')) {
         return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
     }
 
-    return errorMessage || 'An unexpected error occurred while testing the feature flag'
+    if (lowerMessage.includes('person') && lowerMessage.includes('not found')) {
+        return 'Person not found. This person may not have existed at the selected timestamp.'
+    }
+
+    if (lowerMessage.includes('invalid timestamp') || apiError?.attr === 'timestamp') {
+        return 'Invalid timestamp. Please select a valid date and time.'
+    }
+
+    return message || 'An unexpected error occurred while testing the feature flag'
 }
 
 function validateAndParseGroups(groups: string): Record<string, any> {
@@ -108,7 +112,7 @@ function validateAndParseGroups(groups: string): Record<string, any> {
 
     try {
         const parsed = JSON.parse(trimmed)
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
             throw new Error('groups must be a JSON object')
         }
         return parsed
@@ -271,6 +275,9 @@ export interface featureFlagTestingLogicActions {
     setTestFormData: (formData: Partial<TestFormData>) => {
         formData: Partial<TestFormData>
     }
+    submitTestEvaluation: () => {
+        value: true
+    }
     testAllDistinctIds: ({
         flagId,
         distinctIds,
@@ -397,6 +404,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         setSelectedResultDistinctId: (distinctId: string | null) => ({ distinctId }),
         clearBatchEvaluations: true,
         clearTestForm: true,
+        submitTestEvaluation: true,
     }),
     loaders(({ values }) => ({
         resolvedPersonDistinctIds: [
@@ -434,8 +442,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     distinctIds: string[]
                     formData: TestFormData
                 }) => {
-                    // Parse groups/timestamp once up front. A malformed form throws here and
-                    // fails the whole batch loudly (one testError) rather than N identical times.
+                    // Parse groups/timestamp once up front, not once per distinct ID.
                     const baseData = buildEvaluationRequest(formData, '')
 
                     return await Promise.all(
@@ -484,8 +491,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 clearTestForm: () => null,
                 testFlagEvaluationFailure: (_, { error, errorObject }: { error: string; errorObject?: unknown }) =>
                     evaluationErrorMessage(error, errorObject),
-                // A batch failure means the shared form (groups/timestamp) was invalid — the
-                // per-ID API errors are caught inside the loader and shown in the table.
+                // The loader catches per-ID API errors and shows them in the table.
                 testAllDistinctIdsFailure: (_, { error, errorObject }: { error: string; errorObject?: unknown }) =>
                     evaluationErrorMessage(error, errorObject),
             },
@@ -539,7 +545,22 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        submitTestEvaluation: () => {
+            const formData = values.testFormData
+            const formError = testFormValidationError(formData)
+            if (formError) {
+                actions.setTestError(formError)
+                return
+            }
+            if (values.hasMultipleDistinctIds) {
+                // Evaluate every merged distinct ID in one go so their variants can be
+                // compared side by side, rather than re-running the tool per ID.
+                actions.testAllDistinctIds({ flagId: props.flagId, distinctIds: values.personDistinctIds, formData })
+            } else {
+                actions.testFlagEvaluation({ flagId: props.flagId, formData })
+            }
+        },
         setSelectedPerson: ({ person, distinctId }) => {
             // A different person invalidates any batch table from the previous one.
             actions.clearBatchEvaluations()

@@ -13,16 +13,19 @@ from django.utils import timezone
 import httpx
 from parameterized import parameterized
 
+from posthog.redis import get_client
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.tools import (
     CALL_TIMEOUT,
     HANDSHAKE_TIMEOUT,
+    RESYNC_FAILURE_THROTTLE_SECONDS,
     ToolCallError,
     ToolsFetchError,
     call_upstream_tool,
     fetch_upstream_tools,
+    resync_installation_tools,
     sync_installation_tools,
 )
 
@@ -287,6 +290,25 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ToolsFetchError, match="unreachable"):
             fetch_upstream_tools(installation)
 
+    @parameterized.expand(
+        [
+            ("remote_protocol", httpx.RemoteProtocolError("server disconnected")),
+            ("too_many_redirects", httpx.TooManyRedirects("redirect loop")),
+        ]
+    )
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
+    def test_fetch_upstream_tools_reports_handshake_faults_as_fetch_errors(self, _name, error, mock_client_cls, _allow):
+        # Callers on the request path turn ToolsFetchError into a refusal, so an
+        # httpx error escaping here would become a 500 instead.
+        installation = self._installation()
+        client = MagicMock()
+        client.post.side_effect = error
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        with pytest.raises(ToolsFetchError, match="handshake failed"):
+            fetch_upstream_tools(installation)
+
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
     @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_raises_on_initialize_error(self, mock_client_cls, _allow):
@@ -297,6 +319,19 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
 
         with pytest.raises(ToolsFetchError, match="initialize returned status 401"):
             fetch_upstream_tools(installation)
+
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
+    def test_fetch_upstream_tools_drops_a_tool_whose_name_is_not_a_string(self, mock_client_cls, _allow):
+        # A non-string name is unhashable, so sync_installation_tools would raise
+        # TypeError on it — a 500 on the request path that re-lists.
+        installation = self._installation()
+        tools_body = json.dumps(
+            {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": ["search"]}, {"name": "alpha"}]}}
+        )
+        _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=tools_body))
+
+        assert [tool["name"] for tool in fetch_upstream_tools(installation)] == ["alpha"]
 
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
     @patch("products.mcp_store.backend.tools.pinned_client")
@@ -441,6 +476,32 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.removed_at is None
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_a_row_another_sync_created_is_updated_rather_than_duplicated(self, mock_fetch):
+        # The install task, "Refresh tools" and the request-path repair can overlap,
+        # and the loser of the (installation, tool_name) unique constraint would
+        # raise — a 500 out of the proxy, since nothing catches IntegrityError.
+        installation = self._installation()
+        mock_fetch.return_value = [{"name": "search", "description": "fresh"}]
+
+        def create_the_row_behind_this_sync(_installation):
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name="search",
+                description="raced",
+                approval_state="approved",
+                last_seen_at=timezone.now(),
+            )
+            return mock_fetch.return_value
+
+        mock_fetch.side_effect = create_the_row_behind_this_sync
+        sync_installation_tools(installation)
+
+        tool = installation.tools.get(tool_name="search")
+        assert tool.description == "fresh"
+        # The row the other sync created keeps its approval state.
+        assert tool.approval_state == "approved"
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     def test_sync_persists_upstream_annotations(self, mock_fetch):
         installation = self._installation()
         mock_fetch.return_value = [{"name": "search", "annotations": {"destructiveHint": True}}]
@@ -515,3 +576,40 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.description == "new description"
         assert "properties" in tool.input_schema
         assert tool.approval_state == "approved"
+
+
+class TestResyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
+    def _installation(self) -> MCPServerInstallation:
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url=f"https://mcp-{uuid.uuid4().hex[:8]}.example.com/mcp",
+            display_name="Test",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-test"},
+        )
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_upstream_is_listed_once_per_throttle_window(self, mock_fetch):
+        # Callers re-list on a miss, so without the throttle an agent looping on a
+        # name the server does not have opens one handshake per call.
+        installation = self._installation()
+        mock_fetch.return_value = [{"name": "search"}]
+
+        assert resync_installation_tools(installation) is True
+        assert resync_installation_tools(installation) is False
+        assert mock_fetch.call_count == 1
+        assert installation.tools.filter(tool_name="search").exists()
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", side_effect=ToolsFetchError("upstream down"))
+    def test_failed_listing_is_reported_rather_than_raised(self, _mock_fetch):
+        # This runs inside the proxy request path, where raising turns a refused
+        # tool call into a 500.
+        installation = self._installation()
+
+        assert resync_installation_tools(installation) is False
+
+        # A listing that failed refreshed nothing, so holding the full window would
+        # keep both repair paths shut long after a transient fault cleared.
+        remaining = get_client().ttl(f"mcp_store:tools_resync:{installation.id}")
+        assert 0 < remaining <= RESYNC_FAILURE_THROTTLE_SECONDS

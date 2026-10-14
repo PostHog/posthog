@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -51,6 +52,7 @@ export function WarehousePropertiesScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <DefinitionsSceneTabs activeKey="warehouse-properties" />
             <SceneTitleSection
                 name="Warehouse properties"
                 description="Add properties to your people and groups from a data warehouse table. Each row is matched by a key column, then the mapped columns stay up to date on every sync."

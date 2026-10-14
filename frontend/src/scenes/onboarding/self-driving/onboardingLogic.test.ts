@@ -67,7 +67,7 @@ describe('onboardingLogic', () => {
         }).toNotHaveDispatchedActions(['updateCurrentTeam'])
     })
 
-    it('sets the selected tools required options before completing onboarding', async () => {
+    it('sets the selected products required options before completing onboarding', async () => {
         const updates: Record<string, unknown>[] = []
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Postmark does not sign webhook deliveries, but the Webhooks API pins static headers onto a
 # webhook. `create_webhook` attaches a generated secret in the x-posthog-webhook-secret header,
@@ -28,9 +28,10 @@ if (request.method != 'POST') {
 if (empty(inputs.signing_secret)) {
   return {
     'httpResponse': {
-      'status': 400,
-      'body': 'Webhook secret not configured',
-    }
+      'status': 200,
+      'body': 'Webhook secret not configured, delivery dropped',
+    },
+    'appMetric': 'missing_credential'
   }
 }
 
