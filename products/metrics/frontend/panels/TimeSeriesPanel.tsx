@@ -67,7 +67,7 @@ export function TimeSeriesPanel({
                 data,
                 color: getColorVar(seriesColor(index)),
                 ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
-                ...(partialFraction !== null ? { stroke: { partial: { fromIndex: data.length - 2 } } } : {}),
+                ...(partialFraction !== null ? { stroke: { partial: { fromIndex: data.length - 1 } } } : {}),
             }
         })
     }, [series, fallbackName, isArea, partialFraction, query])
