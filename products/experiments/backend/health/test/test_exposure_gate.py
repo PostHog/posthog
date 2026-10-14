@@ -2,6 +2,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
@@ -10,7 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -138,12 +139,13 @@ class TestLoadSplitHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("scan_too_expensive", ClickHouseQueryTimeOut(), False),
-            ("unexpected_error", RuntimeError("unexpected"), True),
+            ("scan_too_expensive", ClickHouseQueryTimeOut(), False, 0),
+            ("transient_memory_pressure", ClickHouseClusterMemoryLimitExceeded(), False, 1),
+            ("unexpected_error", RuntimeError("unexpected"), True, 1),
         ]
     )
     def test_failed_query_counts_the_change_as_unknown_and_is_not_retried_on_the_next_load(
-        self, _name: str, error: Exception, reported: bool
+        self, _name: str, error: Exception, reported: bool, queries_two_hours_later: int
     ) -> None:
         changed_at = self._log_split_changes([_split(50, 50), _split(60, 40), _split(70, 30)])
 
@@ -157,6 +159,9 @@ class TestLoadSplitHistory(BaseTest):
         self.assertIsNone(next_load.exposed_before_first)
         self.assertEqual(next_query.call_count, 0)
         self.assertEqual(capture.called, reported)
+        with time_machine.travel(timezone.now() + timedelta(hours=2)):
+            _, later_query = self._load([True])
+        self.assertEqual(later_query.call_count, queries_two_hours_later)
 
     @parameterized.expand(
         [

@@ -26,6 +26,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -120,7 +121,12 @@ def query_any_exposure(
         product=Product.EXPERIMENTS, feature=Feature.HEALTH_CHECK, team_id=team.pk, org_id=team.organization_id
     ):
         response = execute_hogql_query(
-            query, team=team, settings=HogQLGlobalSettings(max_execution_time=EXPOSURE_QUERY_TIMEOUT_SECONDS)
+            query,
+            team=team,
+            # A profile that breaks on timeout returns no rows, which would read as "nobody exposed".
+            settings=HogQLGlobalSettings(
+                max_execution_time=EXPOSURE_QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"
+            ),
         )
     return bool(response.results)
 
@@ -167,8 +173,10 @@ class _ExposureGate:
             )
         except Exception as error:
             # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
-            too_expensive = isinstance(error, _TOO_EXPENSIVE_ERRORS)
-            if not too_expensive:
+            # Cluster memory pressure subclasses the per-query memory error, but it says nothing about this scan.
+            transient = isinstance(error, CH_TRANSIENT_ERRORS)
+            too_expensive = not transient and isinstance(error, _TOO_EXPENSIVE_ERRORS)
+            if not transient and not too_expensive:
                 capture_exception(error)
             cache.set(cache_key, _UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
             self._stopped = True
