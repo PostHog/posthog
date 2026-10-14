@@ -21,8 +21,6 @@ export const PROJECT_BLUEBIRD_FLAG = featureFlagKeys.PROJECT_BLUEBIRD_FLAG;
 export const CHANNELS_LAYOUT_FLAG = featureFlagKeys.CHANNELS_LAYOUT_FLAG;
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
-/** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
-export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
 export const DESKTOP_WORK_LAYOUT_FLAG =
   featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
@@ -98,9 +96,3 @@ export const CUSTOM_IMAGES_FEATURE_FLAG =
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;
 export const TWIG_CLOUD_MODE_FLAG = featureFlagKeys.TWIG_CLOUD_MODE_FLAG;
 export const USER_SPEND_LIMIT_FLAG = featureFlagKeys.USER_SPEND_LIMIT_FLAG;
-/** Move local custom instructions to "My instructions" on the server, then stop adding them to cloud tasks. */
-export const SERVER_AGENT_INSTRUCTIONS_FLAG =
-  featureFlagKeys.SERVER_AGENT_INSTRUCTIONS_FLAG;
-/** Move local task defaults to the server once, then keep "always create pull requests" in step with it. */
-export const SERVER_TASK_DEFAULTS_FLAG =
-  featureFlagKeys.SERVER_TASK_DEFAULTS_FLAG;

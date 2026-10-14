@@ -1,8 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
 # Lightdash documents no default/max page size for its paginated endpoints (org/users,
@@ -10,7 +14,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class LightdashEndpointConfig:
     name: str
     path: str
@@ -20,7 +24,7 @@ class LightdashEndpointConfig:
     data_selector: str
     primary_key: str | list[str]
     # Lightdash has no server-side updated-since/created-since filter on any list endpoint, so
-    # every stream is full-refresh only. Left empty; kept for the fan-out helper's endpoint protocol.
+    # streams are full-refresh only unless the server bounds the response itself (scheduler_runs).
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
     # Stable creation-time field used for datetime partitioning. Left None when the resource has no
@@ -30,6 +34,7 @@ class LightdashEndpointConfig:
     paginated: bool = False
     page_size: int = PAGE_SIZE
     fanout: DependentEndpointConfig | None = None
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 LIGHTDASH_ENDPOINTS: dict[str, LightdashEndpointConfig] = {
@@ -114,6 +119,67 @@ LIGHTDASH_ENDPOINTS: dict[str, LightdashEndpointConfig] = {
         primary_key="userUuid",
         partition_key="userCreatedAt",
         paginated=True,
+    ),
+    "explores": LightdashEndpointConfig(
+        name="explores",
+        path="/api/v1/projects/{projectUuid}/explores",
+        data_selector="results",
+        # Explore names are dbt model names, unique only within a project.
+        primary_key=["projectUuid", "name"],
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="projectUuid",
+            resolve_field="projectUuid",
+            include_from_parent=["projectUuid"],
+            # The framework injects the parent value under `_projects_projectUuid`; renaming it
+            # back to `projectUuid` guarantees the column even if a future Lightdash response
+            # ever omitted its own copy of the field.
+            parent_field_renames={"projectUuid": "projectUuid"},
+        ),
+    ),
+    "schedulers": LightdashEndpointConfig(
+        name="schedulers",
+        path="/api/v1/schedulers/{projectUuid}/list",
+        data_selector="results.data",
+        primary_key="schedulerUuid",
+        partition_key="createdAt",
+        paginated=True,
+        params={"sortBy": "createdAt", "sortDirection": "asc"},
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="projectUuid",
+            resolve_field="projectUuid",
+            include_from_parent=["projectUuid"],
+            # The framework injects the parent value under `_projects_projectUuid`; renaming it
+            # back to `projectUuid` guarantees the column even if a future Lightdash response
+            # ever omitted its own copy of the field.
+            parent_field_renames={"projectUuid": "projectUuid"},
+        ),
+    ),
+    "scheduler_runs": LightdashEndpointConfig(
+        name="scheduler_runs",
+        path="/api/v1/schedulers/{projectUuid}/runs",
+        data_selector="results.data",
+        # `runId` is the run's parent job id, a globally unique uuid.
+        primary_key="runId",
+        # Lightdash only returns runs scheduled in the last 7 days, so a full refresh drops older
+        # runs. Incremental merge on `runId` re-reads the bounded window each sync and keeps the
+        # history; there is no request filter to apply the watermark to.
+        incremental_fields=[incremental_field("scheduledTime")],
+        default_incremental_field="scheduledTime",
+        partition_key="scheduledTime",
+        paginated=True,
+        params={"sortBy": "scheduledTime", "sortDirection": "asc"},
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="projectUuid",
+            resolve_field="projectUuid",
+            include_from_parent=["projectUuid"],
+            # The framework injects the parent value under `_projects_projectUuid`; renaming it
+            # back to `projectUuid` guarantees the column even if a future Lightdash response
+            # ever omitted its own copy of the field.
+            parent_field_renames={"projectUuid": "projectUuid"},
+        ),
     ),
 }
 

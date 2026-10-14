@@ -315,6 +315,11 @@ export class PostHogRateLimitError extends PostHogApiError {
     }
 }
 
+/** True for an error raised by a request deadline, as opposed to a cancellation or a network fault. */
+export function isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'TimeoutError'
+}
+
 export interface PostHogTransportErrorOptions {
     url: string
     method: string
@@ -339,6 +344,8 @@ export class PostHogTransportError extends Error {
     public readonly url: string
     public readonly method: string
     public readonly attempts: number
+    /** True when the request hit the client's deadline instead of failing to connect. */
+    public readonly timedOut: boolean
 
     constructor(options: PostHogTransportErrorOptions) {
         const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
@@ -353,6 +360,8 @@ export class PostHogTransportError extends Error {
         this.url = options.url
         this.method = options.method
         this.attempts = options.attempts
+        // A forwarded request nests the local transport error, so look through the cause chain.
+        this.timedOut = hasTimeoutCause(options.cause)
         ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }
@@ -525,6 +534,21 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
         current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
     }
     return undefined
+}
+
+/** True when the error or any error in its `cause` chain came from a request deadline. Tools that
+ *  rethrow through `wrapError` keep the timeout in `cause`. */
+export function hasTimeoutCause(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (isTimeoutError(current) || (current instanceof PostHogTransportError && current.timedOut)) {
+            return true
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return false
 }
 
 /**

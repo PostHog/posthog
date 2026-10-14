@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -106,6 +107,15 @@ export const manifest: ProductManifest = {
                 'var(--color-product-error-tracking-dark)',
             ] as FileSystemIconColor,
             href: urls.errorTracking(),
+            searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
+            searchTabs: [
+                { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
+                {
+                    name: 'Recommendations',
+                    href: urls.errorTracking({ activeTab: 'recommendations' }),
+                    flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
+                },
+            ],
             sceneKey: 'ErrorTracking',
         },
     ],

@@ -185,7 +185,6 @@ class TestRouteThreadMessage(TestCase):
             ("an edit, owned here", "T_SLACK", "message_changed", False, False),
         ]
     )
-    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
     def test_top_level_post_reaches_every_region_holding_the_workspace(
         self, _name, slack_team_id, subtype, expect_full_proxy, expect_mirror_dispatch
     ):
@@ -219,7 +218,6 @@ class TestRouteThreadMessage(TestCase):
             assert kwargs["headers"][REGION_PROXY_HEADER] == "1"
             assert "eu.posthog.com" in kwargs["target_url"]
 
-    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
     def test_emit_only_mirror_emits_for_local_projects_and_nothing_else(self):
         from products.slack_app.backend.api import (
             EMIT_ONLY_MIRROR_HEADER,
@@ -248,7 +246,6 @@ class TestRouteThreadMessage(TestCase):
         mock_proxy.assert_not_called()
         mock_start.assert_not_called()
 
-    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
     def test_owned_thread_stays_local_without_an_emit_only_mirror(self):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 

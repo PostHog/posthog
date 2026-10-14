@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from django.db import transaction
@@ -122,6 +122,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             non_retryable=True,
             type="TaskRunDeletedError",
         )
+
+    if input.status == TaskRun.Status.FAILED:
+        input = replace(input, error_type=(task_run.state or {}).get("failure_error_type") or input.error_type)
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
@@ -262,6 +265,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    # A lost sandbox still completes the run, and this message carries its exit reason, e.g. OOM.
+                    "error_message": truncate_error_message(input.error_message),
                     "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },

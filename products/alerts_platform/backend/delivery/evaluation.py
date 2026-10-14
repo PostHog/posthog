@@ -103,6 +103,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         request.team_id,
         request.configuration_id,
         request.evaluation_key,
+        source=request.source,
         incident_grouping_keys=request.incident_actions.keys(),
     )
     if announced is None:

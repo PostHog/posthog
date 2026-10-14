@@ -50,7 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 WEBHOOK_SETUP_CAPTION = (
     "PostHog registers a webhook on your store for each of the product, order, coupon and customer "

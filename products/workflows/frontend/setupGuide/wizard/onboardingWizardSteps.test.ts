@@ -20,7 +20,7 @@ describe('onboardingWizardSteps', () => {
         expect(firstOpenStepIndex(MESSAGING_WIZARD_STEPS, done)).toBe(expected)
     })
 
-    test.each<[string, 'messaging' | 'automation', boolean, string[]]>([
+    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, string[]]>([
         [
             'messaging asks about push before the journey',
             'messaging',
@@ -34,6 +34,12 @@ describe('onboardingWizardSteps', () => {
             ['channel', 'domain', 'opt-outs', 'journey'],
         ],
         ['automation never asks about push', 'automation', true, ['template', 'connect', 'create']],
+        [
+            'broadcasts send email only, so they never ask about push',
+            'broadcast',
+            true,
+            ['channel', 'domain', 'opt-outs', 'broadcast'],
+        ],
     ])('%s', (_, path, pushEnabled, expected) => {
         expect(wizardSteps(path, pushEnabled)).toEqual(expected)
     })

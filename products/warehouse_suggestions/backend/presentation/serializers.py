@@ -189,6 +189,9 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=WarehouseSuggestionStatus.choices, required=False, help_text="Only return suggestions in this status."
     )
+    subject_id = serializers.UUIDField(
+        required=False, help_text="Only return suggestions about the view or table with this ID."
+    )
 
 
 class DismissWarehouseSuggestionSerializer(serializers.Serializer):

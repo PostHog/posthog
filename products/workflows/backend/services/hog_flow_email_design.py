@@ -1,9 +1,13 @@
 from uuid import UUID
 
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
-from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
+from products.messaging.backend.facade.api import (
+    UnlayerNotConfiguredError,
+    UnlayerRenderError,
+    apply_design_operations,
+    get_template_email_content,
+    render_design_html,
+    validate_design,
+)
 from products.workflows.backend.facade.contracts import (
     EditedEmailDesign,
     EmailDesignRenderFailed,
@@ -12,9 +16,7 @@ from products.workflows.backend.facade.contracts import (
 
 
 def get_email_template_content(team_id: int, template_id: UUID) -> dict | None:
-    template = MessageTemplate.objects.filter(team_id=team_id, id=template_id, deleted=False).first()
-    email_content = (template.content or {}).get("email") if template else None
-    return email_content if isinstance(email_content, dict) else None
+    return get_template_email_content(team_id, template_id)
 
 
 def apply_email_design_operations(design: dict, operations: list[dict]) -> EditedEmailDesign:

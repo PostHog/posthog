@@ -9,7 +9,8 @@ from posthog.dataclasses import frozen
 from posthog.models.utils import convert_legacy_metric, convert_legacy_metrics
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.metric_calculation.config import ExperimentCalculationSettings, stamp_calculation_keys
+from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentSavedMetric,
@@ -96,7 +97,7 @@ def migrate_experiment(
                 migrated_saved_metric_ids=[],
             )
 
-        saved_metric_targets, migrated_saved_metric_ids = _resolve_saved_metrics(
+        saved_metric_targets, migrated_saved_metric_ids = _get_effective_saved_metrics(
             original, team_id, migrate_shared_metrics=migrate_shared_metrics
         )
 
@@ -111,9 +112,12 @@ def migrate_experiment(
             setattr(new_experiment, field.name, value)
 
         new_experiment.stats_config = {**(new_experiment.stats_config or {}), "migrated_from": original.id}
-        new_experiment.metrics = _prepare_metrics(convert_legacy_metrics(original.metrics), new_experiment)
+        calculation_settings = ExperimentCalculationSettings.from_experiment(new_experiment)
+        new_experiment.metrics = _prepare_metrics(
+            convert_legacy_metrics(original.metrics), "primary", calculation_settings
+        )
         new_experiment.metrics_secondary = _prepare_metrics(
-            convert_legacy_metrics(original.metrics_secondary), new_experiment
+            convert_legacy_metrics(original.metrics_secondary), "secondary", calculation_settings
         )
         new_experiment.save()
 
@@ -136,7 +140,7 @@ def migrate_experiment(
         )
 
 
-def _resolve_saved_metrics(
+def _get_effective_saved_metrics(
     original: Experiment, team_id: int, *, migrate_shared_metrics: bool
 ) -> tuple[list[tuple[ExperimentToSavedMetric, ExperimentSavedMetric]], list[int]]:
     """Pick the shared metric each link should point at, migrating legacy ones when allowed."""
@@ -188,21 +192,14 @@ def _migrated_target(metric: ExperimentSavedMetric, team_id: int) -> ExperimentS
     return ExperimentSavedMetric.objects.filter(pk=migrated_to, team_id=team_id).first()
 
 
-def _prepare_metrics(metrics: list[dict], experiment: Experiment) -> list[dict]:
+def _prepare_metrics(
+    metrics: list[dict], role: MetricRole, calculation_settings: ExperimentCalculationSettings
+) -> list[dict]:
     """Give each converted metric the uuid and fingerprint the new engine writes on create.
 
     The conversion drops the legacy uuid and never had a fingerprint. Results, reorders and the
     activity log all key on the uuid, so a metric without one has no identity in the new engine.
     """
-    stats_method = (experiment.stats_config or {}).get("method", "bayesian")
     for metric in metrics:
         metric["uuid"] = str(uuid4())
-        metric["fingerprint"] = compute_metric_fingerprint(
-            metric,
-            experiment.start_date,
-            stats_method,
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants,
-        )
-    return metrics
+    return stamp_calculation_keys(metrics, role, calculation_settings)

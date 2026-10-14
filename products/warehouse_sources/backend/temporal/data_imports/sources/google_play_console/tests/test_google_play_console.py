@@ -1,7 +1,7 @@
 import datetime as dt
 import functools
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
+from urllib.parse import parse_qsl
 
 import pytest
 from unittest import mock
@@ -12,7 +12,17 @@ import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleplayconsole import (
+    GooglePlayConsoleKeyFileConfig,
+    GooglePlayConsoleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console import google_play_console
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.google_play_console import (
     DEFAULT_TOKEN_URI,
@@ -26,13 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     _coerce_datetime,
     _dimension_value,
     _interval_params,
-    _iter_list_rows,
-    _iter_metric_set_rows,
     _list_row_to_dict,
     _metric_row_to_dict,
     _metric_value,
     _normalize_private_key,
-    google_play_console_source,
     parse_package_names,
     resolve_history_start,
     resolve_package_names,
@@ -43,6 +50,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     LIST_ENDPOINTS,
     METRIC_SETS,
     PRIMARY_KEYS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
+    GooglePlayConsoleSource,
 )
 
 MODULE = google_play_console.__name__
@@ -77,48 +87,32 @@ def _key(private_key: str | None = None) -> ServiceAccountKey:
     )
 
 
-def _response(status_code: int, payload: Any = None, text: str = "") -> mock.MagicMock:
-    response = mock.MagicMock(spec=requests.Response)
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.text = text
-    response.json.return_value = payload if payload is not None else {}
-    if not response.ok:
-        response.raise_for_status.side_effect = requests.HTTPError(
-            f"{status_code} Client Error: for url: https://playdeveloperreporting.googleapis.com", response=response
-        )
-    return response
+TOKEN = ScriptedResponse(json={"access_token": "ya29.token", "expires_in": 3600})
 
 
-def _token_response() -> mock.MagicMock:
-    return _response(200, {"access_token": "ya29.token", "expires_in": 3600})
+def _driver(package_names: str | None = "com.example.app") -> SourceDriver:
+    key = _key()
+    config = GooglePlayConsoleSourceConfig(
+        key_file=GooglePlayConsoleKeyFileConfig(
+            client_email=key.client_email,
+            private_key=key.private_key,
+            private_key_id=key.private_key_id or "",
+            token_uri=key.token_uri or DEFAULT_TOKEN_URI,
+        ),
+        app_package_names=package_names,
+    )
+    return SourceDriver(GooglePlayConsoleSource(), config)
 
 
-def _client(session: mock.MagicMock, private_key: str | None = None) -> GooglePlayConsoleClient:
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-        return GooglePlayConsoleClient(_key(private_key), "v1beta1", structlog.get_logger())
-
-
-class FakeResumableSourceManager(ResumableSourceManager[GooglePlayConsoleResumeConfig]):
-    def __init__(self, state: GooglePlayConsoleResumeConfig | None = None) -> None:
-        self.saved: list[GooglePlayConsoleResumeConfig] = []
-        self._state = state
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> GooglePlayConsoleResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: GooglePlayConsoleResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self._state = None
-
-
-def _manager(state: GooglePlayConsoleResumeConfig | None = None) -> FakeResumableSourceManager:
-    return FakeResumableSourceManager(state)
+def _run(
+    schema_name: str,
+    responses: list[ScriptedResponse],
+    *,
+    package_names: str | None = "com.example.app",
+    resume_state: GooglePlayConsoleResumeConfig | None = None,
+    **inputs: Any,
+) -> DriveResult:
+    return _driver(package_names).run(schema_name, [TOKEN, *responses], resume_state=resume_state, **inputs)
 
 
 def _metric_row(day: dt.date, version: int, rate: str, dimension: str = "versionCode") -> dict[str, Any]:
@@ -159,15 +153,12 @@ def test_normalize_private_key_restores_newlines(raw: str, expected_start: str) 
 
 
 def test_mints_a_signed_service_account_assertion() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.return_value = _response(200, {"apps": []})
-    client = _client(session)
+    with scripted_network([TOKEN, ScriptedResponse(json={"apps": []})]) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        client.request("GET", "apps:search")
 
-    client.request("GET", "apps:search")
-
-    assert session.post.call_args.args[0] == DEFAULT_TOKEN_URI
-    posted = session.post.call_args.kwargs["data"]
+    assert network.requests_log[0].url == DEFAULT_TOKEN_URI
+    posted = dict(parse_qsl((network.requests_log[0].body or b"").decode()))
     assert posted["grant_type"] == JWT_BEARER_GRANT
 
     claims = jwt.decode(posted["assertion"], _rsa_key_pair()[1], algorithms=["RS256"], audience=DEFAULT_TOKEN_URI)
@@ -175,27 +166,24 @@ def test_mints_a_signed_service_account_assertion() -> None:
     assert claims["scope"] == PLAY_REPORTING_SCOPE
     assert claims["exp"] - claims["iat"] == 3600
     assert jwt.get_unverified_header(posted["assertion"])["kid"] == "key-1"
-    assert session.request.call_args.kwargs["headers"]["Authorization"] == "Bearer ya29.token"
+    assert network.requests_log[1].headers["authorization"] == "Bearer ya29.token"
 
 
 def test_ignores_the_uploaded_token_uri_and_posts_to_google() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.return_value = _response(200, {"apps": []})
     malicious_key = ServiceAccountKey(
         client_email="reporting@example.iam.gserviceaccount.com",
         private_key=_rsa_key_pair()[0],
         private_key_id="key-1",
         token_uri="http://169.254.169.254/latest/meta-data/",
     )
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+    with scripted_network([TOKEN, ScriptedResponse(json={"apps": []})]) as network:
         client = GooglePlayConsoleClient(malicious_key, "v1beta1", structlog.get_logger())
+        client.request("GET", "apps:search")
 
-    client.request("GET", "apps:search")
-
-    assert session.post.call_args.args[0] == DEFAULT_TOKEN_URI
+    assert network.requests_log[0].url == DEFAULT_TOKEN_URI
+    posted = dict(parse_qsl((network.requests_log[0].body or b"").decode()))
     claims = jwt.decode(
-        session.post.call_args.kwargs["data"]["assertion"],
+        posted["assertion"],
         _rsa_key_pair()[1],
         algorithms=["RS256"],
         audience=DEFAULT_TOKEN_URI,
@@ -204,77 +192,81 @@ def test_ignores_the_uploaded_token_uri_and_posts_to_google() -> None:
 
 
 def test_reuses_the_access_token_until_it_expires() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.return_value = _response(200, {"apps": []})
-    client = _client(session)
+    with scripted_network([TOKEN, ScriptedResponse(json={"apps": []}), ScriptedResponse(json={"apps": []})]) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        client.request("GET", "apps:search")
+        client.request("GET", "apps:search")
 
-    client.request("GET", "apps:search")
-    client.request("GET", "apps:search")
-
-    assert session.post.call_count == 1
+    assert [request.path for request in network.requests_log] == [
+        "/token",
+        "/v1beta1/apps:search",
+        "/v1beta1/apps:search",
+    ]
 
 
 def test_remints_the_access_token_when_a_request_comes_back_unauthorized() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.side_effect = [_response(401, text="expired"), _response(200, {"apps": [{"packageName": "a"}]})]
-    client = _client(session)
+    with scripted_network(
+        [
+            TOKEN,
+            ScriptedResponse(status=401, body=b"expired"),
+            TOKEN,
+            ScriptedResponse(json={"apps": [{"packageName": "a"}]}),
+        ]
+    ) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert client.request("GET", "apps:search") == {"apps": [{"packageName": "a"}]}
 
-    assert client.request("GET", "apps:search") == {"apps": [{"packageName": "a"}]}
-    assert session.post.call_count == 2
-    assert session.request.call_count == 2
+    assert [request.path for request in network.requests_log] == [
+        "/token",
+        "/v1beta1/apps:search",
+        "/token",
+        "/v1beta1/apps:search",
+    ]
 
 
 def test_raises_a_permanent_error_when_google_rejects_the_key() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _response(400, {"error": "invalid_grant"}, text="invalid_grant")
-    client = _client(session)
-
-    with pytest.raises(GooglePlayConsoleAuthError, match="Google rejected the service account key"):
-        client.request("GET", "apps:search")
+    with scripted_network([ScriptedResponse(status=400, body=b"invalid_grant")]):
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        with pytest.raises(GooglePlayConsoleAuthError, match="Google rejected the service account key"):
+            client.request("GET", "apps:search")
 
 
 def test_raises_a_permanent_error_when_the_key_cannot_sign() -> None:
-    session = mock.MagicMock()
-    client = _client(session, private_key="not-a-pem-key")
+    with scripted_network([]) as network:
+        client = GooglePlayConsoleClient(_key(private_key="not-a-pem-key"), "v1beta1", structlog.get_logger())
+        with pytest.raises(GooglePlayConsoleAuthError, match="Could not sign a token"):
+            client.request("GET", "apps:search")
 
-    with pytest.raises(GooglePlayConsoleAuthError, match="Could not sign a token"):
-        client.request("GET", "apps:search")
+    assert network.requests_log == []
 
 
 def test_non_2xx_api_responses_raise_for_status() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.return_value = _response(403, text="forbidden")
-    client = _client(session)
-
-    with pytest.raises(requests.HTTPError):
-        client.request("GET", "apps/com.example/anomalies")
+    with scripted_network([TOKEN, ScriptedResponse(status=403, body=b"forbidden")]):
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        with pytest.raises(requests.HTTPError):
+            client.request("GET", "apps/com.example/anomalies")
 
 
 def test_list_apps_follows_pagination() -> None:
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.side_effect = [
-        _response(200, {"apps": [{"packageName": "com.b"}], "nextPageToken": "t1"}),
-        _response(200, {"apps": [{"packageName": "com.a"}]}),
-    ]
-    client = _client(session)
+    with scripted_network(
+        [
+            TOKEN,
+            ScriptedResponse(json={"apps": [{"packageName": "com.b"}], "nextPageToken": "t1"}),
+            ScriptedResponse(json={"apps": [{"packageName": "com.a"}]}),
+        ]
+    ) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert [app["packageName"] for app in client.list_apps()] == ["com.b", "com.a"]
 
-    assert [app["packageName"] for app in client.list_apps()] == ["com.b", "com.a"]
-    assert session.request.call_args_list[1].kwargs["params"]["pageToken"] == "t1"
+    assert network.requests_log[2].param("pageToken") == "t1"
 
 
 def test_latest_available_date_converts_the_exclusive_freshness_bound_to_an_inclusive_day() -> None:
     # Play documents `latestEndTime` as already being the exclusive bound ready to reuse as
     # `timelineSpec.endTime` (one day past the last day with data) — not the last day itself.
-    session = mock.MagicMock()
-    session.post.return_value = _token_response()
-    session.request.return_value = _response(200, _freshness(dt.date(2024, 3, 10)))
-    client = _client(session)
-
-    assert client.latest_available_date("com.example.app", "crashRateMetricSet") == dt.date(2024, 3, 9)
+    with scripted_network([TOKEN, ScriptedResponse(json=_freshness(dt.date(2024, 3, 10)))]):
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert client.latest_available_date("com.example.app", "crashRateMetricSet") == dt.date(2024, 3, 9)
 
 
 @pytest.mark.parametrize(
@@ -374,67 +366,50 @@ def test_window_rows_leave_in_date_order_one_day_per_batch() -> None:
 
 
 def test_metric_set_windows_the_timeline_and_stops_at_the_freshness_date() -> None:
-    endpoint = METRIC_SETS["crash_rate"]
-    manager = _manager()
-    calls: list[tuple[str, str, dict[str, Any] | None]] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        calls.append((method, path, body))
-        if path.endswith(":query"):
-            return {"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}
-        return _freshness(dt.date(2024, 3, 10))
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_metric_set_rows(
-                client=client,
-                endpoint=endpoint,
-                package_names=["com.example.app"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=None,
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 10))),
+                ScriptedResponse(json={"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
-    assert len(batches) == 1
-    query_bodies = [body for method, path, body in calls if path.endswith(":query")]
-    assert len(query_bodies) == 1
-    timeline = query_bodies[0]["timelineSpec"] if query_bodies[0] else {}
+    assert result.raised is None
+    assert len(result.items) == 1
+    assert result.paths[1:] == [
+        "/v1beta1/apps/com.example.app/crashRateMetricSet",
+        "/v1beta1/apps/com.example.app/crashRateMetricSet:query",
+    ]
+    body = result.requests[2].json()
+    timeline = body["timelineSpec"]
     assert timeline["aggregationPeriod"] == "DAILY"
     assert timeline["startTime"] == {"year": 2024, "month": 3, "day": 1}
     # `_freshness` reports latestEndTime 2024-03-10, already Play's exclusive bound, so it is
     # requested as-is rather than being pushed a further day out.
     assert timeline["endTime"] == {"year": 2024, "month": 3, "day": 10}
-    assert cast("dict[str, Any]", query_bodies[0])["dimensions"] == ["versionCode"]
-    assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
+    assert body["dimensions"] == ["versionCode"]
+    assert result.saved_states == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
 
 
 def test_a_wider_metric_set_asks_play_for_the_extra_dimension() -> None:
-    endpoint = METRIC_SETS["crash_rate_by_device_model"]
-    bodies: list[dict[str, Any]] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            bodies.append(body)
-            return {"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}
-        return _freshness(dt.date(2024, 3, 10))
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        list(
-            _iter_metric_set_rows(
-                client=client,
-                endpoint=endpoint,
-                package_names=["com.example.app"],
-                history_start=dt.date(2024, 3, 1),
-                manager=_manager(),
-                resume=None,
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate_by_device_model",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 10))),
+                ScriptedResponse(json={"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
-    assert bodies[0]["dimensions"] == ["versionCode", "deviceModel"]
-    assert bodies[0]["metrics"] == list(METRIC_SETS["crash_rate"].metrics)
+    assert result.raised is None
+    body = result.requests[2].json()
+    assert body["dimensions"] == ["versionCode", "deviceModel"]
+    assert body["metrics"] == list(METRIC_SETS["crash_rate"].metrics)
 
 
 def test_a_wider_metric_set_row_carries_its_extra_dimension_column() -> None:
@@ -455,303 +430,186 @@ def test_a_wider_metric_set_row_carries_its_extra_dimension_column() -> None:
 
 
 def test_metric_set_skips_an_app_without_freshness() -> None:
-    manager = _manager()
-    calls: list[str] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        calls.append(path)
-        # Empty freshness — the app has no queryable data for this metric set.
-        return {}
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_metric_set_rows(
-                client=client,
-                endpoint=METRIC_SETS["anr_rate"],
-                package_names=["com.example.app"],
-                history_start=dt.date(2024, 3, 20),
-                manager=manager,
-                resume=None,
-            )
-        )
+    # Empty freshness — the app has no queryable data for this metric set.
+    result = _run("anr_rate", [ScriptedResponse(json={})])
 
     # No freshness means no queryable data: the app is skipped rather than queried with a guessed
     # window Google rejects as an invalid timeframe. No `:query` is issued and nothing is yielded.
-    assert batches == []
-    assert not any(path.endswith(":query") for path in calls)
+    assert result.raised is None
+    assert result.rows == []
+    assert not any(path.endswith(":query") for path in result.paths)
 
 
 def test_metric_set_skips_an_app_denied_a_games_only_metric_set() -> None:
-    manager = _manager()
-    queried: list[str] = []
-    games_denial = requests.HTTPError(
-        "403 Client Error: for url: https://playdeveloperreporting.googleapis.com",
-        response=_response(403, text="slowRenderingRateMetricSet resource is only accessible to games"),
-    )
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/token":
+            return TOKEN
+        if request.path.endswith(":query"):
+            return ScriptedResponse(json={"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]})
+        if "/com.fintech.app/" in request.path:
+            return ScriptedResponse(status=403, body=b"slowRenderingRateMetricSet resource is only accessible to games")
+        return ScriptedResponse(json=_freshness(dt.date(2024, 3, 10)))
 
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            queried.append(path)
-            return {"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}
-        if path.startswith("apps/com.fintech.app/"):
-            raise games_denial
-        return _freshness(dt.date(2024, 3, 10))
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_metric_set_rows(
-                client=client,
-                endpoint=METRIC_SETS["slow_rendering_rate"],
-                package_names=["com.fintech.app", "com.game.app"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=None,
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _driver("com.fintech.app, com.game.app").run(
+            "slow_rendering_rate",
+            answer,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
     # The non-game app can never have this metric set, so it is skipped instead of failing the
     # sync with a 403 the error classifier reads as missing permissions. The game still syncs.
-    assert queried == ["apps/com.game.app/slowRenderingRateMetricSet:query"]
-    assert len(batches) == 1
+    assert result.raised is None
+    assert [path for path in result.paths if path.endswith(":query")] == [
+        "/v1beta1/apps/com.game.app/slowRenderingRateMetricSet:query"
+    ]
+    assert len(result.items) == 1
 
 
 def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
-    denial = requests.HTTPError(
-        "403 Client Error: for url: https://playdeveloperreporting.googleapis.com",
-        response=_response(403, text="The caller does not have permission"),
-    )
+    result = _run("slow_rendering_rate", [ScriptedResponse(status=403, body=b"The caller does not have permission")])
 
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=denial):
-        client = _client(mock.MagicMock())
-        with pytest.raises(requests.HTTPError):
-            list(
-                _iter_metric_set_rows(
-                    client=client,
-                    endpoint=METRIC_SETS["slow_rendering_rate"],
-                    package_names=["com.example.app"],
-                    history_start=dt.date(2024, 3, 1),
-                    manager=_manager(),
-                    resume=None,
-                )
-            )
+    assert isinstance(result.raised, requests.HTTPError)
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
-    manager = _manager()
-    payloads: list[dict[str, Any]] = [
-        {"rows": [_metric_row(dt.date(2024, 3, 1), 1, "0.01")], "nextPageToken": "page-2"},
-        {"rows": [_metric_row(dt.date(2024, 3, 2), 1, "0.02")]},
-    ]
-    bodies: list[dict[str, Any] | None] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if not path.endswith(":query"):
-            return _freshness(dt.date(2024, 3, 2))
-        bodies.append(body)
-        return payloads.pop(0)
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_metric_set_rows(
-                client=client,
-                endpoint=METRIC_SETS["crash_rate"],
-                package_names=["com.example.app"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=None,
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 2))),
+                ScriptedResponse(
+                    json={"rows": [_metric_row(dt.date(2024, 3, 1), 1, "0.01")], "nextPageToken": "page-2"}
+                ),
+                ScriptedResponse(json={"rows": [_metric_row(dt.date(2024, 3, 2), 1, "0.02")]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
-    assert len(bodies) == 2
-    assert bodies[1] is not None and bodies[1]["pageToken"] == "page-2"
-    assert [batch[0]["date"] for batch in batches] == [dt.date(2024, 3, 1), dt.date(2024, 3, 2)]
+    assert result.raised is None
+    assert result.requests[3].json()["pageToken"] == "page-2"
+    assert [batch[0]["date"] for batch in result.items] == [dt.date(2024, 3, 1), dt.date(2024, 3, 2)]
 
 
 def test_metric_set_resume_skips_finished_apps_and_restarts_at_the_saved_window() -> None:
-    manager = _manager(GooglePlayConsoleResumeConfig(app="com.b", date="2024-03-05"))
-    queried: list[tuple[str, dict[str, int]]] = []
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/token":
+            return TOKEN
+        if request.path.endswith(":query"):
+            return ScriptedResponse(json={"rows": []})
+        return ScriptedResponse(json=_freshness(dt.date(2024, 3, 6)))
 
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            queried.append((path, body["timelineSpec"]["startTime"] if body else {}))
-            return {"rows": []}
-        return _freshness(dt.date(2024, 3, 6))
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        list(
-            _iter_metric_set_rows(
-                client=client,
-                endpoint=METRIC_SETS["crash_rate"],
-                package_names=["com.a", "com.b", "com.c"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=GooglePlayConsoleResumeConfig(app="com.b", date="2024-03-05"),
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _driver("com.a, com.b, com.c").run(
+            "crash_rate",
+            answer,
+            resume_state=GooglePlayConsoleResumeConfig(app="com.b", date="2024-03-05"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
     # com.a was finished before the interruption; com.b picks up at the saved date and com.c
     # starts from the beginning of the history window.
-    assert [(path.split("/")[1], start) for path, start in queried] == [
+    assert result.raised is None
+    assert [
+        (request.path.split("/")[3], request.json()["timelineSpec"]["startTime"])
+        for request in result.requests
+        if request.path.endswith(":query")
+    ] == [
         ("com.b", {"year": 2024, "month": 3, "day": 5}),
         ("com.c", {"year": 2024, "month": 3, "day": 1}),
     ]
 
 
 def test_apps_endpoint_paginates_and_checkpoints_each_page() -> None:
-    endpoint = LIST_ENDPOINTS["apps"]
-    manager = _manager()
-    payloads: list[dict[str, Any]] = [
-        {"apps": [{"packageName": "com.a"}], "nextPageToken": "p2"},
-        {"apps": [{"packageName": "com.b"}]},
-    ]
+    result = _run(
+        "apps",
+        [
+            ScriptedResponse(json={"apps": [{"packageName": "com.a"}], "nextPageToken": "p2"}),
+            ScriptedResponse(json={"apps": [{"packageName": "com.b"}]}),
+        ],
+    )
 
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=lambda *a, **kw: payloads.pop(0)):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_list_rows(
-                client=client,
-                endpoint=endpoint,
-                package_names=[],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=None,
-            )
-        )
-
-    assert [row["packageName"] for batch in batches for row in batch] == ["com.a", "com.b"]
-    assert [state.page_token for state in manager.saved] == ["p2", None]
+    assert result.raised is None
+    assert [row["packageName"] for row in result.rows] == ["com.a", "com.b"]
+    assert [state.page_token for state in result.saved_states] == ["p2", None]
+    assert result.params("pageToken") == [None, None, "p2"]
     # The app catalog is not per-app, so no package name is stamped onto its rows.
-    assert "app" not in batches[0][0]
+    assert "app" not in result.rows[0]
 
 
 def test_error_reports_walk_one_day_at_a_time_with_an_interval_filter() -> None:
-    endpoint = LIST_ENDPOINTS["error_reports"]
-    manager = _manager()
-    seen_params: list[dict[str, Any]] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        seen_params.append(params or {})
-        return {"errorReports": [{"name": f"{path}/report-{len(seen_params)}", "eventTime": "2024-03-30T01:02:03Z"}]}
-
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_list_rows(
-                client=client,
-                endpoint=endpoint,
-                package_names=["com.example.app"],
-                history_start=dt.date(2024, 3, 30),
-                manager=manager,
-                resume=None,
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "error_reports",
+            [
+                ScriptedResponse(json={"errorReports": [{"name": "report-1", "eventTime": "2024-03-30T01:02:03Z"}]}),
+                ScriptedResponse(json={"errorReports": [{"name": "report-2", "eventTime": "2024-03-30T01:02:03Z"}]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 30),
         )
 
-    assert len(seen_params) == 2  # 2024-03-30 and 2024-03-31
-    assert seen_params[0]["interval.startTime.day"] == "30"
-    assert seen_params[0]["interval.endTime.day"] == "31"
-    assert seen_params[0]["interval.startTime.timeZone.id"] == "UTC"
-    assert batches[0][0]["app"] == "com.example.app"
-    assert batches[0][0]["eventTime"] == dt.datetime(2024, 3, 30, 1, 2, 3)
-    assert [state.date for state in manager.saved] == ["2024-03-31", "2024-04-01"]
+    assert result.raised is None
+    assert len(result.requests) == 3  # Token, 2024-03-30 and 2024-03-31.
+    assert result.requests[1].param("interval.startTime.day") == "30"
+    assert result.requests[1].param("interval.endTime.day") == "31"
+    assert result.requests[1].param("interval.startTime.timeZone.id") == "UTC"
+    assert result.rows[0]["app"] == "com.example.app"
+    assert result.rows[0]["eventTime"] == dt.datetime(2024, 3, 30, 1, 2, 3)
+    assert [state.date for state in result.saved_states] == ["2024-03-31", "2024-04-01"]
 
 
 def test_error_reports_resume_continues_inside_the_interrupted_day() -> None:
-    endpoint = LIST_ENDPOINTS["error_reports"]
     resume = GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-31", page_token="mid-day")
-    manager = _manager(resume)
-    seen_params: list[dict[str, Any]] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        seen_params.append(params or {})
-        return {"errorReports": []}
-
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
-        client = _client(mock.MagicMock())
-        list(
-            _iter_list_rows(
-                client=client,
-                endpoint=endpoint,
-                package_names=["com.example.app"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=resume,
-            )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "error_reports",
+            [ScriptedResponse(json={"errorReports": []})],
+            resume_state=resume,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
-    assert len(seen_params) == 1
-    assert seen_params[0]["pageToken"] == "mid-day"
-    assert seen_params[0]["interval.startTime.day"] == "31"
+    assert result.raised is None
+    assert len(result.requests) == 2
+    assert result.requests[1].param("pageToken") == "mid-day"
+    assert result.requests[1].param("interval.startTime.day") == "31"
 
 
 def test_error_issues_request_one_trailing_window_per_app() -> None:
-    endpoint = LIST_ENDPOINTS["error_issues"]
-    manager = _manager()
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        calls.append((path, params or {}))
-        return {
+    answer = ScriptedResponse(
+        json={
             "errorIssues": [
-                {"name": f"{path}/issue-1", "lastErrorReportTime": {"year": 2024, "month": 3, "day": 20, "hours": 7}}
+                {"name": "issue-1", "lastErrorReportTime": {"year": 2024, "month": 3, "day": 20, "hours": 7}}
             ]
         }
-
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
-        client = _client(mock.MagicMock())
-        batches = list(
-            _iter_list_rows(
-                client=client,
-                endpoint=endpoint,
-                package_names=["com.a", "com.b"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=None,
-            )
+    )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "error_issues",
+            [answer, answer],
+            package_names="com.a, com.b",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
         )
 
-    assert [path for path, _ in calls] == ["apps/com.a/errorIssues:search", "apps/com.b/errorIssues:search"]
-    assert calls[0][1]["interval.startTime.day"] == "1"
-    assert calls[0][1]["interval.endTime.day"] == "1"  # exclusive end: 2024-04-01
-    assert calls[0][1]["interval.endTime.month"] == "4"
-    assert batches[0][0]["lastErrorReportTime"] == dt.datetime(2024, 3, 20, 7)
-    assert batches[0][0]["app"] == "com.a"
+    assert result.raised is None
+    assert result.paths[1:] == ["/v1beta1/apps/com.a/errorIssues:search", "/v1beta1/apps/com.b/errorIssues:search"]
+    assert result.requests[1].param("interval.startTime.day") == "1"
+    assert result.requests[1].param("interval.endTime.day") == "1"  # exclusive end: 2024-04-01
+    assert result.requests[1].param("interval.endTime.month") == "4"
+    assert result.rows[0]["lastErrorReportTime"] == dt.datetime(2024, 3, 20, 7)
+    assert result.rows[0]["app"] == "com.a"
 
 
 def test_anomalies_send_no_time_filter() -> None:
-    manager = _manager()
-    calls: list[dict[str, Any]] = []
+    result = _run("anomalies", [ScriptedResponse(json={"anomalies": [{"name": "anomaly-1"}]})], package_names="com.a")
 
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        calls.append(params or {})
-        return {"anomalies": [{"name": f"{path}/anomaly-1"}]}
-
-    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
-        client = _client(mock.MagicMock())
-        list(
-            _iter_list_rows(
-                client=client,
-                endpoint=LIST_ENDPOINTS["anomalies"],
-                package_names=["com.a"],
-                history_start=dt.date(2024, 3, 1),
-                manager=manager,
-                resume=None,
-            )
-        )
-
-    assert calls == [{"pageSize": 100}]
+    assert result.raised is None
+    assert result.queries[1] == {"pageSize": ("100",)}
 
 
 def test_interval_params_cover_both_bounds() -> None:
@@ -779,20 +637,17 @@ def test_parse_package_names(raw: str | None, expected: tuple[str, ...]) -> None
 
 
 def test_resolve_package_names_discovers_apps_when_none_are_configured() -> None:
-    with mock.patch.object(
-        GooglePlayConsoleClient,
-        "list_apps",
-        return_value=[{"packageName": "com.b"}, {"packageName": "com.a"}, {"displayName": "no package"}],
-    ):
-        client = _client(mock.MagicMock())
+    apps = [{"packageName": "com.b"}, {"packageName": "com.a"}, {"displayName": "no package"}]
+    with scripted_network([TOKEN, ScriptedResponse(json={"apps": apps})]):
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
         assert resolve_package_names(client, ()) == ["com.a", "com.b"]
 
 
 def test_resolve_package_names_uses_the_configured_list_without_calling_the_api() -> None:
-    with mock.patch.object(GooglePlayConsoleClient, "list_apps") as list_apps:
-        client = _client(mock.MagicMock())
+    with scripted_network([]) as network:
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
         assert resolve_package_names(client, ("com.b", "com.a")) == ["com.a", "com.b"]
-    list_apps.assert_not_called()
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize(
@@ -822,12 +677,10 @@ def test_resolve_history_start(watermark: Any, expected: dt.date) -> None:
     ],
 )
 def test_validate_credentials_maps_status_codes_to_actionable_messages(status: int, expected_fragment: str) -> None:
-    response = _response(status, text="denied")
-    with mock.patch.object(
-        GooglePlayConsoleClient,
-        "list_apps",
-        side_effect=requests.HTTPError("boom", response=response),
-    ):
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        return TOKEN if request.path == "/token" else ScriptedResponse(status=status, body=b"denied")
+
+    with scripted_network(answer):
         is_valid, message = validate_credentials(_key(), "v1beta1")
 
     assert is_valid is False
@@ -835,28 +688,24 @@ def test_validate_credentials_maps_status_codes_to_actionable_messages(status: i
 
 
 def test_validate_credentials_reports_a_rejected_key() -> None:
-    with mock.patch.object(
-        GooglePlayConsoleClient, "list_apps", side_effect=GooglePlayConsoleAuthError("Google rejected the key")
-    ):
-        assert validate_credentials(_key(), "v1beta1") == (False, "Google rejected the key")
+    with scripted_network([ScriptedResponse(status=400, body=b"invalid_grant")]):
+        is_valid, message = validate_credentials(_key(), "v1beta1")
+
+    assert is_valid is False
+    assert message is not None and "Google rejected the service account key" in message
 
 
 def test_validate_credentials_succeeds_when_the_apps_call_works() -> None:
-    with mock.patch.object(GooglePlayConsoleClient, "list_apps", return_value=[{"packageName": "com.a"}]):
+    with scripted_network([TOKEN, ScriptedResponse(json={"apps": [{"packageName": "com.a"}]})]):
         assert validate_credentials(_key(), "v1beta1") == (True, None)
 
 
 @pytest.mark.parametrize("resource_name", ENDPOINTS)
 def test_source_response_shape_per_endpoint(resource_name: str) -> None:
-    response = google_play_console_source(
-        key=_key(),
-        package_names=("com.example.app",),
-        resource_name=resource_name,
-        api_version="v1beta1",
-        resumable_source_manager=_manager(),
-        logger=structlog.get_logger(),
-    )
+    result = _driver().run(resource_name, [])
+    response = result.response
 
+    assert response is not None
     assert response.name == resource_name
     assert response.primary_keys == PRIMARY_KEYS[resource_name]
     assert response.sort_mode == "asc"
@@ -870,48 +719,30 @@ def test_source_response_shape_per_endpoint(resource_name: str) -> None:
 
 
 def test_source_response_rejects_an_unknown_endpoint() -> None:
-    with pytest.raises(ValueError, match="Unknown Google Play Console endpoint"):
-        google_play_console_source(
-            key=_key(),
-            package_names=(),
-            resource_name="not_a_table",
-            api_version="v1beta1",
-            resumable_source_manager=_manager(),
-            logger=structlog.get_logger(),
-        )
+    result = _driver().run("not_a_table", [])
+
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown Google Play Console endpoint" in str(result.raised)
 
 
 def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
-    manager = _manager()
-    response = google_play_console_source(
-        key=_key(),
-        package_names=("com.example.app",),
-        resource_name="crash_rate",
-        api_version="v1beta1",
-        resumable_source_manager=manager,
-        logger=structlog.get_logger(),
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=dt.date(2024, 3, 29),
-    )
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            start = body["timelineSpec"]["startTime"] if body else {}
-            return {"rows": [_metric_row(dt.date(start["year"], start["month"], start["day"]), 7, "0.03")]}
-        return _freshness(dt.date(2024, 3, 30))
-
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch(f"{MODULE}.make_tracked_session", return_value=mock.MagicMock()),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
-        batches = list(cast("Iterable[Any]", response.items()))
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 30))),
+                ScriptedResponse(json={"rows": [_metric_row(dt.date(2024, 3, 29), 7, "0.03")]}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 29),
+        )
 
     # The window starts at the stored watermark rather than the full history window.
-    assert [row["date"] for batch in batches for row in batch] == [dt.date(2024, 3, 29)]
+    assert result.raised is None
+    assert [row["date"] for row in result.rows] == [dt.date(2024, 3, 29)]
     # `_freshness` reports latestEndTime 2024-03-30, already Play's exclusive bound, so the
     # window closes out at 2024-03-29 and the checkpoint moves to the day after.
-    assert manager.saved[-1].date == "2024-03-30"
+    assert result.saved_states[-1].date == "2024-03-30"
 
 
 @pytest.mark.parametrize(
@@ -925,31 +756,18 @@ def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
     ],
 )
 def test_first_sync_history_window_depends_on_the_metric_set(resource_name: str, expected_start: dt.date) -> None:
-    bodies: list[dict[str, Any]] = []
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/token":
+            return TOKEN
+        if request.path.endswith(":query"):
+            return ScriptedResponse(json={"rows": []})
+        return ScriptedResponse(json=_freshness(dt.date(2024, 3, 30)))
 
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            bodies.append(body)
-            return {"rows": []}
-        return _freshness(dt.date(2024, 3, 30))
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _driver().run(resource_name, answer)
 
-    response = google_play_console_source(
-        key=_key(),
-        package_names=("com.example.app",),
-        resource_name=resource_name,
-        api_version="v1beta1",
-        resumable_source_manager=_manager(),
-        logger=structlog.get_logger(),
-    )
-
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch(f"{MODULE}.make_tracked_session", return_value=mock.MagicMock()),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
-        list(cast("Iterable[Any]", response.items()))
-
-    first_start = bodies[0]["timelineSpec"]["startTime"]
+    assert result.raised is None
+    first_start = result.requests[2].json()["timelineSpec"]["startTime"]
     assert dt.date(first_start["year"], first_start["month"], first_start["day"]) == expected_start
 
 

@@ -1,96 +1,37 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests.exceptions import ConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.demodesk import (
     DemodeskResumeConfig,
-    demodesk_source,
     to_iso8601,
     validate_credentials,
 )
-
-_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source"
-    ".rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.source import DemodeskSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.demodesk import (
+    DemodeskSourceConfig,
 )
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
-class RequestCapture:
-    def __init__(self, responses: list[Response] | None = None, by_url: dict[str, list[Response]] | None = None):
-        self.requests: list[Request] = []
-        self._responses = iter(responses or [])
-        self._by_url = {url: iter(items) for url, items in (by_url or {}).items()}
-
-    def send(self, request: Request, *_args: Any, **_kwargs: Any) -> Response:
-        # Requests are mutated in place by the paginator between pages, so keep a shallow copy.
-        copied = Request(method=request.method, url=request.url, headers=dict(request.headers or {}))
-        copied.params = dict(request.params or {})
-        # The mocked session skips prepare_request, where auth is normally applied; the auth
-        # classes only touch `.headers`, so applying them to the copy records what would be sent.
-        if request.auth is not None:
-            request.auth(copied)
-        self.requests.append(copied)
-        for url, response_iter in self._by_url.items():
-            if request.url and request.url.endswith(url):
-                return next(response_iter)
-        return next(self._responses)
-
-
-def _drive(
-    endpoint: str,
-    capture: RequestCapture,
-    manager: MagicMock | None = None,
-    *,
-    incremental: bool = False,
-    last_value: Any = None,
-    incremental_field_name: str | None = None,
-) -> tuple[MagicMock, list[dict[str, Any]]]:
-    if manager is None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-    with patch(_SESSION_PATCH) as MockSession:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.side_effect = lambda req: req
-        mock_session.send.side_effect = capture.send
-
-        resource = demodesk_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=last_value,
-            should_use_incremental_field=incremental,
-            incremental_field_name=incremental_field_name,
-        )
-        rows: list[dict[str, Any]] = []
-        for page in cast(Iterable[Any], resource):
-            rows.extend(page if isinstance(page, list) else [page])
-        return manager, rows
+def _driver() -> SourceDriver:
+    return SourceDriver(DemodeskSource(), DemodeskSourceConfig(api_key="test-key"))
 
 
 class TestDemodeskV1Demos:
-    def _pages(self) -> list[Response]:
+    def _pages(self) -> list[ScriptedResponse]:
         return [
-            _make_http_response(
-                {
+            ScriptedResponse(
+                json={
                     "data": [
                         {
                             "id": "1",
@@ -102,8 +43,8 @@ class TestDemodeskV1Demos:
                     "meta": {"currentPage": 1, "hasNextPage": True},
                 }
             ),
-            _make_http_response(
-                {
+            ScriptedResponse(
+                json={
                     "data": [{"id": "2", "type": "demos", "attributes": {"account": "Acme follow-up"}}],
                     "meta": {"currentPage": 2, "hasNextPage": False},
                 }
@@ -111,36 +52,36 @@ class TestDemodeskV1Demos:
         ]
 
     def test_attributes_are_flattened_into_row_root(self) -> None:
-        capture = RequestCapture(self._pages())
-        _, rows = _drive("demos", capture)
+        result = _driver().run("demos", self._pages())
 
-        assert rows[0]["id"] == "1"
-        assert rows[0]["account"] == "Acme intro"
-        assert "attributes" not in rows[0]
-        assert rows[0]["relationships"]["user"]["data"]["id"] == "9"
+        assert result.raised is None
+        assert result.rows[0]["id"] == "1"
+        assert result.rows[0]["account"] == "Acme intro"
+        assert "attributes" not in result.rows[0]
+        assert result.rows[0]["relationships"]["user"]["data"]["id"] == "9"
 
     def test_resume_seeds_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DemodeskResumeConfig(page=7)
+        result = _driver().run(
+            "demos",
+            [ScriptedResponse(json={"data": [], "meta": {"currentPage": 7, "hasNextPage": False}})],
+            resume_state=DemodeskResumeConfig(page=7),
+        )
 
-        capture = RequestCapture([_make_http_response({"data": [], "meta": {"currentPage": 7, "hasNextPage": False}})])
-        _drive("demos", capture, manager)
-
-        assert [r.params.get("page") for r in capture.requests] == [7]
+        assert result.raised is None
+        assert result.params("page") == ["7"]
 
 
 class TestDemodeskV2Recordings:
-    def _pages(self) -> list[Response]:
+    def _pages(self) -> list[ScriptedResponse]:
         return [
-            _make_http_response(
-                {
+            ScriptedResponse(
+                json={
                     "data": [{"recordingId": "10", "recordingToken": "tokA", "createdAt": "2026-01-01T00:00:00Z"}],
                     "meta": {"hasNext": True, "limit": 100, "nextCursor": "cur-1"},
                 }
             ),
-            _make_http_response(
-                {
+            ScriptedResponse(
+                json={
                     "data": [{"recordingId": "11", "recordingToken": "tokB", "createdAt": "2026-01-02T00:00:00Z"}],
                     "meta": {"hasNext": False, "limit": 100, "nextCursor": None},
                 }
@@ -148,24 +89,23 @@ class TestDemodeskV2Recordings:
         ]
 
     def test_cursor_pagination_follows_next_cursor_and_checkpoints(self) -> None:
-        capture = RequestCapture(self._pages())
-        manager, rows = _drive("recordings", capture)
+        result = _driver().run("recordings", self._pages())
 
-        assert [r.params.get("cursor") for r in capture.requests] == [None, "cur-1"]
-        assert all(r.params.get("limit") == 100 for r in capture.requests)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [DemodeskResumeConfig(cursor="cur-1")]
-        assert [row["recordingId"] for row in rows] == ["10", "11"]
+        assert result.raised is None
+        assert result.params("cursor") == [None, "cur-1"]
+        assert result.params("limit") == ["100", "100"]
+        assert result.saved_states == [DemodeskResumeConfig(cursor="cur-1")]
+        assert [row["recordingId"] for row in result.rows] == ["10", "11"]
 
     def test_resume_seeds_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DemodeskResumeConfig(cursor="cur-resumed")
+        result = _driver().run(
+            "recordings",
+            [ScriptedResponse(json={"data": [], "meta": {"hasNext": False, "limit": 100}})],
+            resume_state=DemodeskResumeConfig(cursor="cur-resumed"),
+        )
 
-        capture = RequestCapture([_make_http_response({"data": [], "meta": {"hasNext": False, "limit": 100}})])
-        _drive("recordings", capture, manager)
-
-        assert [r.params.get("cursor") for r in capture.requests] == ["cur-resumed"]
+        assert result.raised is None
+        assert result.params("cursor") == ["cur-resumed"]
 
     @pytest.mark.parametrize(
         ("incremental_field_name", "expected_param"),
@@ -179,43 +119,45 @@ class TestDemodeskV2Recordings:
     def test_incremental_sync_with_watermark_sends_server_side_filter(
         self, incremental_field_name: str | None, expected_param: str
     ) -> None:
-        capture = RequestCapture([_make_http_response({"data": [], "meta": {"hasNext": False, "limit": 100}})])
-        _drive(
+        result = _driver().run(
             "recordings",
-            capture,
-            incremental=True,
-            last_value=datetime(2026, 1, 15, 12, 30, tzinfo=UTC),
-            incremental_field_name=incremental_field_name,
+            [ScriptedResponse(json={"data": [], "meta": {"hasNext": False, "limit": 100}})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 12, 30, tzinfo=UTC),
+            incremental_field=incremental_field_name,
         )
 
-        assert capture.requests[0].params.get(expected_param) == "2026-01-15T12:30:00Z"
+        assert result.raised is None
+        assert result.requests[0].param(expected_param) == "2026-01-15T12:30:00Z"
 
 
 class TestDemodeskFanout:
     def test_resume_skips_already_completed_parent(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = DemodeskResumeConfig(
-            fanout_state={"completed": ["/v2/recordings/tokA/summaries"], "current": None, "child_state": None}
+        result = _driver().run(
+            "recording_summaries",
+            route(
+                {
+                    "/v2/recordings": [
+                        ScriptedResponse(
+                            json={
+                                "data": [{"recordingToken": "tokA"}, {"recordingToken": "tokB"}],
+                                "meta": {"hasNext": False, "limit": 100},
+                            }
+                        )
+                    ],
+                    # No entry for tokA's summaries: a request there would fail,
+                    # proving a resumed run does not re-fetch an already-completed parent.
+                    "/v2/recordings/tokB/summaries": [ScriptedResponse(json={"data": [{"summaryId": "sB"}]})],
+                }
+            ),
+            resume_state=DemodeskResumeConfig(
+                fanout_state={"completed": ["/v2/recordings/tokA/summaries"], "current": None, "child_state": None}
+            ),
         )
-        capture = RequestCapture(
-            by_url={
-                "/v2/recordings": [
-                    _make_http_response(
-                        {
-                            "data": [{"recordingToken": "tokA"}, {"recordingToken": "tokB"}],
-                            "meta": {"hasNext": False, "limit": 100},
-                        }
-                    )
-                ],
-                # No entry for tokA's summaries: a request there would raise StopIteration,
-                # proving a resumed run does not re-fetch an already-completed parent.
-                "/v2/recordings/tokB/summaries": [_make_http_response({"data": [{"summaryId": "sB"}]})],
-            }
-        )
-        _, rows = _drive("recording_summaries", capture, manager)
 
-        assert [row["summaryId"] for row in rows] == ["sB"]
+        assert result.raised is None
+        assert result.paths == ["/api/v2/recordings", "/api/v2/recordings/tokB/summaries"]
+        assert [row["summaryId"] for row in result.rows] == ["sB"]
 
 
 class TestValidateCredentials:
@@ -229,12 +171,10 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message_part: str | None) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.demodesk.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _make_http_response({}, status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             is_valid, message = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v2/me"}
         assert is_valid is expected_valid
         if expected_message_part is None:
             assert message is None
@@ -242,15 +182,12 @@ class TestValidateCredentials:
             assert message is not None and expected_message_part in message
 
     def test_network_error_returns_false_instead_of_raising(self) -> None:
-        from requests.exceptions import ConnectionError
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.demodesk.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.side_effect = ConnectionError("boom")
+        with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("test-key")
 
-        assert (is_valid, message) == (False, "boom")
+        assert {request.path for request in network.requests_log} == {"/api/v2/me"}
+        assert is_valid is False
+        assert message is not None and "boom" in message
 
 
 class TestToIso8601:

@@ -48,6 +48,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.change_events import (
+    CHANGE_EVENT_LOOKBACK_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
     GoogleAdsResumeConfig,
@@ -223,7 +226,7 @@ class GoogleAdsSource(
             SourceSchema(
                 name=endpoint,
                 supports_incremental=ads_incremental_fields.get(endpoint, None) is not None,
-                supports_append=ads_incremental_fields.get(endpoint, None) is not None,
+                supports_append=endpoint != "change_event" and ads_incremental_fields.get(endpoint, None) is not None,
                 incremental_fields=[
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
@@ -233,7 +236,9 @@ class GoogleAdsSource(
                 # Only the incremental stats tables (those with a segments.date filter) need the
                 # lookback; the full-refresh dimension tables re-read everything each run anyway.
                 default_incremental_lookback_seconds=(
-                    GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+                    CHANGE_EVENT_LOOKBACK_SECONDS
+                    if endpoint == "change_event"
+                    else GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
                     if ads_incremental_fields.get(endpoint, None) is not None
                     else None
                 ),

@@ -427,6 +427,26 @@ describe('Tool Filtering - API Scopes', () => {
         }
     })
 
+    it('should expose managed warehouse Trino monitoring only with its read scope and feature flag', async () => {
+        const trinoTools = ['managed-warehouse-trino-monitoring-get', 'managed-warehouse-trino-metric-history-get']
+        const enabledOptions = { featureFlags: { 'data-warehouse-scene-trino': true } }
+
+        const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
+        const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
+        const duckdbFlagOnlyTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), {
+            featureFlags: { 'data-warehouse-scene': true },
+        })
+        const authorizedToolNames = authorizedTools.map((tool) => tool.name)
+        const wrongScopeToolNames = wrongScopeTools.map((tool) => tool.name)
+        const duckdbFlagOnlyToolNames = duckdbFlagOnlyTools.map((tool) => tool.name)
+
+        for (const toolName of trinoTools) {
+            expect(authorizedToolNames).toContain(toolName)
+            expect(wrongScopeToolNames).not.toContain(toolName)
+            expect(duckdbFlagOnlyToolNames).not.toContain(toolName)
+        }
+    })
+
     it.each([
         ['notebooks-widget-generate', ['notebook:write', 'query:read']],
         ['notebooks-widget-status', ['notebook:read']],
@@ -917,11 +937,24 @@ describe('Tool Filtering - Read-Only Mode', () => {
 })
 
 describe('Tool Filtering - Feature Flags', () => {
-    it.each([undefined, false, true])('gates private trial tools on scout-trials: %s', (enabled) => {
+    it.each([undefined, false, true])('gates rubric and private trial tools on scout-trials: %s', (enabled) => {
         const tools = getToolsForFeatures({ featureFlags: { 'scout-trials': enabled } })
         expect(tools).toContain('scout-runs-list')
-        expect(tools.includes('scout-trial-create')).toBe(enabled === true)
-        expect(tools.includes('scout-trial-get')).toBe(enabled === true)
+        for (const name of [
+            'scout-rubric-generate',
+            'scout-rubric-get',
+            'scout-rubric-save',
+            'scout-trial-create',
+            'scout-trial-get',
+            'scout-trial-setup',
+            'scout-trial-start',
+            'scout-trial-report',
+            'scout-trial-resume',
+            'scout-trial-list',
+            'scout-trial-archive',
+        ]) {
+            expect(tools.includes(name), name).toBe(enabled === true)
+        }
     })
 
     const baseAnnotations = {
@@ -1052,6 +1085,11 @@ describe('Tool Filtering - Feature Flags', () => {
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'cross-project-dashboards',
+            'warehouse-suggestions',
+            'scouts-tool-access',
+            'replay-vision-scanner-dashboard',
+            'metrics-dashboard-import',
+            'data-warehouse-scene-trino',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1083,11 +1121,8 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
-                'loops',
-                'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
-                'billing-alerts',
                 'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
@@ -1099,23 +1134,15 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
                 'autoresearch',
                 'today-rail-nav',
+                'marketing-analytics-setup-plan-mcp',
+                'subscription-source-summaries',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
-    it('every loops tool is gated on the loops flag', () => {
-        // Guards against a loops tool (hand-written like loops-review, or generated)
-        // shipping without the gate and leaking the unreleased surface pre-rollout.
-        const loopsTools = Object.entries(getToolDefinitions()).filter(([name]) => name.startsWith('loops-'))
-        expect(loopsTools.length).toBeGreaterThan(0)
-        for (const [name, definition] of loopsTools) {
-            expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
-        }
-    })
-
-    it('keeps human, task, and loop context wiki tools on separate scopes', () => {
+    it('keeps human and task context wiki tools on separate scopes', () => {
         const definitions = getToolDefinitions()
         expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
         expect(definitions['task-context-wiki-page-update']!.required_scopes).toEqual([
@@ -1123,15 +1150,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'internal_run:read',
             'context_layer_internal:write',
         ])
-        expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
-            'task:write',
-            'loop_context_internal:write',
-        ])
-        expect(definitions['loop-channel-instructions-update']!.required_scopes).toEqual([
-            'task:write',
-            'loop_context_internal:write',
-        ])
-        expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
     })
 
     it('shows task context writes only to write-enabled task credentials', async () => {

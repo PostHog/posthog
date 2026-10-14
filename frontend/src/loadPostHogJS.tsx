@@ -215,6 +215,7 @@ export function loadPostHogJS(): void {
             // allowlist rejects those headers — so disable the feature then.
             tracing_headers: isOAuthMode() ? [] : ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
+            __preview_replay_sync_fetch: true,
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,

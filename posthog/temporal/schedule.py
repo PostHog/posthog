@@ -121,6 +121,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
 )
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -143,6 +144,7 @@ from products.signals.backend.temporal.agentic.schedule import (
 from products.today.backend.facade.temporal import create_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
+from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -304,8 +306,8 @@ async def create_salesforce_usage_enrichment_schedule(client: Client):
 async def create_salesforce_stripe_enrichment_schedule(client: Client):
     """Create or update the schedule for the Salesforce stripe enrichment workflow.
 
-    Runs daily at 4 AM UTC to push Stripe customer data and billing customer
-    names to Salesforce Accounts. The workflow is incremental via a Redis
+    Runs daily at 4 AM UTC to push Stripe customer ids and billing addresses
+    to Salesforce Accounts. The workflow is incremental via a Redis
     watermark, so a long backfill run is only expected on the first execution;
     ``SKIP`` prevents the next day's run from starting while a backfill is still
     in progress.
@@ -961,6 +963,7 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
@@ -992,6 +995,7 @@ schedules = [
     create_reconcile_metric_schedules_schedule,
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

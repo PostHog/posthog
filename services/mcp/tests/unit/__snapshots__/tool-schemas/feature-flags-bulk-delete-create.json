@@ -38,7 +38,7 @@
                     "type": "boolean"
                 },
                 "search": {
-                    "description": "Search by feature flag key or name (case-insensitive).",
+                    "description": "Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.",
                     "type": "string"
                 },
                 "tags": {

@@ -103,6 +103,7 @@ class RepositoryCacheState:
     repo: str
     tree_truncated: bool
     cache_status: str
+    description: str
 
 
 @frozen
@@ -242,9 +243,9 @@ def read_repository_file(team: Team, user: User, repo: str, path: str) -> Reposi
 
 def _fetch_file(team: Team, integration: Integration, full_name: str, path: str, sha: str) -> RepositoryFile:
     try:
-        payload = GitHubIntegration(integration, source="business_knowledge").get_file_contents(
-            full_name, _quote_github_path(path), ref=sha
-        )
+        payload = GitHubIntegration(
+            integration, source="business_knowledge", priority=Priority.NORMAL
+        ).get_file_contents(full_name, _quote_github_path(path), ref=sha)
     except UnicodeDecodeError:
         raise GithubReposError("That file is not text.")
     except (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted):
@@ -283,7 +284,7 @@ def warm_selected_repository(team_id: int, integration_id: int, full_name: str) 
         return
     github = GitHubIntegration(integration, source="business_knowledge", priority=Priority.BATCH)
     try:
-        async_to_sync(GitHubRepositoryFullCache(github).sync_full_cache_entry_async)(full_name)
+        async_to_sync(GitHubRepositoryFullCache(github, priority=Priority.BATCH).sync_full_cache_entry_async)(full_name)
     except GitHubIntegrationError as exc:
         # GitHub answers 404 when the repository left the installation. Drop the cached tree and README
         # so search cannot return them. The selection stays, so access comes back if the repo is re-added.
@@ -345,9 +346,9 @@ def _require_allowlist(team: Team) -> tuple[Integration, list[str]]:
 def _installation_repo_names(integration: Integration) -> set[str]:
     # A pure read of the stored repository list, so a repository removed from the installation
     # stops being searchable as soon as that list refreshes, even while its cache row remains.
-    listed = GitHubIntegration(integration, source="business_knowledge").list_all_cached_repositories(
-        allow_refresh=False
-    )
+    listed = GitHubIntegration(
+        integration, source="business_knowledge", priority=Priority.NORMAL
+    ).list_all_cached_repositories(allow_refresh=False)
     return {
         item["full_name"].lower()
         for item in listed
@@ -370,7 +371,7 @@ def _validate_against_installation(team_id: int, integration_id: int, repos: lis
     integration = _integration_for(team_id, integration_id)
     if integration is None:
         raise GithubReposError("GitHub installation not found on this project.")
-    github = GitHubIntegration(integration, source="business_knowledge")
+    github = GitHubIntegration(integration, source="business_knowledge", priority=Priority.NORMAL)
     try:
         listed = github.list_all_cached_repositories()
     # Without a cached snapshot the refresh re-raises whatever the sync hit, not only GitHub errors.
@@ -401,7 +402,7 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
         row.full_name: row
         for row in IntegrationRepositoryCacheEntry.objects.filter(
             team_id=team_id, integration_id=integration_id, full_name__in=repos
-        ).only("full_name", "updated_at", "tree_truncated", "default_branch_sha")
+        ).only("full_name", "updated_at", "tree_truncated", "default_branch_sha", "description")
     }
     fresh_after = timezone.now() - timedelta(seconds=GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS)
     states: list[RepositoryCacheState] = []
@@ -415,6 +416,7 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
                 repo=full_name,
                 tree_truncated=bool(row.tree_truncated) if row is not None else False,
                 cache_status=RepositoryCacheStatus.READY if fresh else RepositoryCacheStatus.WARMING,
+                description=row.description if row is not None and isinstance(row.description, str) else "",
             )
         )
     return states

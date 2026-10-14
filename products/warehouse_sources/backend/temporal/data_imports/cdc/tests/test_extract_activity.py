@@ -612,12 +612,17 @@ class TestErrorClassification:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         with (
             patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.alerts.emit_sync_alert"
+            ) as mock_emit_sync_alert,
             pytest.raises(NonRetryableException),
         ):
             cdc_extract_activity(inputs)
 
         assert schema.status == "Failed"
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+        mock_emit_sync_alert.assert_called_once()
+        assert mock_emit_sync_alert.call_args.kwargs["kind"].value == "schema_paused"
         # The schedule pause leaves no DB trace of its own; this marker is what tells the failure
         # digest email "paused, action required" instead of "will retry".
         assert schema.sync_type_config["cdc_extraction_paused"]["reason"] == "auth_failed"

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NoActiveDestinationsError,
     destination_ids_for_run,
     is_multi_destination_enabled,
 )
@@ -46,7 +47,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    retry_internal_db_operation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     billing_limit_reached,
 )
@@ -76,6 +80,27 @@ class V3PipelineLockLostError(NonReportableError):
     the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
     it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
     """
+
+
+class JobCreationTimedOutError(NonReportableError):
+    """The workflow stopped waiting for this activity before it created the job row.
+
+    The activity is a sync function. Temporal times it out on the server and the worker does not
+    stop its thread, so a late start still runs to the end. The workflow has already finalized
+    the run by then, so a row created now would stay Running with no run to close it.
+    """
+
+
+JOB_CREATION_TIMED_OUT_MESSAGE = (
+    "This run did not start in time, so it was closed. The next scheduled run syncs the data."
+)
+
+
+def _start_to_close_deadline_passed() -> bool:
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return False
+    return dt.datetime.now(dt.UTC) >= info.started_time + info.start_to_close_timeout
 
 
 class V2PipelineRemovedError(NonReportableError):
@@ -186,6 +211,8 @@ def _create_job(
     # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
     # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
     # creation succeeds would create a duplicate job — retrying just the INSERT avoids that.
+    if _start_to_close_deadline_passed():
+        raise JobCreationTimedOutError("The activity timed out before it created the job")
     return ExternalDataJob.objects.create(
         team_id=team_id,
         pipeline_id=source_id,
@@ -362,7 +389,13 @@ def create_external_data_job_model_activity(
 
         destination_ids: list[str] = []
         if is_multi_destination_enabled(inputs.team_id, source.source_type):
-            destination_ids = destination_ids_for_run(schema)
+            try:
+                destination_ids = destination_ids_for_run(schema)
+            except NoActiveDestinationsError as e:
+                # Fails before the job exists and before anything is extracted, so a paused
+                # destination costs the source no reads.
+                logger.info("Every destination of this table is paused, not running the sync")
+                raise NonRetryableException() from e
         # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
         # the import. A refresh while the import is held never wipes the table or restarts the clock,
         # so the refresh waits until the repartition resolves.
@@ -394,6 +427,16 @@ def create_external_data_job_model_activity(
             delete_external_data_schedule(str(inputs.schema_id))
             logger.info("Source or schema was deleted before the job could be created, deleted the sync schedule")
             raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule") from None
+        # The deadline can pass between the check before the insert and the insert itself. Close the
+        # new row here, because the workflow has already finalized this run and nothing else will.
+        if _start_to_close_deadline_passed():
+            ExternalDataJob.objects.filter(id=job.id, status=ExternalDataJob.Status.RUNNING).update(
+                status=ExternalDataJob.Status.FAILED,
+                latest_error=JOB_CREATION_TIMED_OUT_MESSAGE,
+                finished_at=timezone.now(),
+                updated_at=timezone.now(),
+            )
+            raise JobCreationTimedOutError("The activity timed out while it created the job")
         # Persist the Running status only after the job row exists: a Running schema with no job
         # behind it can never be finalized, so it would stay stuck on Running forever. With the job
         # committed first, the workflow's finalizer can always resolve it and repaint the schema.
@@ -479,6 +522,12 @@ def create_external_data_job_model_activity(
             import_handoffs_are_free=settings.DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED,
             failed_runs_in_a_row=failed_runs_in_a_row,
         )
+    except NonRetryableException:
+        # Already classified and logged where it was raised.
+        raise
+    except JobCreationTimedOutError:
+        logger.warning("Job creation started after the activity timeout, no job is left running")
+        raise
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's
         # stack trace log, same reasoning as SourceOrSchemaDeletedError above.

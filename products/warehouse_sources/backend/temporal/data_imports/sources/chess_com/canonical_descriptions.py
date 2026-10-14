@@ -19,6 +19,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "rating": "Rating of the player after the game.",
             "opponent_rating": "Rating of the opponent after the game.",
             "accuracy": "Accuracy score of the player, when Chess.com analyzed the game.",
+            "pgn": (
+                "Moves and clock times of the game in PGN. "
+                "Player names are ?, and the tags that name a player or link to the game are removed."
+            ),
         },
     },
     "ratings": {

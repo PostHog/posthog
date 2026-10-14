@@ -6,8 +6,10 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
+import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 import { OnboardingWizardStepper } from './OnboardingWizardStepper'
 import { WIZARD_STEP_COPY } from './onboardingWizardSteps'
+import { WizardBroadcastStep } from './WizardBroadcastStep'
 import { WizardChannelStep } from './WizardChannelStep'
 import { WizardConnectStep } from './WizardConnectStep'
 import { WizardCreateStep } from './WizardCreateStep'
@@ -16,7 +18,13 @@ import { WizardPushStep } from './WizardPushStep'
 import { WizardTemplateStep } from './WizardTemplateStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
-/** The first-run setup for one path, one step at a time, ending in the workflow editor. */
+const PATH_LABELS: Record<WorkflowsOnboardingPath, string> = {
+    messaging: 'Message your users',
+    automation: 'Automate a process',
+    broadcast: 'Send a broadcast',
+}
+
+/** The first-run setup for one path, one step at a time, ending in the workflow or broadcast editor. */
 export function WorkflowsOnboardingWizard(): JSX.Element {
     const {
         wizardPath,
@@ -32,14 +40,20 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
 
     const copy = WIZARD_STEP_COPY[currentStep]
     const isSkip = copy.optional && !stepDone?.[currentStep]
-    const continueLabel = isLastStep ? 'Open in editor' : isSkip ? 'Skip for now' : 'Continue'
+    const continueLabel = isLastStep
+        ? wizardPath === 'broadcast'
+            ? 'Write broadcast'
+            : 'Open in editor'
+        : isSkip
+          ? 'Skip for now'
+          : 'Continue'
 
     return (
         <div className="mx-auto w-full max-w-4xl flex flex-col gap-6 py-4" data-attr="workflows-onboarding-wizard">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                    <LemonTag type={wizardPath === 'messaging' ? 'completion' : 'default'}>
-                        {wizardPath === 'messaging' ? 'Message your users' : 'Automate a process'}
+                    <LemonTag type={wizardPath === 'automation' ? 'default' : 'completion'}>
+                        {PATH_LABELS[wizardPath]}
                     </LemonTag>
                     <span className="text-secondary text-sm">{`Step ${stepIndex + 1} of ${stepKeys.length}`}</span>
                 </div>
@@ -47,7 +61,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                     Exit setup
                 </LemonButton>
             </div>
-            {setupCheckFailed && wizardPath === 'messaging' && (
+            {setupCheckFailed && wizardPath !== 'automation' && (
                 <LemonBanner
                     type="error"
                     action={{
@@ -82,6 +96,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                 {(currentStep === 'journey' || currentStep === 'template') && <WizardTemplateStep />}
                 {currentStep === 'connect' && <WizardConnectStep />}
                 {currentStep === 'create' && <WizardCreateStep />}
+                {currentStep === 'broadcast' && <WizardBroadcastStep />}
             </LemonCard>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
                 <div>

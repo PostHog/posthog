@@ -299,6 +299,7 @@ class EvaluationAnnouncement:
     """
 
     configuration_id: str
+    source: SourceKind
     alert_name: str
     # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
     # whole evaluation, and every group in one announcement saw the same count.
@@ -592,6 +593,49 @@ class DestinationResolver(Protocol):
     def __call__(
         self, *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
     ) -> list[AlertDestinationGroup]: ...
+
+
+@frozen
+class MessageDetail:
+    """One labelled fact in a message. Every provider renders these the same way, as a Slack
+    section, an Adaptive Card body, or lines of markdown."""
+
+    label: str
+    value: str
+
+
+@frozen
+class MessageLink:
+    label: str
+    url: str
+
+
+@frozen
+class SourceDescription:
+    """What a source says about one transition, in the words its own product uses.
+
+    The platform imports no source, so it can say only "Value: 11". A source can say "11 logs in
+    10m". Every part is optional, and a part a source leaves out falls back to the platform's
+    own wording or to nothing.
+    """
+
+    # Replaces the platform's breach details. A failed or turned-off check keeps the platform's
+    # failure details, because the failure is the platform's, not the source's.
+    details: tuple[MessageDetail, ...] = ()
+    # Short lines of small print, such as which services an alert watches.
+    context: tuple[str, ...] = ()
+    # Where the data behind the alert is, such as the matching logs.
+    data_link: MessageLink | None = None
+
+
+class SourceDescriber(Protocol):
+    """How a source describes its transitions. A source registers one for native delivery.
+
+    It runs once per destination on the send path, inside a delivery that a held thread or a
+    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    """
+
+    def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
 
 
 # Comparison against a source's own stack.

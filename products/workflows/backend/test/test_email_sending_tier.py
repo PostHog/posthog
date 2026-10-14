@@ -3,7 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -74,7 +74,7 @@ def clean_days(count: int, sent_per_day: int, *, days_ago: int = 0) -> dict[str,
 
 
 @override_settings(**TIER_SETTINGS)
-class TestEmailSendingTierDecision(BaseTest):
+class TestEmailSendingTierDecision(SimpleTestCase):
     @parameterized.expand([(tier, caps) for tier, caps in enumerate(zip(TIER_HOURLY_CAPS, TIER_DAILY_CAPS))])
     def test_tier_maps_to_its_caps(self, tier: int, caps: tuple[int, int]) -> None:
         limits = get_email_sending_tier_limits(tier)

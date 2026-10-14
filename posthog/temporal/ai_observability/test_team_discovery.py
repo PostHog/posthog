@@ -1,6 +1,7 @@
 import math
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from functools import partial
 
 import pytest
@@ -353,19 +354,30 @@ class TestGetTeamIdsForAIObservability:
         assert "$ai_generation" in passed_trigger_events
         assert set(passed_trigger_events) < set(AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
+    @pytest.mark.parametrize(
+        "inputs,expected_window",
+        [
+            pytest.param(TeamDiscoveryInput(), None, id="flag_lookback_days"),
+            pytest.param(
+                TeamDiscoveryInput(window_start="2026-01-01T10:00:00Z", window_end="2026-01-01T11:00:00Z"),
+                (datetime(2026, 1, 1, 10, tzinfo=UTC), datetime(2026, 1, 1, 11, tzinfo=UTC)),
+                id="explicit_window_overrides_lookback",
+            ),
+        ],
+    )
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_lookback_uses_ff_payload_value(self, mock_get_teams, mock_ff):
-        """The discovery activity scopes its eligibility query to the
-        discovery_lookback_days from the feature flag payload.
-        """
+    async def test_eligibility_query_window(self, mock_get_teams, mock_ff, inputs, expected_window):
         mock_ff.return_value = {"discovery_lookback_days": 3}
         mock_get_teams.return_value = []
 
-        await get_team_ids_for_ai_observability(TeamDiscoveryInput())
+        await get_team_ids_for_ai_observability(inputs)
 
         begin, end = mock_get_teams.call_args.args[0], mock_get_teams.call_args.args[1]
-        delta_days = (end - begin).total_seconds() / 86400
-        assert 2.99 < delta_days < 3.01
+        if expected_window is None:
+            delta_days = (end - begin).total_seconds() / 86400
+            assert 2.99 < delta_days < 3.01
+        else:
+            assert (begin, end) == expected_window
 
 
 def _create_team(name: str, approved: bool) -> int:
@@ -469,6 +481,9 @@ class TestCoordinatorConsentGate:
     async def test_discovery_failure_does_not_start_team_workflows(self, run: Callable[[], Awaitable[object]]) -> None:
         with (
             patch("temporalio.workflow.patched", return_value=True),
+            patch(
+                "temporalio.workflow.info", return_value=MagicMock(workflow_start_time=datetime(2026, 1, 1, tzinfo=UTC))
+            ),
             patch("temporalio.workflow.execute_activity", side_effect=RuntimeError("Discovery unavailable")),
             patch("temporalio.workflow.start_child_workflow") as start_child,
         ):

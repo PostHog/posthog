@@ -4,22 +4,15 @@ The policy lives apart from the other middleware so that team-security owns the 
 `.github/CODEOWNERS` and reviews every change to it.
 """
 
-import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.http import HttpRequest
 
-import structlog
-import posthoganalytics
-
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
-
-logger = structlog.get_logger(__name__)
-
 
 _POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
 
@@ -104,57 +97,16 @@ def app_frame_ancestor_sources() -> list[str]:
     return sources
 
 
-CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG = "csp-enforce-other-signed-out-pages"
-
-# The pages that take a password or a one-time code. Other signed-out pages follow the flag above.
-SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES = ("/login", "/signup", "/reset", "/reset_2fa", "/verify_email")
-
-
-def is_signed_out_enforceable_path(path: str) -> bool:
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES)
-
-
-def other_signed_out_pages_csp_enforcement_enabled() -> bool:
-    try:
-        # A signed-out visitor has no person to bucket, so each document draws a random id. The
-        # flag's rollout percentage then applies per document.
-        #
-        # A condition on a person property cannot resolve for a random id, so it evaluates to None
-        # and enforces nothing. Flag events stay off, because each document would add a new
-        # distinct id to the project.
-        #
-        # Local evaluation only. A network call here would sit in the path of every HTML response,
-        # and an unevaluable flag returns None, which leaves the policy report-only.
-        return bool(
-            posthoganalytics.feature_enabled(
-                CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG,
-                str(uuid.uuid4()),
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("csp.signed_out_enforcement_flag_check_failed_defaulting_off", exc_info=True)
-        return False
-
-
-def csp_enforcement_enabled(request: HttpRequest) -> bool:
-    if is_hobby():
-        # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
-        # ours, so an enforced policy there would break pages with no signal.
-        return False
-    user = getattr(request, "user", None)
-    if user is not None and user.is_authenticated:
-        return True
-    # The document keeps the policy it loads with. A visitor who signs in from a page the flag
-    # leaves report-only goes on to the app inside the same document, still report-only.
-    return is_signed_out_enforceable_path(request.path) or other_signed_out_pages_csp_enforcement_enabled()
+def csp_enforcement_enabled() -> bool:
+    # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
+    # ours, so an enforced policy there would break pages with no signal.
+    return not is_hobby()
 
 
 def app_csp_header_name(request: HttpRequest) -> str:
     if is_embeddable_document(request.path):
         return "Content-Security-Policy-Report-Only"
-    if csp_enforcement_enabled(request):
+    if csp_enforcement_enabled():
         return "Content-Security-Policy"
     return "Content-Security-Policy-Report-Only"
 

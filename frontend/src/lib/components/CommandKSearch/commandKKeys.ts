@@ -1,17 +1,22 @@
+/** A chip index, every chip plus the text (⌘A), or nothing. */
+export type ChipSelection = number | 'all' | null
+
 export type KeyIntent =
     | { type: 'move'; direction: 1 | -1 }
     | { type: 'activate'; newTab: boolean }
     | { type: 'complete' }
-    | { type: 'select-chip'; index: number | null }
+    /** `keepDefault` lets the input also select or collapse its own text. */
+    | { type: 'select-chip'; index: ChipSelection; keepDefault?: true }
     | { type: 'remove-chip'; index: number }
     | { type: 'edit-chip'; index: number }
+    | { type: 'clear' }
     | { type: 'clear-or-close' }
 
 export interface KeyState {
     /** The caret sits at the very start of the text with nothing selected. */
     atStart: boolean
     chipCount: number
-    selectedChipIndex: number | null
+    chipSelection: ChipSelection
     /** Tab completes a filter row or asks AI. With neither, it moves focus as usual. */
     tabHasAction: boolean
 }
@@ -22,41 +27,63 @@ export function keyIntent(
     modifiers: { metaKey: boolean; ctrlKey: boolean },
     state: KeyState
 ): KeyIntent | null {
-    const { atStart, chipCount, selectedChipIndex } = state
+    const { atStart, chipCount, chipSelection } = state
     const chipsBeforeCaret = chipCount > 0 && atStart
+    const chipIndex = typeof chipSelection === 'number' ? chipSelection : null
     switch (key) {
+        case 'a':
+        case 'A':
+            if (!modifiers.metaKey && !modifiers.ctrlKey) {
+                return null
+            }
+            // With no chips the input's own select-all already covers the whole query.
+            return chipCount > 0 ? { type: 'select-chip', index: 'all', keepDefault: true } : null
         case 'ArrowDown':
             return { type: 'move', direction: 1 }
         case 'ArrowUp':
             return { type: 'move', direction: -1 }
         case 'Enter':
-            return selectedChipIndex !== null
-                ? { type: 'edit-chip', index: selectedChipIndex }
+            return chipIndex !== null
+                ? { type: 'edit-chip', index: chipIndex }
                 : { type: 'activate', newTab: modifiers.metaKey || modifiers.ctrlKey }
         case 'Tab':
             return state.tabHasAction ? { type: 'complete' } : null
         case 'Escape':
             return { type: 'clear-or-close' }
+        case 'Delete':
+            return chipSelection === 'all' ? { type: 'clear' } : null
         case 'Backspace':
+            if (chipSelection === 'all') {
+                return { type: 'clear' }
+            }
             if (!chipsBeforeCaret) {
                 return null
             }
-            return selectedChipIndex === null
+            return chipIndex === null
                 ? { type: 'select-chip', index: chipCount - 1 }
-                : { type: 'remove-chip', index: selectedChipIndex }
+                : { type: 'remove-chip', index: chipIndex }
+        case 'Home':
+        case 'End':
+            return chipSelection === 'all' ? { type: 'select-chip', index: null, keepDefault: true } : null
         case 'ArrowLeft':
+            if (chipSelection === 'all') {
+                return { type: 'select-chip', index: null, keepDefault: true }
+            }
             if (!chipsBeforeCaret) {
                 return null
             }
             return {
                 type: 'select-chip',
-                index: selectedChipIndex === null ? chipCount - 1 : Math.max(0, selectedChipIndex - 1),
+                index: chipIndex === null ? chipCount - 1 : Math.max(0, chipIndex - 1),
             }
         case 'ArrowRight':
-            if (selectedChipIndex === null) {
+            if (chipSelection === 'all') {
+                return { type: 'select-chip', index: null, keepDefault: true }
+            }
+            if (chipIndex === null) {
                 return null
             }
-            return { type: 'select-chip', index: selectedChipIndex + 1 < chipCount ? selectedChipIndex + 1 : null }
+            return { type: 'select-chip', index: chipIndex + 1 < chipCount ? chipIndex + 1 : null }
         default:
             return null
     }

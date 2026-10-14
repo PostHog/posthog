@@ -8,12 +8,14 @@ import {
     ciRanges,
     DefaultTooltip,
     PieChart,
+    ProportionBar,
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
     type TooltipContext,
 } from '@posthog/quill-charts'
 
+import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
     buildTrendsBarValueConfig,
@@ -40,7 +42,7 @@ import {
     supportsPercentStack,
 } from './chartSettingsConfig'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
+import { buildProportionBarSeries, formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
 
 const TITLE = 'Trends'
 
@@ -102,6 +104,21 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
             <div>
                 <ChartHeader title={TITLE} />
                 <BigNumber value={total} label={label} />
+            </div>
+        )
+    }
+
+    if (displayType === 'ActionsProportionBar') {
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full justify-center p-4">
+                    <ProportionBar
+                        series={buildProportionBarSeries(results, colorAt)}
+                        theme={theme}
+                        valueFormatter={buildYTickFormatter(trendsFilterToYFormatterConfig(query?.trendsFilter, false))}
+                    />
+                </div>
             </div>
         )
     }

@@ -1,7 +1,7 @@
 // Redis stream read/write plane for task-run event streaming.
 //
 // Wire protocol is byte-identical to the Python implementation in
-// products/tasks/backend/stream/redis_stream.py — Django and this Node
+// products/tasks/backend/logic/stream/redis_stream.py — Django and this Node
 // service share the SAME Redis stream during the cutover window.
 // Any change to key names, TTLs, field names, or sentinel shapes will
 // corrupt live runs.
