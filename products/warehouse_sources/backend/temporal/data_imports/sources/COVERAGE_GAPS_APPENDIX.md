@@ -6798,10 +6798,10 @@ Today (3): `executions`, `flows`, `triggers`
 
 Diffed against: <https://kestra.io/kestra.yml>
 
-- [ ] `Execution task runs (GET /api/v1/{tenant}/executions/{executionId})` — measure task failures, retries, and durations absent from the lightweight execution search results (high)
-- [ ] `Flow revisions (GET /api/v1/{tenant}/flows/{namespace}/{id}/revisions)` — resolve flowRevision in executions and compare outcomes across workflow versions (high)
-- [ ] `Execution metrics (GET /api/v1/{tenant}/metrics/{executionId})` — analyze task counters and measured values, such as processed rows and bytes (high)
-- [ ] `Logs (GET /api/v1/{tenant}/logs/search)` — investigate recurring failures and warnings across executions and tasks (medium)
+- [x] `Execution task runs (GET /api/v1/{tenant}/executions/{executionId})` — measure task failures, retries, and durations absent from the lightweight execution search results (high)
+- [x] `Flow revisions (GET /api/v1/{tenant}/flows/{namespace}/{id}/revisions)` — resolve flowRevision in executions and compare outcomes across workflow versions (high)
+- [x] `Execution metrics (GET /api/v1/{tenant}/metrics/{executionId})` — analyze task counters and measured values, such as processed rows and bytes (high)
+- [x] `Logs (GET /api/v1/{tenant}/logs/search)` — investigate recurring failures and warnings across executions and tasks (medium)
 - [ ] `Task outputs (GET /api/v1/{tenant}/outputs/tasks/{executionId}; GET /api/v1/{tenant}/outputs/tasks/{executionId}/{taskRunId})` — connect workflow results to execution performance and downstream processing (medium)
 - [ ] `Instance usage (GET /api/v1/{tenant}/usages/all)` — track aggregate execution and flow usage for capacity planning (medium)
 
