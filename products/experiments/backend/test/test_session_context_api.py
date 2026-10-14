@@ -29,6 +29,7 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.session_context import (
     MAX_SESSION_CONTEXT_BATCH,
@@ -553,17 +554,22 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "test"
         assert results[0]["first_exposure_timestamp"] is None
 
-    def test_unresolvable_property_filter_fails_soft(self) -> None:
+    @parameterized.expand([("foreign_cohort", False), ("deleted_cohort", True)])
+    def test_unresolvable_property_filter_fails_soft(self, _name: str, deleted: bool) -> None:
         self._create_recording()
-        # A duplicated experiment can carry a cohort id from its source project; resolving that
-        # filter raises. One such experiment must not 500 the endpoint — it degrades to
-        # stamped-property evidence with no exposure moment.
+        # A duplicated experiment can carry a cohort id from its source project, and a cohort
+        # can be deleted after the experiment launched. Resolving either filter raises. One such
+        # experiment must not fail the endpoint — it degrades to stamped-property evidence with
+        # no exposure moment.
+        cohort_id = 999999
+        if deleted:
+            cohort_id = Cohort.objects.create(team=self.team, name="gone", groups=[], deleted=True).pk
         self._create_experiment(
             exposure_criteria={
                 "exposure_config": {
                     "kind": "ExperimentEventExposureConfig",
                     "event": "checkout started",
-                    "properties": [{"key": "id", "value": 999999, "type": "cohort"}],
+                    "properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],
                 }
             }
         )

@@ -1125,9 +1125,13 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_cohort_filter_missing_cohort(self):
-        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
-            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
+    @parameterized.expand([("missing", False), ("deleted", True)])
+    def test_cohort_filter_missing_cohort(self, _name: str, deleted: bool):
+        cohort_id = 2137
+        if deleted:
+            cohort_id = Cohort.objects.create(team=self.team, name="gone", groups=[], deleted=True).pk
+        with self.assertRaisesMessage(QueryError, f"Cohort {cohort_id} does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort_id}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
