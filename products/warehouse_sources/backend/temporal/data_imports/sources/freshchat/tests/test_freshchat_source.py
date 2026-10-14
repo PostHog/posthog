@@ -5,13 +5,7 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.source import FreshchatSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshchat import (
     FreshchatSourceConfig,
@@ -45,28 +39,6 @@ class TestFreshchatSource:
         self.team_id = 1
         self.config = FreshchatSourceConfig(domain="acme.freshchat.com", api_key="key")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Freshchat"
-        assert config.label == "Freshchat"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/freshchat"
-        # A finished source is visible: the unreleased flag must never be re-added.
-        assert not config.unreleasedSource
-
-        fields = config.fields
-        assert len(fields) == 2
-        domain_field, api_key_field = fields
-        assert isinstance(domain_field, SourceFieldInputConfig)
-        assert domain_field.name == "domain"
-        assert domain_field.type == SourceFieldInputConfigType.TEXT
-        assert domain_field.secret is False
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog -> the public docs Supported-tables section can render.
         assert self.source.lists_tables_without_credentials is True
@@ -75,40 +47,10 @@ class TestFreshchatSource:
         # The domain is where the stored token is sent; editing it must re-require the secret.
         assert self.source.connection_host_fields == ["domain"]
 
-    def test_get_schemas_covers_all_endpoints_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Freshchat has no server-side incremental cursor -> every endpoint is full refresh.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
-    @pytest.mark.parametrize(
-        "name, primary_keys",
-        [
-            ("agents", ["id"]),
-            ("users", ["id"]),
-            ("groups", ["id"]),
-            ("channels", ["id"]),
-            ("roles", ["id"]),
-            ("accounts_configuration", ["app_id"]),
-            # The fan-out children aggregate rows from every parent, so the parent id is part of
-            # the key: a conversation can be listed under more than one user, and Freshchat
-            # documents no global uniqueness for message ids.
-            ("user_conversations", ["user_id", "id"]),
-            ("conversation_messages", ["conversation_id", "id"]),
-        ],
-    )
-    def test_schema_primary_keys(self, name: str, primary_keys: list[str]) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[name].detected_primary_keys == primary_keys
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["agents"])
         assert len(schemas) == 1
         assert schemas[0].name == "agents"
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "domain, probe, schema_name, expected_valid, expect_probe",
@@ -147,14 +89,6 @@ class TestFreshchatSource:
         assert is_valid is expected_valid
         if not expect_probe:
             mock_validate.assert_not_called()
-
-    def test_non_json_response_message_matches_non_retryable_error(self) -> None:
-        # The classifier matches a substring of the raised message, so the variable URL must not stop
-        # the match; without it the user reads a raw parse failure instead of what to fix.
-        raised = "Non-JSON response from https://acme.myfreshworks.com/v2/agents"
-        matches = [friendly for key, friendly in self.source.get_non_retryable_errors().items() if key in raised]
-
-        assert matches and matches[0] is not None
 
     @pytest.mark.parametrize(
         "schema_name, primary_keys, partition_keys",

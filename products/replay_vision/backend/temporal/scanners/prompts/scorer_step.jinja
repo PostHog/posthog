@@ -1,6 +1,6 @@
 {% from "_macros.jinja" import cite_in, learned_preferences, mark_key_moment, pick_media, rate_notability %}Rate this session against the following criterion: {{ user_prompt }}
 {{ learned_preferences(scanner_rules) }}
-In `reasoning`, work through what you observed in the session that bears on this criterion, noting what the events confirmed or contradicted; then set `score` on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}. A score toward either end of the scale needs moments you checked with `get_events_around` behind it, not just how the session looks. A score is required even when the session never shows what the criterion describes, so in that case follow the relevance rules and stay away from both ends of the scale: an extreme score reads as a real finding, and there's nothing here to find.
+In `reasoning`, work through what you observed in the session that bears on this criterion, noting what the events confirmed or contradicted; then set `score` on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}. A score toward either end of the scale needs moments you checked with an events lookup behind it, not just how the session looks. A score is required even when the session never shows what the criterion describes, so in that case follow the relevance rules and stay away from both ends of the scale: an extreme score reads as a real finding, and there's nothing here to find.
 
 {{ cite_in('reasoning') }}
 

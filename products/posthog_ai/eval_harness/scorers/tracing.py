@@ -20,7 +20,7 @@ from django.conf import settings
 
 from posthoganalytics import Posthog
 
-from ..trace_events import DISTINCT_ID
+from ..trace_events import DISTINCT_ID, RunMetadata
 from .contract import AsyncOnlyScorerMixin, Scorer
 
 # Context var for injecting per-scorer-invocation trace properties
@@ -43,6 +43,7 @@ def _build_posthog_kwargs() -> dict[str, Any]:
         "posthog_distinct_id": DISTINCT_ID,
         "posthog_trace_id": trace_id,
         "posthog_properties": {
+            **ctx["run_metadata"],
             "$ai_trace_id": trace_id,
             "$ai_parent_id": trace_id,
             "$ai_span_name": "Scorer",
@@ -177,7 +178,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
                 self._inner.anthropic_client = original_anthropic  # ty: ignore[invalid-assignment]
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        case_name = _case_name_from_kwargs(kwargs)
+        case_name = kwargs.get("metadata", {}).get("trial_id") or _case_name_from_kwargs(kwargs)
         with self._invocation_context(case_name) as is_llm_scorer:
             # eval_async, not _run_eval_async: sync-only inner scorers rely on
             # the base class's async-to-sync delegation.
@@ -199,6 +200,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
             distinct_id=DISTINCT_ID,
             event="$ai_span",
             properties={
+                **self._eval_metadata["run_metadata"],
                 "$ai_trace_id": agent_trace_id,
                 "$ai_span_id": str(uuid.uuid4()),
                 "$ai_parent_id": agent_trace_id,
@@ -223,12 +225,13 @@ def wrap_scorers(
     agent_trace_id_lookup: dict[str, str],
     *,
     trace_namespace: str,
+    run_metadata: RunMetadata,
 ) -> tuple[list[Any], dict[tuple[str, str], str]]:
     """Wrap scorers with tracing.
 
     Returns (wrapped_scorers, scorer_traces dict).
 
-    ``agent_trace_id_lookup`` maps case_name → agent trace_id. It's populated
+    ``agent_trace_id_lookup`` maps trial_id → agent trace_id. It's populated
     by the ``task()`` function and read by deterministic scorers to attach
     their spans to the agent trace. ``trace_namespace`` prefixes the experiment
     name in trace metadata so eval kinds stay distinguishable in PostHog.
@@ -238,6 +241,7 @@ def wrap_scorers(
     eval_metadata = {
         "experiment_id": experiment_id,
         "experiment_name": f"{trace_namespace}/{experiment_name}",
+        "run_metadata": run_metadata,
     }
     wrapped = [
         TracedScorer(

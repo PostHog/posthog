@@ -343,6 +343,8 @@ def gainsight_cs_source(
             # dedupes on the primary key — instead of stepping over it.
             resumable_source_manager.save_state(GainsightCsResumeConfig(offset=offset))
 
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         raise GainsightCsPageBudgetExhaustedError(
             f"Stopped after {MAX_PAGES_PER_ATTEMPT} pages of '{object_name}'; the next attempt resumes at offset {offset}."
         )

@@ -1,4 +1,5 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
 import {
     EventsQuery,
@@ -20,13 +21,15 @@ interface DateRangeProps<
 > {
     query: Q
     setQuery?: (query: Q) => void
+    size?: LemonButtonProps['size']
 }
 export function DateRange<
     Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,
->({ query, setQuery }: DateRangeProps<Q>): JSX.Element | null {
+>({ query, setQuery, size }: DateRangeProps<Q>): JSX.Element | null {
     if (isEventsQuery(query) || isSessionsQuery(query)) {
         return (
             <DateFilter
+                size={size}
                 dateFrom={query.after ?? undefined}
                 dateTo={query.before ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
@@ -46,6 +49,7 @@ export function DateRange<
     if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
         return (
             <DateFilter
+                size={size}
                 dateFrom={query.filters?.dateRange?.date_from ?? undefined}
                 dateTo={query.filters?.dateRange?.date_to ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
@@ -69,6 +73,7 @@ export function DateRange<
     if (isTracesQuery(query)) {
         return (
             <DateFilter
+                size={size}
                 dateFrom={query.dateRange?.date_from ?? undefined}
                 dateTo={query.dateRange?.date_to ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {

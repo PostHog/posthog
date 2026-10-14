@@ -2021,12 +2021,12 @@ export type EvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2342,12 +2342,12 @@ export type PatchedEvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2521,12 +2521,12 @@ export type TestHogRequestApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -3253,12 +3253,12 @@ export type EvaluationReportMetricsApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -5429,6 +5429,10 @@ export type LlmAnalyticsTraceReviewsListParams = {
 export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
+    /**
+     * Return archived prompts instead of active ones. Each archived prompt appears once, at its most recent version.
+     */
+    archived?: boolean
     /**
      * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *

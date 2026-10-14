@@ -13,6 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clever.cle
     validate_credentials as validate_clever_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
+    CLEVER_API_VERSION_V3_0,
+    CLEVER_API_VERSION_V3_1,
     CLEVER_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -35,9 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CleverSource(ResumableSource[CleverSourceConfig, CleverResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v3.0",)
-    default_version = "v3.0"
-    api_docs_url = "https://dev.clever.com/docs/new-in-api-v3"
+    supported_versions = (CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1)
+    default_version = CLEVER_API_VERSION_V3_1
+    api_docs_url = "https://dev.clever.com/docs/api-v31"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -104,7 +106,7 @@ Rostering data beyond districts requires the district's Clever Secure Sync (Clev
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_clever_credentials(config.bearer_token)
+        return validate_clever_credentials(config.bearer_token, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CleverResumeConfig]:
         return ResumableSourceManager[CleverResumeConfig](inputs, CleverResumeConfig)
@@ -118,6 +120,7 @@ Rostering data beyond districts requires the district's Clever Secure Sync (Clev
         endpoint_config = CLEVER_ENDPOINTS[inputs.schema_name]
         resource = clever_source(
             bearer_token=config.bearer_token,
+            api_version=self.resolve_api_version(inputs.api_version),
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,

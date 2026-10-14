@@ -4,8 +4,8 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import api, { ApiMethodOptions, getJSONOrNull, isAbortError } from 'lib/api'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import posthog from 'lib/posthog-typed'
@@ -16,8 +16,8 @@ import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/request
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
+import { DashboardFilter, HogQLVariable, QueryStatus, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -41,9 +41,14 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     }
 
     const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
+    const code = queryStatus.error_code ?? parsedError.code
+    // A tile failure arrives without the HTTP status the query originally failed with, so the
+    // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
+    // user their query definition is broken, which sends them to fix a query that was never wrong.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : 400
+    return new ApiError(undefined, status, undefined, {
         detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
+        code,
         queryId: queryStatus.id,
     })
 }
@@ -300,6 +305,28 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
 }
 
 /**
+ * Records whether a tile rerun after an expired status poll recovers, because the 404 alone does not show it.
+ * The insights endpoint bypasses performQuery, so its query submission telemetry never sees this rerun.
+ */
+async function captureTileRerunAfterStatusExpired(
+    rerun: () => Promise<InsightModel | null>
+): Promise<InsightModel | null> {
+    try {
+        const result = await rerun()
+        posthog.capture('query rerun after status expired', {
+            source: 'dashboard_tile',
+            recovered: result?.result != null && !result.query_status?.error,
+        })
+        return result
+    } catch (e) {
+        if (!isAbortError(e)) {
+            posthog.capture('query rerun after status expired', { source: 'dashboard_tile', recovered: false })
+        }
+        throw e
+    }
+}
+
+/**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
  * After multiple failed attempts, it switches to asynchronous polling to fetch the result.
@@ -366,21 +393,17 @@ export async function getInsightWithRetry(
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'force_async',
-                            from_dashboard: dashboardId,
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                            ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                            ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                        })}`
-                        // The async call returns an insight with a query_status object
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        const insightResponse = await api.get(asyncApiUrl, methodOptions)
-
-                        if (insightResponse?.query_status?.id) {
-                            const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                        const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
+                            `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                refresh: asyncRefresh,
+                                from_dashboard: dashboardId,
+                                client_query_id: queryId,
+                                session_id: currentSessionId(),
+                                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+                                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
+                            })}`
+                        const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
                             if (finalStatus.complete && !finalStatus.error) {
                                 const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
@@ -399,7 +422,6 @@ export async function getInsightWithRetry(
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
                                     const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    captureRecovery(queryBasedInsight)
                                     return {
                                         ...queryBasedInsight,
                                         query_status: queryBasedInsight.query_status?.error
@@ -407,6 +429,54 @@ export async function getInsightWithRetry(
                                             : finalStatus,
                                     }
                                 }
+                            }
+                            return null
+                        }
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const insightResponse = await api.get(asyncApiUrl('force_async'), methodOptions)
+
+                        if (insightResponse?.query_status?.id) {
+                            let finalStatus: QueryStatus
+                            try {
+                                finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                            } catch (e) {
+                                // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
+                                // The insights endpoint ignores client_query_id and names the run by its cache key, so
+                                // the rerun in executeQuery never sees this poll. Submit once more with async, which
+                                // reads the result that the finished run cached.
+                                if (!isExpiredQueryStatusError(e)) {
+                                    throw e
+                                }
+                                const rerun = await captureTileRerunAfterStatusExpired(async () => {
+                                    // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                                    const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
+                                    if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
+                                        return getQueryBasedInsightModel(rerunResponse)
+                                    }
+                                    if (
+                                        rerunResponse?.result == null &&
+                                        rerunResponse?.query_status?.id &&
+                                        !rerunResponse.query_status.complete
+                                    ) {
+                                        return await readCachedInsight(
+                                            await pollForResults(rerunResponse.query_status.id, methodOptions)
+                                        )
+                                    }
+                                    if (rerunResponse?.result == null) {
+                                        throw new Error('The rerun returned no result')
+                                    }
+                                    return getQueryBasedInsightModel(rerunResponse)
+                                })
+                                if (!rerun) {
+                                    throw new Error('The rerun returned no result')
+                                }
+                                captureRecovery(rerun)
+                                return rerun
+                            }
+                            const cachedInsight = await readCachedInsight(finalStatus)
+                            if (cachedInsight) {
+                                captureRecovery(cachedInsight)
+                                return cachedInsight
                             }
                         }
 

@@ -10,6 +10,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
 
 from ee.tasks.subscriptions.subscription_utils import (
+    MAX_INSIGHTS,
     UTM_TAGS_BASE,
     _has_asset_failed,
     failed_asset_details,
@@ -97,6 +98,7 @@ def send_email_subscription_report(
             "invite_message": invite_message,
             "invite_summary": invite_summary,
             "total_asset_count": total_asset_count,
+            "max_insights": MAX_INSIGHTS,
             "change_summary": change_summary,
             "summary_skipped_over_budget": summary_skipped_over_budget,
             "billing_url": absolute_uri(f"/organization/billing?{utm_tags}"),

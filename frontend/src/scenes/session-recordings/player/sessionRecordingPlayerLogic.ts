@@ -53,7 +53,6 @@ import { debugReplayChatLogic } from 'scenes/session-recordings/player/player-me
 import { buildDebugReplayData } from 'scenes/session-recordings/player/player-meta/debugReplayData'
 import {
     buildDebugReplayDataContextItem,
-    buildDebugReplayPrompt,
     debugReplayFileName,
 } from 'scenes/session-recordings/player/player-meta/debugReplayPrompt'
 import {
@@ -969,8 +968,12 @@ export interface sessionRecordingPlayerLogicActions {
     reportNextRecordingTriggered: (automatic: boolean) => {
         automatic: boolean
     } // sessionRecordingEventUsageLogic
-    reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
+    reportRecordingDebuggedWithAI: (
+        playerTimeSeconds: number,
+        promptEdited: boolean
+    ) => {
         playerTimeSeconds: number
+        promptEdited: boolean
     } // sessionRecordingEventUsageLogic
     reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
         format: 'json' | 'mp4'
@@ -1047,8 +1050,12 @@ export interface sessionRecordingPlayerLogicActions {
         config: Record<string, any>
         integrationId: number
     }
-    debugRecordingWithAI: () => {
-        value: true
+    debugRecordingWithAI: (
+        prompt: string,
+        promptEdited: boolean
+    ) => {
+        prompt: string
+        promptEdited: boolean
     }
     deleteRecording: () => {
         value: true
@@ -1605,7 +1612,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => ({ diagnostics }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
-        debugRecordingWithAI: true,
+        debugRecordingWithAI: (prompt: string, promptEdited: boolean) => ({ prompt, promptEdited }),
         setDebugRecordingPreparing: (preparing: boolean) => ({ preparing }),
         deleteRecording: true,
         openExplorer: true,
@@ -2745,8 +2752,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(createCorsPlugin(() => values.replayProxyToken))
             }
 
-            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
-                posthog.captureException(error)
+            const canvasPlugin = CanvasReplayerPlugin(
+                values.sessionPlayerData.snapshotsByWindowId[windowId],
+                (error, context) => posthog.captureException(error, context)
             )
             plugins.push(canvasPlugin)
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
@@ -3662,7 +3670,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        debugRecordingWithAI: async () => {
+        debugRecordingWithAI: async ({ prompt, promptEdited }) => {
             if (!values.sessionRecordingId || values.debugRecordingPreparing) {
                 return
             }
@@ -3708,11 +3716,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // The side panel renders behind a fullscreen player.
             actions.setIsFullScreen(false)
-            actions.openSidePanel(
-                SidePanelTab.Max,
-                autoRunMaxPrompt(buildDebugReplayPrompt(values.sessionRecordingId, values.currentPlayerTimeSeconds))
-            )
-            actions.reportRecordingDebuggedWithAI(values.currentPlayerTimeSeconds)
+            actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(prompt))
+            actions.reportRecordingDebuggedWithAI(values.currentPlayerTimeSeconds, promptEdited)
         },
 
         exportRecordingToFile: async () => {

@@ -8,24 +8,46 @@ function TooltipProvider({ delay = 250, ...props }: TooltipPrimitive.Provider.Pr
     return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props): React.ReactElement {
-    return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+const TooltipGlideContext = React.createContext(false)
+
+const createTooltipHandle = TooltipPrimitive.createHandle
+
+function Tooltip<Payload>({ onOpenChangeComplete, ...props }: TooltipPrimitive.Root.Props<Payload>): React.ReactElement {
+    // A tooltip shared through a handle glides between its triggers. It starts once the tooltip has
+    // opened in place, so the first placement does not slide in from the corner of the page.
+    const [glide, setGlide] = React.useState(false)
+    return (
+        <TooltipGlideContext.Provider value={glide}>
+            <TooltipPrimitive.Root
+                data-slot="tooltip"
+                onOpenChangeComplete={(open) => {
+                    setGlide(open && props.handle !== undefined)
+                    onOpenChangeComplete?.(open)
+                }}
+                {...props}
+            />
+        </TooltipGlideContext.Provider>
+    )
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props): React.ReactElement {
-    return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
+// The cast restores the `Payload` generic, because forwardRef cannot carry a generic signature.
+// Props already type `ref`, so adding React.RefAttributes would break contextual typing of `render` callbacks.
+const TooltipTrigger = React.forwardRef(function TooltipTrigger(
+    props: TooltipPrimitive.Trigger.Props,
+    ref: React.ForwardedRef<HTMLButtonElement>
+): React.ReactElement {
+    return <TooltipPrimitive.Trigger ref={ref} data-slot="tooltip-trigger" {...props} />
+}) as <Payload>(props: TooltipPrimitive.Trigger.Props<Payload>) => React.ReactElement
 
-function TooltipContent({
-    className,
-    side = 'top',
-    sideOffset = 4,
-    align = 'center',
-    alignOffset = 0,
-    children,
-    ...props
-}: TooltipPrimitive.Popup.Props &
-    Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
+const TooltipContent = React.forwardRef<
+    React.ComponentRef<typeof TooltipPrimitive.Popup>,
+    TooltipPrimitive.Popup.Props &
+        Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>
+>(function TooltipContent(
+    { className, side = 'top', sideOffset = 4, align = 'center', alignOffset = 0, children, ...props },
+    ref
+) {
+    const glide = React.useContext(TooltipGlideContext)
     return (
         <TooltipPrimitive.Portal>
             <TooltipPrimitive.Positioner
@@ -35,9 +57,11 @@ function TooltipContent({
                 alignOffset={alignOffset}
                 side={side}
                 sideOffset={sideOffset}
-                className="isolate"
+                data-glide={glide ? '' : undefined}
+                className="quill-tooltip__positioner isolate"
             >
                 <TooltipPrimitive.Popup
+                    ref={ref}
                     data-slot="tooltip-content"
                     className={cn('quill-tooltip__content inline-flex items-center gap-1.5', className)}
                     {...props}
@@ -48,6 +72,6 @@ function TooltipContent({
             </TooltipPrimitive.Positioner>
         </TooltipPrimitive.Portal>
     )
-}
+})
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, createTooltipHandle }

@@ -61,6 +61,10 @@ class QueryStats:
     # References only, filled by the executor, so the job can explain each execution without rerunning it.
     executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
     workloads: set[str] = field(default_factory=set, repr=False, compare=False)
+    warehouse_table_ids: set[str] = field(default_factory=set, repr=False, compare=False)
+    saved_query_ids: set[str] = field(default_factory=set, repr=False, compare=False)
+    # Queries on a direct connection never reach ClickHouse or bind warehouse tables, so the source is the only trace.
+    direct_source_ids: set[str] = field(default_factory=set, repr=False, compare=False)
 
     def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
         with self.lock:
@@ -72,6 +76,15 @@ class QueryStats:
                 self.lookup_duration_ms += duration_ms
             if workload is not None:
                 self.workloads.add(workload)
+
+    def add_reads(self, *, warehouse_table_ids: set[str], saved_query_ids: set[str]) -> None:
+        with self.lock:
+            self.warehouse_table_ids |= warehouse_table_ids
+            self.saved_query_ids |= saved_query_ids
+
+    def add_direct_source(self, source_id: str) -> None:
+        with self.lock:
+            self.direct_source_ids.add(source_id)
 
     def record_execution(
         self,

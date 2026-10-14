@@ -221,6 +221,49 @@ describe('StateManager', () => {
         })
 
         it.each([
+            { label: 'a 401', error: new Error('INVALID_API_KEY: token revoked'), rejected: true },
+            {
+                label: 'a 403 for an unknown token',
+                error: new PostHogApiError({
+                    status: 403,
+                    statusText: 'Forbidden',
+                    body: '',
+                    url: 'https://us.posthog.com/oauth/introspect',
+                    method: 'POST',
+                }),
+                rejected: true,
+            },
+            {
+                label: 'a 503',
+                error: new PostHogApiError({
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    body: '',
+                    url: 'https://us.posthog.com/oauth/introspect',
+                    method: 'POST',
+                }),
+                rejected: false,
+            },
+            { label: 'an outage', error: new Error('Network error: fetch failed'), rejected: false },
+        ])(
+            'reports an introspection failure from $label as a rejection only when the token is refused',
+            async ({ error: introspectError, rejected }) => {
+                const api = {
+                    config: { apiToken: 'pha_test' },
+                    apiKeys: () => ({
+                        current: async () => ({ success: false, error: { message: 'not a personal key' } }),
+                    }),
+                    oauth: () => ({ introspect: async () => ({ success: false, error: introspectError }) }),
+                } as unknown as ApiClient
+
+                const error = await new StateManager(cache, api).getApiKey().catch((e: Error) => e)
+
+                expect(error).toBeInstanceOf(Error)
+                expect((error as Error).message.includes('INVALID_API_KEY')).toBe(rejected)
+            }
+        )
+
+        it.each([
             { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
             { label: 'no OAuth app name', clientName: null, expected: undefined },
         ])('stamps $label onto the live client so the same request forwards it', async ({ clientName, expected }) => {
@@ -325,7 +368,7 @@ describe('StateManager', () => {
                     projects: () => ({
                         list: vi.fn().mockResolvedValue({
                             success: true,
-                            data: [789],
+                            data: [{ id: 789 }],
                         }),
                     }),
                 }),
@@ -402,7 +445,7 @@ describe('StateManager', () => {
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
-                        list: vi.fn().mockResolvedValue({ success: true, data: [789] }),
+                        list: vi.fn().mockResolvedValue({ success: true, data: [{ id: 789 }] }),
                     }),
                 }),
             }

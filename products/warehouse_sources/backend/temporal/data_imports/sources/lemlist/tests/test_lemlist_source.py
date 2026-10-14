@@ -4,6 +4,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemlist import (
+    LemlistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -61,43 +68,34 @@ class TestNonRetryableErrors:
 
 
 class TestSourceForPipeline:
-    def test_plumbs_inputs_into_lemlist_source(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
-
-        monkeypatch.setattr(source_module, "lemlist_source", fake_source)
-
-        manager = MagicMock()
-        inputs = MagicMock(
-            schema_name="activities",
-            should_use_incremental_field=True,
+    def test_plumbs_inputs_into_lemlist_source(self) -> None:
+        driver = SourceDriver(LemlistSource(), LemlistSourceConfig(api_key="secret"))
+        activities = driver.run(
+            "activities",
+            [ScriptedResponse(json=[{"_id": "act_1"}])],
+            incremental_field="createdAt",
             db_incremental_field_last_value="2026-05-11T00:00:00Z",
             api_version="v1",
         )
-        result: Any = LemlistSource().source_for_pipeline(_config("secret"), manager, inputs)
+        assert activities.raised is None
+        assert activities.paths == ["/api/activities"]
+        assert activities.rows == [{"_id": "act_1"}]
+        assert activities.requests[0].headers["authorization"] == "Basic OnNlY3JldA=="
+        assert activities.params("minDate") == ["2026-05-11T00:00:00Z"]
 
-        assert result == "response"
-        assert captured["api_key"] == "secret"
-        assert captured["endpoint"] == "activities"
-        assert captured["should_use_incremental_field"] is True
-        assert captured["db_incremental_field_last_value"] == "2026-05-11T00:00:00Z"
         # A present pin is honored verbatim; a NULL pin would resolve to default_version.
-        assert captured["api_version"] == "v1"
+        team = driver.run("team", [ScriptedResponse(json={"_id": "team_1"})], api_version="v1")
+        assert team.raised is None
+        assert team.params("version") == [None]
 
-    def test_drops_last_value_when_not_incremental(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-        monkeypatch.setattr(source_module, "lemlist_source", lambda **kwargs: captured.update(kwargs))
-
-        inputs = MagicMock(
-            schema_name="campaigns",
-            should_use_incremental_field=False,
+    def test_drops_last_value_when_not_incremental(self) -> None:
+        result = SourceDriver(LemlistSource(), LemlistSourceConfig(api_key="key")).run(
+            "activities",
+            [ScriptedResponse(json=[{"_id": "act_1"}])],
             db_incremental_field_last_value="2026-05-11T00:00:00Z",
         )
-        LemlistSource().source_for_pipeline(_config(), MagicMock(), inputs)
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("minDate") is None
 
 
 class TestCanonicalDescriptions:

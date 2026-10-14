@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product surveys
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product surveys
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Surveys
 feature: surveys
 url_prefix: /surveys
@@ -24,12 +22,6 @@ ui_apps:
         data_type: SurveyStatsData
         view_component: SurveyStatsView
 tools:
-    desktop-feedback-attachments-retrieve:
-        operation: desktop_feedback_attachments_retrieve
-        enabled: false
-    desktop-feedback-create:
-        operation: desktop_feedback_create
-        enabled: false
     survey-create:
         operation: surveys_create
         enabled: true
@@ -81,8 +73,12 @@ tools:
                     implementations.
             schedule:
                 description: >
-                    Survey scheduling behavior. Omit this to use the default once behavior. Use recurring only when the
-                    user explicitly asks for a repeated schedule.
+                    How often a person can see the survey. Omit this to use the default once behavior. Use recurring
+                    only when the user explicitly asks for a repeated schedule, and set iteration_count and
+                    iteration_frequency_days with it. Use always when the user wants the survey to show every time its
+                    display conditions are met, also after the person responds or dismisses it. The survey editor calls
+                    this "Every time the display conditions are met". An always popover without display conditions or a
+                    wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.
             questions:
                 description: >
                     Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
@@ -116,8 +112,8 @@ tools:
             translations:
                 description: >
                     Optional survey-level translations keyed by language code. Use for translated survey name,
-                    description, and thank-you message fields. Question text translations belong inside each question's
-                    translations object.
+                    description, thank-you message, and intro screen fields. Question text translations belong inside
+                    each question's translations object.
             form_content:
                 description: >
                     Optional hosted-form content configuration for external_survey forms. Only include this when the
@@ -250,6 +246,15 @@ tools:
                     the survey first and preserve existing appearance fields. whiteLabel=true requires the organization
                     to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available.
                     surveyPopupDelaySeconds must be non-negative.
+            schedule:
+                description: >
+                    How often a person can see the survey: once, recurring, or always. Omit this to keep the current
+                    schedule. When setting recurring, also set iteration_count and iteration_frequency_days. Use always
+                    when the user wants the survey to show every time its display conditions are met, also after the
+                    person responds or dismisses it. The survey editor calls this "Every time the display conditions are
+                    met". When you change away from recurring, the iteration fields are cleared. An always popover
+                    without display conditions or a wait period shows again and again, so suggest a URL condition or
+                    seenSurveyWaitPeriodInDays.
             questions:
                 description: >
                     Complete replacement question list. Existing question IDs are tied to response data and must be
@@ -281,21 +286,6 @@ tools:
                     Hosted-form content configuration for external_survey forms. Do not provide this field unless
                     editing hosted-form content. Preserve existing content fields that should remain.
         ui_app: survey
-    surveys-activity-retrieve:
-        operation: surveys_activity_retrieve
-        enabled: false
-    surveys-all-activity-retrieve:
-        operation: surveys_all_activity_retrieve
-        enabled: false
-    surveys-archived-response-uuids-retrieve:
-        operation: surveys_archived_response_uuids_retrieve
-        enabled: false
-    surveys-duplicate-to-projects-create:
-        operation: surveys_duplicate_to_projects_create
-        enabled: false
-    surveys-generate-translations-create:
-        operation: surveys_generate_translations_create
-        enabled: false
     surveys-get-all:
         operation: surveys_list
         enabled: true
@@ -330,15 +320,6 @@ tools:
             Get aggregated response statistics across all surveys in the project. Includes event counts (shown,
             dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-global-stats
-    surveys-question-labels:
-        operation: surveys_question_labels
-        enabled: false
-    surveys-responses-archive-create:
-        operation: surveys_responses_archive_create
-        enabled: false
-    surveys-responses-count-retrieve:
-        operation: surveys_responses_count_retrieve
-        enabled: false
     surveys-responses-list:
         operation: surveys_responses_list
         enabled: true
@@ -366,9 +347,6 @@ tools:
             `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving
             between pages can shift boundaries).
         ui_app: survey-stats
-    surveys-responses-unarchive-create:
-        operation: surveys_responses_unarchive_create
-        enabled: false
     surveys-summarize-responses-create:
         operation: surveys_summarize_responses_create
         enabled: true
@@ -389,9 +367,3 @@ tools:
 
             Use this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use
             surveys-responses-list instead.
-    surveys-summary-headline-create:
-        operation: surveys_summary_headline_create
-        enabled: false
-    surveys-update:
-        operation: surveys_update
-        enabled: false

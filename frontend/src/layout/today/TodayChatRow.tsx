@@ -40,7 +40,6 @@ export function TodayChatRow({ item, dataAttr, optionValue }: TodayChatRowProps)
                 to={urls.ai(item.id)}
                 active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
                 dataAttr={dataAttr}
-                weight="regular"
                 optionValue={optionValue}
             />
         </TodayPreviewTrigger>

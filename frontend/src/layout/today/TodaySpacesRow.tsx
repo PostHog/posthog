@@ -20,7 +20,6 @@ interface TodaySpacesRowProps {
     /** How many icon-sized slots `badge` takes, so the label truncates before them. */
     badgeCount?: 1 | 2 | 3
     unread?: boolean
-    weight?: 'regular' | 'medium'
     /** Fade a long label and scroll it on hover instead of cutting it with an ellipsis. */
     ticker?: boolean
     /** Part of a multi-session selection, so the row takes Desktop's selected tint. */
@@ -41,7 +40,6 @@ export function TodaySpacesRow({
     badge,
     badgeCount = 1,
     unread = false,
-    weight = 'medium',
     ticker = false,
     selected = false,
     onClickCapture,
@@ -53,7 +51,6 @@ export function TodaySpacesRow({
     const badgeSlots = badge ? badgeCount : 0
     const showUnreadDot = unread && !active
     const rowClassName = cn(
-        weight === 'medium' && 'font-medium',
         // Desktop's two-line row: the second line outgrows the fixed row height, so padding stands in for it.
         details.length > 0 && 'h-auto py-1',
         // Like Desktop, the open row takes a stronger tint than the other selected rows.
@@ -82,11 +79,11 @@ export function TodaySpacesRow({
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
                 {ticker ? (
-                    <TodayOverflowText reveal={hovered || keyboardFocused} className={cn(unread && 'font-bold')}>
+                    <TodayOverflowText reveal={hovered || keyboardFocused} className={cn(unread && 'font-extrabold')}>
                         {label}
                     </TodayOverflowText>
                 ) : (
-                    <span className={cn('min-w-0 truncate', unread && 'font-bold')}>{label}</span>
+                    <span className={cn('min-w-0 truncate', unread && 'font-extrabold')}>{label}</span>
                 )}
                 {details.length > 0 && (
                     <span className="truncate text-xxs text-muted-foreground">

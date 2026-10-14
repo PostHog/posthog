@@ -9,6 +9,7 @@ import {
 } from '@temporalio/client'
 import * as crypto from 'crypto'
 import fs from 'fs/promises'
+import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
@@ -171,6 +172,11 @@ const temporalWorkflowsStarted = new Counter({
     labelNames: ['status', 'payload'],
 })
 
+// A skip only delays the retry of a failed run: a running workflow ignores the start, and a
+// completed one rejects it. Keep the window short so that delay stays short.
+const AGGREGATE_START_DEDUP_TTL_MS = 60_000
+const AGGREGATE_START_DEDUP_MAX_ENTRIES = 50_000
+
 export interface AggregateEvaluationStart {
     evaluationId: string
     event: RawKafkaEvent
@@ -196,6 +202,10 @@ export function workflowSafeId(id: string): string {
 export class TemporalService {
     private client?: Client
     private connecting?: Promise<Client>
+    private recentAggregateStarts = new LRUCache<string, Promise<WorkflowHandle | null>>({
+        max: AGGREGATE_START_DEDUP_MAX_ENTRIES,
+        ttl: AGGREGATE_START_DEDUP_TTL_MS,
+    })
 
     constructor(private config: TemporalServiceConfig) {}
 
@@ -346,15 +356,40 @@ export class TemporalService {
      * evaluation for as long as the closed workflow stays inside Temporal's retention window,
      * which also caps the damage from runaway shared ids ("0", "fixed_id", ...). Returns null when
      * the unit was already evaluated.
+     *
+     * Each of those no-op starts still costs Temporal a failed create and a conflict lookup, and
+     * concurrent starts on one id queue behind each other. So repeat starts for an id inside a short
+     * window reuse the first start and do not call Temporal.
      */
     async startAggregateEvaluationWorkflow(options: AggregateEvaluationStart): Promise<WorkflowHandle | null> {
-        const { evaluationId, event, target, traceId, sessionId, aiSessionId, settle } = options
-        const client = await this.ensureConnected()
-
+        const { evaluationId, target, traceId, aiSessionId } = options
         const workflowId =
             target === 'session'
                 ? `llma-session-eval-${evaluationId}-${workflowSafeId(aiSessionId ?? '')}`
                 : `llma-trace-eval-${evaluationId}-${workflowSafeId(traceId)}`
+
+        const recentStart = this.recentAggregateStarts.get(workflowId)
+        if (recentStart) {
+            temporalWorkflowsStarted.labels({ status: 'deduplicated' }).inc()
+            return await recentStart
+        }
+
+        const start = this.requestAggregateEvaluationWorkflow(workflowId, options)
+        this.recentAggregateStarts.set(workflowId, start)
+        start.catch(() => {
+            if (this.recentAggregateStarts.peek(workflowId) === start) {
+                this.recentAggregateStarts.delete(workflowId)
+            }
+        })
+        return await start
+    }
+
+    private async requestAggregateEvaluationWorkflow(
+        workflowId: string,
+        options: AggregateEvaluationStart
+    ): Promise<WorkflowHandle | null> {
+        const { evaluationId, event, target, traceId, sessionId, aiSessionId, settle } = options
+        const client = await this.ensureConnected()
 
         try {
             const handle = await client.workflow.start('run-aggregate-evaluation', {

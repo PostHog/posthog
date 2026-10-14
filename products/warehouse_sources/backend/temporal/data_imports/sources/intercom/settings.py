@@ -6,7 +6,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-PaginatorKind = Literal["single", "cursor", "next_url", "pages", "search", "substream", "scroll"]
+PaginatorKind = Literal["single", "cursor", "next_url", "pages", "page_number", "search", "substream", "scroll"]
 PartitionMode = Literal["md5", "datetime"]
 HttpMethod = Literal["GET", "POST"]
 SortMode = Literal["asc", "desc"]
@@ -33,14 +33,18 @@ class IntercomEndpointConfig:
     incremental_query_param: str | None = None
     # Substream wiring — when set, this endpoint is fetched per-row of `parent_endpoint`.
     parent_endpoint: str | None = None
+    # Intercom versions that serve this endpoint. `None` means every version the source supports.
+    api_versions: tuple[str, ...] | None = None
 
 
 # Endpoint contracts validated against the live Intercom REST API (version 2.13).
 # Selectors, pagination shape, and partition keys reflect what the API actually
 # returns — not the docs.
+# The endpoints with `api_versions=("2.16",)` exist only on 2.16 and follow
+# Intercom's published 2.16 OpenAPI description.
 #
 # Real-incremental endpoints (server-side filter honored): contacts, conversations,
-# tickets, activity_logs, conversation_parts (via parent). Everything else is
+# tickets, activity_logs, macros, conversation_parts (via parent). Everything else is
 # full-refresh because Intercom either has no server filter (companies, segments,
 # company_segments — Airbyte/Stitch sync these "incrementally" but actually walk
 # every page each run) or no timestamp at all (data_attributes).
@@ -269,6 +273,53 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         partition_mode="md5",
         partition_format=None,
     ),
+    "conversation_attributes": IntercomEndpointConfig(
+        # `GET /conversations/attributes?include_archived=true` — the conversation data
+        # attribute definitions, with list options and relationship references. Archived
+        # attributes are included because older conversations still carry their values.
+        name="conversation_attributes",
+        path="/conversations/attributes",
+        data_selector="data",
+        paginator_kind="single",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
+        extra_params={"include_archived": "true"},
+        api_versions=("2.16",),
+    ),
+    "macros": IntercomEndpointConfig(
+        # `GET /macros` — saved replies. Paged by a `pages.next.starting_after` cursor,
+        # sorted descending on `updated_at`, and filtered server-side by `updated_since`
+        # (Unix seconds), so `sort_mode="desc"` like `activity_logs`. Unlike most
+        # Intercom objects, `created_at`/`updated_at` are ISO 8601 strings here.
+        name="macros",
+        path="/macros",
+        data_selector="data",
+        paginator_kind="pages",
+        sort_mode="desc",
+        incremental_query_param="updated_since",
+        api_versions=("2.16",),
+    ),
+    "audiences": IntercomEndpointConfig(
+        # `GET /audiences` — saved audience definitions (targeting predicates). Paged by
+        # `page`/`per_page` (max 50) with a top-level `total_pages`, no timestamp filter.
+        name="audiences",
+        path="/audiences",
+        data_selector="data",
+        paginator_kind="page_number",
+        page_size=50,
+        api_versions=("2.16",),
+    ),
+    "content_snippets": IntercomEndpointConfig(
+        # `GET /content_snippets` — snippets that feed Fin and Copilot answers. Same
+        # `page`/`per_page` (max 50) shape as `audiences`, no timestamp filter.
+        name="content_snippets",
+        path="/content_snippets",
+        data_selector="data",
+        paginator_kind="page_number",
+        page_size=50,
+        api_versions=("2.16",),
+    ),
 }
 
 ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
@@ -279,6 +330,7 @@ ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
 # - contacts/conversations/tickets: POST /<resource>/search accepts
 #   `{"field":"updated_at","operator":">","value":<unix_ts>}` in the body.
 # - activity_logs: GET /admins/activity_logs?created_at_after=<unix_ts>.
+# - macros: GET /macros?updated_since=<unix_ts>.
 # - conversation_parts: child of conversations; the parent's `updated_at >`
 #   filter is server-honored, so parents whose timestamp didn't advance
 #   aren't refetched.
@@ -287,7 +339,8 @@ ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
 # list endpoints don't accept a timestamp filter, and a "client-side cursor"
 # that walks every page each run is identical in API cost to a full refresh.
 #
-# `field_type=Integer` because Intercom returns Unix epoch seconds, not ISO.
+# `field_type=Integer` because Intercom returns Unix epoch seconds, not ISO —
+# except on macros, which return ISO 8601 strings.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "contacts": [
         {
@@ -327,6 +380,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "type": IncrementalFieldType.DateTime,
             "field": "updated_at",
             "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    "macros": [
+        {
+            "label": "updated_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "updated_at",
+            "field_type": IncrementalFieldType.DateTime,
         }
     ],
 }

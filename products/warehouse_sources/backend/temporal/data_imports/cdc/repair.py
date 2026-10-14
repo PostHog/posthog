@@ -63,6 +63,11 @@ def _repair_lock_key(source_id: str) -> str:
     return f"cdc_repair_lock:{source_id}"
 
 
+def repair_is_running(source: ExternalDataSource) -> bool:
+    """Whether a repair of this source holds its lock."""
+    return bool(get_client().exists(_repair_lock_key(str(source.id))))
+
+
 def repair_cdc_source(source: ExternalDataSource) -> int:
     """Repair CDC on a source whose change-stream resources were lost.
 

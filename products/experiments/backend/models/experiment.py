@@ -168,6 +168,14 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
                 name="posthog_experiment_feature_flag_rule_id_uniq",
             )
         ]
+        indexes = [
+            # The hourly recalculation scans select running experiments across all teams.
+            models.Index(
+                fields=["start_date"],
+                name="posthog_exp_running_start_idx",
+                condition=models.Q(deleted=False, status="running"),
+            ),
+        ]
 
     def __str__(self):
         return self.name or "Untitled"
@@ -193,6 +201,13 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     @property
     def is_stopped(self) -> bool:
         return self.is_launched and self.end_date is not None
+
+    @property
+    def hours_since_launch(self) -> float | None:
+        # Counts to now also after the end date.
+        if self.start_date is None:
+            return None
+        return (timezone.now() - self.start_date).total_seconds() / 3600
 
     @property
     def is_paused(self) -> bool:

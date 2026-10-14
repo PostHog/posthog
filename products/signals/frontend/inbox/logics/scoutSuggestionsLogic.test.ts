@@ -4,11 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spies below
 // replace the methods on the same `lemonToast` singleton the logic calls at runtime.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -110,13 +108,20 @@ const CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
+    precheck_disabled: false,
+    effective_precheck_query: null,
+    precheck_query_source: 'off',
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
@@ -137,19 +142,11 @@ function suggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSug
 describe('scoutSuggestionsLogic', () => {
     let logic: ReturnType<typeof scoutSuggestionsLogic.build>
 
-    function setSuggestionsFlag(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI] : [], {
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: enabled,
-        })
-    }
-
     beforeEach(() => {
         // The strip's collapsed and closed state persists per user and project, so one test's
         // chevron would otherwise decide how the next one opens.
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.mount()
-        setSuggestionsFlag(true)
         mockList.mockReset().mockResolvedValue(suggestionSet())
         mockDismiss.mockReset().mockResolvedValue(CANONICAL_ITEM)
         mockRefresh.mockReset().mockResolvedValue({ workflow_id: 'workflow-1' })
@@ -177,19 +174,76 @@ describe('scoutSuggestionsLogic', () => {
         scoutFleetLogic.actions.loadScoutConfigsSuccess([CONFIG])
     }
 
-    it('reads nothing until the person is on the suggestions flag', async () => {
-        setSuggestionsFlag(false)
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // suggestions outage looking identical to a project the member cannot read.
+    it.each([
+        [403, 'loadSuggestionsSuccess'],
+        [404, 'loadSuggestionsSuccess'],
+        [500, 'loadSuggestionsFailure'],
+    ])('resolves a %s from the batch read to %s', async (status, expectedAction) => {
+        mockList.mockRejectedValueOnce(new ApiError('nope', status))
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // The members this guard serves send the read on every tab open, so leaving before the 403
+    // lands is routine and must not turn the refusal into a report.
+    it('reports nothing when a refusal lands after the strip unmounts', async () => {
+        let refuse: (error: ApiError) => void = () => {}
+        mockList.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        logic.unmount()
+        refuse(new ApiError('nope', 403))
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    // Access can go away between reads — a role change, or a project switch leaving a stale id in
+    // the URL. Every button on a pick would be refused, so the picks go with the access.
+    it('takes the strip away when a later read is refused', async () => {
         await mountWithBatch()
+        expect(logic.values.stripVisible).toBe(true)
 
-        expect(mockList).not.toHaveBeenCalled()
-        expect(logic.values.hasPicks).toBe(false)
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
 
-        // Flags usually resolve after the tab mounts, so the answer arriving is what starts the read.
-        setSuggestionsFlag(true)
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // A refused read returns no batch, which the scan-settled check would otherwise read as a scan
+    // that found nothing (baseline set) or as a scan still running (no baseline).
+    it.each([
+        ['after an earlier scan', '2026-09-01T00:00:00Z'],
+        ['before any scan', null],
+    ])('stops waiting on a scan when a read during it is refused: %s', async (_name, generatedAt) => {
+        const info = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-1')
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+        await mountWithBatch(suggestionSet({ generated_at: generatedAt }))
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isRefreshing).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockList).toHaveBeenCalledTimes(1)
-        expect(logic.values.hasPicks).toBe(true)
+        expect(logic.values.isRefreshing).toBe(false)
+        expect(logic.values.refreshScan).toBeNull()
+        expect(info).not.toHaveBeenCalled()
+        expect(error).not.toHaveBeenCalled()
+        info.mockRestore()
+        error.mockRestore()
     })
 
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.

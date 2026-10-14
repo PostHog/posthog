@@ -252,19 +252,17 @@ class SignupEnrichmentWorkflow(PostHogWorkflow):
         first_result = await _execute_enrich_activity(inputs, is_recheck=False)
         first_attempt_matched = bool(first_result.get("matched"))
 
-        if workflow.patched("signup-enrichment-recheck-child-2026-09"):
-            try:
-                await workflow.start_child_workflow(
-                    SignupEnrichmentRecheckWorkflow.run,
-                    SignupEnrichmentRecheckInputs(signup=inputs, first_attempt_matched=first_attempt_matched),
-                    id=f"signup-enrichment-recheck-{inputs.organization_id}",
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                )
-            except WorkflowAlreadyStartedError:
-                LOGGER.bind(organization_id=inputs.organization_id).info("signup_enrichment_recheck_already_pending")
-            return first_result
-
-        # Executions recorded before the recheck child existed replay through this path.
-        await workflow.sleep(RECHECK_DELAY)
-        return await _execute_enrich_activity(inputs, is_recheck=True, first_attempt_matched=first_attempt_matched)
+        # Keep this call until no execution that recorded this patch through workflow.patched() can
+        # replay, including closed executions inside namespace retention. Their replays fail without it.
+        workflow.deprecate_patch("signup-enrichment-recheck-child-2026-09")
+        try:
+            await workflow.start_child_workflow(
+                SignupEnrichmentRecheckWorkflow.run,
+                SignupEnrichmentRecheckInputs(signup=inputs, first_attempt_matched=first_attempt_matched),
+                id=f"signup-enrichment-recheck-{inputs.organization_id}",
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        except WorkflowAlreadyStartedError:
+            LOGGER.bind(organization_id=inputs.organization_id).info("signup_enrichment_recheck_already_pending")
+        return first_result

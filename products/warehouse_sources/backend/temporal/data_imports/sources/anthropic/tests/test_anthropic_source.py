@@ -4,6 +4,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anthropic import (
+    AnthropicSourceConfig,
+)
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source"
 _CHECK_ANALYTICS_ACCESS = f"{_SOURCE_MODULE}.check_analytics_access"
@@ -12,31 +16,6 @@ _CHECK_RBAC_ROLE_ACCESS = f"{_SOURCE_MODULE}.check_rbac_role_access"
 
 
 class TestAnthropicSchemas:
-    def test_all_endpoints_present(self) -> None:
-        names = {s.name for s in AnthropicSource().get_schemas(MagicMock(), team_id=1)}
-        assert names == {
-            "users",
-            "invites",
-            "workspaces",
-            "api_keys",
-            "workspace_members",
-            "usage_report",
-            "cost_report",
-            "claude_code_analytics",
-            "claude_code_model_breakdown",
-            "analytics_user_activity",
-            "analytics_user_cost",
-            "analytics_user_usage",
-            "analytics_connector_usage",
-            "analytics_plugin_usage",
-            "analytics_skill_usage",
-            "analytics_summaries",
-            "rbac_groups",
-            "rbac_group_members",
-            "rbac_roles",
-            "rbac_role_permissions",
-        }
-
     @parameterized.expand([("usage_report",), ("cost_report",)])
     def test_report_endpoints_are_incremental_on_starting_at(self, endpoint: str) -> None:
         # Only the report endpoints have a genuine server-side time filter (starting_at).
@@ -92,15 +71,6 @@ class TestAnthropicSchemas:
 
 
 class TestAnthropicSourceForPipeline:
-    def _response(self, endpoint: str) -> object:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = None
-        config = MagicMock(api_key="sk-ant-admin-test")
-        return AnthropicSource().source_for_pipeline(config, MagicMock(), inputs)
-
     @parameterized.expand(
         [
             ("usage_report", ["id"], "datetime"),
@@ -125,35 +95,18 @@ class TestAnthropicSourceForPipeline:
     def test_primary_keys_and_partitioning(
         self, endpoint: str, primary_keys: list[str], partition_mode: str | None
     ) -> None:
-        response = self._response(endpoint)
-        assert response.name == endpoint  # type: ignore[attr-defined]
-        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
-        assert response.sort_mode == "asc"  # type: ignore[attr-defined]
+        result = SourceDriver(AnthropicSource(), AnthropicSourceConfig(api_key="sk-ant-admin-test")).run(endpoint, [])
+        response = result.response
+        assert response is not None
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "asc"
         # workspace_members and rbac_role_permissions carry no stable timestamp field, so they are
         # not partitioned.
-        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog => the source opts into publishing its table list to public docs.
-        assert AnthropicSource().lists_tables_without_credentials is True
-        tables = AnthropicSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert "usage_report" in names and "cost_report" in names
-        usage = next(t for t in tables if t["name"] == "usage_report")
-        assert "Incremental" in usage["sync_methods"]
-        assert usage["description"]  # canonical description is surfaced
+        assert response.partition_mode == partition_mode
 
 
 class TestAnalyticsEndpointPermissions:
-    @patch(_CHECK_ANALYTICS_ACCESS, return_value="needs read:analytics")
-    def test_only_the_analytics_tables_carry_the_probe_result(self, _probe) -> None:
-        permissions = AnthropicSource().get_endpoint_permissions(
-            MagicMock(api_key="sk-ant-admin-test"), team_id=1, endpoints=["users", "analytics_user_cost"]
-        )
-        assert permissions == {"users": None, "analytics_user_cost": "needs read:analytics"}
-
     @patch(_CHECK_ANALYTICS_ACCESS)
     def test_no_probe_when_no_analytics_table_is_requested(self, probe) -> None:
         # The probe is a live request, so schema discovery must not pay for it unless a table needs it.

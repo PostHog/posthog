@@ -1,6 +1,7 @@
-"""The per-variant readout of an experiment scanner, counted from its observations.
+"""The per-variant readout of an experiment scanner: counts from its observations, prose from its scout.
 
-Counts are read from Postgres on every call, so they never lag the observations.
+Counts are read from Postgres on every call, so they never lag the observations. The digests and
+differences come from the scanner's variant analysis scout, when one is set up (see `variant_analysis`).
 """
 
 from datetime import datetime
@@ -20,7 +21,12 @@ from products.replay_vision.backend.models.replay_observation import (
     hydrate_for_serialization,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.scanner_access import accessible_observations
+from products.replay_vision.backend.scanner_access import accessible_observations, is_uuid
+from products.replay_vision.backend.variant_analysis import (
+    VariantAnalysisDifference,
+    VariantAnalysisLine,
+    variant_analysis_for_scanner,
+)
 
 if TYPE_CHECKING:
     from products.experiments.backend.facade.contracts import ExperimentPromptContext, ExperimentStatus
@@ -63,7 +69,19 @@ class VariantReadout:
     distinct_people: int
     median_session_duration_s: float | None
     sampling_rate: float | None
+    # Summaries of this variant the analysis read: the denominator of its digest and difference counts.
+    analysis_observations: int | None
+    digest: tuple[VariantAnalysisLine, ...] | None
     latest_observations: tuple[ReplayObservation, ...]
+
+
+@frozen
+class VariantsAnalysisState:
+    scout_config_id: str
+    scout_enabled: bool
+    recorded_at: datetime | None
+    scanner_version: int | None
+    current: bool
 
 
 @frozen
@@ -71,7 +89,9 @@ class ExperimentVariantsReadout:
     experiment: VariantsExperiment | None
     window: VariantsWindow
     variants: tuple[VariantReadout, ...]
+    differences: tuple[VariantAnalysisDifference, ...] | None
     unattributed_count: int
+    analysis: VariantsAnalysisState | None
 
 
 def experiment_variants_readout(
@@ -116,6 +136,13 @@ def experiment_variants_readout(
     watched = list(configured) if configured else [variant.key for variant in context.variants] if context else []
     keys = watched + sorted(key for key in stats if key not in watched)
 
+    def resolve_citations(ids: set[str]) -> dict[str, str]:
+        valid = [observation_id for observation_id in ids if is_uuid(observation_id)]
+        return {str(pk): variant for pk, variant in attributed.filter(id__in=valid).values_list("id", "variant")}
+
+    analysis = variant_analysis_for_scanner(scanner, resolve_citations=resolve_citations)
+    shown = analysis if analysis is not None and analysis.current else None
+
     variants = []
     for key in keys:
         row = stats.get(key)
@@ -131,6 +158,8 @@ def experiment_variants_readout(
                 distinct_people=row["distinct_people"] if row else 0,
                 median_session_duration_s=row["median_duration"] if row else None,
                 sampling_rate=_sampling_rate(latest[0], key) if latest else None,
+                analysis_observations=shown.observations_read.get(key, 0) if shown is not None else None,
+                digest=shown.lines.get(key, ()) if shown is not None else None,
                 latest_observations=latest,
             )
         )
@@ -143,7 +172,19 @@ def experiment_variants_readout(
             last_observation_at=window["last"],
         ),
         variants=tuple(variants),
+        differences=shown.differences if shown is not None else None,
         unattributed_count=window["unattributed"],
+        analysis=(
+            VariantsAnalysisState(
+                scout_config_id=analysis.scout_config_id,
+                scout_enabled=analysis.scout_enabled,
+                recorded_at=analysis.recorded_at,
+                scanner_version=analysis.scanner_version,
+                current=analysis.current,
+            )
+            if analysis is not None
+            else None
+        ),
     )
 
 

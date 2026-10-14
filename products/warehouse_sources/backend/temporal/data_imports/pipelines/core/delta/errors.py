@@ -1,3 +1,4 @@
+import re
 import errno
 
 from django.db import InterfaceError, InternalError, OperationalError
@@ -32,6 +33,20 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "The difference between the request time and the current time is too large.",
 )
 
+# pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
+# "UNKNOWN" error code, which happens whenever AWS replies with no parseable XML error body. A
+# bodyless 5xx is always a transient server-side blip - the same class the named 5xx messages above
+# cover - and clears on retry. But AWS also omits the body for a HeadObject 403 or 404 (it never
+# includes one for HEAD requests, regardless of status), so the bare "AWS Error UNKNOWN" string alone
+# can't tell a blip apart from a permanent permission or missing-object error. The HTTP status pyarrow
+# puts in the message is the only thing that distinguishes them.
+_BODYLESS_UNKNOWN_STATUS_RE = re.compile(r"AWS Error UNKNOWN \(HTTP status (\d{3})\)")
+
+
+def _is_bodyless_5xx_unknown_error(error: BaseException) -> bool:
+    match = _BODYLESS_UNKNOWN_STATUS_RE.search(str(error))
+    return match is not None and match.group(1).startswith("5")
+
 
 class TransientObjectStoreError(NonReportableError):
     """A known-transient object-store blip (see is_transient_object_store_error), re-raised as this
@@ -63,12 +78,31 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     subclass, so the message-matched branch below never sees it; recognized by type for the same
     reason as `NoCredentialsError`.
 
+    A read that times out or a connection the object store drops mid-response surfaces as a bare
+    `botocore.exceptions.HTTPClientError` (`ReadTimeoutError`, `ConnectionClosedError`) the same way:
+    s3fs's own retries only translate a *response* it got back into an `OSError`, and a request that
+    never got one never does. `s3/writer.py`'s `_is_transient_s3_write_error` already retries this
+    class on the write path; recognized by type here too so the copy/maintenance paths that share
+    this classifier treat the same blip the same way instead of reporting it as a bug on the first
+    occurrence.
+
     A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
     descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
     botocore's own bundled `endpoints.json` fails with this errno before any network call is even
     made. Same transient-capacity class already recognized on the postgres connect path
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
+
+    A bare `OSError` with errno `EBUSY` is s3fs's translation of every S3 "back off" response
+    (`SlowDown`, `ServiceUnavailable`, `OperationAborted`, a bare 503/409; see
+    `s3fs/errors.py::translate_boto_error`), raised once s3fs's own retries are exhausted. The errno
+    covers the 503 "Service Unavailable" case the message needles below miss, without matching on
+    the vendor's free text.
+
+    A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
+    `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
+    5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
+    HeadObject 403 or 404 too.
 
     Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
     `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
@@ -81,14 +115,20 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     failure is a silent no-op either way) folds it in.
     """
     if isinstance(
-        error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
+        error,
+        TransientObjectStoreError
+        | botocore.exceptions.NoCredentialsError
+        | botocore.exceptions.ConnectionError
+        | botocore.exceptions.HTTPClientError,
     ):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY):
+        return True
+    if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
@@ -156,7 +196,20 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     # corrupt table can also raise, and those stay captured. Covers both delta-rs's older
     # `FileNotFoundError`-style message ("File not found: ...") and its Arrow/object_store kernel message
     # for the same underlying condition ("Object at location ... not found: ... 404 Not Found").
-    return "_delta_log/" in text and "not found" in text
+    if "_delta_log/" in text and "not found" in text:
+        return True
+
+    # Yet another shape of the same reset-vs-stale-handle race: `DeltaTableRef._refresh_cached_table`
+    # calls `update_incremental()` on a delta-rs handle that a prior write or `note_deltalite_commit`
+    # already advanced to some version. If `reset_table` (or a repartition swap) replaces `_delta_log`
+    # under this ref — most commonly the live attempt resyncing while a heartbeat-timed-out zombie
+    # attempt still holds this older handle (see this package's README on the equivalent unfenced race
+    # for repartition) — the log the refresh reads back is the fresh, lower-numbered one. Delta logs
+    # are append-only, so the kernel refuses to apply that as an increment: "Unexpected state: the
+    # newest version in the log {low} is older than the existing snapshot version {high}". The live
+    # table itself is unaffected; only this stale handle's refresh failed, so the next reader (a
+    # retried activity opens a fresh `DeltaTableRef`) reads the current log and succeeds.
+    return "is older than the existing snapshot version" in text
 
 
 # `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting

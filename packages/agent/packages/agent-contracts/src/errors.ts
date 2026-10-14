@@ -77,11 +77,15 @@ const RATE_LIMIT_PATTERNS = [
 export type GatewayLimitCause =
   | "model_gate"
   | "model_unavailable"
-  | "org_limit";
+  | "org_limit"
+  | "user_limit";
 
 const MODEL_GATE_CODE_REGEX = /"code"\s*:\s*"model_gate"/;
 const AI_GATEWAY_MODEL_GATE_REGEX =
   /\b(?:model_not_allowed|effort_not_allowed)\b/i;
+// A per-user or per-org spend window: temporary, so never a billing action.
+// The Anthropic dialect drops the code and keeps only the detail text.
+const AI_GATEWAY_USER_LIMIT_REGEX = /\buser[_ ]limit[_ ]exceeded\b/i;
 const AI_GATEWAY_ORG_LIMIT_REGEX =
   /\b(?:cap_exceeded|token_cap_exceeded|insufficient_credits|credit_bucket_exhausted|budget_exceeded)\b/i;
 // Go writes these phrases for outages and auth failures too, so they count
@@ -158,6 +162,19 @@ const UPSTREAM_TRANSIENT_ERROR_REGEXES = [
 const TURN_ENDED_WITHOUT_RESPONSE_REGEX =
   /\[ede_diagnostic\]\s+result_type=user\b/i;
 
+const UPSTREAM_REQUEST_REJECTED_REGEX =
+  /invalid_request_error|unexpected status\s*(?:400|404|422)\b|API Error:\s*(?:400|404|422)\b/i;
+
+export function isUpstreamRequestRejected(
+  errorMessage: string,
+  errorDetails?: string,
+): boolean {
+  return (
+    UPSTREAM_REQUEST_REJECTED_REGEX.test(errorMessage) ||
+    (!!errorDetails && UPSTREAM_REQUEST_REJECTED_REGEX.test(errorDetails))
+  );
+}
+
 function includesAny(
   value: string | undefined,
   patterns: readonly string[],
@@ -199,6 +216,9 @@ export function classifyGatewayLimitError(
     matchesRegex(AI_GATEWAY_ROUTER_REFUSAL_REGEX)
   ) {
     return "model_gate";
+  }
+  if (matchesRegex(AI_GATEWAY_USER_LIMIT_REGEX)) {
+    return "user_limit";
   }
   if (
     matches(ORG_LIMIT_PATTERNS) ||
@@ -268,6 +288,7 @@ export function isTurnEndedWithoutResponseError(
 export type PromptFailureKind =
   | "usage_limit"
   | "transient"
+  | "request_rejected"
   | "authentication"
   | "fatal_session"
   | "unknown";
@@ -306,13 +327,31 @@ export function classifyPromptFailure(
     };
   }
   if (
-    errorType?.startsWith("upstream_") ||
-    isTransientUpstreamError(message, errorDetails)
+    errorType !== "upstream_request_rejected" &&
+    ([
+      "upstream_stream_terminated",
+      "upstream_connection_error",
+      "upstream_timeout",
+      "upstream_provider_failure",
+    ].includes(errorType ?? "") ||
+      isTransientUpstreamError(message, errorDetails))
   ) {
     return {
       kind: "transient",
       message,
       retryable: true,
+      limitCause: null,
+    };
+  }
+  if (
+    errorType === "upstream_request_rejected" ||
+    isUpstreamRequestRejected(message, errorDetails)
+  ) {
+    return {
+      kind: "request_rejected",
+      message:
+        "The AI provider couldn't process this request. Try starting a new task.",
+      retryable: false,
       limitCause: null,
     };
   }
@@ -355,6 +394,7 @@ export function isFatalSessionError(
   if (isRateLimitError(errorMessage, errorDetails)) return false;
   if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;
+  if (isUpstreamRequestRejected(errorMessage, errorDetails)) return false;
   if (classifyGatewayLimitError(errorMessage, errorDetails) !== null) {
     return false;
   }

@@ -135,6 +135,55 @@ def mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache] 
         content["trigger"] = trigger_action.get("config")
 
 
+def mask_trigger_config(
+    actions: Any, trigger: Any, secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
+) -> Any:
+    # Mask the standalone `trigger` field. Both the minimal and (crucially) the summary serializer
+    # return `trigger` while the summary omits `actions`, so it can't be re-derived from masked actions
+    # there - a function-shaped trigger's secret would otherwise leak on the MCP list endpoint. Mask
+    # from the workflow's own trigger action (or the stored trigger config as a fallback for legacy
+    # rows whose actions may be empty).
+    trigger_action = next(
+        (a for a in (actions or []) if isinstance(a, dict) and a.get("type") == "trigger"),
+        None,
+    )
+    trigger_action = (
+        deepcopy(trigger_action)
+        if trigger_action is not None
+        else {"type": "trigger", "config": deepcopy(trigger) if trigger else {}}
+    )
+    masked = mask_secret_action_inputs([trigger_action], secrets_by_action, template_cache)
+    return masked[0].get("config")
+
+
+def mask_workflow_fields(
+    fields: dict[str, Any],
+    *,
+    live_actions: Any,
+    live_trigger: Any,
+    encrypted_inputs: Optional[dict],
+    draft_encrypted_inputs: Optional[dict],
+    template_cache: TemplateCache,
+    mask_trigger: bool = True,
+) -> None:
+    """Replace each set secret input in the `actions`, `trigger` and `draft` entries of `fields` with
+    the {"secret": True} presence marker. Rewrites the entries of `fields`, never the values they
+    point to, so the stored workflow stays unchanged."""
+    live_secrets = encrypted_inputs or {}
+    if isinstance(fields.get("actions"), list):
+        fields["actions"] = mask_secret_action_inputs(deepcopy(fields["actions"]), live_secrets, template_cache)
+    if mask_trigger and "trigger" in fields:
+        fields["trigger"] = mask_trigger_config(live_actions, live_trigger, live_secrets, template_cache)
+    draft = fields.get("draft")
+    if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
+        draft = deepcopy(draft)
+        draft["actions"] = mask_secret_action_inputs(
+            draft["actions"], merge_secret_maps(live_secrets, draft_encrypted_inputs), template_cache
+        )
+        mask_derived_trigger(draft, template_cache)
+        fields["draft"] = draft
+
+
 def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
     # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
     # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.

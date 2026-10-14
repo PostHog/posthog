@@ -22,6 +22,7 @@ from contextvars import ContextVar
 from posthog.dataclasses import frozen
 
 SafePointHook = Callable[[], None]
+ShutdownSignal = Callable[[], bool]
 
 
 @frozen
@@ -31,16 +32,26 @@ class _ActiveSafePoint:
     # when the framework's own generator is what the pipeline iterates. A source that wraps it could
     # buffer rows between the two, and the framework cannot see that buffer.
     covers_framework_checkpoints: bool
+    # Tells a wait that the worker is shutting down. The pipeline sets it only for a run that it
+    # hands to another worker at the next item or safe point, so a wait may end early for it.
+    is_shutting_down: ShutdownSignal | None
 
 
 _active_safe_point: ContextVar[_ActiveSafePoint | None] = ContextVar("warehouse_source_safe_point", default=None)
+_safe_points_held: ContextVar[bool] = ContextVar("warehouse_source_safe_points_held", default=False)
 
 
 @contextmanager
-def activate_safe_point(hook: SafePointHook, *, covers_framework_checkpoints: bool) -> Iterator[None]:
+def activate_safe_point(
+    hook: SafePointHook, *, covers_framework_checkpoints: bool, is_shutting_down: ShutdownSignal | None = None
+) -> Iterator[None]:
     """Install `hook` for code that runs in this context, including source threads started in it."""
     token = _active_safe_point.set(
-        _ActiveSafePoint(hook=hook, covers_framework_checkpoints=covers_framework_checkpoints)
+        _ActiveSafePoint(
+            hook=hook,
+            covers_framework_checkpoints=covers_framework_checkpoints,
+            is_shutting_down=is_shutting_down,
+        )
     )
     try:
         yield
@@ -48,15 +59,40 @@ def activate_safe_point(hook: SafePointHook, *, covers_framework_checkpoints: bo
         _active_safe_point.reset(token)
 
 
+@contextmanager
+def hold_safe_points() -> Iterator[None]:
+    """Make safe points do nothing inside the block.
+
+    The REST framework stages a page's cursor before it hands the page on. A resume hook that
+    reaches a safe point would then let the pipeline commit a cursor for rows it does not have yet.
+    """
+    token = _safe_points_held.set(True)
+    try:
+        yield
+    finally:
+        _safe_points_held.reset(token)
+
+
 def reach_safe_point() -> None:
     """Tell the pipeline that the source is at a safe point. Does nothing outside an extraction."""
     active = _active_safe_point.get()
-    if active is not None:
+    if active is not None and not _safe_points_held.get():
         active.hook()
+
+
+def framework_checkpoints_are_covered() -> bool:
+    """Whether the pipeline iterates the REST framework's own generator, with no source wrapper around it."""
+    active = _active_safe_point.get()
+    return active is not None and active.covers_framework_checkpoints
 
 
 def reach_framework_safe_point() -> None:
     """The REST framework's safe point, which applies only when nothing wraps the framework's output."""
+    if framework_checkpoints_are_covered():
+        reach_safe_point()
+
+
+def shutdown_signal() -> ShutdownSignal | None:
+    """The signal a wait polls to end early, or None when no run that can hand off is active."""
     active = _active_safe_point.get()
-    if active is not None and active.covers_framework_checkpoints:
-        active.hook()
+    return None if active is None else active.is_shutting_down

@@ -15,12 +15,16 @@ export function ScoutTrialRunDrawer({
     report,
     launchId,
     error,
+    loading = false,
+    onRetry,
     onClose,
 }: {
     result: ScoutTrialResultApi | null
     report?: TrialComparisonReportApi | null
     launchId?: string | null
     error?: string | null
+    loading?: boolean
+    onRetry?: () => void
     onClose: () => void
 }): JSX.Element | null {
     const selectedLaunchId = launchId ?? result?.launch_id
@@ -59,7 +63,14 @@ export function ScoutTrialRunDrawer({
             className="ph-no-capture ph-replay-block"
         >
             <div className="@container flex flex-col gap-4 min-w-0 break-words">
-                {error && <LemonBanner type="warning">{error}</LemonBanner>}
+                {error && (
+                    <LemonBanner
+                        type="warning"
+                        action={onRetry ? { children: 'Retry', onClick: onRetry, loading } : undefined}
+                    >
+                        {error}
+                    </LemonBanner>
+                )}
                 {!result && !judgment && !error && <LemonSkeleton className="h-32" />}
                 {result?.status === 'failed' && !result.error && !result.invalid_reason && (
                     <LemonBanner type="error">This run failed. It was not judged.</LemonBanner>

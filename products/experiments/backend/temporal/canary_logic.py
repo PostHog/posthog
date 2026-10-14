@@ -57,9 +57,11 @@ from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
     ExperimentMetric,
     build_metric,
     find_metric_dict,
+    metric_dict_reads_data_warehouse,
     scheduled_metric_definitions,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -104,8 +106,9 @@ MIN_CORRECTNESS_SUM_DELTA = 100.0
 MIN_EXPOSURES_PER_VARIANT = 100
 
 # Metric types that use the precompute path: all of them read precomputed exposures, and funnel,
-# mean, and retention also read precomputed metric events when eligible.
-ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio", "retention")
+# mean, and retention also read precomputed metric events when eligible. Derived from the runner's
+# builder registry so a new buildable type is sampled automatically instead of silently uncovered.
+ELIGIBLE_METRIC_TYPES = frozenset(METRIC_BUILDERS)
 
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.
@@ -155,21 +158,6 @@ def _experiment_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
             for m in scheduled_metric_definitions(experiment).values()
             if m.get("metric_type") in ELIGIBLE_METRIC_TYPES
         ]
-
-
-def _uses_data_warehouse(metric_dict: dict[str, Any]) -> bool:
-    """True when any side of the metric reads a data warehouse table. These metrics never precompute
-    (the precomputed table lacks the join keys), so sampling one buys a guaranteed path flip. The
-    fields cover every metric shape; a field absent on a shape is simply None."""
-    nodes = [
-        metric_dict.get("source"),
-        *(metric_dict.get("series") or []),
-        metric_dict.get("numerator"),
-        metric_dict.get("denominator"),
-        metric_dict.get("start_event"),
-        metric_dict.get("completion_event"),
-    ]
-    return any(isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode" for node in nodes)
 
 
 def _forensics_targets(experiment_id: int, metric_uuids: list[str] | None) -> list[CanaryMetricTarget]:
@@ -234,7 +222,11 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
                 break
             metric_type = metric_dict["metric_type"]
             metric_uuid = metric_dict["uuid"]
-            if quotas.get(metric_type, 0) <= 0 or metric_uuid in seen_uuids or _uses_data_warehouse(metric_dict):
+            if (
+                quotas.get(metric_type, 0) <= 0
+                or metric_uuid in seen_uuids
+                or metric_dict_reads_data_warehouse(metric_dict)
+            ):
                 continue
             seen_uuids.add(metric_uuid)
             targets.append(

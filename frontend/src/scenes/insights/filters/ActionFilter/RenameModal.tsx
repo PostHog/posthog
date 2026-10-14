@@ -4,7 +4,7 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 
 import { InsightType } from '~/types'
 
@@ -14,10 +14,11 @@ interface RenameModalProps {
 }
 
 export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
-    const { selectedFilter, modalVisible } = useValues(entityFilterLogic)
-    const { renameFilter, hideModal } = useActions(entityFilterLogic)
+    const { selectedSeries, modalVisible } = useValues(entityFilterLogic)
+    const { renameSeries, hideModal } = useActions(entityFilterLogic)
 
-    const logic = renameModalLogic({ typeKey, filter: selectedFilter })
+    const selectedNode = selectedSeries?.node ?? null
+    const logic = renameModalLogic({ typeKey, node: selectedNode })
     const { name } = useValues(logic)
     const { setName } = useActions(logic)
 
@@ -35,7 +36,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
                     <LemonButton type="secondary" onClick={hideModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={() => renameFilter(name)}>
+                    <LemonButton type="primary" onClick={() => renameSeries(name)}>
                         {title}
                     </LemonButton>
                 </>
@@ -48,14 +49,14 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             <div className="l4 mt-2 mb-2">Name</div>
             <LemonInput
                 value={name}
-                onPressEnter={() => renameFilter(name)}
+                onPressEnter={() => renameSeries(name)}
                 onChange={(value) => setName(value)}
                 suffix={
                     <span
                         className="text-secondary truncate max-w-[200px]"
-                        title={getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
+                        title={(selectedNode ? getDisplayNameFromEntityNode(selectedNode, false) : null) ?? ''}
                     >
-                        {getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
+                        {(selectedNode ? getDisplayNameFromEntityNode(selectedNode, false) : null) ?? ''}
                     </span>
                 }
                 autoFocus

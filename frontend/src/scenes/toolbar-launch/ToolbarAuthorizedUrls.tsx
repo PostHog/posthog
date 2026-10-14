@@ -134,7 +134,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                             <Button
                                 variant="outline"
                                 loading={suggestionsLoading}
-                                onClick={loadSuggestions}
+                                onClick={() => loadSuggestions()}
                                 data-attr="authorized-url-list-fetch-suggestions"
                             >
                                 <IconRefresh />
@@ -312,7 +312,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                     variant="link-muted"
                     size="sm"
                     loading={suggestionsLoading}
-                    onClick={loadSuggestions}
+                    onClick={() => loadSuggestions()}
                     data-attr="authorized-url-list-fetch-suggestions"
                     className="w-fit"
                 >

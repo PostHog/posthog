@@ -12,7 +12,6 @@ import experimentGetByFlagKey from './experiments/getByFlagKey'
 import getExperimentResults from './experiments/getResults'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
-import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -21,7 +20,6 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
-import loopsReview from './loops/loopsReview'
 import { mergeToolFactories } from './mergeToolFactories'
 // Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookAddCell from './notebooks/addCell'
@@ -54,8 +52,6 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 import updatePropertyDefinition from './projects/updatePropertyDefinition'
-// Replay
-import getSessionRecording from './replay/getSessionRecording'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
@@ -92,7 +88,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
-    'update-feature-flag': updateFeatureFlagPreservingGroups,
 
     'path-cleaning-rules-update': updatePathCleaning,
 
@@ -123,7 +118,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
-    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,
@@ -136,9 +130,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-
-    // Replay
-    'session-recording-get': getSessionRecording,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
