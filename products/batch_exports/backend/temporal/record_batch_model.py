@@ -483,6 +483,7 @@ def resolve_batch_exports_model(
                     hogql_modifiers=model.modifiers,
                 )
     elif model is not None:
+        # TODO: Remove this compatibility branch once all callers and fixtures use model-specific types.
         model_name = model.name
         extra_query_parameters = model.schema["values"] if model.schema is not None else None
         fields = model.schema["fields"] if model.schema is not None else None
