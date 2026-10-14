@@ -172,10 +172,11 @@ It lives in `cf_person_records` under a 3-byte key, `[partition][0xFE]`, which n
 A reconcile certifies its partition only when the slice holds the run's history: the slice is complete, or it began at or before the run's boundary.
 Otherwise the partition withholds the run, as [the reconcile guard](seed-apply-and-reconcile.md#the-walk) describes, and its `covered_since` is the boundary a disaster-recovery run must pin.
 
-The record is written once and only deleted with its slice, which makes a rollback safe.
+The record is written once and only deleted with its slice.
 An older image never reads the record or the stamp, and its own partition deletes remove records with their slices.
 A rolled-back image that recreates the store leaves a store without the stamp, and the next open adopts it as complete.
 That is the trust every store had before coverage records existed.
+So before rolling forward again, wipe any store that an older image created.
 
 Coverage does not detect a stale slice, one whose partition another writer advanced while this store held older state.
 With one pod, only a rollback of the store or a checkpoint restore produces one.

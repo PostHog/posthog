@@ -106,9 +106,9 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
     }
 }
 
-/// Unique per marker, not per run: the partition is what makes 64 distinct keys out of one dispatch,
-/// so no cleanup policy can collapse them. Nothing downstream reads the key and the ledger's fold is
-/// order-independent, so the grouping carries no meaning beyond that.
+/// One key per run, cohort and partition: the partition is what makes 64 distinct keys out of one
+/// dispatch. A complete and a withheld marker for the same partition share the key, so the topic must
+/// not compact. Nothing downstream reads the key.
 fn reconcile_marker_key(marker: &ReconcileMarker) -> Option<String> {
     Some(format!(
         "{}:{}:{}:{}",

@@ -435,6 +435,14 @@ impl WithheldReason {
             Self::Catalog(miss) => miss.as_str(),
         }
     }
+
+    /// When the slice's history begins, for `partial_coverage` only.
+    pub const fn covered_since(self) -> Option<CoverageStartMs> {
+        match self {
+            Self::PartialCoverage { covered_since } => Some(covered_since),
+            Self::Catalog(_) => None,
+        }
+    }
 }
 
 /// A partition's refusal to certify a run. It shares the complete marker's key.
@@ -506,10 +514,7 @@ impl Serialize for ReconcileWithheldMarker {
             partition: self.partition,
             run_id: self.run_id,
             reason: self.reason.as_str(),
-            covered_since_ms: match self.reason {
-                WithheldReason::PartialCoverage { covered_since } => Some(covered_since),
-                WithheldReason::Catalog(_) => None,
-            },
+            covered_since_ms: self.reason.covered_since(),
         }
         .serialize(serializer)
     }
@@ -804,6 +809,14 @@ mod tests {
                 "partial_coverage",
             ),
         ];
+        // A new variant fails to compile here; add it to `cases` and to `CatalogMiss::ALL`.
+        let _exhaustive = |miss: CatalogMiss| match miss {
+            CatalogMiss::TeamAbsent
+            | CatalogMiss::CohortAbsent
+            | CatalogMiss::NotEmitting
+            | CatalogMiss::HashUnknown
+            | CatalogMiss::HashMismatch => (),
+        };
         assert_eq!(
             cases.len(),
             CatalogMiss::ALL.len() + 1,

@@ -90,6 +90,8 @@ struct CohortFold {
     /// The bitmap reached its full set since the last [`MarkerLedger::mark_persisted`]. Drives the
     /// flush-on-completion trigger.
     newly_complete: bool,
+    /// The first withheld marker's partition and reason. A set value marks the cohort for
+    /// supersede, and [`MarkerLedger::mark_persisted`] drops the cohort once that persists.
     withheld: Option<(MarkerPartition, WithheldReason)>,
 }
 
@@ -148,6 +150,11 @@ impl MarkerLedger {
             return MarkerFold::UnknownCohort;
         };
         match marker.verdict {
+            // A later refusal cannot revoke a certificate this partition already gave, for example
+            // after the slice lost its history and the tile was delivered again.
+            MarkerVerdict::Withheld(_) if fold.bitmap.contains(marker.partition) => {
+                MarkerFold::Duplicate
+            }
             MarkerVerdict::Withheld(reason) => {
                 fold.withheld.get_or_insert((marker.partition, reason));
                 MarkerFold::Withheld
@@ -322,6 +329,12 @@ mod tests {
         let mut ledger = ledger(&[10, 11]);
         ledger.observe(&marker(2, 10, run(1), 0));
         ledger.mark_persisted();
+        assert!(!ledger.has_dirty());
+        assert_eq!(
+            ledger.observe(&withheld(10, 0, first)),
+            MarkerFold::Duplicate,
+            "a partition that already certified the cohort cannot withhold it",
+        );
         assert!(!ledger.has_dirty());
 
         assert_eq!(

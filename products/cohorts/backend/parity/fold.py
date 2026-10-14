@@ -138,14 +138,13 @@ def _record_marker(
 def _record_withheld(message: dict[str, Any], cohort_id: Any, stats: FoldStats) -> None:
     run_id = _parse_marker_run_id(message.get("run_id"))
     partition = message.get("partition")
-    reason = message.get("reason")
+    reason = _optional_string(message.get("reason"))
     if (
         run_id is None
         or not _is_int(cohort_id)
         or not _is_int(partition)
         or not 0 <= partition < RECONCILE_PARTITION_COUNT
-        or not isinstance(reason, str)
-        or not reason
+        or reason is None
     ):
         stats.dropped_malformed += 1
         return

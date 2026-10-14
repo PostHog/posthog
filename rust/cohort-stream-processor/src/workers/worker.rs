@@ -190,7 +190,7 @@ async fn run_worker(
     let mut queue = EvictionQueue::<BehavioralKey>::new();
     let mut sweep = SweepSchedule::new(partition_id);
     // Before any message, so the slice holds every event from the assignment on.
-    let coverage = resume_or_begin_slice(partition_id, assigned_at, &handle).await;
+    let coverage = resolve_slice_coverage(partition_id, assigned_at, &handle).await;
     let mut reconcile_queue = ReconcileQueue::new(
         partition_id,
         merge.reconcile.backlog.clone(),
@@ -939,7 +939,7 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
 }
 
 /// The worker's slice coverage, beginning the slice at its assignment when it has no record.
-async fn resume_or_begin_slice(
+async fn resolve_slice_coverage(
     partition_id: u16,
     assigned_at: CoverageStartMs,
     handle: &StoreHandle,

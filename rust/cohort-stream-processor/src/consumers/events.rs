@@ -116,7 +116,8 @@ pub struct EventDispatcher {
     router: Arc<PartitionRouter>,
     tracker: Arc<OffsetTracker>,
     workers: Arc<DashMap<i32, WorkerSlot>>,
-    /// Partitions currently assigned to this consumer.
+    /// Partitions currently assigned to this consumer, with when each was assigned. A slice
+    /// without a coverage record begins at that instant, not at its worker's spawn.
     owned: Arc<DashMap<i32, CoverageStartMs>>,
     handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
@@ -2620,6 +2621,7 @@ mod tests {
         let before_respawn = CoverageStartMs::now();
         dispatcher.assign_partition(0);
         let reassigned = CoverageStartMs::now();
+        // Spawn in a later millisecond, so a slice begun at spawn fails the bound below.
         while CoverageStartMs::now() <= reassigned {
             tokio::task::yield_now().await;
         }

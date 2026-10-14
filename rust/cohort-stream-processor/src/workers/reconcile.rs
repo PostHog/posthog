@@ -798,15 +798,11 @@ async fn drain_withheld(
             "kind" => kind,
         )
         .increment(1);
-        let covered_since_ms = match reason {
-            WithheldReason::PartialCoverage { covered_since } => Some(covered_since.0),
-            WithheldReason::Catalog(_) => None,
-        };
         warn_job!(
             job.tile,
             partition_id,
             reason = reason.as_str(),
-            covered_since_ms,
+            covered_since_ms = reason.covered_since().map(|since| since.0),
             kind,
             "withholding the reconcile certificate",
         );
@@ -1135,7 +1131,11 @@ fn complete_offset(
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use async_trait::async_trait;
     use chrono_tz::UTC;
+    use common_kafka::kafka_producer::KafkaProduceError;
     use serde_json::{json, Value};
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -2491,6 +2491,50 @@ mod tests {
         assert!(!sink.changes().is_empty());
         assert!(shell.deps.reconcile.backlog.is_empty());
         assert_eq!(shell.committable(), Some(9));
+    }
+
+    /// Fails the first marker of its first produce and acks the rest.
+    #[derive(Default)]
+    struct FailHeadOnce(CaptureReconcileMarkerSink, AtomicBool);
+
+    #[async_trait]
+    impl ReconcileMarkerSink for FailHeadOnce {
+        async fn produce(
+            &self,
+            markers: Vec<ReconcileMarker>,
+        ) -> Vec<Result<(), KafkaProduceError>> {
+            if self.1.swap(true, Ordering::SeqCst) {
+                return self.0.produce(markers).await;
+            }
+            let mut acks = vec![Err(KafkaProduceError::KafkaProduceCanceled)];
+            acks.extend(self.0.produce(markers[1..].to_vec()).await);
+            acks
+        }
+    }
+
+    #[tokio::test]
+    async fn a_later_ack_never_releases_an_unacked_withheld_head() {
+        let mut shell = DrainShell::new(
+            false,
+            Arc::new(CaptureSink::new()),
+            CaptureCascadeSink::new(),
+            8,
+        );
+        shell.cover(SliceCoverage::Since(CoverageStartMs(SLICE_START)));
+        shell.deps.reconcile.marker_sink = Arc::new(FailHeadOnce::default());
+        let before_slice =
+            |run_id| bounded_tile(TEAM, COHORT, run_id, ScopeKind::Behavioral, SLICE_START - 1);
+        shell.enqueue(before_slice(1), 5);
+        shell.enqueue(before_slice(2), 6);
+
+        shell.tick().await;
+
+        assert_eq!(shell.queue.front_run_id(), Some(RunId(Uuid::from_u128(1))));
+        assert_eq!(
+            shell.committable(),
+            Some(5),
+            "a later ack must not release an unacked head"
+        );
     }
 
     #[tokio::test]

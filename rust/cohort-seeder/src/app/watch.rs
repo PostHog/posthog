@@ -27,7 +27,7 @@ use tracing::{info, warn};
 
 use crate::domain::{
     DispatchEpoch, MarkerFold, MarkerLedger, NextOffset, PartitionBitmap, RunId, WatchPartition,
-    WatchPositions, WithheldCohort, WithheldReason,
+    WatchPositions, WithheldCohort,
 };
 use crate::kafka::markers::{MarkerWatcher, WatchError, WatchItem};
 use crate::observability::metrics::{
@@ -436,8 +436,9 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
             .any(|run| run.ledger.completed_since_flush());
     }
 
-    /// Persist one run's dirty bits and the watcher positions under its dispatch fence. A lost fence
-    /// drops the run (a re-dispatch superseded it); a transient error keeps the bits dirty for retry.
+    /// Persist one run's dirty bits, withheld supersedes and the watcher positions under its dispatch
+    /// fence. A lost fence drops the run (a re-dispatch superseded it); a transient error keeps the
+    /// bits dirty and the withheld cohorts pending for retry.
     /// Returns whether the run has nothing left owed — `false` only on a transient error, so the
     /// caller knows to keep the retry flag set.
     async fn flush_run(&mut self, run_id: RunId) -> bool {
@@ -468,16 +469,12 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
                         "reason" => cohort.reason.as_str(),
                     )
                     .increment(1);
-                    let covered_since_ms = match cohort.reason {
-                        WithheldReason::PartialCoverage { covered_since } => Some(covered_since.0),
-                        WithheldReason::Catalog(_) => None,
-                    };
                     warn!(
                         run_id = ?run_id,
                         cohort_id = cohort.cohort_id.0,
                         partition = cohort.partition.get(),
                         reason = cohort.reason.as_str(),
-                        covered_since_ms,
+                        covered_since_ms = cohort.reason.covered_since().map(|since| since.0),
                         "a partition withheld its reconcile certificate for this cohort",
                     );
                 }
@@ -835,6 +832,9 @@ mod tests {
         let reason = WithheldReason::Catalog(CatalogMiss::HashUnknown);
         withheld.marker.as_mut().unwrap().verdict = MarkerVerdict::Withheld(reason);
         state.ingest(withheld);
+        state.flush.fail_once(run_id);
+        state.flush().await;
+        assert!(state.flush.calls().is_empty(), "the persist failed");
         state.flush().await;
         let first = state.flush.calls();
         assert_eq!(first.len(), 1);

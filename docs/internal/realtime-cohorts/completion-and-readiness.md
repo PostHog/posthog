@@ -98,6 +98,7 @@ The observation pass, below, decides when the participation is marked complete.
 A `reconcile_withheld` marker is a final answer for its cohort, so it needs no settlement proof.
 The watcher supersedes the participation, with an error naming the partition and the reason.
 The first withheld marker of a cohort decides the error.
+A withheld marker from a partition that already certified the cohort is ignored, because a later refusal cannot revoke that certificate.
 A participation that already completed or carries a readiness stamp is left alone.
 For `partial_coverage`, the error also names the instant the partition's history begins, which is the boundary a [disaster-recovery run](backfill-overview.md) needs.
 

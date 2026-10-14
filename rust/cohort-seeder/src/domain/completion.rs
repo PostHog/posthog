@@ -95,6 +95,10 @@ impl PartitionBitmap {
         MarkerNovelty::Novel
     }
 
+    pub const fn contains(self, partition: MarkerPartition) -> bool {
+        self.0 & partition.mask() != 0
+    }
+
     pub const fn is_complete(self) -> bool {
         self.0 == COMPLETE_MASK
     }

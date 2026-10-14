@@ -52,6 +52,12 @@ def _marker_without(field: str) -> dict:
     return marker
 
 
+def _withheld(partition: int, *, run_id: str = RUN_1, cohort_id: int = 10) -> dict:
+    marker = _marker(partition, run_id=run_id, cohort_id=cohort_id)
+    del marker["last_updated"]
+    return marker | {"type": "reconcile_withheld", "reason": "partial_coverage", "covered_since_ms": 1}
+
+
 class TestFold(SimpleTestCase):
     def test_last_message_wins_per_pair(self) -> None:
         state, stats = fold_membership_changes(
@@ -215,9 +221,8 @@ class TestFold(SimpleTestCase):
         # false 64/64 for cohort 10.
         messages.extend(_marker(partition, run_id=RUN_1, cohort_id=20) for partition in range(41, 64))
         # Withheld markers stay out of the membership fold.
-        withheld = {"type": "reconcile_withheld", "reason": "partial_coverage", "covered_since_ms": 1}
-        messages.append(_marker(50, run_id=RUN_1) | withheld)
-        messages.append(_marker(3, run_id=RUN_2, cohort_id=30) | withheld)
+        messages.append(_withheld(50, run_id=RUN_1))
+        messages.append(_withheld(3, run_id=RUN_2, cohort_id=30))
 
         state, stats = fold_membership_changes(messages, team_id=2, since=SINCE)
 
@@ -250,6 +255,8 @@ class TestFold(SimpleTestCase):
             ("float_team_id", _marker(1) | {"team_id": 2.0}, 2, 1, 0),
             ("boolean_team_id", _marker(1, team_id=True), 1, 1, 0),
             ("before_since", _marker(1, ts="2026-07-07 18:59:59.999999"), 2, 0, 1),
+            ("withheld_out_of_range_partition", _withheld(64), 2, 1, 0),
+            ("withheld_empty_reason", _withheld(1) | {"reason": ""}, 2, 1, 0),
         ]
     )
     def test_invalid_or_stale_markers_cannot_certify_reconcile(
@@ -263,6 +270,7 @@ class TestFold(SimpleTestCase):
         _state, stats = fold_membership_changes([marker], team_id=team_id, since=SINCE)
 
         self.assertEqual(stats.reconcile_markers, {})
+        self.assertEqual(stats.reconcile_withheld, {})
         self.assertEqual(stats.dropped_malformed, expected_malformed)
         self.assertEqual(stats.dropped_before_since, expected_before_since)
 
