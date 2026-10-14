@@ -1,4 +1,5 @@
-import type { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataJobStatus, ExternalDataSchemaStatus } from '~/types'
+import type { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { allowedCdcSyncFrequencies, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
@@ -8,6 +9,8 @@ import {
     bulkSyncMethodDisabledReason,
     effectiveLookbackDays,
     isSensitiveCredentialField,
+    isSyncInProgress,
+    nextJobsPollDelay,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
     schemasEligibleForSync,
@@ -292,6 +295,33 @@ describe('sync frequency limits', () => {
         expect(options).toContain('7day')
         expect(options).not.toContain('30day')
         expect(options).not.toContain('1min')
+    })
+})
+
+describe('jobs poll interval', () => {
+    const idleSource = {
+        status: ExternalDataJobStatus.Completed,
+        schemas: [makeSchema({ status: ExternalDataSchemaStatus.Completed })],
+    } as ExternalDataSource
+    const completedJob = { status: ExternalDataJobStatus.Completed } as ExternalDataJob
+    const runningJob = { status: ExternalDataJobStatus.Running } as ExternalDataJob
+
+    it.each([
+        ['nothing runs', idleSource, [completedJob], false],
+        ['a listed job runs', idleSource, [runningJob], true],
+        ['the source runs', { ...idleSource, status: ExternalDataJobStatus.Running }, [], true],
+        [
+            'a schema runs before its job is listed',
+            { ...idleSource, schemas: [makeSchema({ status: ExternalDataSchemaStatus.Running })] },
+            [completedJob],
+            true,
+        ],
+    ])('treats the sync as in progress when %s', (_name, source, jobs, expected) => {
+        expect(isSyncInProgress(source, jobs)).toBe(expected)
+    })
+
+    it('polls an idle source less often than a running one', () => {
+        expect(nextJobsPollDelay(0, false)).toBeGreaterThan(nextJobsPollDelay(0, true))
     })
 })
 

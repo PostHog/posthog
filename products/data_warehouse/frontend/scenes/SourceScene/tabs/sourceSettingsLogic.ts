@@ -70,6 +70,8 @@ export interface CdcStatus {
 }
 
 const REFRESH_INTERVAL = 5000
+// The sync history only changes while a sync runs, so an idle tab polls less often.
+const JOBS_POLL_IDLE_INTERVAL_MS = 30000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
 const JOBS_POLL_MAX_BACKOFF_MS = 60000
 const JOBS_POLL_TRANSIENT_STATUSES = new Set([408, 502, 503, 504])
@@ -79,9 +81,17 @@ function isTransientGatewayError(error: unknown): boolean {
     return typeof status === 'number' && JOBS_POLL_TRANSIENT_STATUSES.has(status)
 }
 
-function nextJobsPollDelay(softFailureCount: number): number {
+export function isSyncInProgress(source: ExternalDataSource | null, jobs: ExternalDataJob[]): boolean {
+    return (
+        jobs.some((job) => job.status === ExternalDataJobStatus.Running) ||
+        source?.status === ExternalDataJobStatus.Running ||
+        !!source?.schemas.some((schema) => schema.status === ExternalDataSchemaStatus.Running)
+    )
+}
+
+export function nextJobsPollDelay(softFailureCount: number, syncInProgress: boolean): number {
     if (softFailureCount <= 0) {
-        return REFRESH_INTERVAL
+        return syncInProgress ? REFRESH_INTERVAL : JOBS_POLL_IDLE_INTERVAL_MS
     }
     const exponential = Math.min(REFRESH_INTERVAL * 2 ** softFailureCount, JOBS_POLL_MAX_BACKOFF_MS)
     // Equal-jitter: spread retries over [0.5x, 1.0x] to avoid synchronized polling after a gateway blip
@@ -1372,6 +1382,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
+                // A scheduled sync can start while the jobs poll waits on the idle interval.
+                if (cache.jobsPollIdle && isSyncInProgress(values.source, values.jobs)) {
+                    cache.jobsPollIdle = false
+                    actions.loadJobs()
+                }
+
                 const sceneLogicInstance =
                     sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
                     sourceSceneLogic.findMounted({ id: props.id })
@@ -1465,7 +1481,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadJobs()
             },
             loadJobsSuccess: () => {
-                const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0)
+                const syncInProgress = isSyncInProgress(values.source, values.jobs)
+                cache.jobsPollIdle = !syncInProgress
+                const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0, syncInProgress)
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadJobs()
