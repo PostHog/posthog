@@ -7,6 +7,8 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.slack_response import SlackResponse
 from temporalio.exceptions import ApplicationError
 
+from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.types import (
     SlackAppUnfurlChartsPostInput,
@@ -15,6 +17,7 @@ from posthog.temporal.ai.slack_app.types import (
     SlackUnfurlChartRequest,
 )
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, prepare_unfurl_charts
@@ -51,11 +54,11 @@ class TestLinkUnfurlCharts(BaseTest):
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
         )
 
-    def _inputs(self, urls: tuple[str, ...] = (_URL,)) -> SlackAppUnfurlChartsWorkflowInputs:
+    def _inputs(self, urls: tuple[str, ...] = (_URL,), user: User | None = None) -> SlackAppUnfurlChartsWorkflowInputs:
         return SlackAppUnfurlChartsWorkflowInputs(
             team_id=self.team.pk,
             integration_id=self.integration.id,
-            user_id=self.user.pk,
+            user_id=(user or self.user).pk,
             slack_user_id="U1",
             channel="C1",
             message_ts="123.456",
@@ -69,6 +72,16 @@ class TestLinkUnfurlCharts(BaseTest):
             export_task_queue="unused",
         )
 
+    def _deny_project_access(self) -> User:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        return User.objects.create_and_join(self.organization, "no-project-access@example.com", "password")
+
     def _post(self, inputs: SlackAppUnfurlChartsWorkflowInputs, asset: ExportedAsset) -> None:
         post_unfurl_charts(
             SlackAppUnfurlChartsPostInput(
@@ -78,10 +91,10 @@ class TestLinkUnfurlCharts(BaseTest):
             )
         )
 
-    def _asset(self, exception: str | None = None) -> ExportedAsset:
+    def _asset(self, exception: str | None = None, user: User | None = None) -> ExportedAsset:
         return ExportedAsset.objects.create(
             team=self.team,
-            created_by=self.user,
+            created_by=user or self.user,
             export_format=ExportedAsset.ExportFormat.PNG,
             insight=self.insight,
             content=None if exception else b"png",
@@ -95,19 +108,27 @@ class TestLinkUnfurlCharts(BaseTest):
 
     @parameterized.expand(
         [
-            ("rendered", None, True, True),
-            ("render_failed", "Export failed", True, False),
-            ("public_sharing_turned_off", None, False, False),
+            ("rendered", None, True, True, True),
+            ("render_failed", "Export failed", True, True, False),
+            ("public_sharing_turned_off", None, False, True, False),
+            ("project_access_revoked", None, True, False, False),
         ]
     )
     @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
     def test_post_adds_the_chart_under_the_title_only_when_allowed(
-        self, _name: str, exception: str | None, public_sharing: bool, expect_unfurl: bool, mock_slack: MagicMock
+        self,
+        _name: str,
+        exception: str | None,
+        public_sharing: bool,
+        project_access: bool,
+        expect_unfurl: bool,
+        mock_slack: MagicMock,
     ) -> None:
         self.organization.allow_publicly_shared_resources = public_sharing
         self.organization.save()
+        user = self.user if project_access else self._deny_project_access()
 
-        self._post(self._inputs(), self._asset(exception))
+        self._post(self._inputs(user=user), self._asset(exception, user=user))
 
         chat_unfurl = mock_slack.return_value.client.chat_unfurl
         if not expect_unfurl:

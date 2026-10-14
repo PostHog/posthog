@@ -24,6 +24,7 @@ from posthog.temporal.ai.slack_app.types import (
     SlackAppUnfurlChartsWorkflowInputs,
     SlackUnfurlChartAsset,
 )
+from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.api import create_png_export_asset, get_delivery_image_url, png_export_has_content
@@ -58,10 +59,18 @@ def chat_unfurl_kwargs(
     return kwargs
 
 
+def _has_project_access(user: User, team: Team) -> bool:
+    # The insight check alone is not enough, because it can fall back to the default access level
+    # in a project that denies the user. The webhook checks project access the same way.
+    return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+
+
 def prepare_unfurl_charts(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAppUnfurlChartsPrepared:
     team = Team.objects.get(id=inputs.team_id)
     user = User.objects.get(id=inputs.user_id)
     assets: list[SlackUnfurlChartAsset] = []
+    if not _has_project_access(user, team):
+        return SlackAppUnfurlChartsPrepared(distinct_id=str(user.distinct_id), assets=assets)
     # Two links to the same insight in one message share one render.
     for insight_id in dict.fromkeys(chart.insight_id for chart in inputs.charts):
         try:
@@ -137,6 +146,8 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput) -> None:
     elif not team.organization.allow_publicly_shared_resources:
         # The image url opens without a PostHog login.
         failure_reason = "public_sharing_disabled"
+    elif not _has_project_access(user, team):
+        failure_reason = "no_project_access"
     else:
         by_insight = _image_urls_by_insight(team, user, post.rendered)
         image_urls = {
