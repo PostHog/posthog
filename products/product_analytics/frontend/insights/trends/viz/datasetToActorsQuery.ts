@@ -1,10 +1,10 @@
+import { ResultSeriesRow, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
+
 import { InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { GraphDataset } from '~/types'
 
-type DatasetToActorsInput = Pick<
-    GraphDataset,
-    'action' | 'breakdown_value' | 'compare_label' | 'status' | 'breakdownValues' | 'compareLabels'
->
+type DatasetToActorsInput = ResultSeriesRow &
+    Pick<GraphDataset, 'breakdown_value' | 'compare_label' | 'status' | 'breakdownValues' | 'compareLabels'>
 
 interface DatasetToActorsQueryProps {
     dataset: DatasetToActorsInput
@@ -26,7 +26,7 @@ export function datasetToActorsQuery({ query, dataset, day, index }: DatasetToAc
         source: query,
         day,
         status: dataset.status,
-        series: dataset.action?.order ?? 0,
+        series: getResultSeriesIndex(query, dataset) ?? 0,
         breakdown,
         compare,
         includeRecordings: true,

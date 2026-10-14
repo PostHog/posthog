@@ -10,13 +10,15 @@ function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendRe
         id: 0,
         seriesIndex: 0,
         colorIndex: 0,
+        // The trends runner sends `action.days` as datetimes, which never match an alert's dates.
         action: {
             id: '$pageview',
             type: EntityTypes.EVENTS,
             order: 0,
             name: '$pageview',
-            days: ['2024-06-10', '2024-06-11', '2024-06-12'],
+            days: ['2024-06-10T00:00:00Z', '2024-06-11T00:00:00Z', '2024-06-12T00:00:00Z'],
         },
+        order: 0,
         label: '$pageview',
         count: 10,
         aggregated_value: 10,
@@ -80,17 +82,6 @@ describe('buildAnomalyMarkers', () => {
         const result = makeResult({ data: [1, NaN, 3] })
         const anomalies: AnomalyPoint[] = [{ index: 0, date: '2024-06-11', score: null, seriesIndex: 0 }]
         expect(buildAnomalyMarkers(anomalies, [result], colorOf, yAxisOf, notHidden)).toEqual([])
-    })
-
-    it('falls back to result.days when action.days is missing', () => {
-        const result = makeResult({
-            action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
-            days: ['D0', 'D1', 'D2'],
-        })
-        const anomalies: AnomalyPoint[] = [{ index: 0, date: 'D2', score: 0.5, seriesIndex: 0 }]
-        const markers = buildAnomalyMarkers(anomalies, [result], colorOf, yAxisOf, notHidden)
-        expect(markers).toHaveLength(1)
-        expect(markers[0]).toMatchObject({ dataIndex: 2, value: 3 })
     })
 
     it('uses the y-axis id supplied by the caller', () => {

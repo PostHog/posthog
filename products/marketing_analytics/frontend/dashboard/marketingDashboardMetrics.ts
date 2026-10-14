@@ -1,3 +1,5 @@
+import { getResultOrder } from 'scenes/insights/utils/resultSeries'
+
 import { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { WebOverviewItem } from '~/queries/schema/schema-general'
 import { TrendResult } from '~/types'
@@ -26,7 +28,7 @@ export function sumTrendSeries(results: TrendResult[] | undefined): { value: num
  * `value` is undefined when that series returned nothing, which the caller shows as N/A rather
  * than as a zero it cannot stand behind. */
 export function seriesTotal(results: TrendResult[] | undefined, order: number): { value?: number; previous?: number } {
-    const matching = (results ?? []).filter((result) => (result.order ?? result.action?.order ?? 0) === order)
+    const matching = (results ?? []).filter((result) => getResultOrder(result) === order)
     if (!matching.length) {
         return {}
     }
