@@ -70,6 +70,8 @@ export class MlKeyBatch {
     private readonly candidates = new Map<string, MlDataKey>()
     private readonly keys = new Map<string, MlDataKey>()
     private committed = false
+    // Undefined stores every new key. Otherwise only new keys for these sessions, and their month keys, are stored.
+    private used?: Set<string>
     // persist re-reads the batch after its writes and on every retry, so a row is reported the first time this batch meets it and not on each pass.
     private readonly reportedUnusable = new Set<string>()
 
@@ -208,7 +210,7 @@ export class MlKeyBatch {
 
     // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(deadline: AbortSignal): Promise<void> {
-        const unstored = [...this.keys].filter(([id]) => !this.state.has(id))
+        const unstored = [...this.keys].filter(([id]) => !this.state.has(id) && (!this.used || this.used.has(id)))
         // The month key commits first. A put that loses leaves session keys sealed under bytes that nobody stored.
         const monthKeys = unstored.filter(([, key]) => !key.identity.sessionId)
         if (monthKeys.length) {
@@ -318,7 +320,16 @@ export class MlKeyBatch {
         return { sealed_key: { B: sealed.sealed }, key_nonce: { B: sealed.nonce }, ...shared }
     }
 
-    public async commit(): Promise<void> {
+    /** `used` names the sessions a published message will be written under; a key no message uses is not stored. */
+    public async commit(used?: Iterable<MlSessionIdentity>): Promise<void> {
+        if (used) {
+            this.used = new Set(
+                [...used].flatMap((identity) => [
+                    tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)),
+                    tableKeyString(imageKeyId(identity.teamId, sessionStartMonth(identity.sessionId))),
+                ])
+            )
+        }
         if (this.committed) {
             throw new Error('ML batch already committed')
         }

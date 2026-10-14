@@ -191,6 +191,21 @@ describe('ML session key batches', () => {
         }
     })
 
+    it.each([
+        ['the used session and its month key', true, 4],
+        ['nothing', false, 0],
+    ])('stores only keys of used sessions: %s', async (_case, sessionUsed, stored) => {
+        const unused = { ...session, sessionId: '01a0a4f0-3200-7000-8000-0000000000ff' }
+        const batch = await store.prepare([session, unused])
+        await batch.commit(sessionUsed ? [session] : [])
+        expect(boundary.items.size).toBe(stored)
+        const readBack = await reader.read([
+            sessionKeyId(session.teamId, session.sessionId),
+            sessionKeyId(unused.teamId, unused.sessionId),
+        ])
+        expect(readBack.size).toBe(sessionUsed ? 1 : 0)
+    })
+
     it('writes one request per key instead of two by batching the month index entries', async () => {
         const identities = Array.from({ length: 60 }, (_, index) => ({
             ...session,
