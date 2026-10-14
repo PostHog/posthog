@@ -37,7 +37,19 @@ copyPublicFolder(
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
-copySnappyWASMFile(__dirname)
+
+// Unhashed name to content-hashed name for the files the app loads by URL: the workers and
+// snappy_bg.wasm. Every HTML page embeds this map, so production HTML is written only after
+// all worker builds finish.
+const staticFileNames = {}
+const snappyWasmFileName = copySnappyWASMFile(__dirname, undefined, { contentHash: !isDev })
+if (snappyWasmFileName) {
+    staticFileNames['snappy_bg.wasm'] = snappyWasmFileName
+}
+let markWorkersBuilt
+const workersBuilt = new Promise((resolve) => {
+    markWorkersBuilt = resolve
+})
 copyRRWebWorkerFiles(__dirname)
 
 writeIndexHtml()
@@ -70,9 +82,9 @@ await buildInParallel(
         },
         ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
-            entryPoints: [entryPoint],
+            entryPoints: { [path.basename(outfileName, '.js')]: entryPoint },
             format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', outfileName),
+            outdir: path.resolve(__dirname, 'dist'),
             ...appBundle,
             ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
@@ -115,6 +127,20 @@ await buildInParallel(
             }
 
             const { chunks, entrypoints } = buildResponse
+
+            const worker = WORKER_ENTRIES.find((entry) => entry.name === config.name)
+            if (worker) {
+                staticFileNames[worker.outfileName] = path.basename(entrypoints.find((file) => file.endsWith('.js')))
+                if (WORKER_ENTRIES.every((entry) => entry.outfileName in staticFileNames)) {
+                    markWorkersBuilt()
+                }
+                // No hashless copy: an unhashed worker URL can serve a worker from another build.
+                return
+            }
+            // A failed dev rebuild never marks the workers built, so dev does not wait.
+            if (!isDev) {
+                await workersBuilt
+            }
 
             if (config.name === 'PostHog App') {
                 if (Object.keys(chunks).length === 0) {
@@ -248,14 +274,32 @@ function copyEmojibaseData() {
 }
 
 export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable, staticFileNames)
     // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
     // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
+    copyIndexHtml(
+        __dirname,
+        'src/layout.html',
+        'dist/layout.html',
+        'index',
+        chunks,
+        entrypoints,
+        stable,
+        staticFileNames
+    )
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+    copyIndexHtml(
+        __dirname,
+        'src/exporter/index.html',
+        'dist/exporter.html',
+        'exporter',
+        chunks,
+        entrypoints,
+        null,
+        staticFileNames
+    )
 }
 
 export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
@@ -265,7 +309,9 @@ export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
         'dist/infrastructure_admin.html',
         'infrastructure-admin',
         chunks,
-        entrypoints
+        entrypoints,
+        null,
+        staticFileNames
     )
 }
 
@@ -276,6 +322,8 @@ export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {
         'dist/render_query.html',
         'render-query',
         chunks,
-        entrypoints
+        entrypoints,
+        null,
+        staticFileNames
     )
 }
