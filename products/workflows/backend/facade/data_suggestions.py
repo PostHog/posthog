@@ -7,15 +7,15 @@ from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSug
 from products.workflows.backend.services.data_suggestions import service
 from products.workflows.backend.services.data_suggestions.service import (
     get_data_suggestions,
-    has_cached_data_suggestions,
     needs_new_build,
+    needs_new_generation,
 )
 from products.workflows.backend.tasks.data_suggestions import build_data_suggestion, generate_data_suggestions
 
 __all__ = [
     "get_data_suggestions",
-    "has_cached_data_suggestions",
     "needs_new_build",
+    "needs_new_generation",
     "start_build",
     "start_data_suggestions",
 ]
@@ -35,6 +35,7 @@ def start_build(
     return service.start_build(
         team=team,
         suggestion_id=suggestion_id,
+        caller=event_source.value,
         retry=retry,
         enqueue=lambda lock_token: build_data_suggestion.delay(
             team.id, user.id, suggestion_id, lock_token, event_source.value
