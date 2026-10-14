@@ -99,9 +99,9 @@ export function ExperimentsHealthTable({
             width: 140,
             align: 'right',
             render: function Render(_, issue: HealthIssue) {
-                return <TZLabel time={issue.created_at} />
+                return <TZLabel time={issue.updated_at} />
             },
-            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            sorter: (a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime(),
         },
         issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
