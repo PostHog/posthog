@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,7 +24,9 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_requests import (
+    _SWEEP_CURSOR_KEY,
     MAX_SESSION_END_WAIT,
+    _complete_page,
     complete_settled_requests,
     request_progress,
     start_waiting_requests,
@@ -327,6 +330,24 @@ class TestCompleteSettledRequests(APIBaseTest):
             start_outcomes=[{"session_id": sid, "scan_outcome": outcome} for sid, outcome in outcomes.items()],
             **{"reference": "job-7", "source": "project_secret_api_key", **fields},
         )
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_tick_resumes_where_the_last_one_ran_out_of_time_and_wraps_around(self, _produce: MagicMock) -> None:
+        first = self._request({"s1": "skipped_quota"})
+        second = self._request({"s2": "skipped_quota"})
+        cache.set(_SWEEP_CURSOR_KEY, (first.created_at.isoformat(), str(first.id)))
+
+        with patch(
+            "products.replay_vision.backend.observation_requests._complete_page", wraps=_complete_page
+        ) as complete_page:
+            complete_settled_requests()
+
+        assert [page[0].id for page, *_ in (call.args for call in complete_page.call_args_list)] == [
+            second.id,
+            first.id,
+        ]
+        assert ReplayObservationRequest.objects.for_team(self.team.id).filter(completed_at__isnull=True).count() == 0
+        assert cache.get(_SWEEP_CURSOR_KEY) is None
 
     @parameterized.expand(
         [

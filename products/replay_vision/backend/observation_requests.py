@@ -9,8 +9,9 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
+from django.core.cache import cache
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
@@ -69,6 +70,8 @@ COMPLETION_SWEEP_BUDGET_SECONDS = 20
 WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
+_SWEEP_CURSOR_KEY = "replay_vision:completion_sweep_cursor"
+_SWEEP_CURSOR_TTL_SECONDS = 60 * 60
 
 # Start outcomes that put a workflow behind the session, so an observation row is expected for it.
 _OBSERVED_OUTCOMES = frozenset({"started", "already_running", "already_scanned"})
@@ -170,7 +173,7 @@ def create_observation_request(
     if idempotency_key:
         existing = ReplayObservationRequest.objects.for_team(team.id).filter(idempotency_key=idempotency_key).first()
         if existing is not None:
-            return _same_caller(existing, team, source, user), False
+            return _same_caller(existing, team, source, user, reference), False
     try:
         with transaction.atomic():
             if workflow_caps is not None:
@@ -182,7 +185,7 @@ def create_observation_request(
                     else None
                 )
                 if replayed is not None:
-                    return _same_caller(replayed, team, source, user), False
+                    return _same_caller(replayed, team, source, user, reference), False
                 _check_workflow_caps(team.id, reference, workflow_caps)
             request = ReplayObservationRequest.objects.for_team(team.id).create(
                 team=team,
@@ -200,7 +203,7 @@ def create_observation_request(
         if not idempotency_key:
             raise
         existing = ReplayObservationRequest.objects.for_team(team.id).get(idempotency_key=idempotency_key)
-        return _same_caller(existing, team, source, user), False
+        return _same_caller(existing, team, source, user, reference), False
 
     if wait_for_session_end:
         return request, True
@@ -369,9 +372,16 @@ def _inline_spec(request: ReplayObservationRequest) -> InlineScanSpec | None:
 
 
 def _same_caller(
-    request: ReplayObservationRequest, team: Team, source: ObservationRequestSource, user: User | None
+    request: ReplayObservationRequest,
+    team: Team,
+    source: ObservationRequestSource,
+    user: User | None,
+    reference: str,
 ) -> ReplayObservationRequest:
     if request.source != source or request.created_by_id != (user.id if user is not None else None):
+        raise IdempotencyKeyConflict()
+    # One owner can have many workflows, so a workflow key is only handed back to the workflow that made it.
+    if source == ObservationRequestSource.WORKFLOW and request.reference != reference:
         raise IdempotencyKeyConflict()
     # Requests are stored under the project's canonical team, but scanners and observations stay per environment,
     # so a key from another environment of the same project must not read this environment's results.
@@ -449,31 +459,71 @@ def complete_settled_requests(
 
     The event goes out before the row is stamped, so a crash between the two sends it again on the next
     tick rather than never; a destination can therefore see a request complete twice. Open requests are
-    walked oldest first in pages, so a request whose event keeps failing never hides the ones behind it.
+    walked oldest first in pages. A tick that runs out of time leaves a cursor, and the next tick starts
+    there and wraps around, so requests whose wakes keep failing never hold back the ones behind them.
     """
     now = now or timezone.now()
     deadline = time.monotonic() + budget_seconds
-    open_requests = ReplayObservationRequest.objects.unscoped().filter(completed_at__isnull=True)
+    open_requests = (
+        ReplayObservationRequest.objects.unscoped()
+        .filter(completed_at__isnull=True)
+        .select_related("team", "created_by", "scanner")
+        .order_by("created_at", "id")
+    )
+    start = _load_sweep_cursor()
+    cursor = start
+    wrapped = start is None
     completed = 0
-    cursor: tuple[datetime, Any] | None = None
     while time.monotonic() < deadline:
-        page_qs = open_requests.order_by("created_at", "id")
+        page_qs = open_requests
         if cursor is not None:
-            page_qs = page_qs.filter(Q(created_at__gt=cursor[0]) | Q(created_at=cursor[0], id__gt=cursor[1]))
+            page_qs = page_qs.filter(_after(cursor))
+        if wrapped and start is not None:
+            page_qs = page_qs.exclude(_after(start))
         page = list(page_qs[:_SWEEP_PAGE_SIZE])
         if not page:
+            if wrapped:
+                cache.delete(_SWEEP_CURSOR_KEY)
+                return completed
+            wrapped, cursor = True, None
+            continue
+        page_completed, stopped_at = _complete_page(page, now, deadline)
+        completed += page_completed
+        if stopped_at is not None:
+            if stopped_at:
+                cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
             break
         cursor = (page[-1].created_at, page[-1].id)
-        completed += _complete_page(page, now, deadline)
+    if cursor is None:
+        cache.delete(_SWEEP_CURSOR_KEY)
+    else:
+        cache.set(_SWEEP_CURSOR_KEY, (cursor[0].isoformat(), str(cursor[1])), timeout=_SWEEP_CURSOR_TTL_SECONDS)
     return completed
 
 
-def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline: float) -> int:
+def _after(cursor: tuple[datetime, Any]) -> Q:
+    return Q(created_at__gt=cursor[0]) | Q(created_at=cursor[0], id__gt=cursor[1])
+
+
+def _load_sweep_cursor() -> tuple[datetime, Any] | None:
+    stored = cache.get(_SWEEP_CURSOR_KEY)
+    if not stored:
+        return None
+    try:
+        return datetime.fromisoformat(stored[0]), UUID(stored[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline: float) -> tuple[int, int | None]:
+    """Complete the page's settled requests. Also returns the index of the first one left for the next tick."""
     progress = request_progress_many(page, now=now)
     sent: list[tuple[ReplayObservationRequest, ProduceResult]] = []
-    for request in page:
+    stopped_at: int | None = None
+    for index, request in enumerate(page):
         # A wake can block on the engine, so the rest of the page waits for the next tick.
         if time.monotonic() >= deadline:
+            stopped_at = index
             break
         if not progress[request.id].settled:
             continue
@@ -493,7 +543,7 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline
         except Exception:
             logger.exception("replay_vision.observation_request.completion_event_failed", request_id=str(request.id))
     if not sent:
-        return 0
+        return 0, stopped_at
     flush_internal_events_producer(_DELIVERY_TIMEOUT_SECONDS)
     delivered: list[Any] = []
     for request, result in sent:
@@ -503,12 +553,13 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline
             logger.warning("replay_vision.observation_request.completion_event_undelivered", request_id=str(request.id))
             continue
         delivered.append(request.id)
-    return (
+    stamped = (
         # nosemgrep: idor-lookup-without-team -- cross-team reconciler sweep; ids come from the page read above
         ReplayObservationRequest.objects.unscoped()
         .filter(id__in=delivered, completed_at__isnull=True)
         .update(completed_at=now)
     )
+    return stamped, stopped_at
 
 
 _STEP_ANSWER_BUDGET = RESULT_BYTE_CAP - 512

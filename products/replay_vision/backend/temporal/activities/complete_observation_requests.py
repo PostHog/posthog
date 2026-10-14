@@ -4,7 +4,7 @@ from temporalio import activity
 
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.temporal.constants import REAPER_OP_TIMEOUT
+from products.replay_vision.backend.temporal.constants import COMPLETE_OBSERVATION_REQUESTS_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
@@ -18,7 +18,7 @@ def _complete_observation_requests() -> int:
     )
 
     # Isolated so a failure in one sweep still lets the other run; each also keeps to its own time budget.
-    with bounded_queries(REAPER_OP_TIMEOUT):
+    with bounded_queries(COMPLETE_OBSERVATION_REQUESTS_TIMEOUT):
         try:
             start_waiting_requests()
         except Exception:

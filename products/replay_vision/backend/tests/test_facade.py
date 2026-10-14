@@ -239,6 +239,14 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         assert "This workflow reached the daily limit of 1" in workflow_capped.value.detail
         assert "This project's workflows reached the daily limit of 1" in team_capped.value.detail
 
+    def test_another_workflow_of_the_same_owner_cannot_replay_a_key(self) -> None:
+        self._start()
+
+        with pytest.raises(ObservationRequestRejected) as rejected:
+            self._start(hog_flow_id=uuid.uuid4())
+
+        assert rejected.value.kind == "invalid"
+
     def test_a_replay_that_loses_the_race_for_the_last_slot_still_gets_its_request(self) -> None:
         lock = "products.replay_vision.backend.observation_requests._lock_workflow_scans"
         first: list[Any] = []
