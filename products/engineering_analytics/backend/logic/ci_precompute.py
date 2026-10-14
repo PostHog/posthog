@@ -58,8 +58,6 @@ _SETTLED_DAYS_MAX_AGE_SPREAD_SECONDS = 15 * 24 * 60 * 60
 # A refresh stores the newest days first, this many at a time, so a recent page can read stored rows
 # long before the whole history is stored.
 _BACKFILL_STEP = timedelta(days=30)
-# A read takes the first day that a refresh found. Each refresh finds it again.
-_HISTORY_START_SECONDS = 24 * 60 * 60
 
 # The time one table of one repository has to start its inserts, and the time a whole refresh has.
 # A refresh that runs out of either keeps the days it stored, and the next load continues from there.
@@ -221,7 +219,8 @@ def _find_history_start(stored: StoredRows, team: Team, source: JobSourceTables,
         start = datetime.strptime(str(first_created)[:10], "%Y-%m-%d").replace(tzinfo=UTC)
     except ValueError:
         return None
-    cache.set(_history_start_key(stored, team, source), start, timeout=_HISTORY_START_SECONDS)
+    # No expiry: each refresh finds the first day again, and a team no one reads keeps its stored days.
+    cache.set(_history_start_key(stored, team, source), start, timeout=None)
     return start
 
 
@@ -321,7 +320,7 @@ def _refresh(team: Team) -> bool:
         trigger="engineering_analytics",
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
-    spans: list[tuple[StoredRows, JobSourceTables, list[datetime]]] = []
+    spans: list[tuple[StoredRows, JobSourceTables, Iterator[datetime]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             if not _may_insert(team, deadline):
@@ -340,13 +339,15 @@ def _refresh(team: Team) -> bool:
                 failed = True
                 continue
             if start is not None:
-                spans.append((stored, source, list(_newest_first(start))))
+                spans.append((stored, source, _newest_first(start)))
     # Every table of every repository stores its newest step before any stores an older one, so the
     # backfill of one long history does not hold back the recent days of the others.
-    incomplete: set[int] = set()
-    for step in range(max((len(steps) for _, _, steps in spans), default=0)):
-        for index, (stored, source, steps) in enumerate(spans):
-            if index in incomplete or step >= len(steps):
+    while spans:
+        for span in list(spans):
+            stored, source, steps = span
+            since = next(steps, None)
+            if since is None:
+                spans.remove(span)
                 continue
             if not _may_insert(team, deadline):
                 return failed
@@ -354,7 +355,7 @@ def _refresh(team: Team) -> bool:
                 stored,
                 team,
                 source,
-                since=steps[step],
+                since=since,
                 database=database,
                 run_inserts=True,
                 wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, deadline - time.monotonic()),
@@ -369,7 +370,7 @@ def _refresh(team: Team) -> bool:
                     errors=result.errors,
                 )
                 failed = failed or not result.timed_out
-                incomplete.add(index)
+                spans.remove(span)
     return failed
 
 
@@ -398,6 +399,7 @@ class StoredCiReader:
             f"source_id = {source_literal(source.source_id)} AND repository = {repository_literal(source.repository)}"
         )
         self._days: dict[tuple[LazyComputationTable, datetime], str | None] = {}
+        self._starts: dict[LazyComputationTable, datetime | None] = {}
 
     def runs(self, floor: str | None) -> str | None:
         rows = self._run_rows(floor)
@@ -446,7 +448,9 @@ class StoredCiReader:
         the first day of the history without a floor. None when a day in that span is not stored, the
         first day is not known, or the floor is not a date. No row is older than the first day, so a
         span that starts earlier starts there."""
-        since = history_start(stored, self._team, self._source)
+        if stored.table not in self._starts:
+            self._starts[stored.table] = history_start(stored, self._team, self._source)
+        since = self._starts[stored.table]
         if since is None:
             return None
         if floor is not None:

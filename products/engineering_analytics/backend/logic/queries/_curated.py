@@ -110,39 +110,37 @@ class _StoredCiSource:
     token: str
     floor_placeholder: str | None
     stored_source: Callable[[StoredCiReader, str | None], str | None]
-    raw_source: Callable[["CuratedGitHubSource"], str]
+    raw_source: Callable[["CuratedGitHubSource", bool], str]
 
 
-_FLOORED_RUNS = _StoredCiSource(
-    token="__FLOORED_CI_RUNS__",
-    floor_placeholder="run_started_floor",
-    stored_source=StoredCiReader.runs,
-    raw_source=lambda curated: curated._raw_run_source(started_floor=True),
-)
+def _runs_source(token: str, floor_placeholder: str | None) -> _StoredCiSource:
+    return _StoredCiSource(
+        token=token,
+        floor_placeholder=floor_placeholder,
+        stored_source=StoredCiReader.runs,
+        raw_source=lambda curated, floored: curated._raw_run_source(started_floor=floored),
+    )
+
+
+def _job_costs_source(token: str, floor_placeholder: str | None) -> _StoredCiSource:
+    return _StoredCiSource(
+        token=token,
+        floor_placeholder=floor_placeholder,
+        stored_source=StoredCiReader.job_costs,
+        raw_source=lambda curated, floored: curated._raw_job_cost_source(created_floor=floored),
+    )
+
+
+_FLOORED_RUNS = _runs_source("__FLOORED_CI_RUNS__", "run_started_floor")
 _FLOORED_JOBS = _StoredCiSource(
     token="__FLOORED_CI_JOBS__",
     floor_placeholder="job_created_floor",
     stored_source=StoredCiReader.jobs,
-    raw_source=lambda curated: curated._raw_jobs_source(created_floor=True),
+    raw_source=lambda curated, floored: curated._raw_jobs_source(created_floor=floored),
 )
-_FLOORED_JOB_COSTS = _StoredCiSource(
-    token="__FLOORED_CI_JOB_COSTS__",
-    floor_placeholder="job_created_floor",
-    stored_source=StoredCiReader.job_costs,
-    raw_source=lambda curated: curated._raw_job_cost_source(created_floor=True),
-)
-_HISTORY_RUNS = _StoredCiSource(
-    token="__CI_RUNS_HISTORY__",
-    floor_placeholder=None,
-    stored_source=StoredCiReader.runs,
-    raw_source=lambda curated: curated._raw_run_source(started_floor=False),
-)
-_HISTORY_JOB_COSTS = _StoredCiSource(
-    token="__CI_JOB_COSTS_HISTORY__",
-    floor_placeholder=None,
-    stored_source=StoredCiReader.job_costs,
-    raw_source=lambda curated: curated._raw_job_cost_source(created_floor=False),
-)
+_FLOORED_JOB_COSTS = _job_costs_source("__FLOORED_CI_JOB_COSTS__", "job_created_floor")
+_HISTORY_RUNS = _runs_source("__CI_RUNS_HISTORY__", None)
+_HISTORY_JOB_COSTS = _job_costs_source("__CI_JOB_COSTS_HISTORY__", None)
 _STORED_CI_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS, _HISTORY_RUNS, _HISTORY_JOB_COSTS)
 
 STORED_QUERY_TYPE_SUFFIX = ".stored"
@@ -546,7 +544,7 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self, *, created_floor: bool = False, stored_history: bool = False) -> str | None:
+    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
         """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
         the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
         among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -561,15 +559,12 @@ class CuratedGitHubSource:
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
         source's window predicates read the RUN's columns and so can never prune the jobs scan, and
         the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
-        A floored source is a stand-in, and so is a source with ``stored_history``, like ``run_source``.
+        A source is always a stand-in. With no floor it stands in for the whole history, because every
+        caller keys on pull requests (see ``run_source``).
         """
         if not self._tables.workflow_jobs:
             return None
-        if created_floor:
-            return _FLOORED_JOB_COSTS.token
-        if stored_history:
-            return _HISTORY_JOB_COSTS.token
-        return self._raw_job_cost_source(created_floor=False)
+        return _FLOORED_JOB_COSTS.token if created_floor else _HISTORY_JOB_COSTS.token
 
     def _raw_job_cost_source(self, *, created_floor: bool) -> str:
         query = job_costs.build_query(
@@ -583,7 +578,7 @@ class CuratedGitHubSource:
         """``sql`` with every stand-in CI source read from the raw tables."""
         for source in _STORED_CI_SOURCES:
             if source.token in sql:
-                sql = sql.replace(source.token, source.raw_source(self))
+                sql = sql.replace(source.token, source.raw_source(self, source.floor_placeholder is not None))
         return sql
 
     def _with_stored_ci_sources(self, sql: str, placeholders: dict[str, ast.Expr]) -> str | None:
@@ -647,8 +642,8 @@ class CuratedGitHubSource:
         """CTE naming the curated workflow-runs source for ``ci_rollup``.
 
         ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
-        parses the whole runs source again. The rollup keys on pull requests, so it can read the stored
-        history, and the pull request pages then show one age of CI throughout.
+        parses the whole runs source again. The rollup keys on pull requests, so it reads the stored
+        history like the push history and cost of the pull request list, and the list shows one age of CI.
         """
         return f"runs AS {self.run_source(stored_history=True)}"
 
