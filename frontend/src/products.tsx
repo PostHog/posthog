@@ -1486,7 +1486,8 @@ export const productUrls = {
         kind?: string,
         returnUrl?: string,
         returnLabel?: string,
-        accessMethod?: 'warehouse' | 'direct'
+        accessMethod?: 'warehouse' | 'direct',
+        entryPoint?: string
     ): string => {
         const params = new URLSearchParams()
         if (kind) {
@@ -1500,6 +1501,9 @@ export const productUrls = {
         }
         if (accessMethod) {
             params.set('access_method', accessMethod)
+        }
+        if (entryPoint) {
+            params.set('entry_point', entryPoint)
         }
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
@@ -2504,6 +2508,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
         searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+        alternativeFlags: [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataOps',

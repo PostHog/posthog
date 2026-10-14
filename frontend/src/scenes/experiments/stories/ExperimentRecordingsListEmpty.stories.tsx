@@ -7,6 +7,9 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_funnel_metric.json'
+import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
+
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
 // One story per empty reason: the copy is the feature, and a screenshot is the only way to check
 // that each reason reads as its own answer. The default session_recordings handler returns an empty
@@ -17,6 +20,15 @@ import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/expe
 // endpoint, so the scene cannot be put in that state here. The unit test asserts that copy instead.
 const EXPERIMENT_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`
 const SESSION_BUCKETS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_buckets/`
+
+// The scene loads the latest metrics recalculation run whatever tab is open. Without a run to
+// return, it starts a cold run against an endpoint no handler answers, and that request can fail
+// after the story has moved on, which breaks the play steps below. The fixture's refresh time is
+// after `mockDate`, so it is cleared to keep the header from reading "Refreshed in 3 months".
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_FUNNEL_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_FUNNEL_METRIC, { funnel: { ...FUNNELS_METRIC_RESULT, last_refresh: null } })
+)
 
 // `mockDate` below is 2025-06-01, and the mock team keeps recordings for 30 days. Each story sets
 // the run window against those two so the tab resolves the reason the story is named for.
@@ -39,6 +51,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                ...RECALCULATION.get,
                 [EXPERIMENT_PATH]: EXPERIMENT_WITH_FUNNEL_METRIC,
                 '/api/environments/:team_id/experiments_config/': {},
                 '/api/projects/:team_id/experiment_holdouts': { count: 0, results: [] },
@@ -51,6 +64,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': { count: 0, results: [] },
             },
             post: {
+                ...RECALCULATION.post,
+                // Loaded results start the running time estimate, and a failed request raises a toast.
+                '/api/projects/:team_id/experiments/calculate_running_time/': {},
                 '/api/environments/:team_id/query/:kind': [200, { results: [] }],
             },
         }),

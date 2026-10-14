@@ -990,7 +990,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
 
 
-class TestValidateAssistantQuery(NonAtomicBaseTest):
+class TestValidateAssistantQuery(SimpleTestCase):
     """Tests for the validate_assistant_query function"""
 
     CLASS_DATA_LEVEL_SETUP = False
