@@ -232,9 +232,7 @@ def start_workflow_observation_request(
         scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
         if scanner is None:
             raise ObservationRequestRejected("No scanner with this ID exists in this project.", "not_found")
-        if not access.check_access_level_for_object(scanner, "editor") or not can_read_targeted_experiment(
-            access, team.id, scanner
-        ):
+        if not _can_scan_with(access, team.id, scanner):
             raise ObservationRequestRejected("The workflow's owner can't scan with this scanner.", "forbidden")
     elif inline is not None:
         if not access.check_access_level_for_resource("replay_scanner", required_level="editor"):
@@ -279,6 +277,36 @@ def start_workflow_observation_request(
     return StartedObservationRequest(
         request_id=request.id, status="completed", created=created, result=step_result(request, progress)
     )
+
+
+def _can_scan_with(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
+    return bool(access.check_access_level_for_object(scanner, "editor")) and can_read_targeted_experiment(
+        access, team_id, scanner
+    )
+
+
+def workflow_scan_editor_error(*, user: User, team: "Team", scanner_id: UUID | None) -> str | None:
+    """Why this user may not set up a workflow step's scan, or None. `scanner_id` None means an inline scan.
+
+    The scan runs as the workflow's owner, but whoever saves or live-tests the step chooses the sessions it
+    reads, the scanner it uses and where the answers go, so they need the access the owner needs.
+    """
+    # Deferred: reach the temporal package, whose activities import this facade while it loads.
+    from products.replay_vision.backend.observation_requests import recording_viewer_access  # noqa: PLC0415
+
+    access = recording_viewer_access(user, team)
+    if access is None:
+        return "You need access to session recordings to use the Replay Vision step."
+    if scanner_id is None:
+        if not access.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            return "Setting up a scan in the step needs edit access to the project's scanners."
+        return None
+    scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
+    if scanner is None:
+        return "No scanner with this ID exists in this project."
+    if not _can_scan_with(access, team.id, scanner):
+        return "You need edit access to this scanner to use it in a workflow."
+    return None
 
 
 def _cap_message(scope: Literal["workflow", "team"], cap: int) -> str:
