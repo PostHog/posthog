@@ -8,10 +8,6 @@ export { LegacyExperimentView } from './LegacyExperimentView'
 export { legacyExperimentLogic } from './legacyExperimentLogic'
 export { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
 
-// Metrics
-export { TrendsMetricForm } from './metrics/TrendsMetricForm'
-export { FunnelsMetricForm } from './metrics/FunnelsMetricForm'
-
 // Shared Metrics
 export { LegacySharedTrendsMetricForm } from './sharedMetrics/LegacySharedTrendsMetricForm'
 export { LegacySharedFunnelsMetricForm } from './sharedMetrics/LegacySharedFunnelsMetricForm'

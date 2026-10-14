@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectClean } from 'lib/utils/objects'
 
-import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
+import { ProductAnalyticsInsightNodeKind, nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -60,10 +60,7 @@ const getFilterId = (node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode): any
     return node.event
 }
 
-export const seriesNodeToFilter = (
-    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
-    index?: number
-): ActionFilter => {
+const seriesNodeToFilter = (node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode, index?: number): ActionFilter => {
     const entity: ActionFilter = objectClean({
         type: isAnyDataWarehouseNode(node)
             ? EntityTypes.DATA_WAREHOUSE
@@ -119,7 +116,7 @@ export const seriesNodeToFilter = (
     return entity
 }
 
-export const seriesToActionsAndEvents = (
+const seriesToActionsAndEvents = (
     series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
@@ -161,16 +158,6 @@ export const hiddenLegendItemsToKeys = (
         },
         {} as Record<string, boolean | undefined>
     )
-
-export const nodeKindToInsightType: Record<ProductAnalyticsInsightNodeKind, InsightType> = {
-    [NodeKind.TrendsQuery]: InsightType.TRENDS,
-    [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
-    [NodeKind.RetentionQuery]: InsightType.RETENTION,
-    [NodeKind.PathsQuery]: InsightType.PATHS,
-    [NodeKind.PathsV2Query]: InsightType.JOURNEYS,
-    [NodeKind.StickinessQuery]: InsightType.STICKINESS,
-    [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
-}
 
 const nodeKindToFilterKey: Record<ProductAnalyticsInsightNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',

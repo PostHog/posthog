@@ -1758,8 +1758,6 @@ export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_to_step: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | null
-
 export interface PersonType {
     id?: string
     uuid?: string

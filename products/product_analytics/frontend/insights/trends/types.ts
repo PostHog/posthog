@@ -1,10 +1,4 @@
-import { ActionFilter, ActorType, FilterType, GraphDataset, TrendResult } from '~/types'
-
-export interface TrendResponse {
-    result: TrendResult[]
-    filters: FilterType
-    next?: string
-}
+import { TrendResult } from '~/types'
 
 export interface IndexedTrendResult extends TrendResult {
     /**
@@ -20,20 +14,4 @@ export interface IndexedTrendResult extends TrendResult {
      * series with the same label. The previous series is given a slightly lighter version of the same color.
      * */
     colorIndex: number
-}
-
-export interface TrendActors {
-    seriesId?: number // The series identifier for this particular point (i.e. index of series)
-    people: ActorType[]
-    count: number
-    missingPersons: number
-    day: string | number
-    label: string
-    action?: ActionFilter
-    breakdown_value?: string | number
-    next?: string
-    loadingMore?: boolean
-    funnelStep?: number
-    pathsDropoff?: boolean
-    crossDataset?: GraphDataset[]
 }
