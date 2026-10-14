@@ -41,12 +41,17 @@ EDIT_TRACKING_STARTED: Final = datetime(2026, 8, 4, tzinfo=UTC)
 # A function is saved in the moments after it is built. A later save means a person changed it.
 RESAVED_AFTER: Final = timedelta(seconds=60)
 
-_WEBHOOK_INPUT_HOLD_BACKS: Final = {
-    "body": DestinationHoldBack.WEBHOOK_BODY,
-    "method": DestinationHoldBack.WEBHOOK_METHOD,
+# An edited input missing here changes the message.
+_INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
+    WebhookDestination.template_id: {
+        "body": DestinationHoldBack.WEBHOOK_BODY,
+        "method": DestinationHoldBack.WEBHOOK_METHOD,
+    },
+    SlackDestination.template_id: {
+        "icon_emoji": DestinationHoldBack.MESSAGE_COSMETIC,
+        "username": DestinationHoldBack.MESSAGE_COSMETIC,
+    },
 }
-
-_SLACK_COSMETIC_INPUTS: Final = frozenset({"icon_emoji", "username"})
 
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
 
@@ -137,15 +142,13 @@ def _bound_to_one_alert(filters: Any) -> bool:
 
 
 def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | None) -> tuple[DestinationHoldBack, ...]:
-    template_id = function.template_id or ""
+    template_id = function.template_id
     if not template_id:
         return (DestinationHoldBack.NO_TEMPLATE,)
+    code_edited = first_revision is not None and function.hog != first_revision.content.get("hog")
     spec = SPEC_BY_TEMPLATE_ID.get(template_id)
     if spec is None:
-        # The code still says whether the template's stock behavior is what it sends.
-        if first_revision is not None and function.hog != first_revision.content.get("hog"):
-            return (DestinationHoldBack.OTHER_TEMPLATE, DestinationHoldBack.CODE)
-        return (DestinationHoldBack.OTHER_TEMPLATE,)
+        return (DestinationHoldBack.OTHER_TEMPLATE, *((DestinationHoldBack.CODE,) if code_edited else ()))
 
     found: list[DestinationHoldBack] = []
     if function.masking:
@@ -172,7 +175,7 @@ def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | Non
 
     first_snapshot = first_revision.content
 
-    if function.hog != first_snapshot.get("hog"):
+    if code_edited:
         found.append(DestinationHoldBack.CODE)
     if function.inputs_schema != first_snapshot.get("inputs_schema"):
         found.append(DestinationHoldBack.CUSTOM_INPUTS)
@@ -204,12 +207,7 @@ def _input_hold_backs(
             continue
         if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
             continue
-        if is_webhook and key in _WEBHOOK_INPUT_HOLD_BACKS:
-            found.append(_WEBHOOK_INPUT_HOLD_BACKS[key])
-        elif template_id == SlackDestination.template_id and key in _SLACK_COSMETIC_INPUTS:
-            found.append(DestinationHoldBack.MESSAGE_COSMETIC)
-        else:
-            found.append(DestinationHoldBack.MESSAGE)
+        found.append(_INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE))
     return found
 
 

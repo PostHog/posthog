@@ -20,7 +20,7 @@ class Command(BaseCommand):
             destination = held.destination
             bucket = bucket_for(destination)
             reasons.update(str(reason) for reason in destination.hold_backs)
-            buckets[bucket] += 1
+            buckets[str(bucket)] += 1
             self.stdout.write(
                 f"team={held.team_id} alert={held.alert_id} destination={destination.hog_function_id} "
                 f"template={destination.template_id} bucket={bucket} code_hash={destination.code_hash} "
