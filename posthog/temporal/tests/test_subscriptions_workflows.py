@@ -168,6 +168,40 @@ async def test_subscription_slo_failure_summary_counts_unclassified_assets() -> 
     assert summary["unclassified_failed_asset_count"] == 2
 
 
+@pytest.fixture(autouse=True)
+def email_available():
+    with patch(
+        "products.exports.backend.temporal.subscriptions.delivery_common.is_email_available", return_value=True
+    ) as mock:
+        yield mock
+
+
+async def test_email_unavailable_fails_once_without_retry(team, user, email_available) -> None:
+    email_available.return_value = False
+    subscription = await sync_to_async(create_subscription)(team=team, target_value="a@posthog.com,b@posthog.com")
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+    send_one = AsyncMock()
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_event,
+        patch("products.exports.backend.temporal.subscriptions.delivery_common.capture_exception") as capture_exc,
+        pytest.raises(ApplicationError) as error,
+    ):
+        await deliver_email(subscription, inputs, [], send_one)
+
+    assert error.value.non_retryable is True
+    assert [r["status"] for r in error.value.details[0]["recipient_results"]] == ["failed", "failed"]
+    send_one.assert_not_called()
+    capture_event.assert_called_once()
+    capture_exc.assert_not_called()
+
+
 async def test_email_delivery_error_is_non_retryable(team, user) -> None:
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
     inputs = DeliverSubscriptionInputs(
