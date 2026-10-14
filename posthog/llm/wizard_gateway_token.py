@@ -12,6 +12,7 @@ attempt fast instead of retrying into the CLI's timeout.
 
 import json
 import dataclasses
+from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -154,18 +155,17 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
     return cap, mints
 
 
-# Two flags in the PostHog internal project, read for their payloads. Both are
-# remote-config flags, which cannot be targeted, and `/flags` drops a
-# remote-config flag whose payload is encrypted, so the payloads must not be
-# encrypted. The person properties each read carries only matter if a flag is
-# instead a regular boolean flag with release conditions. The prompt payload is
-# {"version": 4, "text": "..."} (the version is the operator's label and nothing
-# reads it); the allowlist payload is
-# {"models": [...], "efforts": [...], "programs": [...]}. A flag that is off,
-# unreadable or out of contract never refuses a mint: no readable prompt mints an
-# unpinned token, and no readable allowlist falls back to the defaults below. An
-# operator turns the prompt off by switching its flag off. The prompt text goes
-# to the gateway in the mint body and never to the wizard.
+# Two remote-config flags in the PostHog internal project, read for their payloads.
+# `/flags` serves an unencrypted payload to anyone with the public project token,
+# and drops an encrypted one. So the prompt flag is encrypted and read through the
+# remote_config endpoint, which decrypts only for a personal API key and ignores the
+# on/off switch: an operator clears the payload or deletes the flag to stop pinning.
+# The allowlist is not secret, so it stays unencrypted on `/flags`, with the limit
+# override's person properties for targeting. The payloads are {"version": 4,
+# "text": "..."} (nothing reads the version) and {"models", "efforts", "programs"}.
+# A flag that is off, missing, unreadable or out of contract never refuses a mint:
+# no prompt mints unpinned, and no allowlist falls back to the defaults below. The
+# prompt text goes to the gateway in the mint body and never to the wizard.
 WIZARD_SYSTEM_PROMPT_FLAG = "wizard-ai-gateway-system-prompt"
 WIZARD_GATEWAY_ALLOWLIST_FLAG = "wizard-gateway-allowlist"
 
@@ -240,14 +240,24 @@ def wizard_gateway_policy(
     *, distinct_id: str, email: str | None, organization_id: str, team_id: int
 ) -> WizardGatewayPolicy:
     """Read both policy flags once. Never raises: an unreadable or invalid flag
-    degrades that half of the policy and leaves the other alone. The flags see the
-    same person properties as the limit override, so they can be targeted."""
+    degrades that half of the policy and leaves the other alone. The allowlist sees
+    the same person properties as the limit override, so it can be targeted."""
     properties = _targeting_properties(email=email, organization_id=organization_id, team_id=team_id)
     prompt_raw = _policy_payload(
-        WIZARD_SYSTEM_PROMPT_FLAG, distinct_id, properties, source="system prompt", field="system_prompt"
+        lambda: posthoganalytics.get_remote_config_payload(WIZARD_SYSTEM_PROMPT_FLAG),
+        source="system prompt",
+        field="system_prompt",
     )
     allowlist_raw = _policy_payload(
-        WIZARD_GATEWAY_ALLOWLIST_FLAG, distinct_id, properties, source="allowlist", field="allowlist"
+        lambda: posthoganalytics.get_feature_flag_payload(
+            WIZARD_GATEWAY_ALLOWLIST_FLAG,
+            distinct_id,
+            person_properties=properties,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ),
+        source="allowlist",
+        field="allowlist",
     )
     prompt = _parse_system_prompt(prompt_raw) if prompt_raw is not None else None
     allowlist = _parse_allowlist(allowlist_raw) if allowlist_raw is not None else None
@@ -259,24 +269,16 @@ def wizard_gateway_policy(
     )
 
 
-def _policy_payload(
-    flag: str, distinct_id: str, person_properties: dict[str, str], *, source: str, field: str
-) -> dict | None:
+def _policy_payload(read: Callable[[], object], *, source: str, field: str) -> dict | None:
     """The flag's payload object, or None when it is off, unreadable, or not an object."""
     try:
-        raw = posthoganalytics.get_feature_flag_payload(
-            flag,
-            distinct_id,
-            person_properties=person_properties,
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        raw = read()
     except Exception as e:
         logger.warning(f"wizard_gateway_token: {source} flag unavailable", error=str(e))
         return None
     if raw is None:
         # The SDK swallows its own errors and returns None, so an outage looks the
-        # same as a flag that is off: say so, as the rollout flag read does.
+        # same as a flag with no payload: say so, as the rollout flag read does.
         logger.warning(f"wizard_gateway_token: {source} flag returned no payload")
         return None
     if isinstance(raw, str):
@@ -335,8 +337,11 @@ def _parse_allowlist(raw: dict) -> _Allowlist | None:
         programs = _string_list(raw, "programs")
         if not set(efforts) <= set(WIZARD_EFFORT_LEVELS):
             raise ValueError("efforts outside the gateway vocabulary")
-        # The mint sends the models in the gateway's spelling, so the count that matters is after that.
-        if len({normalize_model(model) for model in models}) > _MAX_ALLOWED_MODELS:
+        # Checked in the gateway's spelling, which the mint sends: "openai/" becomes an empty id.
+        pinned = {normalize_model(model) for model in models}
+        if not all(pinned):
+            raise ValueError("models must hold a model id after the provider prefix")
+        if len(pinned) > _MAX_ALLOWED_MODELS:
             raise ValueError(f"models is over {_MAX_ALLOWED_MODELS} entries")
     except ValueError as e:
         logger.warning("wizard_gateway_token: allowlist out of contract, ignored", problem=str(e))

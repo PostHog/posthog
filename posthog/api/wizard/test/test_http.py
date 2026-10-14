@@ -271,6 +271,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         self.mock_flag_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
+        remote_config_patch = patch(
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_remote_config_payload", side_effect=read_payload
+        )
+        self.mock_remote_config = remote_config_patch.start()
+        self.addCleanup(remote_config_patch.stop)
         # Patched at the endpoint's seam: the feature_enabled patches below land on
         # the shared module object, so an SDK-level patch would read the rollout
         # flag's value as a ban.
@@ -279,7 +284,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self.addCleanup(blocklist_patch.stop)
 
     def _flag_reads(self, key: str) -> list:
-        return [call for call in self.mock_flag_payload.call_args_list if call.args[0] == key]
+        calls = self.mock_flag_payload.call_args_list + self.mock_remote_config.call_args_list
+        return [call for call in calls if call.args[0] == key]
 
     def _ordinary_account(self):
         """APIBaseTest's fresh org is the `new` posture, whose weekly ceiling is
@@ -964,7 +970,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @parameterized.expand(
         [
             ("unreadable", RuntimeError("flags down")),
-            ("off", None),
+            ("no_payload", None),
             ("out_of_contract", {"version": 1, "text": "no marker"}),
         ]
     )

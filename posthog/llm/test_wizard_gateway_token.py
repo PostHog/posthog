@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
 
@@ -508,19 +509,31 @@ def _policy() -> WizardGatewayPolicy:
 
 class TestWizardGatewayPolicy:
     @staticmethod
+    @contextmanager
     def _flags(prompt=PROMPT_PAYLOAD, allowlist=ALLOWLIST_PAYLOAD):
-        payloads = {WIZARD_SYSTEM_PROMPT_FLAG: prompt, WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}
+        def reader(payloads):
+            def read(key, *args, **kwargs):
+                value = payloads.get(key)
+                if isinstance(value, Exception):
+                    raise value
+                return value
 
-        def read(key, *args, **kwargs):
-            value = payloads[key]
-            if isinstance(value, Exception):
-                raise value
-            return value
+            return read
 
-        return patch("posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload", side_effect=read)
+        with (
+            patch(
+                "posthog.llm.wizard_gateway_token.posthoganalytics.get_remote_config_payload",
+                side_effect=reader({WIZARD_SYSTEM_PROMPT_FLAG: prompt}),
+            ) as remote_config,
+            patch(
+                "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
+                side_effect=reader({WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}),
+            ) as evaluated,
+        ):
+            yield remote_config, evaluated
 
     def test_both_flags_make_the_policy(self):
-        with self._flags() as read:
+        with self._flags() as (remote_config, evaluated):
             policy = _policy()
 
         assert policy == WizardGatewayPolicy(
@@ -529,9 +542,10 @@ class TestWizardGatewayPolicy:
             programs=("integration", "audit"),
             prompt=WizardSystemPrompt(text=PROMPT_TEXT),
         )
-        assert sorted(call.args[0] for call in read.call_args_list) == sorted(
-            [WIZARD_GATEWAY_ALLOWLIST_FLAG, WIZARD_SYSTEM_PROMPT_FLAG]
-        )
+        # `/flags` serves an unencrypted payload to anyone with the public project
+        # token, so the prompt must come only from the decrypting remote-config read.
+        remote_config.assert_called_once_with(WIZARD_SYSTEM_PROMPT_FLAG)
+        assert [call.args[0] for call in evaluated.call_args_list] == [WIZARD_GATEWAY_ALLOWLIST_FLAG]
 
     def test_the_prompt_text_is_kept_untrimmed(self):
         text = "  [posthog:abort] \n"
@@ -540,18 +554,17 @@ class TestWizardGatewayPolicy:
         assert policy.prompt is not None
         assert policy.prompt.text == text
 
-    def test_both_flags_are_read_with_the_override_flags_targeting_properties(self):
-        with self._flags() as read:
+    def test_the_allowlist_is_read_with_the_override_flags_targeting_properties(self):
+        with self._flags() as (_, evaluated):
             _policy()
 
-        assert len(read.call_args_list) == 2
-        for call in read.call_args_list:
-            assert call.args[1] == "d1"
-            assert call.kwargs["person_properties"] == {
-                "email": "eng@posthog.com",
-                "organization_id": "org_1",
-                "team_id": "7",
-            }
+        evaluated.assert_called_once_with(
+            WIZARD_GATEWAY_ALLOWLIST_FLAG,
+            "d1",
+            person_properties={"email": "eng@posthog.com", "organization_id": "org_1", "team_id": "7"},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
 
     @pytest.mark.parametrize("missing", [None, RuntimeError("flags down")])
     @pytest.mark.parametrize(
@@ -647,6 +660,8 @@ class TestWizardGatewayPolicy:
             # The gateway refuses these two, so they must never reach it.
             ({"version": 4, "text": "[posthog:abort] \ud800"}, True),
             ({"version": 4, "text": "[posthog:abort] \ufffd"}, True),
+            # remote_config's answer for an encrypted payload when the SDK holds a project secret key.
+            ('"********* (encrypted)"', True),
         ],
     )
     def test_an_unusable_prompt_flag_leaves_the_token_unpinned(self, prompt, counted):
@@ -683,6 +698,8 @@ class TestWizardGatewayPolicy:
             ({"models": "a", "efforts": ["high"], "programs": ["integration"]}, True),
             ({"models": [7], "efforts": ["high"], "programs": ["integration"]}, True),
             ({"models": [" "], "efforts": ["high"], "programs": ["integration"]}, True),
+            # Non-empty as saved, but empty once the mint strips the provider prefix.
+            ({"models": ["gpt-x", "OpenAI/"], "efforts": ["high"], "programs": ["integration"]}, True),
             ({"models": ["a"], "efforts": ["extreme"], "programs": ["integration"]}, True),
             ({"models": ["a"], "efforts": ["high"], "programs": [""]}, True),
             # The gateway refuses more than 32 models, after it reads them in its own spelling.
