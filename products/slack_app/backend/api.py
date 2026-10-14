@@ -4223,8 +4223,7 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
             continue
         parsed = parse_posthog_resource_link(url)
         if parsed:
-            resource_type, resource_ref = parsed
-            resources.append({"type": resource_type, "ref": str(resource_ref)})
+            resources.append({"type": parsed.kind, "ref": parsed.id})
     return resources
 
 
