@@ -68,6 +68,7 @@ import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowMo
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
 import {
+    BACK_BUTTON_DEFAULT_TEXT,
     INTRO_SCREEN_PAGE_INDEX,
     SURVEY_TYPE_LABEL_MAP,
     SurveyMatchTypeLabels,
@@ -1262,6 +1263,35 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                     />
                                                 </SortableContext>
                                             </DndContext>
+                                            {activeEditingLanguage && survey.appearance?.allowGoBack ? (
+                                                <LemonField.Pure
+                                                    label={getFieldLabel('Back button text', 'backButtonText')}
+                                                    className="mt-2 max-w-xs"
+                                                >
+                                                    <LemonInput
+                                                        value={
+                                                            surveyTranslations[activeEditingLanguage]?.backButtonText ??
+                                                            ''
+                                                        }
+                                                        placeholder={
+                                                            survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT
+                                                        }
+                                                        onChange={(backButtonText) => {
+                                                            clearAiGeneratedTranslationField(
+                                                                `translations.${activeEditingLanguage}.backButtonText`
+                                                            )
+                                                            setSurveyValue('translations', {
+                                                                ...surveyTranslations,
+                                                                [activeEditingLanguage]: {
+                                                                    ...surveyTranslations[activeEditingLanguage],
+                                                                    backButtonText: backButtonText || undefined,
+                                                                },
+                                                            })
+                                                        }}
+                                                        className={getFieldErrorClass('backButtonText')}
+                                                    />
+                                                </LemonField.Pure>
+                                            ) : null}
                                             <div className="flex gap-2">
                                                 <div className="flex items-center gap-2 mt-2">
                                                     <LemonButton
@@ -1365,9 +1395,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               survey={survey}
                                                               hasBranchingLogic={hasBranchingLogic}
                                                               deleteBranchingLogic={deleteBranchingLogic}
-                                                              onTranslationsChange={(translations) =>
-                                                                  setSurveyValue('translations', translations)
-                                                              }
                                                               hasRatingButtons={survey.questions.some(
                                                                   (question) =>
                                                                       question.type === SurveyQuestionType.Rating
