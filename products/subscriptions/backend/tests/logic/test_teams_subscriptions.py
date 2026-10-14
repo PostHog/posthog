@@ -9,8 +9,7 @@ from products.subscriptions.backend.logic.teams_subscriptions import (
     TEAMS_CARD_TEXT_BUDGET,
     build_teams_subscription_card,
 )
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = (
     "https://prod-25.westeurope.logic.azure.com:443/workflows/abc123/triggers/manual/paths/invoke?sig=secret"

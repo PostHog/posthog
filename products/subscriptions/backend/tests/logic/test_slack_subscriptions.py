@@ -29,8 +29,7 @@ from products.subscriptions.backend.logic.slack_subscriptions import (
     send_slack_subscription_report,
 )
 from products.subscriptions.backend.logic.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 
 def _make_slack_api_error(error_code: str, **extra_data) -> SlackApiError:

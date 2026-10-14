@@ -19,8 +19,7 @@ from posthog.security.url_validation import PinnedUrlVerdict
 from products.exports.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.delivery_webhook import _WEBHOOK_SEND_CAPACITY, deliver_teams_webhook
 from products.subscriptions.backend.temporal.types import RecipientResult
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 pytestmark = pytest.mark.asyncio
 

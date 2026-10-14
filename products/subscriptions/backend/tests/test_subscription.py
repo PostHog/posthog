@@ -50,9 +50,9 @@ from products.subscriptions.backend.facade.api import (
 )
 from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 from ee.api.test.base import APILicensedTest
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
 GALLERY_ON_PROMPT_ERROR = (
@@ -110,7 +110,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def setUp(self):
         super().setUp()
-        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self._sync_connect_patcher = patch("products.subscriptions.backend.presentation.views.sync_connect")
         self.mock_sync = self._sync_connect_patcher.start()
         self.mock_temporal_client = MagicMock()
         self.mock_temporal_client.start_workflow = AsyncMock()
@@ -236,7 +236,10 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.mock_temporal_client.start_workflow.reset_mock()
         if failure == "capture_raises":
             self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
-            capture_patcher = patch("ee.api.subscription.capture_exception", side_effect=RuntimeError("capture down"))
+            capture_patcher = patch(
+                "products.subscriptions.backend.presentation.views.capture_exception",
+                side_effect=RuntimeError("capture down"),
+            )
             capture_patcher.start()
             self.addCleanup(capture_patcher.stop)
         elif failure == "start_workflow":
@@ -1179,7 +1182,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         self._seed_active_summary_subscriptions(existing_active)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=limit):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=limit):
             response = self._create_subscription(summary_enabled=True)
 
         assert response.status_code == expected_status, response.content
@@ -1195,7 +1198,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         create_response = self._create_subscription(summary_enabled=False)
         sub_id = create_response.json()["id"]
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
             patch_response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
                 {"summary_enabled": True},
@@ -1212,7 +1215,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         existing = self._seed_active_summary_subscriptions(7)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
                 {"title": "renamed while over the cap"},
@@ -1241,7 +1244,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        with patch("ee.api.subscription.is_team_limited", return_value=is_limited):
+        with patch("products.subscriptions.backend.presentation.views.is_team_limited", return_value=is_limited):
             response = self._create_subscription(summary_enabled=summary_enabled)
 
         assert response.status_code == expected_status, response.content
@@ -1254,7 +1257,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         create_response = self._create_subscription(summary_enabled=False)
         sub_id = create_response.json()["id"]
 
-        with patch("ee.api.subscription.is_team_limited", return_value=True):
+        with patch("products.subscriptions.backend.presentation.views.is_team_limited", return_value=True):
             patch_response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
                 {"summary_enabled": True},
@@ -1270,7 +1273,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         existing = self._seed_active_summary_subscriptions(1)
 
-        with patch("ee.api.subscription.is_team_limited", return_value=True):
+        with patch("products.subscriptions.backend.presentation.views.is_team_limited", return_value=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
                 {"title": "renamed while over budget"},
@@ -1298,7 +1301,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         self._seed_active_summary_subscriptions(active_count)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=limit):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=limit):
             response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -1316,7 +1319,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         self._seed_active_summary_subscriptions(2)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=10):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=10):
             first = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
             assert first.status_code == status.HTTP_200_OK
             assert first.json()["active_count"] == 2
@@ -1342,8 +1345,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         self._seed_active_summary_subscriptions(5)
 
         with (
-            patch("ee.api.subscription.get_organization_limit", return_value=5),
-            patch("ee.api.subscription.posthoganalytics.capture") as mock_capture,
+            patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5),
+            patch("products.subscriptions.backend.presentation.views.posthoganalytics.capture") as mock_capture,
         ):
             first = self._create_subscription(summary_enabled=True)
             second = self._create_subscription(summary_enabled=True)
@@ -1381,7 +1384,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             deleted=True,
         )
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{deleted_summary.id}",
                 {"deleted": False},
@@ -1397,7 +1400,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         existing = self._seed_active_summary_subscriptions(7)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
             off_response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
                 {"summary_enabled": False},
@@ -1451,7 +1454,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         _seed_for_team(team_two, 2)
         _seed_for_team(team_three, 1)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+        with patch("products.subscriptions.backend.presentation.views.get_organization_limit", return_value=5):
             response = self.client.post(
                 f"/api/projects/{team_three.id}/subscriptions",
                 {
@@ -1966,7 +1969,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         stale_date = timezone.now() - timedelta(days=3)
         Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=stale_date)
 
-        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+        with patch("products.subscriptions.backend.presentation.views.sync_connect") as temporal_mock:
             temporal_mock.return_value.start_workflow = AsyncMock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
@@ -2125,7 +2128,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             title="t",
             enabled=initial_enabled,
         )
-        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+        with patch("products.subscriptions.backend.presentation.views.sync_connect") as temporal_mock:
             temporal_mock.return_value.start_workflow = AsyncMock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
@@ -2155,7 +2158,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
 
     def setUp(self):
         super().setUp()
-        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self._sync_connect_patcher = patch("products.subscriptions.backend.presentation.views.sync_connect")
         self.mock_sync = self._sync_connect_patcher.start()
         self.mock_temporal_client = MagicMock()
         self.mock_temporal_client.start_workflow = AsyncMock()
@@ -2753,7 +2756,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("ee.api.subscription.SubscriptionDeliveryCursorPagination.page_size", 2)
+    @patch("products.subscriptions.backend.presentation.views.SubscriptionDeliveryCursorPagination.page_size", 2)
     def test_deliveries_list_cursor_pagination(self):
         self._create_delivery(idempotency_key="page-a")
         self._create_delivery(idempotency_key="page-b")
@@ -2939,9 +2942,9 @@ class TestSubscriptionFreeTierAccess(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
 
-@patch("ee.api.subscription.sync_connect")
-@patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True)
-@patch("ee.api.subscription.is_cloud", return_value=True)
+@patch("products.subscriptions.backend.presentation.views.sync_connect")
+@patch("products.subscriptions.backend.presentation.views.posthoganalytics.feature_enabled", return_value=True)
+@patch("products.subscriptions.backend.presentation.views.is_cloud", return_value=True)
 class TestAISubscriptionAPI(APILicensedTest):
     def _enable_ai(self):
         self.organization.is_ai_data_processing_approved = True
@@ -3745,7 +3748,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         # a separate capture, so the content-kind split lives in one metric/dashboard.
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        with patch("ee.api.subscription.slo_operation", wraps=slo_operation) as mock_slo:
+        with patch("products.subscriptions.backend.presentation.views.slo_operation", wraps=slo_operation) as mock_slo:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/subscriptions",
                 self._make_ai_payload(),
@@ -4235,7 +4238,7 @@ class TestAISubscriptionAPI(APILicensedTest):
 class TestSubscriptionObjectAccessControl(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self._sync_connect_patcher = patch("products.subscriptions.backend.presentation.views.sync_connect")
         self.mock_temporal_client = MagicMock(start_workflow=AsyncMock())
         self._sync_connect_patcher.start().return_value = self.mock_temporal_client
         self.addCleanup(self._sync_connect_patcher.stop)
@@ -4308,8 +4311,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
 
         with (
-            patch("ee.api.subscription.is_cloud", return_value=True),
-            patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.subscriptions.backend.presentation.views.is_cloud", return_value=True),
+            patch(
+                "products.subscriptions.backend.presentation.views.posthoganalytics.feature_enabled", return_value=True
+            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/subscriptions",

@@ -16,8 +16,7 @@ from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.logic.email_subscriptions import send_email_subscription_report
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 
 def mock_ee_email_messages(MockEmailMessage: MagicMock):

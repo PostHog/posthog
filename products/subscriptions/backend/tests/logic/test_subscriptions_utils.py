@@ -20,8 +20,7 @@ from products.subscriptions.backend.logic.subscription_utils import (
     shared_insight_image,
     subscription_asset_error_message,
 )
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 
 @patch("products.subscriptions.backend.logic.subscription_utils.chain")

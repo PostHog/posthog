@@ -376,6 +376,7 @@ path = "products.subscriptions"
 depends_on = [
     "posthog",
     "ee",
+    "products.access_control",
     "products.ai_observability",
     "products.annotations",
     "products.dashboards",
