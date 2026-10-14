@@ -66,3 +66,24 @@ class TestBackfillStarredProducts(BaseTest):
         backfill_starred_products_op(build_op_context(), [user.id])
 
         assert self._starred_paths(user, self.team) == ["Session replay", "Error tracking"]
+
+    @parameterized.expand([("at_the_limit", 2, 6), ("over_the_limit", 3, 0)])
+    def test_applies_the_limit_to_each_project_across_its_environments(
+        self, _name: str, extra_in_second_environment: int, expected_stars: int
+    ) -> None:
+        paths = sorted(Products.get_product_paths(), key=str.lower)
+        user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
+        second_environment = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        self._add_custom_products(user, self.team, paths[:4])
+        # Two products overlap, so they count once.
+        self._add_custom_products(user, second_environment, paths[2 : 4 + extra_in_second_environment])
+
+        backfill_starred_products_op(build_op_context(), [user.id])
+
+        starred = list(
+            FileSystemShortcut.objects.filter(user=user, team__project_id=self.project.id).values_list(
+                "path", flat=True
+            )
+        )
+        assert sorted(starred, key=str.lower) == paths[: 4 + extra_in_second_environment][:expected_stars]
+        assert len(starred) == len(set(starred))

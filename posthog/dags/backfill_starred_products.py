@@ -41,25 +41,33 @@ class StarredProductsBackfillOutcome:
 
 def backfill_starred_products_for_user(user: User, *, dry_run: bool) -> StarredProductsBackfillOutcome:
     known_paths = set(Products.get_product_paths())
-    paths_by_team_id: dict[int, list[str]] = defaultdict(list)
-    for team_id, product_path in (
+    # Custom products belong to an environment, but the sidebar shows the stars of the whole project.
+    # So each project gets one deduplicated list, and the limit applies to that list.
+    paths_by_project_id: dict[int, list[str]] = defaultdict(list)
+    team_ids_by_project_id: dict[int, set[int]] = defaultdict(set)
+    for project_id, team_id, product_path in (
         UserProductList.objects.filter(user=user, enabled=True)
-        .order_by("team_id", Lower("product_path"))
-        .values_list("team_id", "product_path")
+        .order_by("team__project_id", Lower("product_path"))
+        .values_list("team__project_id", "team_id", "product_path")
     ):
+        team_ids_by_project_id[project_id].add(team_id)
         # A product removed from the catalog can't be starred, so it doesn't count towards the limit.
-        if product_path in known_paths:
-            paths_by_team_id[team_id].append(product_path)
+        if product_path in known_paths and product_path not in paths_by_project_id[project_id]:
+            paths_by_project_id[project_id].append(product_path)
 
-    teams_by_id = Team.objects.only("id").in_bulk(list(paths_by_team_id))
     projects_starred = projects_over_limit = stars_created = 0
-    for team_id, paths in paths_by_team_id.items():
+    for project_id, paths in paths_by_project_id.items():
+        if not paths:
+            continue
         if len(paths) > MAX_PRODUCTS_TO_STAR:
             projects_over_limit += 1
             continue
         projects_starred += 1
         if not dry_run:
-            stars_created += star_products(user, teams_by_id[team_id], paths)
+            # The main environment shares its id with the project. Fall back to the oldest one the user has.
+            team_ids = team_ids_by_project_id[project_id]
+            team_id = project_id if project_id in team_ids else min(team_ids)
+            stars_created += star_products(user, Team.objects.only("id", "project_id").get(id=team_id), paths)
 
     if not dry_run:
         mark_starred_products_setup_completed(user)
@@ -111,7 +119,8 @@ def backfill_starred_products_op(context: dagster.OpExecutionContext, user_ids: 
         "stars_created": 0,
     }
 
-    for user in User.objects.filter(id__in=user_ids).only("id", "ui_configuration"):
+    # is_active is read by User.from_db, so leaving it out costs a query per user.
+    for user in User.objects.filter(id__in=user_ids).only("id", "ui_configuration", "is_active"):
         if starred_products_setup_completed(user):
             totals["skipped_already_completed"] += 1
             continue

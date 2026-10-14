@@ -62,7 +62,10 @@ def star_products(user: User, team: "Team", product_paths: list[str]) -> int:
     with transaction.atomic():
         # Concurrent writes for the same user would otherwise both miss the star and add it twice.
         lock_user_shortcuts(team.pk, user.pk)
-        user_shortcuts = FileSystemShortcut.objects.filter(surface_q(DEFAULT_SURFACE), team=team, user=user)
+        # The sidebar lists the stars of every environment in the project, so check them all.
+        user_shortcuts = FileSystemShortcut.objects.filter(
+            surface_q(DEFAULT_SURFACE), team__project_id=team.project_id, user=user
+        )
         starred_paths = set(
             user_shortcuts.filter(ref__isnull=True).exclude(type="folder").values_list("path", flat=True)
         )
