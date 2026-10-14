@@ -80,6 +80,9 @@ const APNS_JWT_TTL_SECONDS = 45 * 60
 // Apple can reject a token it accepted minutes earlier. One new token per key per window keeps a key that
 // keeps getting rejected under Apple's refresh limit.
 const APNS_JWT_REFRESH_PREFIX = '@posthog/apns-provider-jwt-refresh/'
+// A delivery on any pod proves the key works, so a pod that has not sent with it yet can still retry a rejection.
+const APNS_KEY_ACCEPTED_PREFIX = '@posthog/apns-key-accepted/'
+const APNS_KEY_ACCEPTED_SHARE_INTERVAL_MS = 60 * 1000
 const APNS_JWT_REFRESH_WINDOW_SECONDS = 20 * 60
 const APNS_REJECTED_TOKEN_CODES = new Set(['InvalidProviderToken', 'ExpiredProviderToken'])
 const APNS_JWT_REPLACEMENT_POLLS = 5
@@ -263,7 +266,7 @@ export class PushNotificationService {
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
     private apnsJwtInFlight = new Map<string, Promise<string>>()
     // Last time APNs accepted a send signed with each key, so a token rejection for a key that works can be retried.
-    private apnsKeyAcceptedAtMs = new Map<string, number>()
+    private apnsKeyAcceptedAtMs = new Map<string, { acceptedAtMs: number; sharedAtMs: number }>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -666,7 +669,7 @@ export class PushNotificationService {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                const keyAccepted = apnsAcceptedKeys.has(keyRef) || this.apnsKeyAcceptedRecently(keyFingerprint)
+                const keyAccepted = apnsAcceptedKeys.has(keyRef) || (await this.apnsKeyAcceptedRecently(keyFingerprint))
                 const error = keyAccepted ? retriableTokenRejection(outcome.error) : outcome.error
                 if (error instanceof ApnsTokenRejectionError) {
                     apnsAcceptedKeys.add(keyRef)
@@ -915,8 +918,16 @@ export class PushNotificationService {
     }
 
     private rememberApnsKeyAccepted(fingerprint: string): void {
+        const nowMs = Date.now()
+        let sharedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)?.sharedAtMs ?? 0
+        if (nowMs - sharedAtMs >= APNS_KEY_ACCEPTED_SHARE_INTERVAL_MS) {
+            sharedAtMs = nowMs
+            void this.valkey.useClient({ name: 'apns-key-accepted-write', failOpen: true }, (client) =>
+                client.set(`${APNS_KEY_ACCEPTED_PREFIX}${fingerprint}`, '1', 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS)
+            )
+        }
         this.apnsKeyAcceptedAtMs.delete(fingerprint)
-        this.apnsKeyAcceptedAtMs.set(fingerprint, Date.now())
+        this.apnsKeyAcceptedAtMs.set(fingerprint, { acceptedAtMs: nowMs, sharedAtMs })
         if (this.apnsKeyAcceptedAtMs.size > APNS_JWT_LOCAL_CACHE_MAX) {
             const oldest = this.apnsKeyAcceptedAtMs.keys().next().value
             if (oldest !== undefined) {
@@ -925,9 +936,15 @@ export class PushNotificationService {
         }
     }
 
-    private apnsKeyAcceptedRecently(fingerprint: string): boolean {
-        const acceptedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)
-        return acceptedAtMs !== undefined && Date.now() - acceptedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000
+    private async apnsKeyAcceptedRecently(fingerprint: string): Promise<boolean> {
+        const acceptedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)?.acceptedAtMs
+        if (acceptedAtMs !== undefined && Date.now() - acceptedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000) {
+            return true
+        }
+        const shared = await this.valkey.useClient({ name: 'apns-key-accepted-read', failOpen: true }, (client) =>
+            client.get(`${APNS_KEY_ACCEPTED_PREFIX}${fingerprint}`)
+        )
+        return shared !== null && shared !== undefined
     }
 
     private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {
