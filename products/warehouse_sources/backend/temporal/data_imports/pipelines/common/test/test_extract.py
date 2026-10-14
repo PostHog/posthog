@@ -97,7 +97,7 @@ class TestIncrementalWatermark:
             # name, sort_mode, uses_incremental_field, staged after each batch, staged at the end of the run
             ("ascending", "asc", True, [("run-1", 5), ("run-1", 5)], []),
             ("unordered", None, True, [("run-1", 5), ("run-1", 5)], []),
-            ("descending", "desc", True, [("run-1", None, 3), ("run-1", None, 1)], [("run-1", 5)]),
+            ("descending", "desc", True, [("run-1", 5, 3), ("run-1", 5, 1)], [("run-1", 5)]),
             ("full_refresh_ascending", "asc", False, [], []),
             ("full_refresh_unordered", None, False, [], []),
             ("full_refresh_descending", "desc", False, [], []),
