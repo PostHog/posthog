@@ -732,6 +732,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_ELEMENT) => {
                 if let (TagKind::Script, Some((seg, _, src))) = (kind, children) {
                     // Script content is code — the tree leaves the children untouched.
+                    self.ctx.discard_walk(children_counts);
                     let verbatim = &bytes[src.0..src.1];
                     out.splice(seg.0..seg.1, verbatim.iter().copied());
                 }
@@ -785,6 +786,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_TEXT) if parent == ParentKind::Script => {
                 // The tree never touches script text nodes: undo and re-emit verbatim.
                 out.truncate(node_mark);
+                self.ctx.discard_walk(counts);
                 out.extend_from_slice(&bytes[start..end]);
                 self.changed = changed_before;
                 return Some(end);
@@ -828,6 +830,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             // re-emit verbatim either way.
             _ => {
                 out.truncate(node_mark);
+                self.ctx.discard_walk(counts);
                 out.extend_from_slice(&bytes[start..end]);
                 self.changed = changed_before;
                 return Some(end);

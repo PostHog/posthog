@@ -37,6 +37,7 @@ pub(crate) enum ImageSource {
 pub(crate) struct CountCheckpoint {
     image_sources: usize,
     scrub_drops: usize,
+    images: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -240,6 +241,10 @@ impl<'a> Ctx<'a> {
         CountCheckpoint {
             image_sources: self.image_source_log.borrow().len(),
             scrub_drops: self.scrub_drop_log.borrow().len(),
+            images: self
+                .collector
+                .as_ref()
+                .map_or(0, |collector| collector.borrow().len()),
         }
     }
 
@@ -250,6 +255,21 @@ impl<'a> Ctx<'a> {
         self.scrub_drop_log
             .borrow_mut()
             .truncate(checkpoint.scrub_drops);
+    }
+
+    /// Unlike a re-walk, which collects the same bytes again under the same ref, a discarded walk
+    /// leaves no ref in the output, so its images go too.
+    pub(crate) fn discard_walk(&self, checkpoint: CountCheckpoint) {
+        self.restore_counts(checkpoint);
+        let Some(collector) = self.collector.as_ref() else {
+            return;
+        };
+        let removed = collector.borrow_mut().truncate(checkpoint.images);
+        if !removed.is_empty() {
+            self.blur_cache
+                .borrow_mut()
+                .retain(|_, hit| !hit.as_ref().is_some_and(|r| removed.contains(r)));
+        }
     }
 
     pub fn take_scrub_drops(&self) -> Vec<(&'static str, u32)> {

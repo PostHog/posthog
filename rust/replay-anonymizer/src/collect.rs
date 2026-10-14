@@ -186,6 +186,20 @@ impl ImageCollector {
         self.max_image_bytes
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.images.len()
+    }
+
+    pub(crate) fn truncate(&mut self, len: usize) -> HashSet<String> {
+        let mut removed = HashSet::new();
+        for image in self.images.drain(len.min(self.images.len())..) {
+            self.total_bytes -= image.bytes.len();
+            self.seen.remove(&image.hash);
+            removed.insert(image_ref(&self.team_id, &image.hash));
+        }
+        removed
+    }
+
     /// Collect decoded image bytes and return their ref, or `None` when a cap says this image must
     /// stay on the inline blur path.
     pub fn collect(&mut self, bytes: Vec<u8>) -> Option<String> {
