@@ -12,6 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, Throttled
@@ -1374,12 +1375,20 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
         except ConcurrencyLimitExceeded as error:
             logger.warning("logs_api_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
-            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+            # wait sets a Retry-After header, so a polling client backs off instead of retrying the burst at once.
+            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        except RedisError:
+            # The cap protects ClickHouse capacity. A Redis outage must not also make the logs API fail.
+            logger.exception("logs_api_concurrency_limiter_unavailable", team_id=self.team_id)
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
         # DRF calls finalize_response also when the handler raises, so the slot is released on every path.
         if self._logs_api_slot is not None:
-            get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+            try:
+                get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+            except RedisError:
+                # The slot expires after the limiter's ttl, so keep the response the query already produced.
+                logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
             self._logs_api_slot = None
         return super().finalize_response(request, response, *args, **kwargs)
 

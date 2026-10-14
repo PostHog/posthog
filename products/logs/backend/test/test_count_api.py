@@ -3,9 +3,10 @@ import json
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
 
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
@@ -156,7 +157,8 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(session_response.status_code, status.HTTP_200_OK)
         self.assertEqual(api_key_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(api_key_response.json()["detail"], CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertTrue(api_key_response.json()["detail"].startswith(CONCURRENCY_LIMIT_USER_MESSAGE))
+        self.assertEqual(api_key_response["Retry-After"], "1")
 
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_personal_api_key_requests_release_their_concurrency_slot(self):
@@ -165,3 +167,13 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         statuses = [self._post_count_with_personal_api_key().status_code for _ in range(limiter.max_concurrency + 1)]
 
         self.assertEqual(statuses, [status.HTTP_200_OK] * (limiter.max_concurrency + 1))
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_personal_api_key_requests_pass_when_the_limiter_redis_is_down(self):
+        broken_redis = MagicMock()
+        broken_redis.eval.side_effect = RedisConnectionError()
+
+        with patch.object(get_logs_api_team_rate_limiter(), "redis_client", broken_redis):
+            response = self._post_count_with_personal_api_key()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

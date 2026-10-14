@@ -387,8 +387,9 @@ def get_logs_api_team_rate_limiter() -> RateLimit:
             limit_name="logs_api_per_team",
             get_task_name=lambda *args, **kwargs: f"logs_api:query:per-team:{kwargs.get('team_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
-            # A slot is held for a whole request, which can run several time slices of up to 30 seconds each.
-            ttl=120,
+            # A slot is held for a whole request, which can run up to four time slices of up to 30 seconds each.
+            # The ttl must outlast that, or the slot expires while the request still queries ClickHouse.
+            ttl=180,
             retry=0.134,
             # A waiting request holds a web worker, so a burst gets a quick 429 instead of a long queue.
             retry_timeout=2.0,
