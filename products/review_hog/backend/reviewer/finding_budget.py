@@ -24,7 +24,6 @@ from posthog.dataclasses import frozen
 from posthog.utils import pluralize
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.pull_request_events import REVIEW_LABEL
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
@@ -43,13 +42,17 @@ def budget_arm(repository: str, pr_number: int | None) -> BudgetArm:
 
 
 def budget_note(dropped: int, comment_commands_on: bool) -> str:
-    """The line a review ends with when the budget kept some of its findings off the pull request."""
-    trigger = "Comment `@posthog review`" if comment_commands_on else f"Add the `{REVIEW_LABEL}` label"
-    return (
+    """The line a review ends with when the budget kept some of its findings off the pull request.
+
+    It offers a Deep review, because this head already has its Standard review and a second one would not run.
+    """
+    note = (
         f"This pull request reached its limit of {FINDING_BUDGET} automatic review findings, so this review left "
-        f"out {pluralize(dropped, 'lower-priority finding')}. Must-fix findings still post. {trigger} for a review "
-        "without the limit."
+        f"out {pluralize(dropped, 'lower-priority finding')}. Must-fix findings still post."
     )
+    if comment_commands_on:
+        note = f"{note} Comment `@posthog review --deep` for a review without the limit."
+    return note
 
 
 @frozen

@@ -2,7 +2,7 @@ import pytest
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.finding_budget import FINDING_BUDGET, FindingBudget, budget_arm
+from products.review_hog.backend.reviewer.finding_budget import FINDING_BUDGET, FindingBudget, budget_arm, budget_note
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 
 
@@ -52,3 +52,13 @@ def test_control_arm_has_no_budget() -> None:
     budget = FindingBudget.for_turn(_report(116849, {"1": "consider"}), [_pair(1, IssuePriority.SHOULD_FIX)])
 
     assert (budget.arm, budget.left) == ("control", None)
+
+
+@pytest.mark.parametrize("comment_commands_on,offers_deep", [(True, True), (False, False)])
+def test_budget_note_offers_only_a_review_that_runs_on_this_head(comment_commands_on: bool, offers_deep: bool) -> None:
+    # The head already has its Standard review, so a second Standard request would be refused.
+    note = budget_note(3, comment_commands_on)
+
+    assert note.startswith("This pull request reached its limit of 20 automatic review findings")
+    assert ("`@posthog review --deep`" in note) is offers_deep
+    assert "`@posthog review` " not in note

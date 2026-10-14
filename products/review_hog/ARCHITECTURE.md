@@ -353,8 +353,8 @@ must-fix findings of an automatic turn: they count toward the budget but always 
 pull request as a safeguard, so past the budget they only raise what must be fixed. A review someone asks for (a
 comment, the label, the UI) is not limited, and `SandboxStageInput.trigger_source` tells the dedup stage which kind ran.
 A finding that fits under the turn's cap but not under the budget drops as `budget`. A review that still posts ends
-with one line that says how many it left out and how to ask for a review without the limit; a turn that keeps nothing
-stays silent. Fixing or resolving a finding gives no budget back, because a coding agent that fixes and resolves
+with one line that says how many it left out and, where comment commands run, offers `@posthog review --deep`: the head
+already has its Standard review, so only a Deep review runs on it again. A turn that keeps nothing stays silent. Fixing or resolving a finding gives no budget back, because a coding agent that fixes and resolves
 everything would otherwise refill it. Pull requests split into two arms by a hash of the repository and number
 (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
 `reviewhog_finding_outcome` splits the measurement.
