@@ -28,6 +28,7 @@ import type {
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
+    WizardToolCatalogApi,
 } from './api.schemas'
 
 export const getWizardRegistryListUrl = (projectId: string, params?: WizardRegistryListParams) => {
@@ -409,6 +410,21 @@ export const wizardSessionsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<string> => {
     return apiMutator<string>(getWizardSessionsStreamRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardToolCatalogListUrl = () => {
+    return `/api/wizard/tool_catalog/`
+}
+
+/**
+ * Every tool the wizard can detect in a codebase, with the signals that identify it.
+ * @summary Get the wizard tool catalog
+ */
+export const wizardToolCatalogList = async (options?: RequestInit): Promise<WizardToolCatalogApi> => {
+    return apiMutator<WizardToolCatalogApi>(getWizardToolCatalogListUrl(), {
         ...options,
         method: 'GET',
     })

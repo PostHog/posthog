@@ -114033,6 +114033,55 @@ export namespace Schemas {
     }
 
     /**
+     * * `in-cli` - In the terminal
+     * * `deep-link` - In the app
+     */
+    export type WizardSetupModeEnum = typeof WizardSetupModeEnum[keyof typeof WizardSetupModeEnum];
+
+
+    export const WizardSetupModeEnum = {
+      InCli: 'in-cli',
+      DeepLink: 'deep-link',
+    } as const;
+
+    /**
+     * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
+     */
+    export type WizardCatalogToolSignalsPackages = {[key: string]: string[]};
+
+    export interface WizardCatalogToolSignals {
+      /** Anchored regexes matched against `.env` key names. Values are never read. */
+      env_key_patterns: string[];
+      /** Hosts matched against script URLs. A host also matches its subdomains. */
+      script_hosts: string[];
+      /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
+      packages: WizardCatalogToolSignalsPackages;
+    }
+
+    export interface WizardCatalogTool {
+      /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
+      kind: string;
+      /** Human-readable tool name. */
+      label: string;
+      /**
+         * Data warehouse source type the tool imports as, or null for a tool with no warehouse source.
+         * @nullable
+         */
+      warehouse_source_type: string | null;
+      /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
+       *
+       * * `in-cli` - In the terminal
+       * * `deep-link` - In the app */
+      wizard_setup_mode: WizardSetupModeEnum | null;
+      /** PostHog products this tool competes with. */
+      competes_with: string[];
+      /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
+      superseded_by: string[];
+      /** How the wizard detects the tool in a codebase. */
+      signals: WizardCatalogToolSignals;
+    }
+
+    /**
      * The team's active onboarding wizard cloud run, used to rehydrate
      * the setup-progress FAB when the run was started server-side (drop flow).
      */
@@ -114150,6 +114199,13 @@ export namespace Schemas {
       id: string;
       /** False when this session had already reported its scan, so nothing changed. */
       created: boolean;
+    }
+
+    export interface WizardToolCatalog {
+      /** Bumped when the shape changes in a way an older wizard cannot read. */
+      schema_version: number;
+      /** Every tool the wizard can detect. */
+      tools: WizardCatalogTool[];
     }
 
     /**

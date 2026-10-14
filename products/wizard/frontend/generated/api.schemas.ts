@@ -694,6 +694,61 @@ export interface UpsertWizardSessionRequestApi {
 }
 
 /**
+ * * `in-cli` - In the terminal
+ * * `deep-link` - In the app
+ */
+export type WizardSetupModeEnumApi = (typeof WizardSetupModeEnumApi)[keyof typeof WizardSetupModeEnumApi]
+
+export const WizardSetupModeEnumApi = {
+    InCli: 'in-cli',
+    DeepLink: 'deep-link',
+} as const
+
+/**
+ * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
+ */
+export type WizardCatalogToolSignalsApiPackages = { [key: string]: string[] }
+
+export interface WizardCatalogToolSignalsApi {
+    /** Anchored regexes matched against `.env` key names. Values are never read. */
+    env_key_patterns: string[]
+    /** Hosts matched against script URLs. A host also matches its subdomains. */
+    script_hosts: string[]
+    /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
+    packages: WizardCatalogToolSignalsApiPackages
+}
+
+export interface WizardCatalogToolApi {
+    /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
+    kind: string
+    /** Human-readable tool name. */
+    label: string
+    /**
+     * Data warehouse source type the tool imports as, or null for a tool with no warehouse source.
+     * @nullable
+     */
+    warehouse_source_type: string | null
+    /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
+     *
+     * * `in-cli` - In the terminal
+     * * `deep-link` - In the app */
+    wizard_setup_mode: WizardSetupModeEnumApi | null
+    /** PostHog products this tool competes with. */
+    competes_with: string[]
+    /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
+    superseded_by: string[]
+    /** How the wizard detects the tool in a codebase. */
+    signals: WizardCatalogToolSignalsApi
+}
+
+export interface WizardToolCatalogApi {
+    /** Bumped when the shape changes in a way an older wizard cannot read. */
+    schema_version: number
+    /** Every tool the wizard can detect. */
+    tools: WizardCatalogToolApi[]
+}
+
+/**
  * * `git_diff` - git_diff
  */
 export type WizardRunGitDiffArtifactArtifactTypeEnumApi =
