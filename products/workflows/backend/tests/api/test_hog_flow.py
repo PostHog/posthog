@@ -1803,9 +1803,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
             ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
             ("missing_cohort", "missing", "doesn't exist in this environment"),
-            # Eligible on its own team, but the runtime reads cohort_membership with the
-            # workflow's team_id, where a sibling environment's cohort has no rows: it would
-            # silently evaluate everyone as a non-member, so validation must reject it.
+            # The runtime reads memberships with the workflow's team_id, where a sibling team's cohort has no rows
             ("sibling_environment_cohort", "sibling_environment", "doesn't exist in this environment"),
         ]
     )
@@ -1835,10 +1833,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
-        # A cohort inside an action filter's own `properties` compiles just like a top-level one, so
-        # it must clear the same eligibility gate. An eligible top-level cohort turns cohort support
-        # on for the whole condition; a static cohort nested in an action entry must still be
-        # rejected rather than silently compiling and routing everyone down the wrong branch.
+        # A static cohort nested in an action entry must fail the gate even when a top-level cohort enables support
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
         action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
@@ -1871,9 +1866,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_conditions_after_flag_dial_down(self):
-        # The flag polices new adoption only. An active flow's stored cohort condition must keep
-        # saving after a flag dial-down (or an internal re-save with no request to evaluate the
-        # flag against), while a newly added cohort condition still needs the flag.
+        # A stored cohort condition of an active flow keeps saving after a flag dial-down; a new one needs the flag
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
@@ -1915,8 +1908,7 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_hand_authored_incohort_calls(self, _name, include_structured_leaf, _mock_flag):
-        # Hand-authored inCohort() skips cohort eligibility validation, so the compiler rejects it
-        # outright — including alongside a structured cohort leaf that turns cohort support on.
+        # A hand-authored inCohort() skips eligibility validation, even beside a structured cohort leaf
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [{"key": "inCohort(999999)", "type": "hogql"}]
         if include_structured_leaf:
@@ -1936,11 +1928,7 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _name, expression, _mock_flag):
-        # An eligible cohort leaf turns cohort support on and makes the runtime inject the
-        # person's real memberships as the `cohort_ids` global. An authored read of that global
-        # (`999999 in cohort_ids`) would then test membership of a cohort the eligibility
-        # validation never cleared, so the compiler must reject it. A lambda body compiles in a
-        # nested compiler, which has to carry the same restriction.
+        # An authored read of `cohort_ids` would test a cohort the validation never cleared, also inside a lambda
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [
             {"key": "id", "type": "cohort", "value": cohort.id},
@@ -1962,8 +1950,7 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_conditional_branch_malformed_filters_get_a_400(self, _name, filters, _mock_flag):
-        # The cohort-support scan reads raw client filters before DRF validation, so malformed
-        # shapes must fall through to the serializer's structured 400 instead of raising a 500.
+        # The cohort-support scan reads raw client filters, so a malformed shape gets the serializer's 400, not a 500
         hog_flow = self._hog_flow_with_condition_filters("conditional_branch", filters)
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -1972,8 +1959,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
-        # action_to_expr inlines a referenced Action's step properties into the compiled
-        # condition, so a cohort hiding there must be eligibility-validated like any other.
+        # action_to_expr inlines a referenced Action's step properties, so a cohort there needs the same validation
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
         action = Action.objects.create(
@@ -1998,9 +1984,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
-        # The enablement gate can't see into a referenced Action's stored steps, so it must switch
-        # cohort support on for the action reference alone — otherwise an eligible cohort that only
-        # lives there still hits the legacy rejection while the validator would have cleared it.
+        # The gate cannot see into a referenced Action's steps, so the reference alone must enable cohort support
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         action = Action.objects.create(
             team=self.team,
@@ -2027,9 +2011,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_rejects_in_cohort_operator_smuggled_through_hogql(
         self, _name, hogql_key, expected_detail, _mock_flag
     ):
-        # One eligible structured leaf turns cohort support on for the whole filter set; an
-        # IN COHORT operator in a hogql leaf must not ride along with an id the eligibility
-        # validation never saw.
+        # An IN COHORT operator in a hogql leaf must not ride along on the structured leaf that enabled support
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
             "conditional_branch",
@@ -2048,8 +2030,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false")
     def test_hog_flow_cohort_flag_evaluates_the_target_teams_organization(self, mock_flag):
-        # A user saving into a project outside their active organization must get the target
-        # organization's rollout decision, not their own org's.
+        # The rollout decision comes from the organization that owns the target project, not the user's active one
         other_org = Organization.objects.create(name="Other Org")
         OrganizationMembership.objects.create(user=self.user, organization=other_org)
         other_team = Team.objects.create(organization=other_org, name="Other Team")
