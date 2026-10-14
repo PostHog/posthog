@@ -43,8 +43,8 @@ export function RuleControls({
         />
     )
     return (
-        // The except list continues the "for everyone" sentence, so it shares the select's line.
-        <div className={kind === 'excepted' ? 'flex flex-wrap items-center gap-1.5' : 'flex flex-col gap-1.5'}>
+        // Both people lists sit on their own line under the select, so the select keeps one position in every mode.
+        <div className="flex flex-col gap-1.5">
             <LemonSelect
                 size="small"
                 aria-label={label}
@@ -55,8 +55,6 @@ export function RuleControls({
                 data-attr={dataAttr}
                 className="max-w-full self-start"
             />
-            {/* A separate item, so a wrapped except list never starts its line with the comma. */}
-            {kind === 'excepted' && <span className="-ml-1 text-xs text-secondary">,</span>}
             {peopleList}
         </div>
     )
