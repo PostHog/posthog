@@ -117,6 +117,8 @@ fn dns_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
         },
     )
     .channel()
+    .expect("dns pool always has a channel")
+    .0
 }
 
 fn discovered_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
