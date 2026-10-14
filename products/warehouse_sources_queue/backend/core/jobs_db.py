@@ -2437,6 +2437,8 @@ class BatchQueue:
 
         Ordered ``FOR UPDATE`` for the same reason as :meth:`unlock_for_batches`: a pod
         shutting down releases many groups at once, against a fleet still claiming them.
+        ``SKIP LOCKED`` leaves a lease row that another statement holds in place to expire
+        after its TTL, so shutdown never waits into the connection's statement timeout.
         """
         await conn.execute(
             f"""
@@ -2446,7 +2448,7 @@ class BatchQueue:
                 FROM {LEASE_TABLE}
                 WHERE owner_token = %(owner)s
                 ORDER BY team_id, schema_id
-                FOR UPDATE
+                FOR UPDATE SKIP LOCKED
             )
             """,
             {"owner": owner_token},

@@ -776,9 +776,20 @@ class JobsTable:
         *,
         owner_token: str,
     ) -> None:
-        """Best-effort cleanup of everything this pod holds, on graceful shutdown."""
+        """Best-effort cleanup of everything this pod holds, on graceful shutdown.
+
+        A lease row that another statement holds stays in place and expires after its TTL.
+        """
         await conn.execute(
-            f"DELETE FROM {JOB_LEASE_TABLE} WHERE owner_token = %(owner)s",
+            f"""
+            DELETE FROM {JOB_LEASE_TABLE}
+            WHERE id IN (
+                SELECT id FROM {JOB_LEASE_TABLE}
+                WHERE owner_token = %(owner)s
+                ORDER BY lane, group_key
+                FOR UPDATE SKIP LOCKED
+            )
+            """,
             {"owner": owner_token},
         )
 
