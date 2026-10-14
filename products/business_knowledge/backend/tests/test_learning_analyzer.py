@@ -414,7 +414,10 @@ class TestLearningAnalyzer:
                 ],
             ) as invoke,
             patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
-            patch(f"{_MODULE}.logic.search_knowledge", return_value=[search_result]) as search,
+            patch(
+                f"{_MODULE}.logic.search_knowledge",
+                side_effect=lambda team_id, query, **kwargs: [search_result] if query == "Refund policy" else [],
+            ) as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
         ):
             result = analyze_learning_evidence(input)
