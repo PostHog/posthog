@@ -36,10 +36,12 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 
 ## Commands from Slack
 
-The same commands run from a Slack message that mentions the PostHog app, with the pull request URL first:
+The same commands run from a Slack message that mentions the PostHog app and names the pull request by its URL, before or after the command:
 
 ```text
+@PostHog review --deep https://github.com/PostHog/posthog/pull/123
 @PostHog https://github.com/PostHog/posthog/pull/123 review --deep
+@PostHog qa https://github.com/PostHog/posthog/pull/123 check the signup form
 ```
 
 - Only a message that opens with the app's mention and reads exactly as a command runs one. Free text, such as "can you review this deeply", and a mistyped option go to the agent as before.

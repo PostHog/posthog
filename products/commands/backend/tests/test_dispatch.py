@@ -493,7 +493,7 @@ class TestDispatchCommentCommand(BaseTest):
 
     def _slack_mention(self, text: str, organization_ids: tuple[str, ...], integration_id: int = 0) -> SlackMention:
         return SlackMention(
-            text=f"https://github.com/{REPOSITORY}/pull/7 {text}",
+            text=f"{text} https://github.com/{REPOSITORY}/pull/7",
             slack_team_id="T1",
             slack_user_id="U1",
             channel="C1",

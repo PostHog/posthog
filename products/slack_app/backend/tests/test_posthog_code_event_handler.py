@@ -815,13 +815,13 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         [
             (
                 "pull_request_command",
-                "<@UBOT123> <https://github.com/acme/widgets/pull/7|acme/widgets#7> review --deep",
+                "<@UBOT123> review --deep <https://github.com/acme/widgets/pull/7|acme/widgets#7>",
                 "review",
                 True,
             ),
-            ("anything_else", "<@UBOT123> <https://github.com/acme/widgets/pull/7> review --deep", None, True),
+            ("anything_else", "<@UBOT123> review --deep <https://github.com/acme/widgets/pull/7>", None, True),
             ("no_subject", "<@UBOT123> can you review this deeply", "review", False),
-            ("addressed_to_someone_else", "<@UALICE> <https://github.com/acme/widgets/pull/7> review", "review", False),
+            ("addressed_to_someone_else", "<@UALICE> review <https://github.com/acme/widgets/pull/7>", "review", False),
         ]
     )
     @patch("products.slack_app.backend.api.bare_mention.clear_awaited_request")
@@ -851,7 +851,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
         if reaches_commands:
             mention = mock_accept.call_args.args[0]
-            assert mention.text == "https://github.com/acme/widgets/pull/7 review --deep"
+            assert mention.text == "review --deep https://github.com/acme/widgets/pull/7"
             assert mention.organization_ids == (str(self.organization.id),)
             assert mention.user_ids[0] == self.user.id
             assert (mention.channel, mention.thread_ts, mention.message_ts) == ("C001", "1234.5678", "1234.5678")
@@ -877,7 +877,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        text = "<@UBOT123> <https://github.com/acme/widgets/pull/7> review"
+        text = "<@UBOT123> review <https://github.com/acme/widgets/pull/7>"
 
         route_posthog_code_event_to_relevant_region(request, {**self.event, "text": text}, "T12345")
 

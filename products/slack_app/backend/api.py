@@ -3199,7 +3199,7 @@ def _hand_off_command(
     posthog_user: User,
     is_ext_shared_channel: bool,
 ) -> bool:
-    """Hand a mention such as ``@PostHog <PR URL> review --deep`` to the commands product.
+    """Hand a mention such as ``@PostHog review --deep <PR URL>`` to the commands product.
 
     Commands decides whether it is a command, runs it without the agent and answers in the thread.
     False leaves the mention to the agent: free text, a mistyped command, or an organization outside
