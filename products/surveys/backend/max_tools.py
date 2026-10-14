@@ -7,6 +7,7 @@ from textwrap import dedent
 from typing import Any, Literal
 
 import django.utils.timezone
+from django.db import IntegrityError
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,7 +21,7 @@ from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import SURVEY_NAME_UNIQUE_CONSTRAINT, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
@@ -91,6 +92,25 @@ async def _validate_linked_flag_id(team: Team, linked_flag_id: int | None) -> No
         return
     if not await FeatureFlag.objects.filter(pk=linked_flag_id, team_id=team.id).aexists():
         raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+
+DUPLICATE_SURVEY_NAME_MESSAGE = "There is already a survey with this name. Choose a different name."
+
+
+async def _survey_name_taken(team: Team, name: str) -> bool:
+    return await Survey.objects.filter(team_id=team.id, name=name).aexists()
+
+
+def _is_duplicate_survey_name_error(error: Exception) -> bool:
+    # A concurrent request can create the same name after the pre-check passes.
+    return isinstance(error, IntegrityError) and SURVEY_NAME_UNIQUE_CONSTRAINT in str(error)
+
+
+def _duplicate_survey_name_result() -> tuple[str, dict[str, Any]]:
+    return f"Survey validation failed: {DUPLICATE_SURVEY_NAME_MESSAGE}", {
+        "error": "validation_failed",
+        "error_message": DUPLICATE_SURVEY_NAME_MESSAGE,
+    }
 
 
 # SimpleSurveyQuestion attribute -> internal question dict key. Rating-only fields (scale, display)
@@ -369,6 +389,9 @@ class CreateSurveyTool(MaxTool):
                     "error_message": "No questions provided in the survey configuration.",
                 }
 
+            if await _survey_name_taken(self._team, name):
+                return _duplicate_survey_name_result()
+
             if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
                 await _validate_linked_flag_id(self._team, linked_flag_id)
 
@@ -421,6 +444,8 @@ class CreateSurveyTool(MaxTool):
                 "error_message": error_message,
             }
         except Exception as e:
+            if _is_duplicate_survey_name_error(e):
+                return _duplicate_survey_name_result()
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
 
@@ -595,6 +620,8 @@ class EditSurveyTool(MaxTool):
             update_data: dict[str, Any] = {}
 
             if name is not None:
+                if name != survey.name and await _survey_name_taken(team, name):
+                    return _duplicate_survey_name_result()
                 update_data["name"] = name
             if description is not None:
                 update_data["description"] = description
@@ -669,6 +696,8 @@ class EditSurveyTool(MaxTool):
                 "error_message": error_message,
             }
         except Exception as e:
+            if _is_duplicate_survey_name_error(e):
+                return _duplicate_survey_name_result()
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}
 
