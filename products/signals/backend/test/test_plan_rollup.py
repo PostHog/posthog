@@ -115,19 +115,22 @@ class TestPlanRollup(BaseTest):
         self, _name: str, flag_result: bool | Exception
     ) -> None:
         parent = self._report("plan")
-        child = self._report("step")
-        self._part_of(child, parent)
+        children = [self._report(f"step {index}") for index in range(3)]
+        for child in children:
+            self._part_of(child, parent)
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
-            self._close(child, SignalReport.Status.MONITORING)
+            for child in children:
+                self._close(child, SignalReport.Status.MONITORING)
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.READY
         with patch(
             "products.signals.backend.report_content_gates.feature_enabled_or_false",
             return_value=flag_result if isinstance(flag_result, bool) else False,
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
-        ):
+        ) as evaluate:
             with self.captureOnCommitCallbacks(execute=True):
-                roll_up_plan_parents(team_id=self.team.id, report_id=str(child.id))
+                roll_up_plan_parents(team_id=self.team.id, report_id=str(children[0].id))
+        assert evaluate.call_count == 1
         parent.refresh_from_db()
         assert parent.status == (SignalReport.Status.READY if flag_result is True else SignalReport.Status.RESOLVED)
 

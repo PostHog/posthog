@@ -6,7 +6,9 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,7 +19,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -56,6 +58,7 @@ from products.signals.backend.report_check_execution import (
     evaluate_check_value,
     expire_overdue_checks,
     measure_check,
+    park_report_checks_on_reopen,
     record_check_verdict,
     resolve_check_query,
     run_due_report_checks,
@@ -762,6 +765,67 @@ class TestReportCheckExecution(APIBaseTest):
         self.report.save(update_fields=["status"])
 
         assert collect_due_checks(timezone.now()) == []
+
+    def test_a_tick_reuses_gate_discovery_and_ignores_monitoring_without_candidate_checks(self) -> None:
+        now = timezone.now()
+        unrelated_org = Organization.objects.create(name="Other monitoring organization")
+        unrelated_team = Team.objects.create(organization=unrelated_org)
+        unrelated_report = SignalReport.objects.create(
+            team=unrelated_team, status=SignalReport.Status.MONITORING, title="Other verification"
+        )
+        SignalReportCheck.objects.for_team(unrelated_team.id).create(
+            team=unrelated_team,
+            report=unrelated_report,
+            title="Cancelled verification",
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=_threshold_config(),
+            status=SignalReportCheck.Status.CANCELLED,
+            next_run_at=now,
+            expires_at=now + timedelta(days=30),
+        )
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+        ) as evaluate:
+            run_due_report_checks(now=now)
+        evaluate.assert_not_called()
+
+        checks = [self._check() for _ in range(3)]
+        SignalReport.objects.filter(team_id=self.team.id, id=self.report.id).update(
+            status=SignalReport.Status.MONITORING, monitoring_started_at=now
+        )
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+            ) as evaluate,
+            patch(_MEASURE) as measure,
+        ):
+            run_due_report_checks(now=now)
+        measure.assert_not_called()
+        assert [call.args[1] for call in evaluate.call_args_list] == [str(self.organization.id)]
+        for check in checks:
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.PENDING
+
+    def test_parking_a_report_batch_reads_its_team_gate_once(self) -> None:
+        checks = [self._check() for _ in range(3)]
+        SignalReport.objects.filter(team_id=self.team.id, id=self.report.id).update(status=SignalReport.Status.READY)
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+            ) as evaluate,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            assert park_report_checks_on_reopen(
+                team_id=self.team.id, report_id=str(self.report.id), now=timezone.now()
+            ) == len(checks)
+        team_reads = [
+            query for query in queries if query["sql"].startswith("SELECT") and 'FROM "posthog_team"' in query["sql"]
+        ]
+        assert len(team_reads) == 1
+        assert evaluate.call_count == 1
+        for check in checks:
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.PENDING
 
     @parameterized.expand([("cancelled",), ("reopened",), ("resolved_again",), ("redispatched",)])
     def test_a_check_invalidated_while_its_query_ran_records_nothing(self, reason: str) -> None:

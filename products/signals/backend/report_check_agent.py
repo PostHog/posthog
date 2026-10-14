@@ -33,7 +33,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
 from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
-from products.signals.backend.report_lifecycle import report_status_filter
+from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
@@ -297,8 +297,7 @@ def requeue_checks_waiting_on_scout(canonical_team_id: int, skill_name: str, *, 
     if skill_name == FALLBACK_CHECK_SKILL_NAME:
         lane |= ~Q(config__has_key="skill_name") | Q(config__skill_name=None)
     team_ids = Team.objects.filter(Q(id=canonical_team_id) | Q(parent_team_id=canonical_team_id)).values("id")
-    return SignalReportCheck.all_teams.filter(
-        report_status_filter([SignalReport.Status.RESOLVED], field="report__status"),
+    candidates = SignalReportCheck.all_teams.filter(
         lane,
         team_id__in=team_ids,
         kind=SignalReportCheck.Kind.AGENT,
@@ -306,6 +305,14 @@ def requeue_checks_waiting_on_scout(canonical_team_id: int, skill_name: str, *, 
         dispatched_at__isnull=True,
         next_run_at__gt=now,
         next_run_at__lte=now + CHECK_DISPATCH_DEFER_AFTER,
+    )
+    disabled_organizations = check_monitoring_disabled_organizations(candidates)
+    return candidates.filter(
+        report_status_filter(
+            [SignalReport.Status.RESOLVED],
+            field="report__status",
+            disabled_monitoring_organization_ids=disabled_organizations,
+        )
     ).update(next_run_at=now, updated_at=now)
 
 
@@ -328,7 +335,6 @@ def reactivate_checks_errored_by_scout_pause(
     """
     now = now or timezone.now()
     candidates = SignalReportCheck.all_teams.filter(
-        report_status_filter([SignalReport.Status.RESOLVED], field="report__status"),
         kind=SignalReportCheck.Kind.AGENT,
         status=SignalReportCheck.Status.ERRORED,
         last_outcome=SignalReportCheck.Outcome.ERRORED,
@@ -336,6 +342,14 @@ def reactivate_checks_errored_by_scout_pause(
     )
     if team_id is not None:
         candidates = candidates.filter(team_id=team_id)
+    disabled_organizations = check_monitoring_disabled_organizations(candidates)
+    candidates = candidates.filter(
+        report_status_filter(
+            [SignalReport.Status.RESOLVED],
+            field="report__status",
+            disabled_monitoring_organization_ids=disabled_organizations,
+        )
+    )
 
     matched: list[SignalReportCheck] = []
     for check in candidates.only("id", "team_id", "report_id").iterator():

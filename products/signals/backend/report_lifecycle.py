@@ -1,5 +1,6 @@
-from collections.abc import Collection
-from typing import Literal
+from collections.abc import Collection, Iterable
+from typing import TYPE_CHECKING, Literal
+from uuid import UUID
 
 from django.db.models import Q
 
@@ -9,6 +10,11 @@ from products.signals.backend.report_content_gates import (
     team_report_monitoring_enabled,
 )
 
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from products.signals.backend.models import SignalReportCheck
+
 
 def effective_report_status(status: str, *, team_id: int, monitoring_enabled: bool | None = None) -> str:
     if status != SignalReport.Status.MONITORING:
@@ -17,8 +23,30 @@ def effective_report_status(status: str, *, team_id: int, monitoring_enabled: bo
     return status if enabled else SignalReport.Status.RESOLVED
 
 
+def disabled_monitoring_organizations(organization_ids: Iterable[UUID]) -> frozenset[UUID]:
+    return frozenset(
+        organization_id
+        for organization_id in set(organization_ids)
+        if not organization_report_monitoring_enabled(organization_id)
+    )
+
+
+def check_monitoring_disabled_organizations(checks: "QuerySet[SignalReportCheck]") -> frozenset[UUID]:
+    organization_ids = (
+        checks.filter(report__status=SignalReport.Status.MONITORING)
+        .order_by()
+        .values_list("report__team__organization_id", flat=True)
+        .distinct()
+    )
+    return disabled_monitoring_organizations(organization_ids)
+
+
 def report_status_filter(
-    statuses: Collection[str], *, team_id: int | None = None, field: Literal["status", "report__status"] = "status"
+    statuses: Collection[str],
+    *,
+    team_id: int | None = None,
+    field: Literal["status", "report__status"] = "status",
+    disabled_monitoring_organization_ids: Collection[UUID] | None = None,
 ) -> Q:
     if field == "status":
         result = Q(status__in=statuses)
@@ -34,17 +62,11 @@ def report_status_filter(
         if not team_report_monitoring_enabled(team_id):
             result |= monitoring
         return result
-    monitoring_organizations = (
-        SignalReport.objects.filter(status=SignalReport.Status.MONITORING)
-        .values_list("team__organization_id", flat=True)
-        .distinct()
-    )
-    disabled = [
-        organization_id
-        for organization_id in monitoring_organizations
-        if not organization_report_monitoring_enabled(organization_id)
-    ]
+    if disabled_monitoring_organization_ids is None:
+        raise ValueError("Cross-team status filters require a scoped Monitoring gate snapshot.")
     organizations = (
-        Q(team__organization_id__in=disabled) if field == "status" else Q(report__team__organization_id__in=disabled)
+        Q(team__organization_id__in=disabled_monitoring_organization_ids)
+        if field == "status"
+        else Q(report__team__organization_id__in=disabled_monitoring_organization_ids)
     )
     return result | (monitoring & organizations)

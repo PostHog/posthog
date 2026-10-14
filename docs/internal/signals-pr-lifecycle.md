@@ -11,6 +11,8 @@ Monitoring keeps the researched report available for verification and new matchi
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
 
+Background check processing discovers rollout decisions only for Monitoring reports with candidate checks and reuses them through each coordinator tick. Reopened-check batches share one decision per team. Plan rollups reuse one decision across their child statuses and ancestor walk.
+
 PR merges still resolve reports. A plan already in Monitoring waits for verification even after its steps close. Existing checks stay pending while Monitoring is enabled and start when the report resolves. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring entry, outcome checks, and automatic completion ship separately.
 
 Attaching a new open, draft, or unknown PR to a resolved or Monitoring report returns it to ready.
