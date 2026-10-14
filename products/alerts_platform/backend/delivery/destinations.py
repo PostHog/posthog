@@ -1,8 +1,11 @@
 """Who a delivery sends to.
 
-Destinations are HogFunction rows, and `products.alerts` owns them. The platform imports no other
+`products.alerts` owns every destination: the HogFunction rows a person configured, and the
+subscriber email and in-app groups it adds for an insight alert. The platform imports no other
 product, so that product registers its lookup here when Django starts, and delivery asks this
-module rather than the owner. This module goes away when destinations move into the platform.
+module rather than the owner. One lookup answers for every source. A source decides which groups
+it can reach through the event ids it maps each kind onto, because the lookup answers per event
+id. This module goes away when destinations move into the platform.
 """
 
 from collections.abc import Collection

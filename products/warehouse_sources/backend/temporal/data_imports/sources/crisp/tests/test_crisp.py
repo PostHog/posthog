@@ -67,6 +67,74 @@ def test_out_of_range_page_completes_without_discarding_rows(config: CrispSource
     assert result.paths[-1].endswith("/2")
 
 
+@pytest.mark.parametrize(
+    ("schema", "last_value", "filter_date_start"),
+    [
+        ("conversations", datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=UTC), "2026-01-02T03:04:05.678Z"),
+        ("conversations", None, None),
+        ("messages", datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05.000Z"),
+        ("messages", None, None),
+    ],
+)
+def test_incremental_sync_filters_conversations_by_update_date(
+    config: CrispSourceConfig, schema: str, last_value: datetime | None, filter_date_start: str | None
+) -> None:
+    script = [page([{"session_id": "one", "created_at": 1000, "updated_at": 2000}])]
+    if schema == "messages":
+        script += [page([{"fingerprint": 1, "timestamp": 1500}]), page([])]
+    result = SourceDriver(CrispSource(), config).run(
+        schema,
+        script,
+        incremental_field="updated_at" if schema == "conversations" else "conversation_updated_at",
+        db_incremental_field_last_value=last_value,
+    )
+    assert result.raised is None
+    expected = {
+        "per_page": ("50",),
+        "include_empty": ("1",),
+        "filter_inbox_id": ("all",),
+        "order_date_updated": ("1",),
+    }
+    if filter_date_start is not None:
+        expected["filter_date_start"] = (filter_date_start,)
+    assert result.queries[0] == expected
+    assert result.response is not None and result.response.sort_mode == "desc"
+    cursor = "updated_at" if schema == "conversations" else "conversation_updated_at"
+    assert [row[cursor] for row in result.rows] == [datetime.fromtimestamp(2, UTC)]
+
+
+def test_resumed_incremental_messages_defer_conversations_updated_after_the_run_started(
+    config: CrispSourceConfig,
+) -> None:
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    after_start = int(started_at.timestamp() * 1000) + 1000
+    root = f"website/{config.website_id}/conversation"
+    result = SourceDriver(CrispSource(), config).run(
+        "messages",
+        [
+            page(
+                [
+                    {"session_id": "finished", "updated_at": after_start},
+                    {"session_id": "changed", "updated_at": after_start},
+                    {"session_id": "unchanged", "updated_at": after_start - 86_400_000},
+                ]
+            ),
+            page([{"fingerprint": 2, "timestamp": 1000}]),
+            page([]),
+        ],
+        incremental_field="conversation_updated_at",
+        db_incremental_field_last_value=datetime(2025, 12, 1),
+        resume_state=CrispResumeConfig(
+            paginator_state={"completed": [f"{root}/finished/messages"], "current": None, "child_state": None},
+            started_at=started_at.isoformat(),
+        ),
+    )
+    assert result.raised is None
+    assert [row["session_id"] for row in result.rows] == ["unchanged"]
+    assert not any("/changed/" in path for path in result.paths)
+    assert all(state.started_at == started_at.isoformat() for state in result.saved_states)
+
+
 def test_path_resume_uses_saved_page_after_interruption(config: CrispSourceConfig) -> None:
     driver = SourceDriver(CrispSource(), config)
     stopped = driver.run("visitors", [page([{"session_id": "one"}]), RunStopped("handoff")])

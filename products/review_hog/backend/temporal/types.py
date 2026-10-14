@@ -18,6 +18,9 @@ TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
 TRIGGER_COMMENT = "comment"
 TRIGGER_AUTOMATIC = "automatic"
+# The triggers a person starts and then waits on for an answer. An inbox review comes from the signals
+# agent, so it is not one of them.
+REQUESTED_TRIGGERS = frozenset({TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
 
 
 @frozen
