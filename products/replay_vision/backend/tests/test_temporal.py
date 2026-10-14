@@ -549,6 +549,28 @@ class TestCreateObservationActivity:
 
     @parameterized.expand(
         [
+            # Billing allows far more spend, so only the free credits stop the scanner.
+            ("free_credits_bind", 1_000_000, FREE_TIER_MONTHLY_CREDITS, "free_credits"),
+            # The org's own limit sits below the free credits, so it is the org that is out.
+            ("org_limit_binds", 1_000, 1_000, "quota"),
+        ]
+    )
+    def test_free_only_refusal_names_what_stopped_it(
+        self, _name: str, org_limit: int, spent: int, expected_reason: str
+    ) -> None:
+        scanner = _make_scanner(free_only=True)
+        seed_scanner_spend(_make_scanner(team=scanner.team, name="spender"), spent)
+        with (
+            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            assert self._admit(scanner, "sess-free").was_created is False
+        assert [c.kwargs["properties"]["reason"] for c in capture.call_args_list] == [expected_reason]
+
+    @parameterized.expand(
+        [
             ("quota", 5, 5),
             ("consent", None, None),
         ]
