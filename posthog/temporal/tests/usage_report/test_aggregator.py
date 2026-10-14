@@ -7,14 +7,22 @@ No Django / Temporal / S3 required.
 """
 
 import json
+import weakref
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
 
-from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters, apply_usage_counter_metadata
+from posthog.tasks.usage_report import (
+    InstanceMetadata,
+    OrgReport,
+    UsageReportCounters,
+    apply_usage_counter_metadata,
+    iter_reports_with_usage_counter_metadata,
+)
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
@@ -218,7 +226,8 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
     )
 
 
-def test_counter_comparisons_follow_current_team_ownership() -> None:
+@pytest.mark.parametrize("streamed", [False, True])
+def test_counter_comparisons_follow_current_team_ownership(streamed: bool) -> None:
     previous_owner = _empty_org_report("org-a")
     previous_owner.teams["1"] = _empty_org_report("org-a")
     current_owner = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
@@ -234,13 +243,55 @@ def test_counter_comparisons_follow_current_team_ownership() -> None:
     )
 
     with patch("posthog.tasks.usage_report.ph_scoped_capture") as capture:
-        apply_usage_counter_metadata(
-            {"org-a": previous_owner, "org-b": current_owner}, counter_report, caller="daily_report", date="2026-05-04"
-        )
+        if streamed:
+            assert list(
+                iter_reports_with_usage_counter_metadata(
+                    iter((previous_owner, current_owner)), counter_report, caller="usage_reports_v2", date="2026-05-04"
+                )
+            ) == [previous_owner, current_owner]
+        else:
+            apply_usage_counter_metadata(
+                {"org-a": previous_owner, "org-b": current_owner},
+                counter_report,
+                caller="daily_report",
+                date="2026-05-04",
+            )
 
     assert previous_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}}
     assert current_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 100, "realtime": 100}}
     capture.assert_not_called()
+
+
+def test_counter_metadata_does_not_retain_streamed_reports() -> None:
+    references: list[weakref.ReferenceType[OrgReport]] = []
+
+    def reports() -> Iterator[OrgReport]:
+        for team_id in range(4):
+            report = _empty_org_report(str(team_id), event_count_in_period=1)
+            report.teams[str(team_id)] = _empty_org_report(str(team_id), event_count_in_period=1)
+            references.append(weakref.ref(report))
+            yield report
+
+    counter_report = UsageCounterReport(
+        counts={},
+        usage_sources={"event_count_in_period": UsageCounterMode.BOTH},
+        counter_comparisons={
+            "event_count_in_period": UsageCounterComparisonRows(
+                legacy_by_team=dict.fromkeys(range(4), 1),
+                realtime_by_team={team_id: {str(team_id): 2} for team_id in range(4)},
+            )
+        },
+    )
+    output = iter_reports_with_usage_counter_metadata(
+        reports(), counter_report, caller="usage_reports_v2", date="2026-05-04"
+    )
+    for team_id in range(4):
+        report = next(output)
+        assert report.organization_id == str(team_id)
+        assert report.counter_comparisons == {"event_count_in_period": {"legacy": 1, "realtime": 2}}
+        assert sum(ref() is not None for ref in references) == 1
+        del report
+    assert next(output, None) is None
 
 
 def test_missing_organization_diagnostics_split_without_losing_comparisons() -> None:

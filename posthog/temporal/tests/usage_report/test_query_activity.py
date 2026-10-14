@@ -10,14 +10,17 @@ import json
 import asyncio
 import dataclasses
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import sync_to_async
+
 from posthog.storage import object_storage
 from posthog.temporal.tests.usage_report.test_parity import _install_in_memory_object_storage
 from posthog.temporal.usage_report import storage
-from posthog.temporal.usage_report.activities import fetch_usage_counter_report, run_query_to_s3
+from posthog.temporal.usage_report.activities import fetch_usage_counter_report, plan_usage_counters, run_query_to_s3
 from posthog.temporal.usage_report.metrics import USAGE_REPORTS_QUERY_LATENCY
 from posthog.temporal.usage_report.queries import QuerySpec
 from posthog.temporal.usage_report.storage import queries_key
@@ -33,6 +36,57 @@ from posthog.usage_counters import (
 from posthog.utils import DayRange
 
 from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("activity_name", ["plan", "fetch"])
+async def test_counter_activities_complete_while_shared_executor_is_busy(
+    activity_environment, activity_name: str
+) -> None:
+    period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+    plan = UsageCounterPlan(
+        period=period,
+        caller="usage_reports_v2",
+        modes={UsageCounter.EVENTS: UsageCounterMode.LEGACY},
+        complete=True,
+    )
+    ctx = WorkflowContext(
+        run_id="counter-executor-test",
+        workflow_started_at=period.end,
+        period_start=period.start,
+        period_end=period.end,
+        date_str="2026-05-04",
+        usage_counter_plan=plan,
+    )
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    def occupy_shared_thread() -> None:
+        loop.call_soon_threadsafe(started.set)
+        release.wait()
+
+    blocker = asyncio.create_task(sync_to_async(occupy_shared_thread)())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        with (
+            patch("posthog.temporal.usage_report.activities.UsageCounterService.resolve_plan", return_value=plan),
+            patch(
+                "posthog.temporal.usage_report.activities.UsageCounterService.fetch_report",
+                return_value=UsageCounterReport(counts={UsageCounter.EVENTS: [(1, 17)]}),
+            ),
+            patch("posthog.storage.object_storage.write") as write,
+        ):
+            if activity_name == "plan":
+                assert await asyncio.wait_for(activity_environment.run(plan_usage_counters, ctx), timeout=10) == plan
+                write.assert_not_called()
+            else:
+                result = await asyncio.wait_for(activity_environment.run(fetch_usage_counter_report, ctx), timeout=10)
+                assert write.call_args.args[0] == result.s3_key
+                assert json.loads(write.call_args.args[1])["counts"] == {UsageCounter.EVENTS.value: [[1, 17]]}
+    finally:
+        release.set()
+        await blocker
 
 
 @pytest.mark.asyncio

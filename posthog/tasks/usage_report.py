@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -3595,42 +3595,64 @@ def apply_usage_counter_metadata(
 ) -> None:
     if not counter_report.usage_sources:
         return
-    for report in org_reports.values():
+    for _ in iter_reports_with_usage_counter_metadata(
+        org_reports.values(), counter_report, caller=caller, date=date, organization_ids=organization_ids
+    ):
+        pass
+
+
+def iter_reports_with_usage_counter_metadata(
+    org_reports: Iterable[OrgReport],
+    counter_report: UsageCounterReport,
+    *,
+    caller: UsageCounterCaller,
+    date: str,
+    organization_ids: list[str] | None = None,
+) -> Iterator[OrgReport]:
+    if not counter_report.usage_sources:
+        yield from org_reports
+        return
+    report_orgs: set[str] = set()
+    report_teams: set[int] = set()
+    missing: dict[str, dict[str, UsageCounterComparison]] = {}
+    wanted = set(organization_ids) if organization_ids else None
+    for report in org_reports:
         report.usage_sources = counter_report.usage_sources
         report.counter_comparisons = {} if counter_report.counter_comparisons is not None else None
+        if counter_report.counter_comparisons is not None:
+            org_id = report.organization_id
+            teams = [int(team_id) for team_id in report.teams]
+            report_orgs.add(org_id)
+            report_teams.update(teams)
+            reported = has_non_zero_usage(report)
+            for field, rows in counter_report.counter_comparisons.items():
+                comparison: UsageCounterComparison = {
+                    "legacy": sum(rows.legacy_by_team.get(team_id, 0) for team_id in teams),
+                    "realtime": sum(sum(rows.realtime_by_team.get(team_id, {}).values()) for team_id in teams),
+                }
+                assert report.counter_comparisons is not None
+                report.counter_comparisons[field] = comparison
+                if (
+                    (comparison["legacy"] or comparison["realtime"])
+                    and not reported
+                    and (wanted is None or org_id in wanted)
+                ):
+                    missing.setdefault(org_id, {})[field] = comparison
+        yield report
     if counter_report.counter_comparisons is None:
         return
-
-    reported = {org_id for org_id, report in org_reports.items() if has_non_zero_usage(report)}
-    report_teams = {int(team_id) for report in org_reports.values() for team_id in report.teams}
-    missing: dict[str, dict[str, UsageCounterComparison]] = {}
     for field, rows in counter_report.counter_comparisons.items():
-        realtime_by_team = {team_id: sum(orgs.values()) for team_id, orgs in rows.realtime_by_team.items()}
-        by_org: dict[str, UsageCounterComparison] = {
-            org_id: {
-                "legacy": sum(rows.legacy_by_team.get(int(team_id), 0) for team_id in report.teams),
-                "realtime": sum(realtime_by_team.get(int(team_id), 0) for team_id in report.teams),
-            }
-            for org_id, report in org_reports.items()
-        }
         # A team in no report keeps the organization on its records, so deleted organizations still show as missing.
+        unreported: dict[str, int] = {}
         for team_id, orgs in rows.realtime_by_team.items():
             if team_id in report_teams:
                 continue
             for org_id, quantity in orgs.items():
-                if org_id not in org_reports:
-                    by_org.setdefault(org_id, {"legacy": 0, "realtime": 0})["realtime"] += quantity
-        for org_id, comparison in by_org.items():
-            if org_id in org_reports:
-                comparisons = org_reports[org_id].counter_comparisons
-                assert comparisons is not None
-                comparisons[field] = comparison
-            if (
-                (comparison["legacy"] or comparison["realtime"])
-                and org_id not in reported
-                and (not organization_ids or org_id in organization_ids)
-            ):
-                missing.setdefault(org_id, {})[field] = comparison
+                if org_id not in report_orgs and (wanted is None or org_id in wanted):
+                    unreported[org_id] = unreported.get(org_id, 0) + quantity
+        for org_id, quantity in unreported.items():
+            if quantity:
+                missing.setdefault(org_id, {})[field] = {"legacy": 0, "realtime": quantity}
     try:
         SHADOW_MISSING_ORGS.labels(caller=caller).set(len(missing))
         if missing:

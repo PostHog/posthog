@@ -81,7 +81,7 @@ SQS_QUEUE_NAME = "usage_reports_v2"
 
 @activity.defn(name="plan-usage-counters")
 async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
-    return await sync_to_async(UsageCounterService().resolve_plan)(
+    return await sync_to_async(UsageCounterService().resolve_plan, thread_sensitive=False)(
         DayRange(start=ctx.period_start, end=ctx.period_end),
         caller="usage_reports_v2",
         complete=ctx.report_completeness == "complete",
@@ -111,7 +111,7 @@ async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result
             )(DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan)
             key = queries_key(ctx, "usage_counters")
 
-            @sync_to_async
+            @sync_to_async(thread_sensitive=False)
             def persist_report() -> None:
                 write_json(key, dataclasses.asdict(report))
 
