@@ -49,7 +49,7 @@ export function InboxSummaryPeoplePopover({ people }: { people: InboxSummaryPers
                 onMouseLeave={() => setVisible(false)}
                 onClick={() => setVisible(!visible)}
             >
-                {count.toLocaleString()} {count === 1 ? 'person' : 'people'}
+                <span>{`${count.toLocaleString()} ${count === 1 ? 'person' : 'people'}`}</span>
             </button>
         </Popover>
     )
