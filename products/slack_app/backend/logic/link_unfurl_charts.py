@@ -10,7 +10,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
+
+import structlog
+from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team, User
 from posthog.models.integration import Integration, SlackIntegration
@@ -31,6 +35,13 @@ _CHART_URL_TTL = timedelta(days=30)
 _CHART_ASSET_TTL = timedelta(days=31)
 _CHART_CACHE_SECONDS = 10 * 60
 _MAX_ALT_TEXT_CHARS = 2000
+# A local render has a localhost URL that Slack cannot fetch, and Slack then rejects the whole
+# unfurl with cannot_parse_attachment. The same placeholder as subscriptions use in DEBUG.
+_DEBUG_PLACEHOLDER_IMAGE_URL = (
+    "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
+)
+
+logger = structlog.get_logger(__name__)
 
 
 def chart_cache_key(*, team_id: int, insight: Insight, user_id: int) -> str:
@@ -111,22 +122,32 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput) -> None:
         )
         if image_url is None:
             continue
-        image_urls[asset.url] = image_url
+        image_urls[asset.url] = _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_url
         if not asset.cached:
             cache.set(asset.cache_key, asset.asset_id, _CHART_CACHE_SECONDS)
 
+    failure_reason: str | None = None
     if image_urls:
         titles = {chart.url: chart.title for chart in request.charts}
-        # A failure raises, so Temporal retries this step without a new render.
-        SlackIntegration(integration).client.chat_unfurl(
-            **chat_unfurl_kwargs(
-                channel=request.channel,
-                ts=request.message_ts,
-                unfurls=with_chart_images(request.unfurls, image_urls, titles),
-                unfurl_id=request.unfurl_id,
-                source=request.source,
+        try:
+            SlackIntegration(integration).client.chat_unfurl(
+                **chat_unfurl_kwargs(
+                    channel=request.channel,
+                    ts=request.message_ts,
+                    unfurls=with_chart_images(request.unfurls, image_urls, titles),
+                    unfurl_id=request.unfurl_id,
+                    source=request.source,
+                )
             )
-        )
+        except SlackApiError as e:
+            error = e.response.get("error") if e.response is not None else None
+            # A retry cannot fix a payload that Slack rejects, so only a rate limit raises for
+            # Temporal to retry. Network errors are not SlackApiError and also raise.
+            if error == "ratelimited":
+                raise
+            logger.warning("slack_app_unfurl_charts_rejected", team_id=integration.team_id, error=error)
+            failure_reason = error or "slack_api_error"
+            image_urls = {}
 
     capture_slack_event(
         integration,
@@ -138,4 +159,5 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput) -> None:
         charts_cached=sum(1 for asset in post.rendered if asset.cached and asset.url in image_urls),
         charts_failed=len(request.charts) - len(image_urls),
         duration_ms=post.elapsed_ms,
+        failure_reason=failure_reason,
     )

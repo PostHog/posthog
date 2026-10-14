@@ -1,9 +1,11 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models import User
 from posthog.models.integration import Integration
@@ -99,3 +101,34 @@ class TestLinkUnfurlCharts(BaseTest):
         assert blocks[1]["type"] == "image"
         assert blocks[1]["alt_text"] == "Weekly active users"
         assert blocks[1]["image_url"].startswith("http")
+
+    @parameterized.expand(
+        [("rejected_payload", "cannot_parse_attachment", False), ("rate_limited", "ratelimited", True)]
+    )
+    @patch("products.slack_app.backend.logic.link_unfurl_charts.capture_slack_event")
+    @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
+    def test_post_retries_only_a_rate_limited_unfurl(
+        self, _name: str, slack_error: str, expect_raise: bool, mock_slack: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=self.insight,
+            content=b"png",
+        )
+        mock_slack.return_value.client.chat_unfurl.side_effect = SlackApiError(slack_error, {"error": slack_error})
+        post = SlackAppUnfurlChartsPostInput(
+            request=self._inputs(self.user),
+            rendered=[SlackUnfurlChartAsset(url=_URL, asset_id=asset.id, cache_key="unused", cached=False)],
+            elapsed_ms=1,
+        )
+
+        if expect_raise:
+            with pytest.raises(SlackApiError):
+                post_unfurl_charts(post)
+            mock_capture.assert_not_called()
+            return
+        post_unfurl_charts(post)
+        assert mock_capture.call_args.kwargs["charts_shown"] == 0
+        assert mock_capture.call_args.kwargs["failure_reason"] == slack_error
