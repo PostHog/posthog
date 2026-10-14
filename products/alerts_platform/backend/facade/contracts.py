@@ -17,6 +17,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
+
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
@@ -125,6 +127,7 @@ class PlatformAlertCheckInput:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     firing_started_at: datetime | None = None
+    owned_by_platform: bool = False
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -155,6 +158,20 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+
+
+@frozen
+class PlatformOwnershipHandover:
+    """A source alert handed to the platform, with the runtime state the platform carries on from."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    # The platform checks no earlier than a minute after the handover, whatever this says.
+    next_check_at: datetime
+    at: datetime
 
 
 class SkipReason(StrEnum):
@@ -333,6 +350,10 @@ class AlertDeliveryRequest:
     actions, so its rows reach no message destination even when their kind has an event id.
     `event_ids_by_incident_action` maps each action onto the event id an incident manager
     destination filters on, the way `event_ids_by_kind` does for a message.
+
+    `owned_by_platform` is the owner when the check was read, not when the delivery runs. The
+    source decided its own send for that check from the same owner, so a retry across a cutover
+    or a rollback still has exactly one stack sending.
     """
 
     source: SourceKind
@@ -344,6 +365,7 @@ class AlertDeliveryRequest:
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
     event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
+    owned_by_platform: bool = False
 
 
 @frozen
@@ -373,6 +395,7 @@ class PlatformConfigurationSnapshot:
     id: UUID
     next_check_at: datetime | None
     consecutive_failures: int
+    owner: str
 
 
 @frozen

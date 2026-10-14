@@ -3555,11 +3555,23 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
     @parameterized.expand(
         [
-            ("default_read_after_write", {}, "auto"),
-            ("background_no_quorum", {"read_after_write": False}, 0),
+            ("default_read_after_write", {}, "auto", {}),
+            ("background_no_quorum", {"read_after_write": False}, 0, {}),
+            # Caller overrides must win over the defaults and over spill_to_disk's threshold.
+            (
+                "caller_settings_override_defaults",
+                {
+                    "spill_to_disk": True,
+                    "insert_settings": {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
+                },
+                "auto",
+                {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
+            ),
         ]
     )
-    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self, _name, extra_kwargs, expected_quorum):
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(
+        self, _name, extra_kwargs, expected_quorum, expected_overrides
+    ):
         # The quorum constant is patched to its production value because TEST forces
         # it to 0, which would make both parameter rows assert the same settings.
         with (
@@ -3578,7 +3590,12 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
                 time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
                 **extra_kwargs,
             )
-            expected_settings = _get_insert_settings(self.team.pk, **extra_kwargs)
+            expected_settings = _get_insert_settings(
+                self.team.pk,
+                spill_to_disk=extra_kwargs.get("spill_to_disk", False),
+                read_after_write=extra_kwargs.get("read_after_write", True),
+                overrides=extra_kwargs.get("insert_settings"),
+            )
 
         assert result.ready is True
         # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
@@ -3587,6 +3604,7 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         assert len(insert_calls) == 1  # one missing range -> one INSERT
         assert insert_calls[0].kwargs["settings"] == expected_settings
         assert insert_calls[0].kwargs["settings"]["insert_quorum"] == expected_quorum
+        assert insert_calls[0].kwargs["settings"].items() >= expected_overrides.items()
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
 
