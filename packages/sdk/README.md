@@ -155,7 +155,7 @@ pnpm --filter=@posthog/sdk test
 pnpm --filter=@posthog/sdk check:package
 ```
 
-Generation reads `frontend/tmp/openapi.json` (or `OPENAPI_SCHEMA_PATH`), `frontend/src/queries/schema.json`, and MCP's registered factories. `hogli build:openapi` builds the backend schema and MCP artifacts before generating the SDK. An optional `sdk: { namespace: featureFlags, method: archive }` customizes naming; it does not control inclusion. Other methods use the definition's module as namespace and the camel-cased MCP tool name as method name.
+Generation reads `frontend/tmp/openapi.json` (or `OPENAPI_SCHEMA_PATH`), `frontend/src/queries/schema.json`, and MCP's registered factories. `hogli build:openapi` builds the backend schema and MCP artifacts before generating the SDK. The generation commands set a 4 GiB Node.js heap limit for the complete catalog. An optional `sdk: { namespace: featureFlags, method: archive }` customizes naming; it does not control inclusion. Other methods use the definition's module as namespace and the camel-cased MCP tool name as method name.
 
 Input interfaces come from the actual MCP validators. Output interfaces come from handler result types, API schemas, and query adapters. Union inputs have named interface variants. The package retains original comments, field overrides, and tool descriptions. Source contracts that leave a value unspecified are labeled as JSON rather than given invented fields.
 

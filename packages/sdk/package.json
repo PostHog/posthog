@@ -43,7 +43,7 @@
     "scripts": {
         "build": "node scripts/build.mjs",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "generate": "node ../../services/mcp/scripts/generate-sdk.mjs",
+        "generate": "node --max-old-space-size=4096 ../../services/mcp/scripts/generate-sdk.mjs",
         "test": "node --test tests/*.test.mjs",
         "check:package": "node scripts/check-package.mjs",
         "prepack": "npm run build"
