@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightModel } from '~/types'
@@ -61,6 +62,9 @@ export async function deleteInsightWithUndo({
     try {
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
+            // The body is the whole insight, so it carries the insight's dashboards too. An explicit
+            // `dashboards` on the object replaces the list read from the tiles.
+            ...(props.object.dashboard_tiles ? { dashboards: liveDashboardIds(props.object.dashboard_tiles) } : {}),
             ...props.object,
             deleted: !undo,
         })

@@ -242,7 +242,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
                                 saveInsight={saveInsightToFolder}
                                 isSaved={isSavedInsight}
-                                addingToDashboard={!!insight.dashboards?.length && !insight.id}
+                                addingToDashboard={!insight.id && !!insight.dashboards?.length}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
                                 // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the

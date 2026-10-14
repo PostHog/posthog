@@ -128,7 +128,6 @@ describe('DashboardWidgetItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'widget-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).mount()
     })
@@ -138,7 +137,6 @@ describe('DashboardWidgetItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'widget-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).unmount()
     })

@@ -213,7 +213,6 @@ export function InsightMeta({
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
-        dashboards: insight.dashboards,
         dashboard_tiles: insight.dashboard_tiles,
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))

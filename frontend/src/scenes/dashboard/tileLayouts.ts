@@ -9,7 +9,6 @@ import {
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
@@ -243,7 +242,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+            const query = tile.insight ?? null
             // Base constraints
             let defaultW = 6
             let defaultH = 5
