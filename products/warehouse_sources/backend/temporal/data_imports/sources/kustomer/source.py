@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]):
+    codebase_detection = detect(env=("^KUSTOMER_",), script_hosts=("cdn.kustomerapp.com",))
+
     # Kustomer exposes both a v1.0 and a v2 API version, but the resources we sync
     # are served under `/v1/`
     # for both — the "v2" docs toggle keeps these list endpoints at `/v1/`. So the

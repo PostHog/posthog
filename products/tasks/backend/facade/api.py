@@ -19,7 +19,7 @@ from django.core.exceptions import (
     PermissionDenied,
     ValidationError as DjangoValidationError,
 )
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import (
     BooleanField,
     Case,
@@ -517,6 +517,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "claude_subscription_user_id",
         "codex_max_subagents",
         "codex_model_access",
+        "codex_shared_prompt_cache",
         "codex_subscription_user_id",
         "context_window",
         "custom_image_id",
@@ -2254,9 +2255,11 @@ def upsert_internal_sandbox_env(
     nothing a person set on a row (before or after it became internal) can ride into an
     internally provisioned run.
 
-    ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``, so concurrent
-    callers can both INSERT. We dedupe on ``MultipleObjectsReturned`` by keeping the oldest
-    matching row and deleting the rest.
+    ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``. A transaction-scoped
+    advisory lock on ``(team_id, name, internal)`` serializes concurrent callers, so they cannot
+    both INSERT. Without it, a dedupe could delete a row that another caller already returned.
+    Duplicates from before the lock are still deduped: we keep the oldest matching row and
+    delete the rest.
     """
     defaults: dict = {
         "network_access_level": network_access_level,
@@ -2268,22 +2271,27 @@ def upsert_internal_sandbox_env(
     if allowed_domains is not None:
         defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
-    try:
-        env, _ = SandboxEnvironment.objects.update_or_create(
-            team_id=team_id, name=name, internal=internal, defaults=defaults
-        )
-        return env.id
-    except SandboxEnvironment.MultipleObjectsReturned:
-        with transaction.atomic():
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                [team_id, f"internal-sandbox-env:{internal}:{name}"],
+            )
+        try:
+            env, _ = SandboxEnvironment.objects.update_or_create(
+                team_id=team_id, name=name, internal=internal, defaults=defaults
+            )
+            return env.id
+        except SandboxEnvironment.MultipleObjectsReturned:
             dupes = list(
                 SandboxEnvironment.objects.filter(team_id=team_id, name=name, internal=internal).order_by("created_at")
             )
             keeper = dupes[0]
             SandboxEnvironment.objects.filter(id__in=[d.id for d in dupes[1:]]).delete()
-        for key, value in defaults.items():
-            setattr(keeper, key, value)
-        keeper.save(update_fields=list(defaults.keys()))
-        return keeper.id
+            for key, value in defaults.items():
+                setattr(keeper, key, value)
+            keeper.save(update_fields=list(defaults.keys()))
+            return keeper.id
 
 
 def create_completed_sandbox_snapshot(external_id: str) -> UUID:
@@ -5920,6 +5928,9 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
+    if task.origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+        return None, None
+
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
 
@@ -7619,6 +7630,12 @@ def create_task(
         if github_user_integration is not None:
             validated_data["github_user_integration"] = github_user_integration.integration
 
+    if validated_data["origin_product"] == Task.OriginProduct.ACCOUNT_AUDIT:
+        validated_data["repository"] = None
+        validated_data["repositories"] = []
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
+
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
         validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
@@ -7729,7 +7746,11 @@ def update_task(
         # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
         # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
         # attached, so an attachable one would credential a run the create path left credential-less.
-        if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if task.origin_product in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.ACCOUNT_AUDIT,
+        ):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)

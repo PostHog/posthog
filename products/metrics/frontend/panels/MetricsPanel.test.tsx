@@ -80,6 +80,21 @@ describe('MetricsPanel', () => {
             expect(tooltip.value('http.requests')).toBe('0')
         })
 
+        it('formats the y axis and tooltip with the resolved unit', async () => {
+            renderPanel([seriesWith({}, [250, 1500, 3000], 'http.duration', 'ms')])
+            const chart = getHogChart()
+            expect(chart.yTicks().some((tick) => tick.endsWith(' s'))).toBe(true)
+            const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 0, BUCKETS.length))
+            expect(tooltip.value('http.duration')).toBe('250 ms')
+        })
+
+        it('labels every ratio tick on one scale when the data exceeds 1', () => {
+            renderPanel([seriesWith({}, [0, 1, 2], 'load', '1')])
+            const ticks = getHogChart().yTicks()
+            expect(ticks.length).toBeGreaterThan(1)
+            expect(ticks.some((tick) => tick.endsWith('%'))).toBe(false)
+        })
+
         it('draws a goal line above the data', () => {
             renderPanel([seriesWith({}, [1, 2, 3])], { goalLines: [{ label: 'SLO', value: 10 }] })
             expect(screen.getByText('SLO')).toBeInTheDocument()
@@ -125,6 +140,19 @@ describe('MetricsPanel', () => {
             expect(screen.getByText('pod')).toBeInTheDocument()
             expect(screen.getByText('api')).toBeInTheDocument()
             expect(screen.getByText('30')).toBeInTheDocument()
+        })
+
+        it('formats every ratio cell of the table on one scale', () => {
+            renderPanel([seriesWith({}, [0.5, 1, 2], 'load', '1')], { type: 'table', legendCalcs: ['min', 'max'] })
+            expect(screen.getByText('0.5')).toBeInTheDocument()
+            expect(screen.getByText('2')).toBeInTheDocument()
+            expect(screen.queryByText('50%')).not.toBeInTheDocument()
+        })
+
+        it('formats a ratio gauge value and its bounds on one scale', () => {
+            renderPanel([seriesWith({}, [0, 0, 0.5], 'load', '1')], { type: 'gauge', yAxis: { min: 0, max: 2 } })
+            expect(screen.getByText('0.5')).toBeInTheDocument()
+            expect(screen.getByText('0 – 2')).toBeInTheDocument()
         })
 
         it('renders the gauge arc with a formatted value and bounds', () => {

@@ -30,13 +30,24 @@ class PullRequestFacts:
 
 
 @frozen
+class ProjectMember:
+    """A project the commenter may act in, and the commenter's PostHog account that acts there.
+
+    One GitHub account can be linked to several PostHog accounts, for example a work and a personal
+    one, so the account goes with the project the command picks.
+    """
+
+    team_id: int
+    user_id: int
+
+
+@frozen
 class CommandContext:
     request: CommentCommandRequest
     pull_request: PullRequestFacts
-    user_id: int
-    # Projects the commenter may act in for this command, best candidate first. Every id here
-    # passed the membership, rollout and resource-access checks for this command.
-    team_ids: tuple[int, ...]
+    # Best candidate first. Every entry passed the membership, rollout and resource-access checks
+    # for this command. A project appears once per linked account that is a member of it.
+    members: tuple[ProjectMember, ...]
 
 
 @frozen

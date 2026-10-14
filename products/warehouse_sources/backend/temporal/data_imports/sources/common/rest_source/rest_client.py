@@ -668,23 +668,25 @@ class RESTClient:
                 )
             raise error
 
-        response_hooks = hooks.get("response", [])
-        if response_hooks:
-            for hook in response_hooks:
-                hook(response, request=request)
-        else:
-            # Redact any secret the URL carries (e.g. an api_key query param) out of the raised
-            # HTTPError message before it propagates into a user-visible ``latest_error``.
-            try:
+        # Redact any secret the URL carries (e.g. an api_key query param) out of the raised
+        # HTTPError message before it propagates into a user-visible ``latest_error``. Response
+        # hooks (``response_actions``) fall back to ``raise_for_status`` for unmatched 4xx, so they
+        # are covered too.
+        try:
+            response_hooks = hooks.get("response", [])
+            if response_hooks:
+                for hook in response_hooks:
+                    hook(response, request=request)
+            else:
                 response.raise_for_status()
-            except HTTPError as e:
-                message = str(e)
-                # Appended after the stock message, so non-retryable-error patterns — which match
-                # the message as a substring — keep matching.
-                identity = _error_identity(response)
-                if identity:
-                    message = f"{message} | api error: {identity}"
-                raise HTTPError(self._redact(message), response=e.response, request=e.request) from None
+        except HTTPError as e:
+            message = str(e)
+            # Appended after the stock message, so non-retryable-error patterns — which match
+            # the message as a substring — keep matching.
+            identity = _error_identity(response)
+            if identity:
+                message = f"{message} | api error: {identity}"
+            raise HTTPError(self._redact(message), response=e.response, request=e.request) from None
 
         # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
         # instead of bubbling up uncaught and failing the import.
