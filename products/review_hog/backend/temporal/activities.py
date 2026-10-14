@@ -2305,7 +2305,7 @@ def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installatio
     return response.json().get("draft") is True
 
 
-def _gate_push(input: GatePushInput) -> PushGateDecision:
+def _gate_push(input: GatePushInput, *, charge_budget: bool = True) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
     if current is None:
@@ -2330,7 +2330,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         ):
             draft = False
             decision = push_decision
-    decision = apply_throttle(decision, report_id=input.report_id)
+    if charge_budget:
+        decision = apply_throttle(decision, report_id=input.report_id)
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
@@ -2348,7 +2349,10 @@ async def gate_push_activity(input: GatePushInput) -> PushGateDecision:
 
     A skip returns the report to rest, because the turn ends before any stage that would.
     """
-    return await database_sync_to_async(_gate_push, thread_sensitive=False)(input)
+    # The attempt before a retry can take the last token and die before it returns. A retry that
+    # charges again would skip a push that passed the budget, so a retry reviews the push instead.
+    charge_budget = activity.info().attempt == 1
+    return await database_sync_to_async(_gate_push, thread_sensitive=False)(input, charge_budget=charge_budget)
 
 
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:
