@@ -139,6 +139,8 @@ async fn run_pipeline(
     )
     .await?;
 
+    apply_historical_rerouting(&state.historical_cfg, context, &mut events);
+
     if let Some(ref service) = state.event_restriction_service {
         apply_restrictions(
             service,
@@ -155,8 +157,6 @@ async fn run_pipeline(
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
     }
-
-    apply_historical_rerouting(&state.historical_cfg, context, &mut events);
 
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
@@ -875,9 +875,8 @@ async fn apply_restrictions(
         // Overflow only applies to the overflowing lanes: AnalyticsMain, and
         // AiMain once the AI overflow valve is armed (each rerouting to its
         // own overflow destination). AnalyticsHistorical must never overflow
-        // (v0's `pipeline::resolve` rule). Today this stage runs before historical
-        // rerouting so an analytics event is always AnalyticsMain here; the
-        // explicit guard makes the invariant ordering-independent.
+        // (v0's `pipeline::resolve` rule), so historical rerouting runs before
+        // this stage.
         let force_overflow_destination = match event.destination {
             Destination::AnalyticsMain => Some(Destination::AnalyticsOverflow),
             Destination::AiMain if ai_events_overflow_enabled => Some(Destination::AiOverflow),
@@ -4422,16 +4421,26 @@ mod tests {
     #[tokio::test]
     async fn import_mode_historical_batch_never_overflows() {
         // Import's no-overflow guarantee on the v1 path. Non-AI events in a
-        // historical batch reroute to AnalyticsHistorical before overflow
-        // stamping (which only touches AnalyticsMain), and AI events divert
-        // to the AI lane, which cannot stamp overflow while the AI overflow
-        // valve is unset — the capture-import config. Even with the burst
-        // overflow limiter armed at burst=1 and all three events sharing one
-        // token:distinct_id — which would overflow the 2nd and 3rd in Events
-        // mode — nothing lands on events_overflow or the AI overflow lane.
+        // historical batch reroute to AnalyticsHistorical before restrictions
+        // and overflow stamping (both only overflow AnalyticsMain), and AI
+        // events divert to the AI lane, which cannot overflow while the AI
+        // overflow valve is unset — the capture-import config. Even with a
+        // ForceOverflow restriction and the burst overflow limiter armed at
+        // burst=1 with all three events sharing one token:distinct_id, nothing
+        // lands on events_overflow or the AI overflow lane.
+        let restrictions = restriction_service(
+            "phc_test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .with_overflow_limiter(1, 1)
+            .with_restriction_service(restrictions)
             .build();
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![
