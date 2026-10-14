@@ -1100,13 +1100,17 @@ def _contains_behavioral_property(filters: dict) -> bool:
 
 
 def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+    # Mirrors compile_filters_expr, which compiles every entry typed "actions" in either list.
     action_ids: set[int] = set()
-    entries = filters.get("actions")
-    for entry in entries if isinstance(entries, list) else []:
-        action_id = entry.get("id") if isinstance(entry, dict) else None
-        if isinstance(action_id, int | str):
-            with contextlib.suppress(ValueError):
-                action_ids.add(int(action_id))
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict) or entry.get("type") != "actions":
+                continue
+            action_id = entry.get("id")
+            if isinstance(action_id, int | str):
+                with contextlib.suppress(ValueError):
+                    action_ids.add(int(action_id))
     return action_ids
 
 

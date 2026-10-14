@@ -3074,7 +3074,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
         actions = data.get("actions", instance.actions if instance else [])
-        require_viewer_access_to_added_actions(self.context, submitted_actions, instance.actions if instance else None)
+        stored = instance or self.context.get("instance")
+        require_viewer_access_to_added_actions(
+            self.context,
+            {"actions": submitted_actions, "conversion": data.get("conversion")},
+            {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
+        )
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
