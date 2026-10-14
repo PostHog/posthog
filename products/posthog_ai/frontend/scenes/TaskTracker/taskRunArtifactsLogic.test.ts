@@ -165,7 +165,6 @@ describe('taskRunArtifactsLogic', () => {
                 new Response(
                     JSON.stringify({
                         url: `https://usercontent.example/canvas-artifacts/task-preview/${path}/index.html`,
-                        scripts_enabled: path === 'scripts',
                         scripts_available: true,
                     }),
                     { status, headers: { 'Content-Type': 'application/json' } }
