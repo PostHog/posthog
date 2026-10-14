@@ -30,6 +30,60 @@ export interface ChartAccessibilityProps extends AccessibilityProps {
 
 const SHOW_DETAILS = 'showDetails'
 
+interface AdjustableInput {
+    label: string
+    value?: string
+    hint?: string
+    /** Swipe up (1) or down (-1). */
+    onStep: (direction: 1 | -1) => void
+    onEscape: () => void
+    /** "Show details". Without it the action is left out. */
+    onShowDetails?: () => void
+    actions?: readonly ChartAccessibilityAction[]
+}
+
+/**
+ * The one adjustable element every chart kind exposes: a summary label, the selected item as the value, swipe up or
+ * down to move, "Show details" and the caller's extra actions, and escape to close the selection.
+ */
+function useAdjustable(input: AdjustableInput): ChartAccessibilityProps {
+    const { label, value, hint, onStep, onEscape, onShowDetails, actions } = input
+    const onAccessibilityAction = useCallback(
+        (event: AccessibilityActionEvent): void => {
+            const name = event.nativeEvent.actionName
+            if (name === 'increment') {
+                onStep(1)
+            } else if (name === 'decrement') {
+                onStep(-1)
+            } else if (name === SHOW_DETAILS) {
+                onShowDetails?.()
+            } else {
+                actions?.find((action) => action.name === name)?.onAction()
+            }
+        },
+        [onStep, onShowDetails, actions]
+    )
+    const accessibilityActions = useMemo(
+        () => [
+            { name: 'increment' },
+            { name: 'decrement' },
+            ...(onShowDetails ? [{ name: SHOW_DETAILS, label: 'Show details' }] : []),
+            ...(actions ?? []).map(({ name, label: actionLabel }) => ({ name, label: actionLabel })),
+        ],
+        [onShowDetails, actions]
+    )
+    return {
+        accessible: true,
+        accessibilityRole: 'adjustable',
+        accessibilityLabel: label,
+        accessibilityValue: value ? { text: value } : undefined,
+        accessibilityHint: hint,
+        accessibilityActions,
+        onAccessibilityAction,
+        onAccessibilityEscape: onEscape,
+    }
+}
+
 function latestValue(series: readonly ChartSeries[]): number | undefined {
     const primary = series.find((s) => !isCompareSeries(s))
     return primary ? [...primary.points].reverse().find((point) => Number.isFinite(point.value))?.value : undefined
@@ -113,44 +167,65 @@ export function useChartAccessibility(input: ChartAccessibilityInput): ChartAcce
         [mask, selection]
     )
 
-    const onAccessibilityAction = useCallback(
-        (event: AccessibilityActionEvent): void => {
-            const name = event.nativeEvent.actionName
-            if (name === 'increment') {
-                move(1)
-            } else if (name === 'decrement') {
-                move(-1)
-            } else if (name === SHOW_DETAILS) {
-                const at = index >= 0 ? index : snapToValue(mask, mask.length - 1)
-                const details = at >= 0 ? tooltipPoint(series, hiddenKeys, at, interval) : null
-                if (details) {
-                    onPressTooltip?.(details)
-                }
-            } else {
-                actions?.find((action) => action.name === name)?.onAction()
+    const showDetails = useCallback((): void => {
+        const at = index >= 0 ? index : snapToValue(mask, mask.length - 1)
+        const details = at >= 0 ? tooltipPoint(series, hiddenKeys, at, interval) : null
+        if (details) {
+            onPressTooltip?.(details)
+        }
+    }, [index, mask, series, hiddenKeys, interval, onPressTooltip])
+    const closeSelection = useCallback(() => selection.clear('back'), [selection])
+
+    return useAdjustable({
+        label: summary ?? defaultSummary,
+        value: valueText,
+        hint: bucketDates(series).length > 1 ? 'Swipe up or down to move between points.' : undefined,
+        onStep: move,
+        onEscape: closeSelection,
+        onShowDetails: onPressTooltip ? showDetails : undefined,
+        actions,
+    })
+}
+
+export interface ItemChartAccessibilityInput {
+    /** What VoiceOver reads first, such as "Checkout funnel, 4 steps. 14% converted." */
+    summary: string
+    /** Funnel steps, retention cohorts or ranked values. */
+    count: number
+    /** -1 when nothing is selected. */
+    selected: number
+    /** One item as a sentence, for the value. */
+    describe: (index: number) => string
+    /** Selects an item the way a tap does, so a sighted helper sees the same item. */
+    select: (index: number) => void
+    clear: () => void
+    /** "Swipe up or down to move between steps." */
+    hint: string
+    actions?: readonly ChartAccessibilityAction[]
+}
+
+/**
+ * The same adjustable element for the charts drawn as rows: funnel steps, retention cohorts and ranked bars. Swipe up
+ * or down moves one item, from the first one when nothing is selected.
+ */
+export function useItemChartAccessibility(input: ItemChartAccessibilityInput): ChartAccessibilityProps {
+    const { summary, count, selected, describe, select, clear, hint, actions } = input
+    const onStep = useCallback(
+        (direction: 1 | -1): void => {
+            if (count === 0) {
+                return
             }
+            const next = selected < 0 ? 0 : Math.min(count - 1, Math.max(0, selected + direction))
+            select(next)
         },
-        [move, index, mask, series, hiddenKeys, interval, onPressTooltip, actions]
+        [count, selected, select]
     )
-
-    const accessibilityActions = useMemo(
-        () => [
-            { name: 'increment' },
-            { name: 'decrement' },
-            ...(onPressTooltip ? [{ name: SHOW_DETAILS, label: 'Show details' }] : []),
-            ...(actions ?? []).map(({ name, label: actionLabel }) => ({ name, label: actionLabel })),
-        ],
-        [onPressTooltip, actions]
-    )
-
-    return {
-        accessible: true,
-        accessibilityRole: 'adjustable',
-        accessibilityLabel: summary ?? defaultSummary,
-        accessibilityValue: valueText ? { text: valueText } : undefined,
-        accessibilityHint: bucketDates(series).length > 1 ? 'Swipe up or down to move between points.' : undefined,
-        accessibilityActions,
-        onAccessibilityAction,
-        onAccessibilityEscape: () => selection.clear('back'),
-    }
+    return useAdjustable({
+        label: summary,
+        value: selected >= 0 && selected < count ? describe(selected) : undefined,
+        hint: count > 1 ? hint : undefined,
+        onStep,
+        onEscape: clear,
+        actions,
+    })
 }
