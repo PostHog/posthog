@@ -45,15 +45,25 @@ ANSWERED = AgentTrial(
 
 
 class TestRunnerBoundaries(SimpleTestCase):
-    def test_recorded_failures_carry_neither_the_path_nor_header_values(self) -> None:
+    @parameterized.expand(
+        [
+            ("as_configured", "401 for https://mcp.example.com/mcp/cap-secret", "401 for https://mcp.example.com"),
+            (
+                "quoted_differently",
+                "401 for 'HTTPS://MCP.Example.com:443/mcp/cap%2Dsecret'",
+                "401 for 'https://MCP.Example.com:443'",
+            ),
+            ("header_value", "rejected X-Api-Key k-123", "rejected X-Api-Key [redacted]"),
+        ]
+    )
+    def test_recorded_failures_carry_neither_a_path_nor_a_header_value(
+        self, _name: str, message: str, expected: str
+    ) -> None:
         config = dataclasses.replace(
             CONFIG, url="https://mcp.example.com/mcp/cap-secret", headers={"X-Api-Key": "k-123"}
         )
-        message = "401 for https://mcp.example.com/mcp/cap-secret with X-Api-Key k-123"
 
-        assert runner.describe_failure(ConnectionError(message), config) == (
-            "401 for https://mcp.example.com with X-Api-Key [redacted]"
-        )
+        assert runner.describe_failure(ConnectionError(message), config) == expected
 
     def test_transport_logs_stay_quiet_during_a_run(self) -> None:
         stream = io.StringIO()

@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import asyncio
@@ -173,8 +174,9 @@ async def _run_scenario(
 
 
 def describe_failure(error: Exception, config: RunConfig) -> str:
-    # HTTP errors quote the request URL, and a rejected header's value.
-    text = _describe(error).replace(config.url.rstrip("/"), server_origin(config.url))
+    # HTTP errors quote the request URL in their own normalized form, and a rejected header's value,
+    # so every URL is cut to its origin rather than matched against the configured one.
+    text = _URL.sub(lambda match: server_origin(match.group(0)), _describe(error))
     for value in config.headers.values():
         if value:
             text = text.replace(value, "[redacted]")
@@ -259,6 +261,9 @@ def quiet_transport_logs() -> Iterator[None]:
     finally:
         for logger, level in zip(loggers, levels, strict=True):
             logger.setLevel(level)
+
+
+_URL = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
 
 
 def server_origin(url: str) -> str:
