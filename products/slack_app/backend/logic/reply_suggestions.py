@@ -49,6 +49,9 @@ If the answer waits for the person, write up to 3 replies that the person will m
 "Use option 2".
 - Make each reply clear on its own. Write "Yes, open the pull request", not "Yes".
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
+- If the answer asks for information that only the person knows, such as a name, a value or a repository, \
+do not guess it. Offer only the replies that are complete without it, or return an empty list.
+- Make each reply a different choice. Do not offer two replies that mean the same thing.
 - Put the most likely reply first.
 - Keep each reply under 60 characters.
 - Write in the language of the answer.
@@ -110,9 +113,8 @@ def _clean_suggestions(raw: object) -> list[str]:
     return suggestions[:MAX_SUGGESTIONS]
 
 
-def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[str]:
-    """Any failure returns no replies: a missing button costs the reader one typed reply, and a
-    wrong one sends the agent an instruction nobody gave."""
+def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[str]:
+    """Raises on a failed call, so the offline eval can tell a failure from an answer that asks nothing."""
     if not answer_markdown.strip():
         return []
     properties = {"slack_app_classifier": REPLY_SUGGESTIONS_CLASSIFIER}
@@ -120,30 +122,36 @@ def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttributio
         properties["task_id"] = attribution.task_id
     if attribution.run_id:
         properties["run_id"] = attribution.run_id
+    client = build_openai_client(
+        product="slack_app_routing",
+        ai_product="slack_app_routing",
+        trace_id=attribution.trace_id,
+        session_id=attribution.session_id,
+        distinct_id=attribution.distinct_id,
+        properties=properties,
+    ).with_options(timeout=SUGGESTIONS_TIMEOUT_SECONDS, max_retries=SUGGESTIONS_MAX_RETRIES)
+    extra: dict[str, Any] = {"user": attribution.distinct_id} if attribution.distinct_id else {}
+    response = client.chat.completions.create(
+        model=SUGGESTIONS_MODEL,
+        messages=[
+            {"role": "system", "content": REPLY_SUGGESTIONS_INSTRUCTIONS},
+            {"role": "user", "content": _clip_answer(answer_markdown)},
+        ],
+        max_completion_tokens=SUGGESTIONS_MAX_COMPLETION_TOKENS,
+        response_format=_RESPONSE_FORMAT,
+        **extra,
+    )
+    # Tolerant parse on top of the schema, because the gateway does not apply a response
+    # format the same way on every provider route.
+    parsed = extract_json_object(response.choices[0].message.content or "") or {}
+    return _clean_suggestions(parsed.get("suggestions"))
+
+
+def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[str]:
+    """Any failure returns no replies: a missing button costs the reader one typed reply, and a
+    wrong one sends the agent an instruction nobody gave."""
     try:
-        client = build_openai_client(
-            product="slack_app_routing",
-            ai_product="slack_app_routing",
-            trace_id=attribution.trace_id,
-            session_id=attribution.session_id,
-            distinct_id=attribution.distinct_id,
-            properties=properties,
-        ).with_options(timeout=SUGGESTIONS_TIMEOUT_SECONDS, max_retries=SUGGESTIONS_MAX_RETRIES)
-        extra: dict[str, Any] = {"user": attribution.distinct_id} if attribution.distinct_id else {}
-        response = client.chat.completions.create(
-            model=SUGGESTIONS_MODEL,
-            messages=[
-                {"role": "system", "content": REPLY_SUGGESTIONS_INSTRUCTIONS},
-                {"role": "user", "content": _clip_answer(answer_markdown)},
-            ],
-            max_completion_tokens=SUGGESTIONS_MAX_COMPLETION_TOKENS,
-            response_format=_RESPONSE_FORMAT,
-            **extra,
-        )
-        # Tolerant parse on top of the schema, because the gateway does not apply a response
-        # format the same way on every provider route.
-        parsed = extract_json_object(response.choices[0].message.content or "") or {}
-        return _clean_suggestions(parsed.get("suggestions"))
+        return request_reply_suggestions(answer_markdown, attribution)
     except Exception:
         logger.warning("slack_app_reply_suggestions_failed", exc_info=True)
         return []
