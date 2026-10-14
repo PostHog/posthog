@@ -26,11 +26,14 @@ import type {
     ContentAutopilotSiteProfileApi,
     GeneratePathCleaningSuggestionResponseApi,
     HeatmapCapturePagesApi,
+    HeatmapCaptureRequestApi,
     HeatmapCaptureSettingsApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
     HeatmapPreflightResponseApi,
     HeatmapPrewarmRequestApi,
+    HeatmapScreenshotHistoryCaptureResponseApi,
+    HeatmapScreenshotHistoryResponseApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotSettingsApi,
     HeatmapScreenshotsContentRetrieveParams,
@@ -57,6 +60,7 @@ import type {
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
+    SavedScreenshotHistoryContentRetrieveParams,
     WebAnalyticsBotRuleApi,
     WebAnalyticsContentAutopilotOpportunitiesListParams,
     WebAnalyticsContentAutopilotProfilesListParams,
@@ -381,6 +385,104 @@ export const savedRegenerateCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getSavedScreenshotHistoryRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/screenshot_history/`
+}
+
+/**
+ * List the daily screenshot captures kept for a saved heatmap, newest first. Each capture is a render of the page on that day at one viewport width, so the clicks of a day or a range can be viewed over the background that matches it. Captures older than the retention window are deleted.
+ */
+export const savedScreenshotHistoryRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotHistoryResponseApi> => {
+    return apiMutator<HeatmapScreenshotHistoryResponseApi>(getSavedScreenshotHistoryRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedScreenshotHistoryContentRetrieveUrl = (
+    projectId: string,
+    shortId: string,
+    historyId: string,
+    params: SavedScreenshotHistoryContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/saved/${shortId}/screenshot_history/${historyId}/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/saved/${shortId}/screenshot_history/${historyId}/content/`
+}
+
+/**
+ * Fetch the JPEG for one daily capture, or its thumbnail. The list endpoint hands out versioned URLs, so the response carries a private day-long cache lifetime and an ETag that changes when the day is captured again.
+ */
+export const savedScreenshotHistoryContentRetrieve = async (
+    projectId: string,
+    shortId: string,
+    historyId: string,
+    params: SavedScreenshotHistoryContentRetrieveParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getSavedScreenshotHistoryContentRetrieveUrl(projectId, shortId, historyId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedScreenshotHistoryCaptureCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/screenshot_history/capture/`
+}
+
+/**
+ * Render and keep a capture of the page now, instead of waiting for the daily run, for example right after a deploy. The render runs in the background; poll the history list for the new capture. A capture requested on a day that already has one replaces that day's image.
+ */
+export const savedScreenshotHistoryCaptureCreate = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotHistoryCaptureResponseApi> => {
+    return apiMutator<HeatmapScreenshotHistoryCaptureResponseApi>(
+        getSavedScreenshotHistoryCaptureCreateUrl(projectId, shortId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getSavedScreenshotHistoryRequestsRetrieveUrl = (projectId: string, shortId: string, requestId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/screenshot_history/requests/${requestId}/`
+}
+
+/**
+ * Read the outcome of a capture request.
+ */
+export const savedScreenshotHistoryRequestsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<HeatmapCaptureRequestApi> => {
+    return apiMutator<HeatmapCaptureRequestApi>(
+        getSavedScreenshotHistoryRequestsRetrieveUrl(projectId, shortId, requestId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getSavedCaptureCreateUrl = (projectId: string) => {
