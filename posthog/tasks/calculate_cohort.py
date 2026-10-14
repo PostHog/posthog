@@ -179,13 +179,14 @@ MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
 # insert_cohort_from_feature_flag stops at the soft limit and records its own failure. The extra hour covers the time
 # that the task waits in the queue. calculate_cohort_from_list has no time limit. The sweep therefore resets a CSV
-# import that runs longer than this. That import records its own outcome when it finishes. That outcome replaces the
-# reset.
+# import that runs longer than this. When that import finishes, it rewrites the history row that the sweep closed. It
+# also saves the cohort's calculation state again.
 SOURCELESS_STATIC_COHORT_STUCK_AFTER = timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS, hours=1)
 
 # The path lookup returns NULL for a missing path. IS NOT NULL turns that NULL into false. exclude() therefore selects
 # exactly the rows that filter() rejects. static_cohort_has_supported_population_source rejects a few shapes that this
-# accepts, such as an empty query object. The reset loop does not re-dispatch those.
+# accepts, such as an empty query object. The sourced sweep in reset_stuck_cohorts resets those after an hour. It does
+# not dispatch them again.
 HAS_STATIC_POPULATION_SOURCE = Q(query__isnull=False) | Q(filters__properties__values__0__isnull=False)
 
 
@@ -256,7 +257,14 @@ def get_stuck_sourceless_static_cohort_candidates_queryset(cutoff: datetime) -> 
         .filter(
             # A cohort is created when its first population is dispatched. A flag run writes its history row only when
             # it ends. So created_at is the dispatch time of a cohort that was never populated and has no history row.
-            Q(newest_attempt_started_at__isnull=True, last_calculation__isnull=True, created_at__lte=cutoff)
+            # A cohort whose earlier population failed without a history row has errors_calculating above 0. A CSV
+            # re-upload to that cohort writes no row until its task starts. This branch therefore skips that cohort.
+            Q(
+                newest_attempt_started_at__isnull=True,
+                last_calculation__isnull=True,
+                errors_calculating=0,
+                created_at__lte=cutoff,
+            )
             # A CSV import opens its history row when it starts and closes the row on every exit except a kill. A
             # re-upload that waits in the queue or in a retry backoff has a closed newest row. That row does not match.
             | Q(newest_attempt_started_at__lte=cutoff, newest_attempt_finished_at__isnull=True)
