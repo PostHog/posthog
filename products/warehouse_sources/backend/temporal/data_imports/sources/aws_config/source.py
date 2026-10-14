@@ -94,15 +94,19 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
             name=ExternalDataSourceType.AWSCONFIG,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Config",
-            caption="""Sync resource configurations, rules, compliance status, and conformance packs from one AWS region.
+            caption="""Sync resource configurations, rules, compliance status and evaluation results, conformance packs, and aggregated resources from one AWS region.
 
 Grant these IAM permissions for the tables you want to sync:
 - `config:SelectResourceConfig`
 - `config:DescribeConfigRules`
 - `config:DescribeComplianceByConfigRule`
+- `config:GetComplianceDetailsByConfigRule`
 - `config:DescribeConformancePacks`
+- `config:ListConformancePackComplianceScores`
+- `config:DescribeConfigurationAggregators` and `config:SelectAggregateResourceConfig`
 
 Enable an AWS Config recorder for resource inventory. The resources table contains current configurations and excludes deleted resources.
+The aggregated resources table reads every configuration aggregator in the selected region.
 Add a session token if you use temporary credentials. Replace temporary credentials when they expire.""",
             iconPath="/static/services/aws_config.png",
             docsUrl="https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html",

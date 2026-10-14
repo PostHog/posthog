@@ -2,12 +2,12 @@ import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TraceAiEvent } from '../../aiEventSpans'
-import { usableId } from '../../errorCorrelation'
 import { tracingSpansTraceAiEventsRetrieve } from '../../generated/api'
 import type { _TracingTraceAiEventsResponseApi } from '../../generated/api.schemas'
 
