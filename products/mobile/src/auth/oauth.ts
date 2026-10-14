@@ -19,6 +19,9 @@ export const OAUTH_SCOPES = [
     'conversation:write',
     'today:read',
     'query:read',
+    'dashboard:read',
+    'insight:read',
+    'file_system_shortcut:write',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000
@@ -71,6 +74,8 @@ interface TokenResponse {
     access_token: string
     refresh_token?: string
     expires_in?: number
+    /** Space-separated. Present whenever the server knows the request's scopes. */
+    scope?: string
 }
 
 function isTokenResponse(value: unknown): value is TokenResponse {
@@ -81,13 +86,22 @@ function isTokenResponse(value: unknown): value is TokenResponse {
     )
 }
 
-function toSessionTokens(response: TokenResponse, previousRefreshToken: string | null): SessionTokens {
+function scopesOf(response: TokenResponse): string[] | null {
+    return typeof response.scope === 'string' ? response.scope.split(/\s+/).filter(Boolean) : null
+}
+
+function toSessionTokens(
+    response: TokenResponse,
+    previous: { refreshToken: string | null; grantedScopes: string[] | null }
+): SessionTokens {
     return {
         kind: 'oauth',
         accessToken: response.access_token,
         // The server rotates refresh tokens for first-party apps; keep the old one only if it sends none.
-        refreshToken: response.refresh_token ?? previousRefreshToken,
+        refreshToken: response.refresh_token ?? previous.refreshToken,
         expiresAt: typeof response.expires_in === 'number' ? Date.now() + response.expires_in * 1000 : null,
+        // A refresh never widens a grant, so a refresh response without `scope` keeps the scopes of the sign-in.
+        grantedScopes: scopesOf(response) ?? previous.grantedScopes,
     }
 }
 
@@ -193,7 +207,7 @@ export async function authorize({ host, clientId }: { host: string; clientId: st
     if (!isTokenResponse(body)) {
         throw new OAuthError('rejected', 'The token response had no access token.')
     }
-    return toSessionTokens(body, null)
+    return toSessionTokens(body, { refreshToken: null, grantedScopes: null })
 }
 
 // The server rotates the refresh token on every call and revokes the whole family when an old one is reused after a
@@ -202,10 +216,12 @@ export async function refreshTokens({
     host,
     clientId,
     refreshToken,
+    grantedScopes = null,
 }: {
     host: string
     clientId: string
     refreshToken: string
+    grantedScopes?: string[] | null
 }): Promise<SessionTokens> {
     const response = await postToken(host, {
         grant_type: 'refresh_token',
@@ -226,7 +242,7 @@ export async function refreshTokens({
     if (!isTokenResponse(body)) {
         throw new OAuthError('rejected', 'The token response had no access token.')
     }
-    return toSessionTokens(body, refreshToken)
+    return toSessionTokens(body, { refreshToken, grantedScopes })
 }
 
 // Revocation follows RFC 7009, which takes a form body. Failures are ignored because sign out must work offline.

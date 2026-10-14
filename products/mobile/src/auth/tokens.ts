@@ -7,6 +7,11 @@ export interface SessionTokens {
     refreshToken: string | null
     /** Epoch ms when the access token stops working, or null when it does not expire. */
     expiresAt: number | null
+    /**
+     * The scopes the server granted, from the token response. Null for a personal API key and for a session stored
+     * before the app recorded them, where only a 403 tells which scope is missing.
+     */
+    grantedScopes: string[] | null
 }
 
 const STORAGE_KEY = 'posthog_mobile_session'
@@ -62,17 +67,22 @@ async function deleteItem(key: string): Promise<void> {
     await SecureStore.deleteItemAsync(key)
 }
 
-function isSessionTokens(value: unknown): value is SessionTokens {
+function grantedScopesOf(value: unknown): string[] | null {
+    return Array.isArray(value) && value.every((scope) => typeof scope === 'string') ? value : null
+}
+
+function toSessionTokens(value: unknown): SessionTokens | null {
     if (typeof value !== 'object' || value === null) {
-        return false
+        return null
     }
     const record = value as Record<string, unknown>
-    return (
+    const valid =
         (record.kind === 'oauth' || record.kind === 'personal_api_key') &&
         typeof record.accessToken === 'string' &&
         (record.refreshToken === null || typeof record.refreshToken === 'string') &&
         (record.expiresAt === null || typeof record.expiresAt === 'number')
-    )
+    // Sessions stored before the app recorded scopes have no `grantedScopes`, which reads as unknown.
+    return valid ? ({ ...record, grantedScopes: grantedScopesOf(record.grantedScopes) } as SessionTokens) : null
 }
 
 export async function loadTokens(): Promise<SessionTokens | null> {
@@ -88,7 +98,7 @@ export async function loadTokens(): Promise<SessionTokens | null> {
     } catch {
         parsed = null
     }
-    current = isSessionTokens(parsed) ? parsed : null
+    current = toSessionTokens(parsed)
     return current
 }
 

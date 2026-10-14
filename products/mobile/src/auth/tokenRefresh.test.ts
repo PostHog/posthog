@@ -52,6 +52,7 @@ describe('token refresh through the API client', () => {
             accessToken: 'old-access',
             refreshToken: 'old-refresh',
             expiresAt: Date.now() + 60_000,
+            grantedScopes: ['user:read', 'dashboard:read'],
         })
     })
 
@@ -77,7 +78,11 @@ describe('token refresh through the API client', () => {
             { grant_type: 'refresh_token', refresh_token: 'old-refresh', client_id: 'test-client' },
         ])
         setSessionTokens(null)
-        expect(await loadTokens()).toMatchObject({ accessToken: 'new-access', refreshToken: 'new-refresh' })
+        expect(await loadTokens()).toMatchObject({
+            accessToken: 'new-access',
+            refreshToken: 'new-refresh',
+            grantedScopes: ['user:read', 'dashboard:read'],
+        })
         expect(useAuthStore.getState().status).toBe('signed_in')
     })
 

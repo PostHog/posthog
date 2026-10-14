@@ -250,7 +250,13 @@ export const useAuthStore = create<AuthState>()(
                     }
                     set({ region: regionForHost(validation.host), host: validation.host, signedOutReason: null })
                     await completeSignIn(
-                        { kind: 'personal_api_key', accessToken: trimmedKey, refreshToken: null, expiresAt: null },
+                        {
+                            kind: 'personal_api_key',
+                            accessToken: trimmedKey,
+                            refreshToken: null,
+                            expiresAt: null,
+                            grantedScopes: null,
+                        },
                         'personal_api_key'
                     )
                 },
@@ -366,7 +372,12 @@ async function refreshOnce(): Promise<string | null> {
     }
     let next: SessionTokens
     try {
-        next = await refreshTokens({ host, clientId, refreshToken: tokens.refreshToken })
+        next = await refreshTokens({
+            host,
+            clientId,
+            refreshToken: tokens.refreshToken,
+            grantedScopes: tokens.grantedScopes,
+        })
     } catch (error) {
         if (error instanceof OAuthError && error.kind === 'session_expired') {
             await endSession('expired')
