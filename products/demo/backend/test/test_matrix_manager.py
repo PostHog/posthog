@@ -18,6 +18,7 @@ from posthog.models import OrganizationMembership
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
     MatrixManager,
+    _EventToSave,
     _produce_when_queue_has_room,
     _with_exposure_copies,
 )
@@ -188,11 +189,15 @@ class TestWithExposureCopies(SimpleTestCase):
 
         saved = list(_with_exposure_copies([event]))
 
-        source_uuid = saved[0][0]
-        expected = [(source_uuid, event_name, event)]
+        source_uuid = saved[0].uuid
+        expected = [_EventToSave(uuid=source_uuid, name=event_name, source=event)]
         if expect_copy:
             ingestion_namespace = UUID("1b7c9119-5953-4668-97b7-ab0ef8a6bb48")
-            expected.append((uuid5(ingestion_namespace, str(source_uuid)), "$experiment_exposure", event))
+            expected.append(
+                _EventToSave(
+                    uuid=uuid5(ingestion_namespace, str(source_uuid)), name="$experiment_exposure", source=event
+                )
+            )
         assert saved == expected
 
 
