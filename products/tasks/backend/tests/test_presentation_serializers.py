@@ -81,6 +81,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
             # internally funded inference under a per-run cap.
             ("signals_chat", True),
             ("scout_suggestions", True),
+            ("account_audit", True),
             ("user_created", False),
         ]
     )
