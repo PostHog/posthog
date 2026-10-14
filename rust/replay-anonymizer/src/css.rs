@@ -6,10 +6,10 @@ use simd_json::borrowed::{Object, Value};
 use crate::assets::{
     is_numbered_placeholder, numbered_placeholder, CSS_IMAGE_REFS_ATTR_PREFIX, PLACEHOLDER_SRC,
 };
-use crate::blur::is_image_data_uri;
 use crate::collect::{is_image_ref, is_image_ref_strict};
 use crate::context::{Ctx, ImageSource};
-use crate::images::ImageFallback;
+use crate::data_uri::is_image_data_uri;
+use crate::data_uri::ImageFallback;
 use crate::json::{as_array_mut, as_object_mut, as_str, string_value};
 
 pub const INLINED_STYLESHEET_ATTR: &str = "_cssText";

@@ -94,12 +94,9 @@ export interface AnonymizeTimings {
     /** Accumulated cv de/recompression time across all events in the message. */
     cvTotalNs: number
     cvCount: number
-    /** Accumulated image blur/pixelate time (cache misses only). */
-    blurTotalNs: number
-    blurCount: number
     /**
      * The op in flight when processing stopped: `done` on success, else the phase or op
-     * (`queued` | `decompress` | `scrub` | `cv` | `blur` | `serialize_meta`) that was running.
+     * (`queued` | `decompress` | `scrub` | `cv` | `serialize_meta`) that was running.
      */
     lastOp: string
 }
@@ -198,9 +195,9 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * Non-empty `teamId` + `contentKey` enable image collection using the raw team ID and per-team
  * content HMAC key. The master secret stays with the caller. Inlined images are replaced
- * with `image:<teamId>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
- * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
- * the scrub topic.
+ * with `image:<teamId>:<hash>` refs (hash = keyed HMAC of the bytes), and the original bytes come
+ * back in `images`/`meta.images` for the caller to produce to the scrub topic. Without them every
+ * inlined image is blanked.
  *
  * `urlKey` enables the URL-collection lane independently. It is the global URL HMAC key. A remote
  * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
@@ -212,7 +209,7 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `producedRefDedup` leaves out the collected images and URLs that an earlier message already produced.
  *
- * `maxImageBytes` caps the decoded size of a collected image; a bigger one is blurred inline.
+ * `maxImageBytes` caps the decoded size of a collected image; a bigger one is blanked.
  * Omitted, the crate default applies.
  */
 export async function anonymizeKafkaPayload(

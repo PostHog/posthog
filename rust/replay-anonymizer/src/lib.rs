@@ -1,6 +1,6 @@
 //! Session-replay anonymizer: PII-scrubs rrweb events for PostHog's ml-mirror pipelines.
 //!
-//! The scrubbers cover text/URL redaction, native image blur, and `cv` de/recompression. Behavior
+//! The scrubbers cover text/URL redaction, image collection for an out-of-band scrub, and `cv` de/recompression. Behavior
 //! is pinned by the shared JSON fixtures under `tests/fixtures/`, which both `tests/parity.rs` and
 //! the Node addon's Jest suite (through `replay-anonymizer-node`) run against.
 //!
@@ -28,8 +28,6 @@ pub mod allow_lists;
 #[doc(hidden)]
 pub mod assets;
 #[doc(hidden)]
-pub mod blur;
-#[doc(hidden)]
 pub mod bytewalk;
 #[doc(hidden)]
 pub mod canvas;
@@ -43,9 +41,10 @@ pub mod css;
 #[doc(hidden)]
 pub mod cv;
 #[doc(hidden)]
+pub mod data_uri;
+#[doc(hidden)]
 pub mod dom;
 pub mod event;
-pub mod images;
 #[doc(hidden)]
 pub mod json;
 mod json_ld;
@@ -76,7 +75,6 @@ pub use event::{
     anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,
     anonymize_message,
 };
-pub use images::ImagePolicy;
 pub use snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_collecting, anonymize_kafka_payload_opts,
     anonymize_kafka_payload_timed, AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,

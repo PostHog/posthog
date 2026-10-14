@@ -18,16 +18,16 @@ use crate::assets::{
     is_media_src_attr, px_length, IMAGE_REF_ATTR_PREFIX, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS,
     PLACEHOLDER_SRC,
 };
-use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
 use crate::context::{CountCheckpoint, Ctx, ImageSource};
 use crate::css;
+use crate::data_uri::is_image_data_uri;
+use crate::data_uri::ImageFallback;
 use crate::dom::{
     classify_tag, data_attr_looks_sensitive, is_data_attr, is_url_attr, is_user_text_attr,
     ParentKind, TagKind,
 };
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
-use crate::images::ImageFallback;
 use crate::scan::{self, Span};
 use crate::srcset::candidate_for_scrubbing;
 use crate::text::{redact_emails, scrub_text};
@@ -237,9 +237,7 @@ fn scrub_cv_snapshot_value(
         return Some(false);
     }
     let content = if changed { &walked } else { &decompressed };
-    // Through `cv::compress_scrubbed`, never the raw codec: the walk may have substituted deferred
-    // image tokens into `walked`, and compression is the last moment they can still be resolved.
-    let zs = crate::cv::compress_scrubbed(ctx, content).ok()?;
+    let zs = crate::cv::compress_scrubbed(content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -755,7 +753,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         out.splice(seg.0..seg.1, tmp.iter().copied());
                     }
                 }
-                // Attributes with the real tag kind (media blur vs plain scrubs).
+                // Attributes with the real tag kind (media sources vs plain scrubs).
                 if let Some((key, v)) = attrs_m {
                     if self.find_member(v.0, b"style").ok()?.is_some()
                         || self
@@ -943,7 +941,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         Ok(scan::parse_number(self.bytes, span))
     }
 
-    /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including the media blur).
+    /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including media sources).
     /// Namespaced attrs are appended before the closing brace; the tree path inserts them into the
     /// map instead, which is the same object semantically.
     fn walk_attrs(
@@ -990,7 +988,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         w.changed = true;
                         return Some(end);
                     }
-                    return w.blur_media_src(
+                    return w.scrub_media_src(
                         name,
                         vstart,
                         tag,
@@ -1050,13 +1048,13 @@ impl<'c, 'a> Walker<'c, 'a> {
         Some(end)
     }
 
-    /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
-    /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
+    /// One media source attribute (mirrors `assets::scrub_media_sources` for a single key): data images go to
+    /// the image scrub; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
     /// host-scrubbed original are stashed alongside.
     /// `hidden_pixel` is true for an `img` nobody can see. The collector counts that refusal once
     /// per URL, so `src` and `srcset` naming one URL, and a re-walk after a fallback, count once.
     #[allow(clippy::too_many_arguments)]
-    fn blur_media_src(
+    fn scrub_media_src(
         &mut self,
         name: &str,
         vstart: usize,
@@ -1068,12 +1066,12 @@ impl<'c, 'a> Walker<'c, 'a> {
     ) -> Option<usize> {
         let bytes = self.bytes;
         if bytes.get(vstart) != Some(&b'"') {
-            // Non-string media source: apply_blur skips it.
+            // Non-string media source: scrub_media_sources skips it.
             return self.copy_value(vstart, out);
         }
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
-        // See `assets::apply_blur`: only on an explicitly trusted re-scrub, and only for a
+        // See `assets::scrub_media_sources`: only on an explicitly trusted re-scrub, and only for a
         // fully well-formed ref.
         if self.ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
             return self.copy_value(vstart, out);
@@ -1090,12 +1088,12 @@ impl<'c, 'a> Walker<'c, 'a> {
         };
         let property = MEDIA_SRC_ATTRS.iter().copied().find(|attr| *attr == name)?;
         if is_image_data_uri(&selected) {
-            let blurred = self.ctx.scrub_image_from(
+            let scrubbed = self.ctx.scrub_image_from(
                 &selected,
                 ImageFallback::Placeholder,
                 ImageSource::HtmlAttribute(property),
             );
-            scan::write_json_string(&blurred, out);
+            scan::write_json_string(&scrubbed, out);
         } else {
             let collected = if !is_fetchable_image_attr(name, tag, parent_is_picture) {
                 None
@@ -1208,7 +1206,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 }
                 let content = if changed { &walked } else { &decompressed };
                 // See `scrub_cv_snapshot_value`: the barrier, not the raw codec.
-                let zs = crate::cv::compress_scrubbed(self.ctx, content).ok()?;
+                let zs = crate::cv::compress_scrubbed(content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

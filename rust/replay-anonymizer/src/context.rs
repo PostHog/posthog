@@ -1,9 +1,9 @@
-//! Per-message scrub context: the allow lists plus a blur memo.
+//! Per-message scrub context: the allow lists plus an image memo.
 //!
 //! Within one Kafka message the same image often recurs thousands of times (a canvas redrawing one
-//! sprite, a repeated background). Blurring is pure in its input, so we memoize it per message and
-//! collapse that fan-out to a single decode+blur — mirroring the TS `blurCache` (also scoped to one
-//! message). Scope is one `anonymize_message` call; the map is dropped when it returns.
+//! sprite, a repeated background). Its outcome is pure in its input, so we memoize it per message and
+//! collapse that fan-out to a single decode and hash. Scope is one `anonymize_message` call; the
+//! map is dropped when it returns.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
@@ -13,12 +13,12 @@ use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
-use crate::blur::{blank_image_data_uri, blur_image_data_uri};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
-    MAX_IMAGE_BYTES,
+    DROP_COLLECTION_OFF, MAX_IMAGE_BYTES,
 };
-use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
+use crate::data_uri::blank_image_data_uri;
+use crate::data_uri::ImageFallback;
 use crate::timings::PhaseTimings;
 use crate::url_collect::{CollectedUrl, UrlCollection, UrlCollector};
 
@@ -48,19 +48,15 @@ pub struct ImageSourceCount {
     pub count: u32,
 }
 
-/// Scrub context: the allow lists, the cv decompression budget, the blur memo, the image scrub
-/// policy (inline blur, or deferred onto the shared worker pool), and the optional collection lane.
+/// Scrub context: the allow lists, the cv decompression budget, the image memo, and the optional
+/// collection lanes.
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     pub cv_budget: Cell<usize>,
-    // key: the original data URI.
-    // value: the replacement — a content ref (collection lane), a blurred data URI — or `None`
-    // when neither could be produced (caller falls back to a blank pixel).
-    blur_cache: RefCell<HashMap<String, Option<String>>>,
+    // key: the original data URI. value: its content ref, or why the scrub lane declined it.
+    image_memo: RefCell<HashMap<String, Result<String, &'static str>>>,
     timings: Option<&'a PhaseTimings>,
-    image_policy: ImagePolicy,
-    images: ImageQueue,
-    // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
+    // `Some` routes images to the scrub lane. Without it every image is blanked.
     collector: Option<RefCell<ImageCollector>>,
     // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
     url_collector: Option<RefCell<UrlCollector>>,
@@ -74,35 +70,30 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
-        Self::with_options(allow, None, ImagePolicy::Inline, None)
+        Self::with_options(allow, None, None)
     }
 
     pub fn with_timings(allow: &'a AllowLists, timings: Option<&'a PhaseTimings>) -> Self {
-        Self::with_options(allow, timings, ImagePolicy::Inline, None)
+        Self::with_options(allow, timings, None)
     }
 
     pub fn with_image_collection(
         allow: &'a AllowLists,
         image_collection: Option<ImageCollection>,
     ) -> Self {
-        Self::with_options(allow, None, ImagePolicy::Inline, image_collection)
+        Self::with_options(allow, None, image_collection)
     }
 
-    // pub(crate): the token-patch barriers live only in the kafka snapshot pipeline, so a
-    // caller-built Parallel Ctx on the other entry points would emit unresolved tokens.
     pub(crate) fn with_options(
         allow: &'a AllowLists,
         timings: Option<&'a PhaseTimings>,
-        image_policy: ImagePolicy,
         image_collection: Option<ImageCollection>,
     ) -> Self {
         Self {
             allow,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
-            blur_cache: RefCell::new(HashMap::new()),
+            image_memo: RefCell::new(HashMap::new()),
             timings,
-            image_policy,
-            images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
             url_collector: None,
             image_source_log: RefCell::new(Vec::new()),
@@ -128,29 +119,19 @@ impl<'a> Ctx<'a> {
         self.preserve_image_refs
     }
 
-    /// Scrub one image data URI: the collection lane's content ref when it takes the image (no blur
-    /// work at all — the original bytes ride back to the caller for the out-of-band scrub), else
-    /// per the policy — the blurred URI (inline), or a token the patch pass later replaces
-    /// (parallel). Failures resolve to `fallback` either way. A message that exhausts the
-    /// queued-bytes budget degrades to inline for the remainder — bounded memory, identical output.
+    /// Scrub one image data URI: the collection lane's content ref, whose original bytes ride back
+    /// to the caller for the out-of-band scrub. An image the lane cannot take is replaced by
+    /// `fallback` and counted, never passed through or scrubbed here.
     pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
-        if let Some(collected) = self.collect_image(original) {
-            return collected;
-        }
-        if self.image_policy == ImagePolicy::Parallel {
-            if let Some(token) = self.images.submit(
-                original,
-                fallback,
-                true,
-                crate::images::MAX_QUEUED_URI_BYTES,
-            ) {
-                return token;
+        match self.collect_image(original) {
+            Ok(reference) => reference,
+            Err(reason) => {
+                self.record_scrub_drop(reason);
+                match fallback {
+                    ImageFallback::Blank => blank_image_data_uri(),
+                    ImageFallback::Placeholder => PLACEHOLDER_SRC.to_string(),
+                }
             }
-        }
-        match (self.blur_data_uri(original), fallback) {
-            (Some(blurred), _) => blurred,
-            (None, ImageFallback::Blank) => blank_image_data_uri(),
-            (None, ImageFallback::Placeholder) => PLACEHOLDER_SRC.to_string(),
         }
     }
 
@@ -165,21 +146,6 @@ impl<'a> Ctx<'a> {
             self.record_image_source(source, "inline");
         }
         scrubbed
-    }
-
-    pub(crate) fn has_pending_images(&self) -> bool {
-        self.images.has_pending()
-    }
-
-    /// Replace any outstanding image tokens in serialized output, waiting for their jobs. Must run
-    /// wherever bytes become immutable: before a cv payload compresses, and on the final lines.
-    /// Worker-side blur time lands in the timings sink here, as jobs are claimed.
-    pub(crate) fn patch_pending_images(&self, buf: Vec<u8>) -> Vec<u8> {
-        let out = self.images.patch(buf);
-        if let Some(t) = self.timings {
-            self.images.drain_blur_time_into(t);
-        }
-        out
     }
 
     fn timed<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
@@ -266,9 +232,9 @@ impl<'a> Ctx<'a> {
         };
         let removed = collector.borrow_mut().truncate(checkpoint.images);
         if !removed.is_empty() {
-            self.blur_cache
+            self.image_memo
                 .borrow_mut()
-                .retain(|_, hit| !hit.as_ref().is_some_and(|r| removed.contains(r)));
+                .retain(|_, hit| !hit.as_ref().is_ok_and(|r| removed.contains(r)));
         }
     }
 
@@ -335,7 +301,7 @@ impl<'a> Ctx<'a> {
 
     /// Restore the full cv decompression budget. The budget bounds one message; per-line callers
     /// ([`crate::event::anonymize_line_with_ctx`]) reset it each call so a long session file
-    /// cannot exhaust it, while the blur memo keeps spanning the whole `Ctx`.
+    /// cannot exhaust it, while the image memo keeps spanning the whole `Ctx`.
     pub fn reset_cv_budget(&self) {
         self.cv_budget.set(CV_MESSAGE_DECOMPRESSION_BUDGET);
     }
@@ -352,36 +318,20 @@ impl<'a> Ctx<'a> {
         Ok(out)
     }
 
-    // Borrow discipline: never hold a `blur_cache` borrow across the blur call — the compute runs
-    // borrow-free, so a future blur helper that re-entered `Ctx` still couldn't double-borrow-panic.
-
-    /// Blur a data-image URI inline, memoized on the URI. `None` → caller falls back to a
-    /// blank/placeholder.
-    pub fn blur_data_uri(&self, original: &str) -> Option<String> {
-        if let Some(hit) = self.blur_cache.borrow().get(original) {
+    /// The collection lane's ref for a data URI, or why the lane declined it. Both are memoized,
+    /// so a sprite recurring thousands of times decodes and hashes once.
+    fn collect_image(&self, original: &str) -> Result<String, &'static str> {
+        let collector = self.collector.as_ref().ok_or(DROP_COLLECTION_OFF)?;
+        if let Some(hit) = self.image_memo.borrow().get(original) {
             return hit.clone();
         }
-        let result = self.timed("blur", || blur_image_data_uri(original));
-        self.blur_cache
+        let max_image_bytes = collector.borrow().max_image_bytes();
+        let outcome = collectable_data_uri_bytes(original, max_image_bytes)
+            .and_then(|bytes| collector.borrow_mut().collect(bytes));
+        self.image_memo
             .borrow_mut()
-            .insert(original.to_string(), result.clone());
-        result
-    }
-
-    /// The collection lane's ref for a data URI, or `None` (collection off, non-collectable URI,
-    /// or a cap hit) — the caller then blurs per the policy as before. Refs are memoized in the
-    /// blur cache so a sprite recurring thousands of times hashes once.
-    fn collect_image(&self, original: &str) -> Option<String> {
-        let collector = self.collector.as_ref()?;
-        if let Some(Some(hit)) = self.blur_cache.borrow().get(original) {
-            return Some(hit.clone());
-        }
-        let bytes = collectable_data_uri_bytes(original, collector.borrow().max_image_bytes())?;
-        let collected = collector.borrow_mut().collect(bytes)?;
-        self.blur_cache
-            .borrow_mut()
-            .insert(original.to_string(), Some(collected.clone()));
-        Some(collected)
+            .insert(original.to_string(), outcome.clone());
+        outcome
     }
 
     pub(crate) fn max_collected_image_bytes(&self) -> usize {
@@ -426,14 +376,45 @@ mod tests {
     }
 
     #[test]
-    fn blur_memo_is_stable_and_keyed_per_image() {
+    fn an_image_the_lane_cannot_take_is_blanked_and_counted() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-        let ctx = Ctx::new(&allow);
-        let a = png_data_uri(100, 50, [10, 20, 30, 255]);
-        let b = png_data_uri(40, 40, [200, 100, 50, 255]);
-        // Same input → same result twice (a cache hit must not return something different).
-        assert_eq!(ctx.blur_data_uri(&a), ctx.blur_data_uri(&a));
-        // Distinct inputs → distinct results (guards against a cache-key collision serving A's blur for B).
-        assert_ne!(ctx.blur_data_uri(&a), ctx.blur_data_uri(&b));
+        let png = png_data_uri(8, 8, [10, 20, 30, 255]);
+        let lane = || Some(ImageCollection::new("42".to_string(), "k".repeat(32)));
+        let tiny_lane = || {
+            Some(ImageCollection {
+                max_image_bytes: 16,
+                ..ImageCollection::new("42".to_string(), "k".repeat(32))
+            })
+        };
+        let cases = [
+            (
+                Ctx::new(&allow),
+                png.clone(),
+                crate::collect::DROP_COLLECTION_OFF,
+            ),
+            (
+                Ctx::with_image_collection(&allow, lane()),
+                "data:image/svg+xml;base64,PHN2Zz4=".to_string(),
+                crate::collect::DROP_SVG,
+            ),
+            (
+                Ctx::with_image_collection(&allow, tiny_lane()),
+                png.clone(),
+                crate::collect::DROP_TOO_LARGE,
+            ),
+        ];
+        for (ctx, uri, reason) in cases {
+            assert_eq!(
+                ctx.scrub_image(&uri, ImageFallback::Blank),
+                blank_image_data_uri(),
+                "{reason}"
+            );
+            assert_eq!(
+                ctx.scrub_image(&uri, ImageFallback::Placeholder),
+                PLACEHOLDER_SRC,
+                "{reason}"
+            );
+            assert_eq!(ctx.take_scrub_drops(), vec![(reason, 2)], "{reason}");
+        }
     }
 }
