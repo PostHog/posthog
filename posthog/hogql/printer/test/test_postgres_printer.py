@@ -1127,17 +1127,36 @@ class TestPostgresPrinter(BaseTest):
             expected,
         )
 
-    def test_sha1_qualifies_and_quotes_pgcrypto_schema(self):
+    @parameterized.expand(
+        [
+            ('Crypto "Hashes"', '"Crypto ""Hashes"""'),
+            ('crypto"; SELECT 1; --', '"crypto""; SELECT 1; --"'),
+        ]
+    )
+    def test_sha1_qualifies_and_quotes_pgcrypto_schema(self, schema, quoted_schema):
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            direct_postgres_connection_metadata={"pgcrypto_schema": 'Crypto "Hashes"'},
+            direct_postgres_connection_metadata={"pgcrypto_schema": schema},
         )
 
         self.assertEqual(
             self._expr("sha1(event)", context=context),
-            "encode(\"Crypto \"\"Hashes\"\"\".digest(convert_to(events.event, 'UTF8'), 'sha1'), 'hex')",
+            f"encode({quoted_schema}.digest(convert_to(events.event, 'UTF8'), 'sha1'), 'hex')",
         )
+
+    def test_sha1_parameterizes_sql_in_string_argument(self):
+        value = "abc'); SELECT 1; --"
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={"pgcrypto_schema": "public"},
+        )
+        self.assertEqual(
+            self._expr(ast.Call(name="sha1", args=[ast.Constant(value=value)]), context=context),
+            "encode(public.digest(convert_to(%(hogql_val_0)s, 'UTF8'), 'sha1'), 'hex')",
+        )
+        self.assertEqual(context.values, {"hogql_val_0": value})
 
     @parameterized.expand(
         [
