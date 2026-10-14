@@ -2,7 +2,7 @@
 
 /// A 1x1 transparent PNG: what an image the scrub lane cannot take becomes.
 pub const BLANK_PNG_BASE64: &str =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=";
 
 pub fn blank_image_data_uri() -> String {
     format!("data:image/png;base64,{BLANK_PNG_BASE64}")
@@ -28,4 +28,20 @@ pub(crate) enum ImageFallback {
     Blank,
     /// The media placeholder SVG (media `src`-style attributes).
     Placeholder,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+
+    #[test]
+    fn the_blank_image_decodes_to_one_transparent_pixel() {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(BLANK_PNG_BASE64)
+            .unwrap();
+        let image = image::load_from_memory(&bytes).unwrap().to_rgba8();
+        assert_eq!(image.dimensions(), (1, 1));
+        assert_eq!(image.get_pixel(0, 0).0[3], 0);
+    }
 }
