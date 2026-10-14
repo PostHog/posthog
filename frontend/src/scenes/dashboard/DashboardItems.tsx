@@ -83,8 +83,14 @@ function gridTilePropsEqual(prevProps: Record<string, any>, nextProps: Record<st
 }
 
 /** A group's padding and side rail make its grid narrower than the dashboard, so each section measures itself. */
-function WithMeasuredWidth({ children }: { children: (width: number) => JSX.Element }): JSX.Element {
-    const { width, containerRef, mounted } = useContainerWidth()
+function WithMeasuredWidth({
+    initialWidth,
+    children,
+}: {
+    initialWidth: number
+    children: (width: number) => JSX.Element
+}): JSX.Element {
+    const { width, containerRef, mounted } = useContainerWidth({ initialWidth })
     const debouncedWidth = useDebouncedValue(width, GRID_WIDTH_DEBOUNCE_MS)
     return <div ref={containerRef as RefObject<HTMLDivElement>}>{mounted && children(debouncedWidth)}</div>
 }
@@ -353,9 +359,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }),
         [canEditDashboard, layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
-    // A band can be narrower than the dashboard, and only `sm` layouts are saved, so a grid on `xs` stays locked.
-    const lockedDragConfig = useMemo(() => ({ ...dragConfig, enabled: false }), [dragConfig])
-    const lockedResizeConfig = useMemo(() => ({ ...resizeConfig, enabled: false }), [resizeConfig])
 
     useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
 
@@ -743,8 +746,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             key={gridKey}
             width={width}
             className={gridClassName}
-            dragConfig={width > BREAKPOINTS.sm ? dragConfig : lockedDragConfig}
-            resizeConfig={width > BREAKPOINTS.sm ? resizeConfig : lockedResizeConfig}
+            dragConfig={dragConfig}
+            resizeConfig={resizeConfig}
+            // A band is narrower than the dashboard by its padding and rail. The dashboard width picks the
+            // breakpoint, so that a band does not switch to one column while the rest of the dashboard has 12.
+            breakpoint={gridWidth > BREAKPOINTS.sm ? 'sm' : 'xs'}
             layouts={gridLayouts}
             compactor={gridCompactor}
             rowHeight={rowHeight}
@@ -786,10 +792,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
         const sectionRows = Math.max(0, ...(gridLayouts.sm ?? []).map((item) => item.y + item.h)) + 1
         const grid = (
-            <WithMeasuredWidth>
+            <WithMeasuredWidth initialWidth={gridWidth}>
                 {(sectionWidth) => (
                     <div className="relative">
-                        {layoutEditMode && sectionWidth > BREAKPOINTS.sm && (
+                        {layoutEditMode && !isMobileView && (
                             <GridBackground
                                 width={sectionWidth}
                                 cols={BREAKPOINT_COLUMN_COUNTS.sm}
