@@ -381,7 +381,15 @@ export const LegacyFilters: Story = {
 
 const WithRecentFilters: Decorator = (Story) => {
     useMountedLogic(recentTaxonomicFiltersLogic)
-    useEffect(() => () => recentTaxonomicFiltersLogic.actions.clearRecentFilters(), [])
+    useEffect(
+        () => () => {
+            recentTaxonomicFiltersLogic.actions.clearRecentFilters()
+            const root = document.getElementById('storybook-root')
+            root?.style.removeProperty('width')
+            root?.style.removeProperty('height')
+        },
+        []
+    )
     return <Story />
 }
 
