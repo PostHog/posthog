@@ -6,6 +6,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { SourceTab, TileId } from 'scenes/web-analytics/common'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -137,6 +138,7 @@ export const FlagOff: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: false } },
 }
 const paidTrafficCardFlags = {
+    pageUrl: urls.webAnalytics(),
     featureFlags: {
         [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true,
         [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL_V2]: 'test',

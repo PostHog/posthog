@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,6 +16,7 @@ import { NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType } from '~/types'
 
+import { MarketingAnalyticsAdSpendLink } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsAdSpendLink'
 import { MarketingAnalyticsCrossSell } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsCrossSell'
 import { MarketingAnalyticsFilterHint } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsFilterHint'
 import { marketingCrossSellStateLogic } from 'products/web_analytics/frontend/marketing/marketingCrossSellStateLogic'
@@ -230,5 +232,40 @@ describe('Marketing analytics cross sell', () => {
         fireEvent.click(screen.getByLabelText('close'))
         expect(screen.queryByText(/You're viewing/)).toBeNull()
         expect(marketingCrossSellStateLogic({ teamId: MOCK_DEFAULT_TEAM.id }).values.isSnoozed).toBe(true)
+    })
+
+    it.each([
+        ['/web', true],
+        ['/marketing', false],
+    ])('offers the row action on %s only once connection state is known: %s', async (path, shown) => {
+        enable(true, 'test')
+        router.actions.push(path)
+        let resolveSources: () => void = () => {}
+        sources.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveSources = () => resolve([200, { results: [], next: null, count: 0 }])
+                })
+        )
+        render(
+            <MarketingAnalyticsAdSpendLink
+                breakdownBy={WebStatsBreakdown.InitialUTMSource}
+                value="google"
+                dateRange={null}
+            >
+                google
+            </MarketingAnalyticsAdSpendLink>
+        )
+        expect(screen.queryByText('See ad spend')).toBeNull()
+        if (shown) {
+            await waitFor(() => expect(sources).toHaveBeenCalledTimes(1))
+            await act(async () => resolveSources())
+            const link = (await screen.findByText('See ad spend')).closest('a')!
+            expect(link.getAttribute('href')).toContain('/data-warehouse/new-source?kind=GoogleAds')
+        } else {
+            await act(async () => {})
+            expect(screen.queryByText('See ad spend')).toBeNull()
+            expect(sources).not.toHaveBeenCalled()
+        }
     })
 })

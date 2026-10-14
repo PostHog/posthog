@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
@@ -8,7 +9,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureMarketingCrossSellClick } from 'lib/marketingCrossSell'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import {
     getEnabledNativeMarketingSources,
     nativeSourceDisplayLabel,
@@ -40,11 +43,14 @@ export function MarketingAnalyticsAdSpendLink({
 }: MarketingAnalyticsAdSpendLinkProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam, currentTeamId } = useValues(teamLogic)
+    const { location } = useValues(router)
     const { hasConnectedSources } = useValues(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
     const { ensureConnectionState } = useActions(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
 
     const candidate =
-        currentTeamId && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true
+        currentTeamId &&
+        removeProjectIdIfPresent(location.pathname) === urls.webAnalytics() &&
+        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true
             ? paidTrafficTarget(
                   breakdownBy,
                   value,
@@ -61,7 +67,7 @@ export function MarketingAnalyticsAdSpendLink({
         }
     }, [hasTarget, ensureConnectionState])
 
-    if (!currentTeamId || !target) {
+    if (!currentTeamId || !target || hasConnectedSources === null) {
         return <>{children}</>
     }
     const destination = buildMarketingAnalyticsDestination({
