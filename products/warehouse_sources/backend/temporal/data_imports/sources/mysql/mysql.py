@@ -2055,6 +2055,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        worker_deaths=inputs.worker_deaths,
                     )
 
                 # Only reached when the walk exhausted the table. An abandoned generator (draining
