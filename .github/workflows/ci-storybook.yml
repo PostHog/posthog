@@ -990,11 +990,30 @@ jobs:
               id: flake-verify
               env:
                   HOME: /root
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              # base.sha is master's tip, so diffing it against a branch that is behind master
+              # lists every story master changed since the fork point. Diff from the merge base
+              # instead. It is resolved here, not in the script, because the script comes from
+              # the PR head and an unrebased branch would keep the old one.
               run: |
                   git config --global --add safe.directory '*'
-                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
-                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
-                  .github/scripts/verify-storybook-new-stories.sh "$BASE_SHA" 3
+                  skip() {
+                      echo "::warning::$1, so flake verification is skipped."
+                      exit 0
+                  }
+                  curl -fsS --retry 3 --connect-timeout 10 -o "$RUNNER_TEMP/compare.json" \
+                      -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                      "https://api.github.com/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=1" \
+                      || skip "The GitHub API did not return the merge base of $BASE_SHA and $HEAD_SHA"
+                  MERGE_BASE=$(node -e 'process.stdout.write(require(process.argv[1]).merge_base_commit?.sha ?? "")' "$RUNNER_TEMP/compare.json") || MERGE_BASE=""
+                  [ -n "$MERGE_BASE" ] || skip "The compare response has no merge base for $BASE_SHA and $HEAD_SHA"
+                  git fetch --no-tags --depth=1 "https://github.com/$REPO" "$MERGE_BASE" \
+                      || skip "Could not fetch merge base $MERGE_BASE"
+                  echo "Diffing from merge base $MERGE_BASE (PR base is $BASE_SHA)"
+                  .github/scripts/verify-storybook-new-stories.sh "$MERGE_BASE" 3
 
             - name: Upload flake verification screenshots
               if: failure() && steps.flake-verify.outcome == 'failure'
