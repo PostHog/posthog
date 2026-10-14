@@ -234,6 +234,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     clause?: string | null
+    /**
+     * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+     * @nullable
+     */
+    unit?: string | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -1038,9 +1043,9 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601. */
-    dateFrom: string
-    /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    dateFrom?: string
+    /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
 }
 

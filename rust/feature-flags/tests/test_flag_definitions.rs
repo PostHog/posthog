@@ -435,6 +435,63 @@ async fn test_secret_api_token_authentication_invalid_token() {
     assert_eq!(body["attr"], Value::Null);
 }
 
+/// ACCEPT_TEAM_SECRET_TOKENS is the kill switch for legacy team secret tokens (#66179).
+/// When it is false, the lookup skips posthog_team.
+/// A legacy token then authenticates only through a backfilled PSAK mirror row with the same string.
+/// `test_secret_api_token_authentication_valid_token` covers the default (true) path.
+#[rstest::rstest]
+#[case::with_mirror_row(true, 200)]
+#[case::without_mirror_row(false, 401)]
+#[tokio::test]
+async fn test_kill_switch_off_legacy_token_only_matches_mirror_row(
+    #[case] mirror_row: bool,
+    #[case] expected_status: u16,
+) {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::TestContext,
+    };
+    use reqwest;
+
+    let mut config = Config::default_test_config();
+    config.accept_team_secret_tokens = FlexBool(false);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    if mirror_row {
+        context
+            .create_project_secret_api_key_with_value(
+                team.id,
+                "Migrated legacy secret API key",
+                Some(vec!["feature_flag:read", "support_ticket:read"]),
+                &secret_token,
+            )
+            .await
+            .unwrap();
+    }
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body_text = response.text().await.unwrap();
+    assert_eq!(status, expected_status, "Response body: {body_text}");
+}
+
 /// Token param absent with a valid team-scoped secret — team is derived from the token.
 #[rstest::rstest]
 #[case::team_secret_token("secret")]

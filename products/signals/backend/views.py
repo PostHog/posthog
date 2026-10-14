@@ -72,12 +72,19 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, PullRe
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.permissions import (
+    APIScopePermission,
+    TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
+from products.signals.backend.agent_instructions import STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
@@ -574,6 +581,20 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
+class SignalSteeringPermission(TeamMemberStrictManagementPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if (
+            request.method in ("GET", "HEAD", "OPTIONS")
+            or not isinstance(request.data, dict)
+            or not any(field in request.data for field in STEERING_FIELDS.values())
+        ):
+            return True
+        if is_sandbox_oauth_request(request):
+            self.message = "Task agents cannot modify steering instructions."
+            return False
+        return super().has_permission(request, view)
+
+
 class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Team-level signal autonomy config (singleton per team).
 
@@ -582,7 +603,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, SignalSteeringPermission]
     serializer_class = SignalTeamConfigSerializer
     queryset = SignalTeamConfig.objects.all()
     scope_object = "task"
@@ -612,9 +633,12 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
-        serializer = self.get_serializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            # Independent settings editors share this row; refetch under lock to keep concurrent edits.
+            config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team.pk)
+            serializer = self.get_serializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
         return Response(serializer.data)
 
 
@@ -888,10 +912,16 @@ class SignalReportMergeResponseSerializer(serializers.Serializer):
 SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
 
+class SignalReportFeedbackSentiment(models.TextChoices):
+    POSITIVE = "positive", "positive"
+    NEGATIVE = "negative", "negative"
+
+
 class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     sentiment = serializers.ChoiceField(
-        choices=[("positive", "positive"), ("negative", "negative")],
-        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+        choices=SignalReportFeedbackSentiment.choices,
+        allow_null=True,
+        help_text="The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.",
     )
     note = serializers.CharField(
         max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
@@ -905,6 +935,15 @@ class SignalReportFeedbackRequestSerializer(serializers.Serializer):
             "scout as a steering note."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["sentiment"] is None and attrs["note"].strip():
+            raise serializers.ValidationError({"note": "Select a rating before you add a note."})
+        return attrs
+
+
+class SignalReportFeedbackStateSerializer(SignalReportFeedbackRequestSerializer):
+    note = serializers.CharField(allow_blank=True, help_text="The current user's saved note, or an empty string.")
 
 
 class SignalReportFeedbackResponseSerializer(serializers.Serializer):
@@ -1187,7 +1226,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only
@@ -1335,6 +1374,7 @@ class SignalReportViewSet(
             "signals",
             "refund",
             "feedback",
+            "feedback_state",
             "viewed",
             "pr_checks",
             "pr_comments",
@@ -2930,6 +2970,22 @@ class SignalReportViewSet(
             ).data
         )
 
+    @extend_schema(responses=SignalReportFeedbackStateSerializer)
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def feedback_state(self, request: Request, pk=None, **kwargs) -> Response:
+        report = self.get_object()
+        metadata = (
+            SignalReportAction.objects.for_team(self.team.id)
+            .filter(report=report, user=cast(User, request.user), type=SignalReportAction.ActionType.FEEDBACK)
+            .values_list("metadata", flat=True)
+            .first()
+        ) or {}
+        return Response(
+            SignalReportFeedbackStateSerializer(
+                {"sentiment": metadata.get("sentiment"), "note": metadata.get("note", "")}
+            ).data
+        )
+
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
@@ -2944,7 +3000,7 @@ class SignalReportViewSet(
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:read"])
     def feedback(self, request, pk=None, **kwargs):
         """Persist a report's thumbs rating and forward its note to the authoring scout.
 
@@ -2969,10 +3025,10 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.FEEDBACK,
-                metadata={"sentiment": data["sentiment"]},
-                bump_count=not note,
+                metadata={"sentiment": data["sentiment"], **({"note": note} if note else {})},
+                bump_count=not note and data["sentiment"] is not None,
             )
-            if not note:
+            if not note and data["sentiment"] is not None:
                 capture_background_report_events(
                     team=self.team,
                     user=request.user,
