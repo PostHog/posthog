@@ -346,6 +346,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                     "best_holdout_score": 0.72,
                     "latest_agent_description": "try fewer features",
                     "latest_summary": "Plain try fewer features",
+                    "trend": [
+                        {"iteration_number": 0, "best_holdout_score": 0.72},
+                        {"iteration_number": 1, "best_holdout_score": 0.72},
+                    ],
                 },
             ),
             "No positives": (None, 0, 0, [], None),
