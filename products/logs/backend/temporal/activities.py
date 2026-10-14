@@ -1284,20 +1284,28 @@ def _save_cohort_outcomes(
     update_ms: int | None = None
     saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
+    superseded: list[_DispatchedAlert] = []
     try:
         with transaction.atomic():
-            current_restrictions = dict(
-                LogsAlertConfiguration.objects.select_for_update()
+            current = {
+                alert_id: (restriction, owner_changed_at)
+                for alert_id, restriction, owner_changed_at in LogsAlertConfiguration.objects.select_for_update()
                 .filter(id__in=[d.evaluation.alert.id for d in dispatched])
-                .values_list("id", "schedule_restriction")
-            )
+                .values_list("id", "schedule_restriction", "owner_changed_at")
+            }
 
             # The worker can evaluate an alert while a user saves quiet hours. Locking
             # before staging makes either write order safe: this worker uses the saved
             # restriction, or the API waits and then reschedules after this check.
             staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
             for d in dispatched:
-                d.evaluation.alert.schedule_restriction = current_restrictions.get(d.evaluation.alert.id)
+                restriction, owner_changed_at = current.get(d.evaluation.alert.id, (None, None))
+                # A cutover or rollback carried another stack's state onto this row after the check
+                # read it, so this check's state and schedule are stale and are not saved.
+                if owner_changed_at != d.evaluation.alert.owner_changed_at:
+                    superseded.append(d)
+                    continue
+                d.evaluation.alert.schedule_restriction = restriction
                 update_fields, event = _stage_alert_for_save(d, now)
                 staged.append((d, update_fields, event))
 
@@ -1322,6 +1330,7 @@ def _save_cohort_outcomes(
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
         saved, failed = _save_staged_per_alert(staged)
+        saved += superseded
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):

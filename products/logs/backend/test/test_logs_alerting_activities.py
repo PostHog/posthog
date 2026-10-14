@@ -265,6 +265,20 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         )
         return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
 
+    def test_a_check_read_before_an_ownership_change_saves_nothing_over_the_carried_state(self):
+        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC))
+        dispatched = self._make_dispatched(alert)
+        handed_over_at = datetime(2025, 1, 1, 0, 0, 30, tzinfo=UTC)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            state="broken", owner="platform", owner_changed_at=handed_over_at
+        )
+
+        saved, failed = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+
+        assert (saved, failed) == ([dispatched], [])
+        alert.refresh_from_db()
+        assert (alert.state, alert.last_checked_at) == ("broken", None)
+
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_integrity_error_falls_back_to_per_alert(self, mock_bulk_update):
         # First call raises IntegrityError (bulk path); per-alert fallback then saves each alert.
