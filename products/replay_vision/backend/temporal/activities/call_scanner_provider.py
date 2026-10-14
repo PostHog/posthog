@@ -697,8 +697,8 @@ async def _run_mission(
 def _upload_route_gateway(via_gateway: bool, properties: dict[str, Any]) -> GatewayGeminiClient | None:
     """The gateway client when the upload stored the file through it, else None for the direct route.
 
-    Without a gateway here, a gateway upload goes direct only when the direct key reaches its project. The upload's
-    cleanup-key check usually proved that; a check skipped on a transient error proved nothing.
+    A direct read of a gateway upload is safe only when the upload's cleanup-key check ran; a skipped check
+    proved nothing.
     """
     if not via_gateway:
         return None

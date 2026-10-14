@@ -32,11 +32,9 @@ _DirectClientT = TypeVar("_DirectClientT")
 
 
 def resolve_replay_gateway_config() -> AIGatewayConfig | None:
-    """The gateway with Replay Vision's own key, whose team the gateway binds to Replay Vision's Google project.
+    """The gateway config on Replay Vision's own key, or None to stay direct.
 
-    None while the key is unset, so Replay Vision stays direct without the shared key's misconfiguration warning.
-    Also None without REPLAY_VISION_GEMINI_API_KEY: direct cleanup would then use the shared project's key and
-    could not see the files the gateway stores in Replay Vision's project.
+    An unset key is the default, so it skips the shared config's misconfiguration warning.
     """
     if not settings.REPLAY_VISION_AI_GATEWAY_API_KEY:
         return None
@@ -68,7 +66,7 @@ def _warn_gateway_disabled(reason: str) -> None:
 
 
 def replay_gateway_enabled(team_id: int) -> bool:
-    """Whether the team's Gemini calls go through the gateway: Replay Vision's key is set and the flag is on."""
+    """Whether the team's Gemini calls go through the gateway."""
     if resolve_replay_gateway_config() is None:
         return False
     # Local evaluation only: a scan makes many calls, and a flag outage must leave them direct and fast.
@@ -118,9 +116,8 @@ def _retry_gateway_refusals() -> Iterator[None]:
 
 
 class _GatewayModelsBase:
-    """A plain SDK `models` surface that accepts the analytics wrapper's per-call `posthog_*` kwargs.
-
-    The gateway captures the generation, so those kwargs become request headers. Groups have no gateway header.
+    """A plain SDK `models` surface taking the analytics wrapper's per-call `posthog_*` kwargs as request headers,
+    since the gateway captures the generation. Groups have no gateway header, so they are dropped.
     """
 
     def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
@@ -235,10 +232,7 @@ _UPLOAD_CHUNK_BYTES = 1 << 20
 
 
 class GatewayGeminiClient:
-    """The gateway client with the analytics wrapper's call shape, so call sites stay the same in both modes.
-
-    Files and caches live in Replay Vision's own Google project: the gateway binds Replay Vision's key to it.
-    """
+    """The gateway client with the analytics wrapper's call shape, so call sites stay the same in both modes."""
 
     def __init__(self, client: Any, base_properties: Mapping[str, Any], gateway: AIGatewayConfig | None = None) -> None:
         self._client = client
@@ -280,11 +274,10 @@ def _send_before(data: bytes, deadline: float) -> Iterator[bytes]:
 
 
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:
-    """Fold streamed chunks into the response a buffered call returns.
+    """Fold streamed chunks into the response a buffered call returns, parts in order for the next turn.
 
-    Parts keep their order, so thought signatures and function calls reach the next turn unchanged. Raises a 503
-    `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the gateway's in-band
-    error frame, so a cut stream would otherwise pass as a short answer.
+    Raises a 503 `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the
+    gateway's in-band error frame, so a cut stream would otherwise pass as a short answer.
     """
     parts: list[types.Part] = []
     last_candidate: types.Candidate | None = None
@@ -376,11 +369,7 @@ def replay_gemini_client(
     distinct_id: str | None = None,
     timeout_ms: int | None = None,
 ) -> _DirectClientT | GatewayGeminiClient:
-    """The gateway client when `replay_gateway_enabled(team_id)`, else `direct()`.
-
-    `direct` runs only in direct mode. Per-call `posthog_*` kwargs override `properties` and `distinct_id` in both
-    modes. Every Replay Vision call runs in privacy mode.
-    """
+    """The gateway client when `replay_gateway_enabled(team_id)`, else `direct()`. Every call runs in privacy mode."""
     if not replay_gateway_enabled(team_id):
         return direct()
     gateway = replay_gateway_client(properties=properties, distinct_id=distinct_id, timeout_ms=timeout_ms)
@@ -393,7 +382,7 @@ def replay_gateway_client(
     distinct_id: str | None = None,
     timeout_ms: int | None = None,
 ) -> GatewayGeminiClient | None:
-    """The gateway client on Replay Vision's own key, or None while that key is unset. Skips the flag."""
+    """The gateway client on Replay Vision's own key, or None while gateway mode is off here. Skips the flag."""
     gateway = resolve_replay_gateway_config()
     if gateway is None:
         return None

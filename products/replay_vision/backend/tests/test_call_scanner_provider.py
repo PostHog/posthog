@@ -145,7 +145,6 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
             via_gateway=True,
         )
 
-    # The cache and the generations both run on Replay Vision's own key, through the gateway.
     assert create_cache.call_args.args[0] is gateway
     if fails != "cache":
         assert attempts.call_args.kwargs["run"].keywords["client"] is gateway.aio
@@ -156,7 +155,7 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
 
 @pytest.mark.asyncio
 async def test_a_direct_upload_is_scanned_direct_even_with_the_flag_on() -> None:
-    # The upload fell back to direct on another pod; this pod has the gateway on and configured for the team.
+    # Another pod uploaded direct; this pod has the gateway on and configured for the team.
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])

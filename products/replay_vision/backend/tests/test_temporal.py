@@ -1158,7 +1158,6 @@ class TestKnownFreeformTags:
             )
 
         assert mock_run_mission.await_args is not None
-        # The upload's route reaches the mission, so the scan reads the file where the upload stored it.
         assert mock_run_mission.await_args.kwargs["via_gateway"] is True
         passed_scanner = mock_run_mission.await_args.kwargs["scanner"]
         assert passed_scanner.known_freeform_tags == ["search_error"]
@@ -3766,7 +3765,6 @@ class TestUploadThroughTheGateway:
         # The cleanup key reads the stored file once, to prove it reaches the same project.
         raw_client.return_value.files.get.assert_called_once_with(name="files/abc")
         assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
-        # The scan reads the file through the gateway because the upload stored it there.
         assert uploaded.via_gateway is True
         gateway.aclose.assert_awaited_once()
 
@@ -3816,7 +3814,6 @@ class TestUploadThroughTheGateway:
             )
             assert resolve_replay_gateway_config() is None
 
-        # The gateway removes the file cleanup cannot see, and the scan goes on with a direct upload.
         gateway.files.delete.assert_called_once_with(name="files/abc")
         assert uploaded.gemini_file_name == "files/direct"
         assert uploaded.via_gateway is False
@@ -3908,7 +3905,6 @@ class TestUploadThroughTheGateway:
 
         assert uploaded.gemini_file_name == "files/abc"
         gateway.upload_file.assert_called_once()
-        # The poll slows down, and waits longest after a 429.
         assert [call.args[0] for call in sleep.await_args_list] == [0.5, 1.0, 5.0]
 
     @pytest.mark.asyncio

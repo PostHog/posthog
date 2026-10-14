@@ -114,7 +114,6 @@ async def _store_video(
 ) -> UploadedVideo:
     files: Any
     if gateway is not None:
-        # The gateway stores the file in Replay Vision's own Google project, the one the cleanup sweep manages.
         uploaded_file = await asyncio.to_thread(
             gateway.upload_file, video_bytes, mime_type=mime_type, display_name=workflow_id
         )
@@ -183,7 +182,6 @@ async def _store_video(
         )
 
     if gateway is not None and not await _cleanup_key_sees(gateway, gemini_file_name):
-        # Cleanup could not delete this file, so the gateway is off for this process and the video goes direct.
         return await _store_video(None, video_bytes, mime_type, workflow_id)
 
     return UploadedVideo(
@@ -198,10 +196,8 @@ _KEY_MISMATCH = "REPLAY_VISION_GEMINI_API_KEY must reach the Google project boun
 
 
 async def _cleanup_key_sees(gateway: GatewayGeminiClient, name: str) -> bool:
-    """False when the direct key, which cleanup uses, cannot read an ACTIVE file the gateway stored.
-
-    Then the file is deleted through the gateway and the gateway is disabled for this process. Any other
-    error skips the check, so a good upload is kept and the next one checks again.
+    """False when cleanup's direct key cannot read an ACTIVE file the gateway stored; the file is then deleted and
+    the gateway disabled here. Any other error skips the check, so the next upload checks again.
     """
     global _cleanup_key_sees_gateway_files
     if _cleanup_key_sees_gateway_files:

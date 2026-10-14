@@ -282,7 +282,6 @@ class CallScannerProviderInputs(BaseModel, frozen=True):
     exported_asset_id: int
     file_uri: str
     mime_type: str
-    # Whether the AI gateway stored `file_uri`, so the scan reads it from the same Google project.
     via_gateway: bool = False
     # Experiment scanners only: scan-time context the workflow resolved before this call, injected
     # into the scanner's prompt (see `ExperimentScanner`). Both stay None for the other types.

@@ -367,7 +367,6 @@ def test_a_failed_pii_rewrite_keeps_a_transient_or_spend_limit_class(
         )
     if isinstance(exc_info.value, ScannerFailureError):
         assert exc_info.value.kind == FailureKind.PII_DETECTED
-    # Only a transient failure is retried in place, so a spend limit or a rejection is called once.
     transient = raised in (genai_errors.ServerError, genai_errors.ClientError, httpx.ConnectError)
     assert rewrite.await_count == (3 if transient else 1)
 
@@ -549,7 +548,6 @@ class TestReplayVisionKey:
         assert gateway_client.call_args.kwargs["api_key"] == "phs_replay_vision"
 
     def test_the_gateway_needs_replay_visions_own_google_key(self) -> None:
-        # Without it, direct cleanup would use the shared project and miss the files the gateway stores.
         direct = MagicMock()
         no_google_key = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": ""}
         _warn_gateway_disabled.cache_clear()
@@ -676,7 +674,6 @@ class TestGatewayFilesAndCaches:
         assert request.headers["content-length"] == str(len(b"mp4-bytes"))
         assert "transfer-encoding" not in request.headers
         assert request.headers["x-goog-upload-display-name"] == "wf-1"
-        # The upload runs in a thread Temporal can't cancel, so it must end before the activity's 10 minutes.
         assert client_kwargs["trust_env"] is False
         timeout = client_kwargs["timeout"]
         assert timeout.connect == 10.0 and timeout.read == 60.0 and timeout.write == 60.0
