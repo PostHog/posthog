@@ -222,6 +222,12 @@ class TestDestinationEligibility(APIBaseTest):
         self._function("template-slack", SLACK_INPUTS)
         team_wide = self._function("template-slack", SLACK_INPUTS, alert_id=None)
         self._function("template-slack", SLACK_INPUTS, alert_id=None, enabled=False)
+        untyped_event = self._function("template-slack", SLACK_INPUTS, alert_id=None)
+        HogFunction.objects.filter(pk=untyped_event.pk).update(
+            filters={**(untyped_event.filters or {}), "events": [{"id": EVENT}]}
+        )
+        captured_events = self._function("template-slack", SLACK_INPUTS, alert_id=None)
+        HogFunction.objects.filter(pk=captured_events.pk).update(type="destination")
         excluding_one_alert = self._function("template-slack", SLACK_INPUTS)
         HogFunction.objects.filter(pk=excluding_one_alert.pk).update(
             filters={
@@ -232,5 +238,6 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert unbound_alert_destinations(team_id=self.team.id, alert_ids=[ALERT_ID], allowed_event_ids=[EVENT]) == (
             team_wide.id,
+            untyped_event.id,
             excluding_one_alert.id,
         )

@@ -411,7 +411,8 @@ def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
 
     event_filter = Q()
     for event_id in allowed_event_ids:
-        event_filter |= Q(filters__events__contains=[{"id": event_id, "type": "events"}])
+        # `type` is optional in a stored filter, and the internal events consumer matches on the id alone.
+        event_filter |= Q(filters__events__contains=[{"id": event_id}])
     return event_filter
 
 

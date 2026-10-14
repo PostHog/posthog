@@ -73,7 +73,13 @@ def unbound_alert_destinations(
     known_alert_ids = set(alert_ids)
     candidates = (
         HogFunction.objects.filter(
-            _allowed_event_filter(allowed_event_ids), team_id=team_id, deleted=False, enabled=True
+            _allowed_event_filter(allowed_event_ids),
+            team_id=team_id,
+            deleted=False,
+            enabled=True,
+            # Only these receive alert events. Any other function on the same event id reads captured events.
+            type="internal_destination",
+            filters__source="internal-events",
         )
         .order_by("created_at", "id")
         .values_list("id", "filters")
