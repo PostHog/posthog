@@ -386,7 +386,7 @@ function ManagedSourceTabs({
                     deprecation={source.api_version_deprecation}
                 />
             )}
-            {showDestinationsTab && <FailingDestinationsBanner sourceId={sourceId} />}
+            {showDestinationsTab && source && <FailingDestinationsBanner sourceId={sourceId} />}
             <LemonTabs
                 activeKey={currentTab}
                 tabs={tabs}
