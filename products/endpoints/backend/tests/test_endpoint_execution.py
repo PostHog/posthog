@@ -16,6 +16,8 @@ from posthog.schema import EventsNode, TrendsQuery
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import CHQueryErrorNoCommonType
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
@@ -2522,10 +2524,18 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         inline_response = Response({"results": [[1]], "columns": ["count()"]})
+        outcomes: list[Response | Exception] = [RuntimeError("materialized table exploded"), inline_response]
+        workloads_seen: list[str | None] = []
+
+        def run_query(*args, **kwargs) -> Response:
+            workloads_seen.append(get_query_tags().workload)
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
         with mock.patch.object(
-            EndpointExecutionService,
-            "_execute_query_and_respond",
-            side_effect=[RuntimeError("materialized table exploded"), inline_response],
+            EndpointExecutionService, "_execute_query_and_respond", side_effect=run_query
         ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -2533,6 +2543,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        self.assertEqual(workloads_seen[0], Workload.ENDPOINTS)
+        self.assertNotEqual(
+            workloads_seen[1], Workload.ENDPOINTS, "the inline fallback must not run on the endpoints cluster"
+        )
 
     def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
         """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.

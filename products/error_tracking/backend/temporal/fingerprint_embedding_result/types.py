@@ -14,6 +14,8 @@ class FingerprintEmbeddingResultInputs:
     source_issue_id: str | None = None
     event_uuid: str | None = None
     event_timestamp: str | None = None
+    # The text that was embedded, so the judge doesn't read it back before ClickHouse has ingested it.
+    content: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

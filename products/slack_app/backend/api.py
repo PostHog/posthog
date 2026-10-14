@@ -2970,6 +2970,13 @@ def route_posthog_code_event_to_relevant_region(
             incoming_host=incoming_host,
         )
 
+    # Never unfurl into a Slack Connect channel, even an approved one. A card or its chart shows project
+    # data to people outside the organization, and a pasted link is not a request for it. Every region
+    # drops the event the same way, so this runs before any lookup or cross-region forward.
+    if event_type == "link_shared" and is_ext_shared_channel:
+        logger.info("slack_link_unfurl_external_channel", slack_team_id=slack_team_id, channel=event.get("channel"))
+        return ROUTE_HANDLED_LOCALLY
+
     # The link's own host decides the region, from URL parsing alone — ahead of ``load_integrations``,
     # whose query and Slack auth check would be thrown away on the forward. A workspace connected in
     # both regions otherwise resolves a `us.` link's `/project/:id` against this region's project of
@@ -3022,16 +3029,6 @@ def route_posthog_code_event_to_relevant_region(
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
-            # Mirror the app_mention gate: don't unfurl project data into an unapproved externally
-            # shared channel. A paste isn't an explicit invocation, so suppress without prompting.
-            channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
-            if (
-                is_ext_shared_channel
-                and channel_id
-                and not _channel_is_approved(local_match.integration_id, channel_id)
-            ):
-                logger.info("slack_link_unfurl_channel_unapproved", slack_team_id=slack_team_id, channel=channel_id)
-                return ROUTE_HANDLED_LOCALLY
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
@@ -4226,8 +4223,7 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
             continue
         parsed = parse_posthog_resource_link(url)
         if parsed:
-            resource_type, resource_ref = parsed
-            resources.append({"type": resource_type, "ref": str(resource_ref)})
+            resources.append({"type": parsed.kind, "ref": parsed.id})
     return resources
 
 

@@ -172,7 +172,7 @@ class TeamManager(models.Manager):
 
         user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
         if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
-            sync_user_product_lists_for_new_team.delay(team.id)
+            transaction.on_commit(lambda: sync_user_product_lists_for_new_team.delay(team.id))
         else:
             sync_user_product_lists_for_new_team(team.id)
 

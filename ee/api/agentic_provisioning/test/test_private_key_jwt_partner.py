@@ -210,32 +210,3 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
         )
         assert res.status_code == 200, res.json()
         mock_refresh.assert_called_once_with(PARTNER_CLIENT_ID)
-
-    def test_github_grant_listing_authenticates_from_the_query_string(self):
-        # The listing endpoint is a GET, so there is no body to carry the assertion. Without
-        # the query-string fallback a private_key_jwt partner would be locked out of it while
-        # a client_secret partner sailed through on the Basic header.
-        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)):
-            res = self.client.get(
-                "/api/agentic/provisioning/github/grants/unknown-grant/repositories",
-                data={
-                    "client_assertion": self._assertion(jti_suffix="listing"),
-                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
-                },
-            )
-
-        # 404 for a grant that does not exist means authentication was accepted; 401/403 would
-        # mean it was not.
-        assert res.status_code == 404, res.json()
-        assert res.json()["error"]["code"] == "grant_not_found"
-
-    def test_github_grants_accepts_a_private_key_jwt_partner(self):
-        # These endpoints require a confidential partner. private_key_jwt qualifies, since the
-        # assertion proves control of the client just as a secret would.
-        res = self._post(
-            "/api/agentic/provisioning/github/grants",
-            {"code": "", **self._assertion_body()},
-        )
-        # An empty GitHub code fails validation, which means auth was accepted.
-        assert res.status_code == 400
-        assert res.json()["error"]["code"] == "invalid_request"

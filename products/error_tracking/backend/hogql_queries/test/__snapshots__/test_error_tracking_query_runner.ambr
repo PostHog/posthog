@@ -48,7 +48,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -113,7 +114,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -168,7 +170,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -215,7 +218,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), e__fingerprint_issue_state.fp_hash)
   WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(e__fingerprint_issue_state.issue_id), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(greaterOrEquals(e__fingerprint_issue_state.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -262,7 +266,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), e__fingerprint_issue_state.fp_hash)
   WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(e__fingerprint_issue_state.issue_id), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(less(e__fingerprint_issue_state.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -317,7 +322,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -372,7 +378,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -427,7 +434,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -482,7 +490,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -537,7 +546,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -584,7 +594,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), e__fingerprint_issue_state.fp_hash)
   WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(e__fingerprint_issue_state.issue_id), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(e__fingerprint_issue_state.issue_name, 'TypeError'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -649,7 +660,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -704,7 +716,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -759,7 +772,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -814,7 +828,9 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY first_seen ASC
+  ORDER BY first_seen ASC,
+           last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -879,7 +895,9 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY occurrences DESC
+  ORDER BY occurrences DESC,
+           last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -941,7 +959,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -996,7 +1015,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1061,7 +1081,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1126,7 +1147,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1191,7 +1213,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE and(isNotNull(fp_state.issue_id), ifNull(equals(fp_state.issue_id, 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1256,7 +1279,8 @@
      HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS fp_state ON equals(ev.fp_hash, fp_state.fp_hash)
   WHERE isNotNull(fp_state.issue_id)
   GROUP BY id
-  ORDER BY last_seen DESC
+  ORDER BY last_seen DESC,
+           id DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
