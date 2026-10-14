@@ -1196,6 +1196,64 @@ describe('supportTicketSceneLogic discussion polling', () => {
     })
 })
 
+describe('supportTicketSceneLogic AI source refresh on poll', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsListMock = api.comments.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+    const citedAiComment = (): CommentType =>
+        ({
+            ...makeAiComment('msg-ai-cited', false),
+            item_context: { author_type: 'AI', is_private: false, citations: ['chunk-1'] },
+        }) as CommentType
+    const source = { ref: 'chunk-1', title: 'Billing FAQ', source_id: 'source-1' }
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+        ticketGetMock.mockClear()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+    })
+
+    it('loads the sources of an AI draft that arrives while the ticket is open, keeping unsaved edits', async () => {
+        logic.actions.setStatus('pending')
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+        ticketGetMock.mockResolvedValue({
+            ...loadedTicket(),
+            status: 'resolved',
+            ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+        })
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toDispatchActions(['setMessages', 'refreshAiTriage', 'setAiTriage'])
+
+        expect(logic.values.ticket?.ai_triage?.sources).toEqual([source])
+        expect(logic.values.status).toBe('pending')
+    })
+
+    it('does not fetch the ticket again when the poll brings no new AI message', async () => {
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+        ticketGetMock.mockClear()
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketGetMock).not.toHaveBeenCalled()
+    })
+})
+
 describe('supportTicketSceneLogic deleteTicket', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
     const destroyMock = conversationsTicketsDestroy as jest.Mock
