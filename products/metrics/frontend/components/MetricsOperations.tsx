@@ -5,6 +5,7 @@ import {
     MetricAggregation,
     MetricRangeFunction,
     MetricsViewerClause,
+    isHistogramQuantileAggregation,
     supportsHistogramQuantile,
 } from './metricsViewerLogic'
 
@@ -54,10 +55,13 @@ const HISTOGRAM_AGGREGATION_OPTIONS: OperationOption<MetricAggregation>[] = [
     },
 ]
 
+// A clause converted from a PromQL histogram percentile has no metric type, so its current
+// aggregation also unlocks the other percentiles.
 const aggregationOptionsFor = (
-    metricType: MetricsViewerClause['selectedMetricType']
+    metricType: MetricsViewerClause['selectedMetricType'],
+    aggregation: MetricAggregation | null
 ): OperationOption<MetricAggregation>[] =>
-    supportsHistogramQuantile(metricType)
+    supportsHistogramQuantile(metricType) || isHistogramQuantileAggregation(aggregation)
         ? [...HISTOGRAM_AGGREGATION_OPTIONS, ...AGGREGATION_OPTIONS]
         : AGGREGATION_OPTIONS
 
@@ -129,7 +133,7 @@ export function MetricsOperations({
     disabledReason: string | null
 }): JSX.Element {
     const { rangeFunction, aggregation, selectedMetricType } = clause
-    const aggregationOptions = aggregationOptionsFor(selectedMetricType)
+    const aggregationOptions = aggregationOptionsFor(selectedMetricType, aggregation)
     const rangeFunctionOption = RANGE_FUNCTION_OPTIONS.find((option) => option.value === rangeFunction)
     // A saved or linked histogram percentile still shows its chip while the type is not known yet.
     const aggregationOption = [...HISTOGRAM_AGGREGATION_OPTIONS, ...AGGREGATION_OPTIONS].find(
