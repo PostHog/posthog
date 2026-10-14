@@ -207,7 +207,7 @@ def get_delivery_image_url(
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
-def render_png_export(
+def create_png_export_asset(
     *,
     team: Team,
     created_by: User,
@@ -217,16 +217,12 @@ def render_png_export(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
-) -> tuple[ExportedAsset, bytes | None]:
-    """Render a PNG export synchronously and return the asset together with its content bytes.
+) -> ExportedAsset:
+    """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
 
-    Blocks until the export workflow finishes (typically a few seconds). On failure the
-    returned bytes are None and ``asset.exception`` carries the error.
-
-    ``is_system`` marks the asset as created by an internal process, which excludes it from
-    the user's export listings and the per-team export quota. ``expires_after`` overrides
-    the format's default TTL; pass it when the render backs a short-lived delivery URL so
-    the stored bytes do not outlive their only consumer by months.
+    For a caller that is itself a Temporal workflow: it runs the export as a child workflow
+    instead of blocking a worker on ``render_png_export``. The arguments and access rules are
+    the same as for ``render_png_export``.
     """
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
@@ -265,6 +261,50 @@ def render_png_export(
         dashboard_id=dashboard_id,
         is_system=is_system,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=expires_after,
+    )
+    return asset
+
+
+def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
+    """Whether a PNG asset rendered without error and stored its bytes."""
+    asset = ExportedAsset.objects.filter(
+        team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG
+    ).first()
+    if asset is None or asset.exception:
+        return False
+    return bool(asset.content or asset.content_location)
+
+
+def render_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    export_context: dict | None = None,
+    insight_id: int | None = None,
+    insight_short_id: str | None = None,
+    dashboard_id: int | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
+) -> tuple[ExportedAsset, bytes | None]:
+    """Render a PNG export synchronously and return the asset together with its content bytes.
+
+    Blocks until the export workflow finishes (typically a few seconds). On failure the
+    returned bytes are None and ``asset.exception`` carries the error.
+
+    ``is_system`` marks the asset as created by an internal process, which excludes it from
+    the user's export listings and the per-team export quota. ``expires_after`` overrides
+    the format's default TTL; pass it when the render backs a short-lived delivery URL so
+    the stored bytes do not outlive their only consumer by months.
+    """
+    asset = create_png_export_asset(
+        team=team,
+        created_by=created_by,
+        export_context=export_context,
+        insight_id=insight_id,
+        insight_short_id=insight_short_id,
+        dashboard_id=dashboard_id,
+        is_system=is_system,
         expires_after=expires_after,
     )
 

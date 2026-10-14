@@ -1,17 +1,20 @@
-"""Slack link unfurling for PostHog resource URLs (metadata only).
+"""Slack link unfurling for PostHog resource URLs.
 
 Ticket subjects and messages are customer-authored, so every one goes through `escape_slack_mrkdwn`.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 import structlog
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
 from posthog.models.comment import Comment
@@ -19,6 +22,12 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client
 from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.temporal.ai.slack_app.slack_app_unfurl_charts import (
+    SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
+    SlackAppUnfurlChartsWorkflow,
+)
+from posthog.temporal.ai.slack_app.types import SlackAppUnfurlChartsWorkflowInputs, SlackUnfurlChartRequest
+from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import (
@@ -29,6 +38,7 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
@@ -46,6 +56,9 @@ _INVITE_UTM_TAGS = "utm_source=slack&utm_medium=unfurl&utm_campaign=link_unfurl_
 _INVITE_THROTTLE_SECONDS = 24 * 60 * 60
 # The throttle must fail fast rather than correctly: it sits inside the webhook's ack budget.
 _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
+
+# Each chart is a render, so one message with many insight links gets charts for the first few.
+_MAX_UNFURL_CHARTS = 3
 
 # Query `source.kind` / top-level `kind` → short name before " insight" (sync with InsightType / query kinds).
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
@@ -439,6 +452,59 @@ def _attach_public_slack_thread_reference(
     )
 
 
+def _start_unfurl_charts(
+    *,
+    integration: Integration,
+    user_id: int,
+    distinct_id: str,
+    event: dict,
+    unfurls: dict[str, dict],
+    charts: list[SlackUnfurlChartRequest],
+) -> bool:
+    """Start the workflow that adds chart images to the posted cards. Best effort: a failure keeps the text cards.
+
+    The image url opens without a PostHog login, so an organization that turns off public
+    sharing gets no charts.
+    """
+    if not integration.team.organization.allow_publicly_shared_resources:
+        return False
+    if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=distinct_id):
+        return False
+    channel = event["channel"]
+    message_ts = event["message_ts"]
+    inputs = SlackAppUnfurlChartsWorkflowInputs(
+        team_id=integration.team_id,
+        integration_id=integration.id,
+        user_id=user_id,
+        slack_user_id=event["user"],
+        channel=channel,
+        message_ts=message_ts,
+        unfurl_id=event.get("unfurl_id"),
+        source=event.get("source"),
+        unfurls=unfurls,
+        charts=charts[:_MAX_UNFURL_CHARTS],
+        export_task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+    )
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                SlackAppUnfurlChartsWorkflow.run,
+                inputs,
+                id=f"slack-app-unfurl-charts-{integration.integration_id}:{channel}:{message_ts}",
+                task_queue=settings.TASKS_TASK_QUEUE,
+                execution_timeout=SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        # Slack sent the event again while the first run is still rendering.
+        return False
+    except Exception:
+        logger.warning("slack_app_unfurl_charts_dispatch_failed", team_id=integration.team_id, exc_info=True)
+        return False
+    return True
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
@@ -493,6 +559,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
     # can be answered from logs instead of by re-deriving the path by hand.
     skipped: list[dict[str, str]] = []
+    chart_requests: list[SlackUnfurlChartRequest] = []
 
     for link_obj in links:
         raw_url = link_obj.get("url")
@@ -530,6 +597,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurls[raw_url] = _unfurl_payload(
                 resource_label=_insight_resource_label(insight), title=title, description=desc
             )
+            chart_requests.append(SlackUnfurlChartRequest(url=raw_url, insight_id=insight.id, title=title))
         elif kind == "dashboard":
             if not isinstance(ref, int):
                 continue
@@ -631,6 +699,14 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     except Exception:
         logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
     else:
+        charts_started = bool(chart_requests) and _start_unfurl_charts(
+            integration=integration,
+            user_id=user.pk,
+            distinct_id=str(user.distinct_id),
+            event=event,
+            unfurls=unfurls,
+            charts=chart_requests,
+        )
         capture_slack_event(
             integration,
             "slack app link unfurled",
@@ -640,4 +716,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurled_count=len(unfurls),
             skipped_count=len(skipped),
             followup_invite_shown=invite is not None,
+            charts_started=charts_started,
         )
