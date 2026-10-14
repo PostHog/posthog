@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]):
+    codebase_detection = detect(env=("^RIPPLING_",))
+
     # Rippling versions its REST API through a dated `Rippling-Api-Version` header and, when no
     # header is sent, serves the version bound to the API token account-side (chosen when the
     # customer mints the token) — never a moving "latest". We send the token as-is with no version

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
+    codebase_detection = detect(
+        env=("^WUFOO_",), script_hosts=("secure.wufoo.com",), rubygems=("wuparty", "wufoo_party")
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://www.wufoo.com/docs/api/v3/"

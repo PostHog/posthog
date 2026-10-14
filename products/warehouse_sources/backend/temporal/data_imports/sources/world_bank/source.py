@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorldBankSource(ResumableSource[WorldBankSourceConfig, WorldBankResumeConfig]):
+    codebase_detection = detect(env=("^(WORLD_BANK|WORLDBANK)_",), pypi=("wbgapi", "wbdata"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # v2 is the only live version; v1 was shut down in June 2020. The version is a path segment
     # on every request the source makes.

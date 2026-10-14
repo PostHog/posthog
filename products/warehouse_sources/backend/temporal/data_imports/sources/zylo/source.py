@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ _ENDPOINT_SCOPES: dict[str, str] = {
 
 @SourceRegistry.register
 class ZyloSource(ResumableSource[ZyloSourceConfig, ZyloResumeConfig]):
+    codebase_detection = detect(env=("^ZYLO_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2",)
