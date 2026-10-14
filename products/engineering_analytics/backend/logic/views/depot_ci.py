@@ -389,14 +389,16 @@ def windowed_runs(
     cannot tell a dropped run from a run that never synced, and it needs that to leave the jobs of a
     shell out.
     """
-    raw_start = ", run_started_at AS run_started_at_raw"
+    # The stored column is a plain string, so a run that has not started stores ''.
+    raw_start = ", ifNull(run_started_at, '') AS run_started_at_raw"
     if depot is None:
-        return f"({_github_runs(
+        github_runs = _github_runs(
             runs_table,
             window.rows(),
             optional_columns=optional_columns,
-            extra_columns=f'{raw_start}, 0 AS is_handoff_shell',
-        )})"
+            extra_columns=f"{raw_start}, 0 AS is_handoff_shell",
+        )
+        return f"({github_runs})"
     handoffs = _handoff_workflows(depot, window.rows_and_around("a.workflow_created_at"))
     shells = _github_shells(jobs_table, runs_table, handoffs, _windowed_shell_scan(window))
     github_runs = _github_runs(
@@ -408,7 +410,7 @@ def windowed_runs(
     depot_runs = _runs(
         _attempts(depot, pull_requests_table, window.rows("a.workflow_created_at")),
         f""",
-            any(workflow_started_at) AS run_started_at_raw,
+            ifNull(any(workflow_started_at), '') AS run_started_at_raw,
             github_run_id IN ({_declined_handoffs(handoffs)}) AS is_handoff_shell""",
     )
     return f"({github_runs} UNION ALL {depot_runs})"

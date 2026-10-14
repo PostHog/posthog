@@ -3,6 +3,7 @@
 import structlog
 from celery import shared_task
 
+from posthog.celery_queues import CeleryQueue
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration.github import GitHubIntegration
 from posthog.models.scoping import with_team_scope
@@ -59,6 +60,7 @@ def emit_team_test_census(team_id: int) -> None:
 
 @shared_task(
     ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=REFRESH_TASK_TIME_LIMIT_SECONDS - 5 * 60,
     time_limit=REFRESH_TASK_TIME_LIMIT_SECONDS,
 )

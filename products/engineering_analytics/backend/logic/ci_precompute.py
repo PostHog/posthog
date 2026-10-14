@@ -296,7 +296,7 @@ def _refresh(team: Team) -> bool:
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             remaining = deadline - time.monotonic()
-            # The flag is checked before each insert, so turning it off also stops a running refresh.
+            # The flag is checked before each table, so turning it off also stops a running refresh.
             if remaining <= 0 or not team_flag(STORED_READS_FEATURE_FLAG, team):
                 return failed
             result = ensure_stored(
