@@ -7486,6 +7486,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "scout_trial": trial_context,
                 "scout_trial_private": trial_private,
                 "github_credential_source": "caller_token",
+                "loop_id": "server-loop-id",
                 "include_live_context": False,
                 "analytics_query_context": [],
                 "sandbox_oauth_token_ids": ["server-token-id"],
@@ -7567,6 +7568,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "scout_trial": {"version": 2},
                     "scout_trial_private": {"reports": {}},
                     "github_credential_source": "server_integration",
+                    "loop_id": None,
                     "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
@@ -7657,6 +7659,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["github_credential_source"] == "caller_token"
+        assert run.state["loop_id"] == "server-loop-id"
         assert run.state["include_live_context"] is False
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
@@ -7740,6 +7743,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "claude_model_access",
                     "claude_subscription_user_id",
                     "github_credential_source",
+                    "loop_id",
                     "agent_otel_telemetry_enabled",
                     "agent_proxy_keep_stream_open",
                     "overlap_clone_boot_enabled",
@@ -7793,6 +7797,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["loop_id"] == "server-loop-id"
         assert run.state["include_live_context"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["agent_proxy_keep_stream_open"] is False
