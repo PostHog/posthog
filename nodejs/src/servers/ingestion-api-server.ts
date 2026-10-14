@@ -379,7 +379,7 @@ export class IngestionApiServer implements NodeServer {
                 {
                     addr: this.config.PERSONHOG_IDENTITY_ADDR,
                     useTls: this.config.PERSONHOG_TLS,
-                    timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                    timeoutMs: this.config.PERSONHOG_IDENTITY_TIMEOUT_MS,
                     clientName: 'ingestion-persons-store',
                     initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
                     initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,

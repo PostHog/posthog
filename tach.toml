@@ -938,10 +938,17 @@ path = "products.slack_app"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.canvas",
+    "products.cohorts",
     "products.conversations",
     "products.dashboards",
+    "products.error_tracking",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
     "products.product_analytics",
     "products.signals",
+    "products.surveys",
     "products.tasks", "products.access_control",
     # Slack triggers emit internal events through products.cdp.backend.internal_events.
     "products.cdp",
