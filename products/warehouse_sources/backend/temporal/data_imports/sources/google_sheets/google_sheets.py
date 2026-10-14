@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
@@ -45,7 +45,7 @@ GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
 
 def google_sheets_client() -> gspread.Client:
-    resolved = integration_secrets.get_secrets(
+    resolved = credentials_service.get_secrets(
         [
             "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY",
             "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID",

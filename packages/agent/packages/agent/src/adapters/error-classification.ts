@@ -1,4 +1,7 @@
-import { getErrorMessage } from "@posthog/agent-contracts";
+import {
+  getErrorMessage,
+  isUpstreamRequestRejected,
+} from "@posthog/agent-contracts";
 
 export type AgentErrorClassification =
   | "upstream_stream_terminated"
@@ -31,8 +34,6 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
-const UPSTREAM_REQUEST_REJECTED_PATTERN =
-  /invalid_request_error|unexpected status\s*(?:400|404|422)\b|API Error:\s*(?:400|404|422)\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -99,7 +100,7 @@ export function classifyAgentError(
   if (SUBSCRIPTION_USAGE_LIMIT_PATTERN.test(text)) {
     return "subscription_usage_limit";
   }
-  if (UPSTREAM_REQUEST_REJECTED_PATTERN.test(text)) {
+  if (isUpstreamRequestRejected(text)) {
     return "upstream_request_rejected";
   }
   return "agent_error";

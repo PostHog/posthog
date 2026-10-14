@@ -378,7 +378,6 @@ export const MaterializationSettings: StoryObj = {
                                 id: 'source',
                                 name: 'orders',
                                 type: 'table',
-                                dag: 'dag-1',
                                 upstream_count: 0,
                                 downstream_count: 1,
                             },
@@ -387,14 +386,11 @@ export const MaterializationSettings: StoryObj = {
                                 name: 'revenue_summary',
                                 type: 'matview',
                                 saved_query_id: 'settings-view',
-                                dag: 'dag-1',
                                 upstream_count: 1,
                                 downstream_count: 0,
                             },
                         ],
-                        edges: [
-                            { id: 'edge-1', source_id: 'source', target_id: 'summary', dag: 'dag-1', properties: {} },
-                        ],
+                        edges: [{ id: 'edge-1', source_id: 'source', target_id: 'summary', properties: {} }],
                     },
                 ],
             },
@@ -1281,7 +1277,9 @@ export const BICombinedMeasures: Story = {
 export const BIMeasureDisplay: Story = {
     ...BICombinedMeasures,
     play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Charts$/ }))
+        await userEvent.click((await canvas.findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }
 

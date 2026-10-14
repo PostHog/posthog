@@ -67,17 +67,23 @@ class _OneShotEvalRun(_BaseEvalRun):
         case = self.cases_by_name.get(input["name"]) or BaseEvalCase(name=input["name"], prompt=input.get("prompt", ""))
         started = time.monotonic()
         async with self.ctx.one_shot_slots:
+            await self._set_case_phase(hooks, "agent")
             # Budget the task from slot acquisition, so time spent queued on the
             # semaphore can never eat into a case's timeout.
             output = await asyncio.wait_for(
                 self._task_fn(case, self.ctx),
                 timeout=self.ctx.per_case_timeout_seconds,
             )
+        await self._set_case_phase(hooks, "logs")
         output.setdefault("prompt", case.prompt)
-        await self._write_local_logs(case, output, duration=time.monotonic() - started)
+        await self._write_local_logs(
+            case, output, duration=time.monotonic() - started, trial_id=hooks.metadata.get("trial_id")
+        )
         return output
 
-    async def _write_local_logs(self, case: BaseEvalCase, output: dict[str, Any], duration: float) -> None:
+    async def _write_local_logs(
+        self, case: BaseEvalCase, output: dict[str, Any], duration: float, trial_id: str | None = None
+    ) -> None:
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
@@ -87,6 +93,7 @@ class _OneShotEvalRun(_BaseEvalRun):
                 prompt=case.prompt,
                 duration=duration,
                 last_message=str(output.get("last_message", "")),
+                trial_id=trial_id,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", case.name)

@@ -11277,6 +11277,10 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
+     * Optional. Return only dashboards created by the user with this UUID.
+     */
+    created_by?: string
+    /**
      * Optional. Exclude dashboards that PostHog generated.
      */
     exclude_generated?: boolean

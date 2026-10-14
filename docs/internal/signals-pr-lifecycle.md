@@ -5,6 +5,8 @@ At least one merged PR resolves the report; otherwise all closed PRs suppress it
 
 The schema reserves `monitoring` and a nullable `monitoring_started_at`, but current report transitions do not enter that state. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats evaluation failures as disabled.
 
+When that gate is disabled, report list, detail, evidence, PR checks, and PR comments reads treat stored Monitoring reports as Resolved. Resolved filters and counts include them, status sorting uses the Resolved position, and their work state is done. The Monitoring gate uses local flag evaluation; a missing or unevaluable definition is disabled. The Monitoring status filter remains unavailable. The `feedback_state` endpoint exposes each person's saved rating for a fallback report. The `viewed` and `feedback` endpoints record consumption evidence without changing the stored status. This compatibility covers reads and their consumption records; status-changing actions and background processing require separate support before any production path can enter Monitoring.
+
 Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
@@ -63,6 +65,23 @@ This is prompt guidance, not an enforced access control, and it does not validat
 ## Reviewer notifications
 
 Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
+
+The `signals-research-reviewer-selection` flag lets research choose reviewers and preserve its selected order.
+Research first reads recent human corrections from the project profile, which is available on every plan.
+It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
+Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
+The existing limit remains three reviewers.
+
+The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
+A different explanation alone does not add a row. Human edits retain precedence.
+A real selection change after the first Slack notification can still leave that notification out of date.
+Automatic reviewer changes do not send additional Slack notifications.
+
+During the internal trial, check correction relevance and assignment quality in report samples.
+Use `after_inbox_notification` on `signals_suggested_reviewers_resolved` to inspect pipeline changes after notification.
+Use `runner_source=team_fallback` on `signals_autostart_steering_attached` and `skip_reason=no_runner` on `signals_autostart_skipped` to inspect task outcomes.
+Compare report state, not raw event totals: skipped unchanged writes reduce the event count.
+Keep the selection flag disabled until the trial confirms suitable assignments and expected autostart behavior.
 
 When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 

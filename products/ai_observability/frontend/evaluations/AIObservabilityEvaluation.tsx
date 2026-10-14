@@ -49,12 +49,7 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import {
-    EVALUATION_RUNS_QUERY_LIMIT,
-    formatNumericEvaluationScore,
-    numericOutputConfigError,
-    categoricalOutputConfigError,
-} from './constants'
+import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -107,7 +102,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const {
         setEvaluationName,
@@ -125,7 +119,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         patchTargetConfig,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
-    const categoricalEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CATEGORICAL_EVALS]
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
@@ -373,12 +366,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
-                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
-                                                <>
-                                                    {' '}
-                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
-                                                </>
-                                            )}
                                         </p>
 
                                         {isReportableEvaluation && (
@@ -724,22 +711,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         value={evaluation.output_type}
                                                         options={[
                                                             { value: 'boolean', label: 'Boolean' },
-                                                            {
-                                                                value: 'categorical',
-                                                                label: 'Categorical',
-                                                                disabledReason:
-                                                                    isNewEvaluation && !categoricalEvaluationsEnabled
-                                                                        ? 'Categorical evaluations are not enabled for this project.'
-                                                                        : undefined,
-                                                            },
-                                                            {
-                                                                value: 'numeric',
-                                                                label: 'Numeric score',
-                                                                disabledReason:
-                                                                    isNewEvaluation && !numericEvaluationsEnabled
-                                                                        ? 'Numeric evaluations are not enabled for this project.'
-                                                                        : undefined,
-                                                            },
+                                                            { value: 'categorical', label: 'Categorical' },
+                                                            { value: 'numeric', label: 'Numeric score' },
                                                         ]}
                                                         onChange={(value) =>
                                                             setOutputType(

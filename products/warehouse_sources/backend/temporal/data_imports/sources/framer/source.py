@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FramerSource(SimpleSource[FramerSourceConfig]):
+    codebase_detection = detect(npm=("framer", "framer-plugin"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Framer has no REST API; the official surface is the `framer-api` SDK's WebSocket
     # protocol, and the pinned version is the SDK release whose message contract we speak

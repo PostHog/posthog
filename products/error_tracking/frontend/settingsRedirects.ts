@@ -28,7 +28,7 @@ export function resolveSettingSlug(slug: string | undefined): string | undefined
 export function configurationRedirect(settingId: string | undefined, searchParams: Params, hashParams: Params): string {
     const { tab, ...restSearchParams } = searchParams
     return combineUrl(
-        '/error_tracking',
+        '/error-tracking',
         { ...restSearchParams, activeTab: 'configuration' },
         { ...hashParams, ...(settingId ? { selectedSetting: settingId } : {}) }
     ).url

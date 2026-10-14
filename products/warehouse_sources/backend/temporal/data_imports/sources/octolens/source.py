@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OctolensSource(ResumableSource[OctolensSourceConfig, OctolensResumeConfig]):
+    codebase_detection = detect(env=("^OCTOLENS_", "^OCTOLENS_API_KEY$"), npm=("octolens",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `v2` is the `/api/v2` URL segment, threaded into the request layer via resolve_api_version.
     supported_versions = ("v2",)

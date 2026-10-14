@@ -148,6 +148,8 @@ export interface AutoresearchLiveTrainingRunApi {
      * @nullable
      */
     readonly latest_summary: string | null
+    /** Best-so-far holdout AUC per experiment of this run, oldest first. Experiments before the first holdout score are left out. */
+    readonly trend: readonly AutoresearchTrainingTrendPointApi[]
 }
 
 /**
@@ -239,6 +241,8 @@ export interface AutoresearchPipelineApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Whether live scoring writes the champion's score to output_person_property on each scored person. Feature flags, cohorts, workflows and insights that target people by score need it on. */
+    readonly write_person_property: boolean
     /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
      *
      * * `draft` - Draft
@@ -406,6 +410,8 @@ export interface AutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+    write_person_property?: boolean
 }
 
 /**
@@ -563,6 +569,7 @@ export interface PaginatedAutoresearchModelListApi {
 /**
  * * `inference` - Inference
  * * `validation` - Validation
+ * * `property_cleanup` - Property cleanup
  */
 export type AutoresearchRunRunTypeEnumApi =
     (typeof AutoresearchRunRunTypeEnumApi)[keyof typeof AutoresearchRunRunTypeEnumApi]
@@ -570,6 +577,7 @@ export type AutoresearchRunRunTypeEnumApi =
 export const AutoresearchRunRunTypeEnumApi = {
     Inference: 'inference',
     Validation: 'validation',
+    PropertyCleanup: 'property_cleanup',
 } as const
 
 /**
@@ -606,7 +614,8 @@ export interface AutoresearchRunApi {
     /** Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).
      *
      * * `inference` - Inference
-     * * `validation` - Validation */
+     * * `validation` - Validation
+     * * `property_cleanup` - Property cleanup */
     run_type: AutoresearchRunRunTypeEnumApi
     /** Run status: pending, running, completed, or failed.
      *
@@ -901,6 +910,11 @@ export interface IterationTrailApi {
      * @nullable
      */
     readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailApiModelSpec
 }
@@ -952,6 +966,11 @@ export interface AutoresearchTrainingRunApi {
      * @nullable
      */
     readonly reader_summary: string | null
+    /**
+     * Short title for this run, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /**
      * Short plain-language next steps for people, at most 5. Null if not written.
      * @nullable
@@ -1093,6 +1112,11 @@ export interface CompleteTrainingRunApi {
      */
     reader_summary?: string | null
     /**
+     * A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
      * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
      * @maxItems 5
      * @nullable
@@ -1197,6 +1221,11 @@ export interface RecordIterationApi {
      */
     summary?: string | null
     /**
+     * A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
      * Agent's self-assessed confidence (0-1) that this iteration helps.
      * @minimum 0
      * @maximum 1
@@ -1270,6 +1299,11 @@ export interface AutoresearchIterationApi {
      * @nullable
      */
     summary?: string | null
+    /**
+     * Short title for this experiment, for people.
+     * @nullable
+     */
+    headline?: string | null
     /**
      * Agent's self-assessed confidence 0–1
      * @nullable
@@ -1386,6 +1420,11 @@ export interface IterationTrailWithRecipeApi {
      * @nullable
      */
     readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailWithRecipeApiModelSpec
     /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -1519,6 +1558,8 @@ export interface PatchedAutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+    write_person_property?: boolean
 }
 
 export interface ConfusionCountsApi {

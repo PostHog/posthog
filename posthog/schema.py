@@ -2734,7 +2734,11 @@ class MetricsQuerySeries(BaseModel):
     points: list[MetricsQueryPoint]
     unit: str | None = Field(
         default=None,
-        description=('UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one.'),
+        description=(
+            'UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the'
+            " ingested unit, except that a count of series has no unit and a rate is"
+            " per second. Empty when the values have no unit."
+        ),
     )
 
 
@@ -8349,8 +8353,13 @@ class SurveyAppearanceSchema(BaseModel):
     borderColor: str | None = None
     buttonColor: str | None = None
     buttonTextColor: str | None = None
+    displayIntroScreen: bool | None = None
     inputBackground: str | None = None
     inputTextColor: str | None = None
+    introScreenButtonText: str | None = None
+    introScreenDescription: str | None = None
+    introScreenDescriptionContentType: SurveyQuestionDescriptionContentType | None = None
+    introScreenHeader: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None
@@ -10204,8 +10213,8 @@ class AssistantDataVisualizationNode(BaseModel):
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
             " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
             " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
-            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut`"
+            " or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or"
             " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
             " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
             " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"

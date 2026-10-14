@@ -13,6 +13,7 @@ import json
 import base64
 import asyncio
 import hashlib
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +22,8 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, F, Prefetch, Q
 from django.utils import timezone as django_timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -108,6 +111,8 @@ from .contracts import (
     ValidationWarning,
 )
 
+logger = structlog.get_logger(__name__)
+
 AUTORESEARCH_FLAG = "autoresearch"
 
 
@@ -182,16 +187,29 @@ class _PipelineActivity:
     live_training_run: LiveTrainingRun | None
 
 
+def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[TrainingTrendPoint]:
+    """Best holdout score up to each iteration, oldest first. Iterations before the first score are left out."""
+    trend: list[TrainingTrendPoint] = []
+    best: float | None = None
+    for iteration_number, holdout_score in scores:
+        if holdout_score is not None and (best is None or holdout_score > best):
+            best = holdout_score
+        if best is not None:
+            trend.append(TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best))
+    return trend
+
+
 def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
     # The run's own counters land only at completion, so progress comes from the live iteration rows.
-    scores = [i.holdout_score for i in iterations if i.holdout_score is not None]
+    trend = _best_so_far_trend((i.iteration_number, i.holdout_score) for i in iterations)
     return LiveTrainingRun(
         id=run.id,
         iteration_budget=run.iteration_budget,
         experiment_count=len(iterations),
-        best_holdout_score=max(scores) if scores else None,
+        best_holdout_score=trend[-1].best_holdout_score if trend else None,
         latest_agent_description=iterations[-1].agent_description if iterations else "",
         latest_summary=iterations[-1].summary if iterations else None,
+        trend=trend,
     )
 
 
@@ -216,21 +234,16 @@ def _champion_training_trends(
 ) -> dict[UUID, list[TrainingTrendPoint]]:
     """Best-so-far holdout score per iteration of the run that trained each champion, oldest first."""
     pipeline_by_run = {c.source_training_run_id: p for p, c in champions.items() if c.source_training_run_id}
-    trends: dict[UUID, list[TrainingTrendPoint]] = {}
-    best: dict[UUID, float] = {}
+    scores: dict[UUID, list[tuple[int, float | None]]] = {}
     for training_run_id, iteration_number, holdout_score in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=list(pipeline_by_run))
         .order_by("training_run_id", "iteration_number")
         .values_list("training_run_id", "iteration_number", "holdout_score")
     ):
-        if holdout_score is not None and holdout_score > best.get(training_run_id, -1.0):
-            best[training_run_id] = holdout_score
-        if training_run_id in best:
-            trends.setdefault(pipeline_by_run[training_run_id], []).append(
-                TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best[training_run_id])
-            )
-    return trends
+        scores.setdefault(training_run_id, []).append((iteration_number, holdout_score))
+    trends = {pipeline_by_run[run_id]: _best_so_far_trend(run_scores) for run_id, run_scores in scores.items()}
+    return {pipeline_id: trend for pipeline_id, trend in trends.items() if trend}
 
 
 def _champion_likely_counts(team_id: int, champions: dict[UUID, AutoresearchModel]) -> dict[UUID, tuple[int, float]]:
@@ -315,7 +328,7 @@ def _pipeline_activity(
     for iteration in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=[run.id for run in live_runs.values()])
-        .only("training_run_id", "holdout_score", "agent_description", "summary")
+        .only("training_run_id", "iteration_number", "holdout_score", "agent_description", "summary")
         .order_by("training_run_id", "iteration_number")
     ):
         live_iterations.setdefault(iteration.training_run_id, []).append(iteration)
@@ -376,6 +389,7 @@ def _pipeline_to_contract(
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
+        write_person_property=row.write_person_property,
         status=row.status,
         created_by=row.created_by,
         created_at=row.created_at,
@@ -437,6 +451,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         train_score=row.train_score,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         model_spec=row.model_spec or {},
         recipe_snapshot=row.recipe_snapshot or {},
     )
@@ -455,6 +470,7 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         best_holdout_score=row.best_holdout_score,
         summary=row.summary or None,
         reader_summary=row.reader_summary,
+        headline=row.headline,
         next_steps=row.next_steps,
         iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
         error=row.error,
@@ -478,6 +494,7 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         status=row.status,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
@@ -603,6 +620,19 @@ def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
     return _pipeline_with_champion(_pipeline_row(team_id, pipeline_id, live_only=True))
 
 
+def pipeline_writes_person_property(team_id: int, pipeline_id: str | UUID) -> bool:
+    """Whether a live pipeline writes its output property, so archiving or deleting it starts a cleanup."""
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        return False
+    return (
+        AutoresearchPipeline.objects.for_team(team_id)
+        .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+        .filter(pk=pipeline_uuid, write_person_property=True)
+        .exists()
+    )
+
+
 def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) -> Pipeline:
     row = AutoresearchPipeline.objects.create(
         team_id=team_id,
@@ -638,11 +668,15 @@ def _changes_model_definition(row: AutoresearchPipeline, fields: dict[str, Any])
     return False
 
 
-def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
+def update_pipeline(
+    team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any], user_id: int | None = None
+) -> Pipeline:
     """Update a pipeline. Refuses a change to what it predicts while a run is live or once a model exists.
 
     The row lock serializes this with ``start_training``, so a run cannot start between the
     live-run check and the write, and a concurrent delete waits instead of racing the save.
+
+    Turning ``write_person_property`` off starts a cleanup that removes the output property from persons.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -668,18 +702,32 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
                     "What the pipeline predicts cannot change after a model has been trained. "
                     "Create a new pipeline to predict a different target."
                 )
+        renames_property = (
+            fields.get("output_person_property", row.output_person_property) != row.output_person_property
+        )
+        # A rename while writing would leave the old property on persons with no cleanup to remove it.
+        if row.write_person_property and fields.get("write_person_property", True) and renames_property:
+            raise AutoresearchConflict(
+                "Turn off writing scores to person profiles before you rename the person property. "
+                "Turning it off removes the old property from the people this model scored."
+            )
+        stops_writing = row.write_person_property and fields.get("write_person_property") is False
+        cleanup_property = row.output_person_property
         for key, value in fields.items():
             setattr(row, key, value)
         # Only the request's fields, so the write never touches a column the request did not set.
         row.save(update_fields=[*fields, "updated_at"])
+        if stops_writing:
+            _queue_property_cleanup(row, output_property=cleanup_property, user_id=user_id)
     return _pipeline_with_champion(row)
 
 
-def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
+def delete_pipeline(team_id: int, pipeline_id: str | UUID, *, user_id: int | None = None) -> None:
     """Delete a pipeline and its rows. Refused while a training run is live.
 
     The TaskRun is linked only by id, so a cascade would leave its paid sandbox running with
-    nothing to report to.
+    nothing to report to. A pipeline that wrote its output property starts a cleanup, which
+    records no run because the runs go with the pipeline.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -696,6 +744,8 @@ def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
             raise PipelineNotFound("Pipeline not found.")
         if _has_live_training_run(team_id, row):
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before deleting.")
+        if row.write_person_property:
+            _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id, record_run=False)
         row.delete()
 
 
@@ -707,11 +757,12 @@ _STATUS_TRANSITION_SOURCES: dict[str, frozenset[str]] = {
 }
 
 
-def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -> Pipeline:
+def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str, user_id: int | None = None) -> Pipeline:
     """Archive, pause, or resume a pipeline.
 
     The row lock serializes this with a concurrent lifecycle change and with ``start_training``,
     so a stale read cannot revive an archived pipeline, and archival cannot race a new run.
+    Archiving a pipeline that writes its output property starts a cleanup.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -734,7 +785,87 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before archiving.")
         row.status = status
         row.save(update_fields=["status", "updated_at"])
+        if status == AutoresearchPipeline.Status.ARCHIVED and row.write_person_property:
+            _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id)
     return _pipeline_with_champion(row)
+
+
+def _queue_property_cleanup(
+    row: AutoresearchPipeline, *, output_property: str, user_id: int | None, record_run: bool = True
+) -> None:
+    """Start the cleanup workflow once the caller's transaction commits, so it reads the committed setting."""
+    if not output_property:
+        return
+    run = (
+        AutoresearchRun.objects.create(
+            pipeline=row,
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP,
+            status=AutoresearchRun.Status.PENDING,
+            started_at=django_timezone.now(),
+            metrics={"output_person_property": output_property},
+        )
+        if record_run
+        else None
+    )
+    # Read the ids now: a deleted row has no pk by the time the commit callback runs.
+    team_id, pipeline_id, written_since = row.team_id, str(row.pk), row.created_at.isoformat()
+    transaction.on_commit(
+        lambda: _start_property_cleanup(
+            team_id=team_id,
+            pipeline_id=pipeline_id,
+            output_property=output_property,
+            written_since=written_since,
+            run=run,
+            user_id=user_id,
+        )
+    )
+
+
+def _start_property_cleanup(
+    *,
+    team_id: int,
+    pipeline_id: str,
+    output_property: str,
+    written_since: str,
+    run: AutoresearchRun | None,
+    user_id: int | None,
+) -> None:
+    # The Temporal client and the workflow module load only when a cleanup starts.
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    from ..temporal.workflows import (  # noqa: PLC0415
+        PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
+        AutoresearchPropertyCleanupWorkflow,
+        PropertyCleanupWorkflowInput,
+        property_cleanup_workflow_id,
+    )
+
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                AutoresearchPropertyCleanupWorkflow.run,
+                PropertyCleanupWorkflowInput(
+                    pipeline_id=pipeline_id,
+                    team_id=team_id,
+                    output_property=output_property,
+                    written_since=written_since,
+                    run_id=str(run.pk) if run else None,
+                    user_id=user_id,
+                ),
+                id=property_cleanup_workflow_id(pipeline_id, str(run.pk) if run else str(uuid4())),
+                task_queue=settings.AUTORESEARCH_TASK_QUEUE,
+                execution_timeout=PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
+            )
+        )
+    except Exception as exc:
+        logger.exception("autoresearch_property_cleanup_start_failed", pipeline_id=pipeline_id)
+        if run is not None:
+            AutoresearchRun.objects.for_team(team_id).filter(pk=run.pk).update(
+                status=AutoresearchRun.Status.FAILED,
+                error=f"Could not start the property cleanup: {exc}"[:2000],
+                completed_at=django_timezone.now(),
+            )
 
 
 def _has_live_training_run(team_id: int, pipeline: AutoresearchPipeline) -> bool:
@@ -774,6 +905,7 @@ def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWr
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
+        write_person_property=row.write_person_property,
     )
 
 
@@ -1359,6 +1491,7 @@ def record_iteration(
             "status": fields["status"],
             "agent_description": fields.get("agent_description", ""),
             "summary": fields.get("summary") or None,
+            "headline": fields.get("headline") or None,
             "agent_confidence": fields.get("agent_confidence"),
         }
         # A re-send that omits parent_suggestion keeps the attribution it recorded the first
@@ -1419,6 +1552,7 @@ def complete_run(
     distillation: str = "",
     report_notebook_short_id: str = "",
     reader_summary: str | None = None,
+    headline: str | None = None,
     next_steps: list[str] | None = None,
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
@@ -1441,6 +1575,7 @@ def complete_run(
             distillation=distillation or "",
             report_notebook_short_id=report_notebook_short_id or "",
             reader_summary=reader_summary or None,
+            headline=headline or None,
             next_steps=next_steps or None,
         )
     except PromotionError as exc:
