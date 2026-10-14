@@ -177,6 +177,27 @@ function useServerSearch(kind: 'dashboards' | 'insights', query: string, active:
     return loadingQuery()
 }
 
+function useDebouncedSearchText(text: string): string {
+    const [query, setQuery] = useState(text.trim())
+    useEffect(() => {
+        const timer = setTimeout(() => setQuery(text.trim()), SEARCH_DEBOUNCE_MS)
+        return () => clearTimeout(timer)
+    }, [text])
+    return query
+}
+
+/** Sends `mobile_views_searched` once per query, when every part of the search has settled. */
+function useSearchSettledEvent(active: boolean, settled: boolean, query: string, resultCount: number): void {
+    const tracked = useRef<string | null>(null)
+    useEffect(() => {
+        if (!active || !settled || tracked.current === query) {
+            return
+        }
+        tracked.current = query
+        trackViewsSearched({ queryLength: query.length, resultCount })
+    }, [active, settled, query, resultCount])
+}
+
 /**
  * Search over pins and Recent on the phone, and dashboards and insights on the server (10 each), 250 ms after the
  * last keystroke and from two characters on.
@@ -186,11 +207,7 @@ export function useViewsSearch(
     pins: readonly PinView[],
     recent: readonly RecentView[]
 ): ViewsSearchState {
-    const [query, setQuery] = useState(text.trim())
-    useEffect(() => {
-        const timer = setTimeout(() => setQuery(text.trim()), SEARCH_DEBOUNCE_MS)
-        return () => clearTimeout(timer)
-    }, [text])
+    const query = useDebouncedSearchText(text)
     const active = query.length >= SEARCH_MIN_LENGTH
     const pinned = useMemo(() => (active ? pins.filter((pin) => matches(pin.name, query)) : []), [active, pins, query])
     const recentMatches = useMemo(
@@ -199,17 +216,27 @@ export function useViewsSearch(
     )
     const dashboards = useServerSearch('dashboards', query, active)
     const insights = useServerSearch('insights', query, active)
-
-    const tracked = useRef<string | null>(null)
-    const settled = !dashboards.isLoading && !insights.isLoading
-    const resultCount = pinned.length + (dashboards.data?.length ?? 0) + (insights.data?.length ?? 0)
-    useEffect(() => {
-        if (!active || !settled || tracked.current === query) {
-            return
-        }
-        tracked.current = query
-        trackViewsSearched({ queryLength: query.length, resultCount })
-    }, [active, settled, query, resultCount])
-
+    useSearchSettledEvent(
+        active,
+        !dashboards.isLoading && !insights.isLoading,
+        query,
+        pinned.length + (dashboards.data?.length ?? 0) + (insights.data?.length ?? 0)
+    )
     return { active, query, pinned, recent: recentMatches, dashboards, insights }
+}
+
+export interface BrowseSearchState {
+    /** At least two characters, after the debounce. Show the results instead of the paged list. */
+    active: boolean
+    query: string
+    rows: QueryState<BrowseRow[]>
+}
+
+/** Search inside one Browse list: the same server search as the Views list, for one kind only. */
+export function useBrowseSearch(kind: 'dashboards' | 'insights', text: string): BrowseSearchState {
+    const query = useDebouncedSearchText(text)
+    const active = query.length >= SEARCH_MIN_LENGTH
+    const rows = useServerSearch(kind, query, active)
+    useSearchSettledEvent(active, !rows.isLoading, query, rows.data?.length ?? 0)
+    return { active, query, rows }
 }

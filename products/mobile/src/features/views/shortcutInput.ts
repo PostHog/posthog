@@ -8,7 +8,12 @@ import { escapePath, shortcutMatchKey } from '@/model/adapters/viewPins'
 // difference here leaves a duplicate row and an unstarred view on the web.
 
 export type PinTarget =
-    | { kind: 'dashboard'; id: number; name: string | null }
+    | {
+          kind: 'dashboard'
+          /** The numeric id. A demo dashboard has a text ref instead, which its demo pin keeps as the row's `ref`. */
+          id: number | string
+          name: string | null
+      }
     | {
           kind: 'insight'
           shortId: string
