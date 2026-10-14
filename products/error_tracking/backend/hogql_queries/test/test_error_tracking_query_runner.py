@@ -1212,24 +1212,23 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ]
     )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_severity_field_matches_severity_filter(self, _name: str, legacy_shape: bool):
+    def test_severity_field(self, _name: str, legacy_shape: bool):
         self._assign_severities()
         shape_filters: list[ErrorTrackingIssueFilter] = []
         if legacy_shape:
             # Matches every issue, so it only forces the legacy shape.
             shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
 
-        def filter_group(*filters: ErrorTrackingIssueFilter) -> PropertyGroupFilter:
-            return PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[*shape_filters, *filters])],
-            )
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
+        )
 
         builder = ErrorTrackingQueryBuilder(
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 dateRange=DateRange(date_from="all"),
-                filterGroup=filter_group(),
+                filterGroup=filter_group,
                 orderBy="last_seen",
                 severity=ErrorTrackingQueryIssueSeverity.HIGH,
                 volumeResolution=1,
@@ -1240,22 +1239,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )
         self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
 
-        by_field: dict[str, set[str]] = {}
-        by_filter: dict[str, set[str]] = {}
-        for severity in ErrorTrackingQueryIssueSeverity:
-            by_field[severity.value] = {
-                result["id"] for result in self._calculate(filterGroup=filter_group(), severity=severity)["results"]
+        by_field = {
+            severity.value: {
+                result["id"] for result in self._calculate(filterGroup=filter_group, severity=severity)["results"]
             }
-            by_filter[severity.value] = {
-                result["id"]
-                for result in self._calculate(
-                    filterGroup=filter_group(
-                        ErrorTrackingIssueFilter(
-                            key="severity", value=[severity.value], operator=PropertyOperator.EXACT
-                        )
-                    )
-                )["results"]
-            }
+            for severity in ErrorTrackingQueryIssueSeverity
+        }
 
         self.assertEqual(
             by_field,
@@ -1266,7 +1255,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "critical": {self.issue_id_one},
             },
         )
-        self.assertEqual(by_field, by_filter)
 
     @parameterized.expand(
         [

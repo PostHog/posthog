@@ -417,6 +417,46 @@ class ErrorTrackingQueryBuilder:
             ],
         )
 
+    def _issue_state_filter_exprs(self, state_expr: Callable[[str], ast.Expr]) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
+        if self.query.status and self.query.status != "all":
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=state_expr("issue_status"),
+                    right=ast.Constant(value=self.query.status),
+                )
+            )
+
+        if self.query.severity:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=state_expr("issue_severity"),
+                    right=ast.Constant(value=self.query.severity.value),
+                )
+            )
+
+        if self.query.assignee:
+            if self.query.assignee.type == "user":
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=state_expr("assigned_user_id"),
+                        right=ast.Constant(value=self.query.assignee.id),
+                    )
+                )
+            else:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=state_expr("assigned_role_id"),
+                        right=ast.Constant(value=str(self.query.assignee.id)),
+                    )
+                )
+
+        return exprs
+
     def _build_query_optimized(self) -> ast.SelectQuery:
         inner = self._build_inner_query()
         outer_where_exprs = self._outer_where_exprs()
@@ -695,41 +735,7 @@ class ErrorTrackingQueryBuilder:
                 )
             )
 
-        if self.query.status and self.query.status != "all":
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=self._issue_state_expr("issue_status"),
-                    right=ast.Constant(value=self.query.status),
-                )
-            )
-
-        if self.query.severity:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=self._issue_state_expr("issue_severity"),
-                    right=ast.Constant(value=self.query.severity.value),
-                )
-            )
-
-        if self.query.assignee:
-            if self.query.assignee.type == "user":
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._issue_state_expr("assigned_user_id"),
-                        right=ast.Constant(value=self.query.assignee.id),
-                    )
-                )
-            else:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._issue_state_expr("assigned_role_id"),
-                        right=ast.Constant(value=str(self.query.assignee.id)),
-                    )
-                )
+        exprs.extend(self._issue_state_filter_exprs(self._issue_state_expr))
 
         return exprs
 
@@ -920,41 +926,7 @@ class ErrorTrackingQueryBuilder:
         if self.query.searchQuery:
             exprs.append(self._search_expr())
 
-        if self.query.status and self.query.status != "all":
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=self._legacy_issue_state_expr("issue_status"),
-                    right=ast.Constant(value=self.query.status),
-                )
-            )
-
-        if self.query.severity:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=self._legacy_issue_state_expr("issue_severity"),
-                    right=ast.Constant(value=self.query.severity.value),
-                )
-            )
-
-        if self.query.assignee:
-            if self.query.assignee.type == "user":
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._legacy_issue_state_expr("assigned_user_id"),
-                        right=ast.Constant(value=self.query.assignee.id),
-                    )
-                )
-            else:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._legacy_issue_state_expr("assigned_role_id"),
-                        right=ast.Constant(value=str(self.query.assignee.id)),
-                    )
-                )
+        exprs.extend(self._issue_state_filter_exprs(self._legacy_issue_state_expr))
 
         user_expr = self._user_filter_expr()
         if user_expr is not None:
