@@ -1099,6 +1099,14 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
                 None,
                 400,
             ),
+            # Disabled, but armed to start when its experiment launches, so it is about to bill.
+            (
+                "armed_for_launch_in_an_uncapped_org",
+                {"free_only": True, "credit_limit": 500, "enabled": False, "armed_for_launch": True},
+                {"free_only": False},
+                None,
+                400,
+            ),
         ]
     )
     def test_scout_cannot_remove_a_spend_ceiling(
@@ -1111,6 +1119,14 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     ) -> None:
         self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
         self.organization.save(update_fields=["usage"])
+        ceiling = dict(ceiling)
+        if ceiling.pop("armed_for_launch", False):
+            experiment = create_experiment(self.team, "armed-launch", variants=["control", "test"])
+            ceiling = {
+                **ceiling,
+                "scanner_type": ScannerType.EXPERIMENT,
+                "scanner_config": {"prompt": "p", "experiment_id": experiment.id, "start_on_launch": True},
+            }
         scanner = self._create_scanner(name="capped", **ceiling)
         self._authenticate_as_scout()
 
