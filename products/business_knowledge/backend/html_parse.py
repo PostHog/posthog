@@ -116,7 +116,9 @@ def parse_html(body: bytes, url: str, content_type: str | None = None) -> tuple[
                 metadata = extract_meta_json(tree, metadata)
             except Exception:
                 logger.info("business_knowledge.html_parse.json_ld_failed", url=url)
-            title = (metadata.title or extract_title(tree) or "").strip()[:512]
+            metadata.title = metadata.title or extract_title(tree)
+            metadata.clean_and_trim()
+            title = (metadata.title or "").strip()[:512]
         except Exception:  # noqa: BLE001 — trafilatura metadata parsing can crash on malformed HTML
             logger.info("business_knowledge.html_parse.metadata_failed", url=url)
 
