@@ -1088,6 +1088,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'data-warehouse-scene-trino',
+            'posthog-agent-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
