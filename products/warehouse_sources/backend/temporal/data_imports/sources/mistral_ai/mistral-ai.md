@@ -22,8 +22,8 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 <AlphaRelease />
 
 Sync your [Mistral AI](https://mistral.ai) platform data into PostHog: available and fine-tuned models,
-uploaded files, fine-tuning jobs, and batch inference jobs (plus beta agents, conversations, and
-libraries). Use it to analyze fine-tuning progress, batch job throughput, and asset history alongside the
+uploaded files, fine-tuning jobs, and batch inference jobs (plus beta agents, conversations and their
+entries, libraries and their documents, and observability traces and spans). Use it to analyze fine-tuning progress, batch job throughput, and asset history alongside the
 rest of your product data.
 
 ## Prerequisites
@@ -44,8 +44,9 @@ sent as a bearer token; the same key authenticates every table this connector sy
 <SyncModes />
 
 Fine-tuning jobs and batch jobs support incremental syncing via their server-side `created_after` filter.
-Models, files, and the beta agents, conversations, and libraries tables have no creation-time filter in
-the API, so they sync as a full refresh each run. Those datasets are small, so full refresh is cheap.
+The beta traces and spans tables support incremental syncing on `start_time`.
+Models, files, and the beta agents, conversations, conversation entries, libraries, and library documents
+tables have no creation-time filter in the API, so they sync as a full refresh each run.
 
 ## Configuration
 
@@ -58,7 +59,8 @@ the API, so they sync as a full refresh each run. Those datasets are small, so f
 ## Troubleshooting
 
 If the connection fails with an authorization error, confirm the API key is still active in La Plateforme
-and has not been revoked. The beta tables (agents, conversations, libraries) are off by default because
+and has not been revoked. The beta tables (agents, conversations, conversation entries, libraries, library documents, traces,
+and spans) are off by default because
 Mistral marks those endpoint groups as beta and may change their shape; enable them only if you need them.
 
 <TroubleshootingLink />

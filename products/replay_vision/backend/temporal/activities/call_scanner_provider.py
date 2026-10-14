@@ -415,31 +415,30 @@ def _is_taglike(slug: str) -> bool:
 
 
 async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
-    """Give an experiment scanner the variant and experiment description the workflow resolved.
+    """Give an experiment scanner the experiment description the workflow resolved.
 
     Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
-    When the inputs carry neither field, the source observation's persisted attribution stands in.
-    Best effort there: a lookup failure must not fail the scan, and a row without attribution simply
-    has nothing persisted to inject."""
+    The session's variant is never injected: the prompt stays blind to it, and the workflow stores
+    it beside the model output. When the inputs carry no attribution, the source observation's
+    persisted attribution stands in. Best effort there: a lookup failure must not fail the scan,
+    and a row without attribution simply has nothing persisted to inject."""
     if not isinstance(scanner, ExperimentScanner):
         return scanner
-    variant, context = inputs.experiment_variant, inputs.experiment_context
-    if variant is None and context is None:
+    context = inputs.experiment_context
+    if context is None and inputs.experiment_variant is None:
         try:
-            variant, context = await sync_to_async(_load_persisted_experiment_context)(
+            context = await sync_to_async(_load_persisted_experiment_context)(
                 inputs.observation_id, inputs.team_id, scanner.experiment_id
             )
         except Exception:
             logger.warning("replay_vision.call_scanner_provider.experiment_context_fallback_failed", exc_info=True)
             return scanner
-        if variant is None and context is None:
-            return scanner
-    return scanner.model_copy(update={"experiment_context": context, "session_variant": variant})
+    if context is None:
+        return scanner
+    return scanner.model_copy(update={"experiment_context": context})
 
 
-def _load_persisted_experiment_context(
-    observation_id: UUID, team_id: int, experiment_id: int
-) -> tuple[str | None, dict[str, Any] | None]:
+def _load_persisted_experiment_context(observation_id: UUID, team_id: int, experiment_id: int) -> dict[str, Any] | None:
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
     # back into this package's importers.
     from products.experiments.backend.facade.replay import experiment_prompt_context  # noqa: PLC0415
@@ -451,9 +450,9 @@ def _load_persisted_experiment_context(
     )
     variant = result.get("experiment_variant") if isinstance(result, dict) else None
     if not isinstance(variant, str):
-        return None, None
+        return None
     context = experiment_prompt_context(Team.objects.get(pk=team_id), experiment_id=experiment_id)
-    return variant, dataclasses.asdict(context) if context is not None else None
+    return dataclasses.asdict(context) if context is not None else None
 
 
 def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:

@@ -36,7 +36,7 @@ rules:
               - '**/admin/__init__.py' # Django admin
               - '**/temporal/**' # Temporal worker wiring (activities/workflows)
               # small reviewed registries
-              - 'posthog/cdp/templates/__init__.py'
+              - 'products/cdp/backend/templates/__init__.py'
               - 'posthog/hogql/functions/__init__.py'
               # --- grandfathered existing re-exports (ratchet baseline; not a backlog) ---
               - 'common/hogvm/python/stl/__init__.py'

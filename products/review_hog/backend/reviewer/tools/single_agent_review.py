@@ -1,11 +1,11 @@
 """The single-agent Flash review: a main Codex session reviews the whole PR, and lens sessions add breadth.
 
-The main session's prompt has three parts. `core.md` is the DevEx-owned review rubric and goes in as
-the system prompt. `prompt.jinja` carries the PR (title, description, numbered diff), the findings of
-earlier turns, and the finding format. `schema.json` is generated from `SingleAgentReview`. A lens
-session swaps `core.md` for its lens prompt (`FLASH_LENSES`), can see only its part of the PR, and
-gets `lens_priority.md` after the finding format. Every file lives in `prompts/single_agent_review/`,
-so a prompt iteration edits files and no code.
+The main session's prompt is one `prompt.jinja` render. It starts with the PR (title, description,
+numbered diff) and the findings of earlier turns, then `PROMPT_CACHE_MARKER`, then `core.md`, the
+DevEx-owned review rubric, then the finding format. `schema.json` is generated from
+`SingleAgentReview`. A lens session swaps `core.md` for its lens prompt (`FLASH_LENSES`), can see only
+its part of the PR, and gets `lens_priority.md` after the finding format. Every file lives in
+`prompts/single_agent_review/`, so a prompt iteration edits files and no code.
 """
 
 import re
@@ -44,7 +44,11 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
-from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
+from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    PROMPT_CACHE_MARKER,
+    load_template_and_schema,
+    without_cache_marker,
+)
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
 
 logger = logging.getLogger(__name__)
@@ -77,7 +81,7 @@ def load_core_prompt() -> str:
 
 
 class SingleAgentPrompt:
-    """The task prompt of one single-agent session: the PR or its part, earlier findings, format.
+    """The prompt of one single-agent session: the PR or its part, earlier findings, guidelines, format.
 
     `scope_files` limits the diff to one lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
     to the reviewable files, and then to none: the file list marks each file it leaves out, and the
@@ -91,11 +95,13 @@ class SingleAgentPrompt:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         prior_findings: list[ReviewIssueFinding],
+        guidelines: str,
         merge_base_sha: str | None = None,
         scope_files: list[str] | None = None,
         for_lens: bool = False,
     ) -> None:
         self.repository = repository
+        self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
         self.pr_files = pr_files
@@ -177,18 +183,21 @@ class SingleAgentPrompt:
         not_shown = {f.filename for f in in_scope} - {f.filename for f in shown}
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
+        covered = self._covered_findings()
         return template.render(
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
-            PR_TITLE=self.pr_metadata.title,
-            PR_DESCRIPTION=self.pr_metadata.body.strip() or "(no description provided)",
-            FILE_LIST=self._file_list(not_shown),
-            SCOPE=", ".join(f"`{path}`" for path in scope) if scope else None,
-            DIFF=self._diff(shown),
+            PR_TITLE=without_cache_marker(self.pr_metadata.title),
+            PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
+            FILE_LIST=without_cache_marker(self._file_list(not_shown)),
+            SCOPE=without_cache_marker(", ".join(f"`{path}`" for path in scope)) if scope else None,
+            DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
-            COVERED_FINDINGS=self._covered_findings(),
+            COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
+            CACHE_MARKER=PROMPT_CACHE_MARKER,
+            GUIDELINES=self.guidelines,
             OUTPUT_SCHEMA=output_schema,
             LENS_PRIORITY=load_prompt_file(LENS_PRIORITY_FILE) if self.for_lens else None,
         )
@@ -577,14 +586,14 @@ class ChangedSinceReview:
 
 
 def _old_code_findings(issues: list[Issue], changed_since: ChangedSinceReview | None) -> list[Issue]:
-    """A follow-up turn's P2 and P3 findings on code that did not change since the last reviewed head.
+    """A follow-up turn's P3 findings on code that did not change since the last reviewed head.
 
-    Authors act on these about half as often as on first-turn findings, because the first review already
-    covered that code. A P0 or P1 still posts, since a new commit can break code it did not touch.
+    A P2 or higher on old code still goes through dedup: the earlier review may have missed it, and dedup
+    against earlier turns' findings already removes one that a turn posted before.
     """
     if changed_since is None:
         return []
-    return [issue for issue in issues if issue.priority != IssuePriority.MUST_FIX and not changed_since.touches(issue)]
+    return [issue for issue in issues if issue.priority == IssuePriority.CONSIDER and not changed_since.touches(issue)]
 
 
 async def dedupe_flash_findings(
@@ -610,7 +619,7 @@ async def dedupe_flash_findings(
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
-    On a follow-up turn, `changed_since` drops the P2 and P3 findings on unchanged code before dedup.
+    On a follow-up turn, `changed_since` drops the P3 findings on unchanged code before dedup.
     """
     old_code = _old_code_findings(issues, changed_since)
     old_code_ids = {issue.id for issue in old_code}

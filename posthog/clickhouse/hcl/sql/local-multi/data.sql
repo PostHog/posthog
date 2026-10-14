@@ -171,7 +171,7 @@ CREATE TABLE posthog.distributed_system_processes (
   initial_query_id String,
   initial_address IPv6,
   initial_port UInt16,
-  interface UInt8,
+  interface Enum8('Unknown'=0, 'TCP'=1, 'HTTP'=2, 'gRPC'=3, 'MySQL'=4, 'PostgreSQL'=5, 'Local'=6, 'TCP_Interserver'=7, 'Prometheus'=8, 'Background'=9, 'ArrowFlight'=10),
   os_user String,
   client_hostname String,
   client_name String,
@@ -181,7 +181,7 @@ CREATE TABLE posthog.distributed_system_processes (
   client_version_minor UInt64,
   client_version_patch UInt64,
   client_agent LowCardinality(String),
-  http_method UInt8,
+  http_method Enum8('UNKNOWN'=0, 'GET'=1, 'POST'=2, 'OPTIONS'=3, 'PUT'=4, 'DELETE'=5, 'HEAD'=6),
   http_user_agent String,
   http_referer String,
   forwarded_for String,
@@ -1211,7 +1211,7 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}') ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
   team_id Int64,

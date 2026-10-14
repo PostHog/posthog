@@ -11,10 +11,10 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
 _B = "products.cdp.backend."

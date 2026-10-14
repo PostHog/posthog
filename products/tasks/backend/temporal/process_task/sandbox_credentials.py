@@ -11,6 +11,7 @@ from django.db import transaction
 
 import redis
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
@@ -157,11 +158,7 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
-    """Post-resolution eligibility gate for every path that injects a GitHub token into a LOOP
-    sandbox, mirroring `get_sandbox_github_token`: a loop run alive during or after its owner's
-    deactivation or team-access revocation must not receive a fresh token, whichever refresh path
-    resolved it (user-integration refresh, installation fallback, read-only re-mint, or sibling
-    propagation). Non-loop runs are unaffected."""
+    """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
         return False
     with transaction.atomic():
@@ -347,10 +344,12 @@ def resolve_coordinated_user_token(integration: UserGitHubIntegration) -> str | 
         if not acquired:
             # Waited out the budget — read the current token without minting; the holder's propagation self-heals.
             integration.integration.refresh_from_db()
-            return UserGitHubIntegration(integration.integration).user_access_token
+            return UserGitHubIntegration(
+                integration.integration, source="tasks_sandbox", priority=Priority.CRITICAL
+            ).user_access_token
 
         integration.integration.refresh_from_db()
-        current = UserGitHubIntegration(integration.integration)
+        current = UserGitHubIntegration(integration.integration, source="tasks_sandbox", priority=Priority.CRITICAL)
         was_expired = current.user_access_token_expired()
         # Mints only if still expired; a prior holder's fresh token is returned without rotating.
         token = current.get_usable_user_access_token()

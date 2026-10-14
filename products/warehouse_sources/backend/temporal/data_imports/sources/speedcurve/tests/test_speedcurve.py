@@ -1,10 +1,10 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import responses
 from requests.exceptions import HTTPError
@@ -12,13 +12,20 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.speedcurve import (
+    SpeedcurveSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.source import SpeedcurveSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.speedcurve.speedcurve import (
+    AUTH_ERROR,
+    PERMISSION_ERROR,
     SpeedcurveResumeConfig,
-    speedcurve_source,
     validate_credentials,
 )
 
@@ -35,36 +42,16 @@ def fixed_clock() -> Iterator[None]:
         yield
 
 
-@pytest.fixture
-def manager() -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
-def _source(
-    manager: MagicMock,
+def _run(
     endpoint: str,
-    incremental: bool = False,
-    watermark: int | float | str | None = None,
-) -> SourceResponse:
-    return speedcurve_source(
-        api_key="fake-key",
-        api_version="v1",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="speedcurve-test",
-        resumable_source_manager=manager,
-        should_use_incremental_field=incremental,
-        db_incremental_field_last_value=watermark,
-    )
+    script: list[ScriptedResponse],
+    resume_state: SpeedcurveResumeConfig | None = None,
+    **inputs: Any,
+) -> DriveResult:
+    config = SpeedcurveSourceConfig(api_key="fake-key")
+    return SourceDriver(SpeedcurveSource(), config).run(endpoint, script, resume_state=resume_state, **inputs)
 
 
-def _rows(source: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in cast(Iterable[list[dict[str, Any]]], source.items()) for row in page]
-
-
-@responses.activate
 @pytest.mark.parametrize(
     ("endpoint", "body", "expected"),
     [
@@ -87,70 +74,73 @@ def _rows(source: SourceResponse) -> list[dict[str, Any]]:
         ),
     ],
 )
-def test_single_page_rows_and_auth(
-    manager: MagicMock, endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]
-) -> None:
-    responses.get(BASE_URL + endpoint, json=body)
+def test_single_page_rows_and_auth(endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]) -> None:
+    result = _run(endpoint, [ScriptedResponse(json=body)])
 
-    source = _source(manager, endpoint)
-    assert _rows(source) == expected
-    assert len(responses.calls) == 1
-    request = responses.calls[0].request
-    assert request.headers["Authorization"] == "Basic ZmFrZS1rZXk6eA=="
-    assert not urlsplit(request.url).query
+    assert result.rows == expected
+    assert len(result.requests) == 1
+    request = result.requests[0]
+    assert request.path == f"/v1/{endpoint}"
+    assert request.headers["authorization"] == "Basic ZmFrZS1rZXk6eA=="
+    assert dict(request.query) == {}
     if endpoint == "urls":
-        assert len({tuple(row[key] for key in source.primary_keys or []) for row in expected}) == 2
-    manager.can_resume.assert_not_called()
+        assert result.response is not None
+        primary_keys = result.response.primary_keys or []
+        assert len({tuple(row[key] for key in primary_keys) for row in expected}) == 2
 
 
-@responses.activate
 @pytest.mark.parametrize("endpoint", ["tests", "deploys"])
-def test_pagination_and_resume_checkpoint(manager: MagicMock, endpoint: str) -> None:
+def test_pagination_and_resume_checkpoint(endpoint: str) -> None:
     selector = "data" if endpoint == "tests" else "deploys"
     key = "test_id" if endpoint == "tests" else "deploy_id"
+    script: list[ScriptedResponse] = []
     for page in (1, 2):
         body: dict[str, Any] = {selector: [{key: page, "timestamp": int(NOW.timestamp()) - page}]}
         if endpoint == "tests":
             body["meta"] = {"last_page": 2}
-        responses.get(BASE_URL + endpoint, json=body)
+        script.append(ScriptedResponse(json=body))
     if endpoint == "deploys":
-        responses.get(BASE_URL + endpoint, json={selector: []})
+        script.append(ScriptedResponse(json={selector: []}))
 
-    source = _source(manager, endpoint)
-    assert [row[key] for row in _rows(source)] == [1, 2]
-    query_params = [parse_qs(urlsplit(call.request.url).query) for call in responses.calls]
+    result = _run(endpoint, script)
+
+    assert [row[key] for row in result.rows] == [1, 2]
+    query_params = [dict(request.query) for request in result.requests]
     assert [params["page"] for params in query_params] == (
-        [["1"], ["2"]] if endpoint == "tests" else [["1"], ["2"], ["3"]]
+        [("1",), ("2",)] if endpoint == "tests" else [("1",), ("2",), ("3",)]
     )
-    assert all(params["per_page"] == ["100"] for params in query_params)
-    assert all(params["end_timestamp"] == [str(int(NOW.timestamp()))] for params in query_params)
-    checkpoints = [call.args[0] for call in manager.save_state.call_args_list]
-    assert [checkpoint.page for checkpoint in checkpoints] == ([2] if endpoint == "tests" else [2, 3])
-    assert all(checkpoint.end_timestamp == int(NOW.timestamp()) for checkpoint in checkpoints)
-    assert source.sort_mode == "desc"
-    manager.clear_state.assert_not_called()
-    assert source.on_complete is not None
-    source.on_complete()
-    manager.clear_state.assert_called_once()
+    assert all(params["per_page"] == ("100",) for params in query_params)
+    assert all(params["end_timestamp"] == (str(int(NOW.timestamp())),) for params in query_params)
+    assert [checkpoint.page for checkpoint in result.saved_states] == ([2] if endpoint == "tests" else [2, 3])
+    assert all(checkpoint.end_timestamp == int(NOW.timestamp()) for checkpoint in result.saved_states)
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+    # The run itself leaves the checkpoint in place; only `on_complete` clears it.
+    assert result.final_state == result.saved_states[-1]
+    assert result.completed_state is None
 
 
-@responses.activate
 @pytest.mark.parametrize("endpoint", ["tests", "deploys"])
-def test_resume_preserves_range_when_clock_and_watermark_change(manager: MagicMock, endpoint: str) -> None:
+def test_resume_preserves_range_when_clock_and_watermark_change(endpoint: str) -> None:
     saved = SpeedcurveResumeConfig(page=4, start_timestamp=1751000000, end_timestamp=1752000000)
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = saved
     selector = "data" if endpoint == "tests" else "deploys"
-    responses.get(BASE_URL + endpoint, json={selector: []})
 
-    assert _rows(_source(manager, endpoint, incremental=True, watermark=1780000000)) == []
-    assert parse_qs(urlsplit(responses.calls[0].request.url).query) == {
-        "page": ["4"],
-        "per_page": ["100"],
-        "start_timestamp": ["1751000000"],
-        "end_timestamp": ["1752000000"],
+    result = _run(
+        endpoint,
+        [ScriptedResponse(json={selector: []})],
+        resume_state=saved,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=1780000000,
+    )
+
+    assert result.rows == []
+    assert dict(result.requests[0].query) == {
+        "page": ("4",),
+        "per_page": ("100",),
+        "start_timestamp": ("1751000000",),
+        "end_timestamp": ("1752000000",),
     }
-    manager.save_state.assert_not_called()
+    assert result.saved_states == []
 
 
 @responses.activate
@@ -164,8 +154,8 @@ def test_validation_uses_one_cheap_request() -> None:
 
 
 @responses.activate
-@pytest.mark.parametrize("status", [401, 403])
-def test_auth_errors_are_terminal_and_have_actionable_messages(manager: MagicMock, status: int) -> None:
+@pytest.mark.parametrize(("status", "expected_message"), [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
+def test_auth_errors_are_terminal_and_have_actionable_messages(status: int, expected_message: str) -> None:
     responses.get(
         BASE_URL + "sites",
         status=status,
@@ -176,15 +166,23 @@ def test_auth_errors_are_terminal_and_have_actionable_messages(manager: MagicMoc
     )
     valid, message = validate_credentials("fake-key", "v1")
     assert valid is False
-    assert message is not None and "Check" in message and "API key" in message
+    assert message == expected_message
+    assert message is not None and "Check" in message
     assert len(responses.calls) == 1
-    with pytest.raises(HTTPError) as error:
-        _rows(_source(manager, "sites"))
+
+
+@pytest.mark.parametrize(("status", "expected_message"), [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
+def test_sync_auth_errors_map_to_the_actionable_message(status: int, expected_message: str) -> None:
+    result = _run("sites", [ScriptedResponse(status=status, json={"status": "error", "message": "denied"})])
+
+    assert isinstance(result.raised, HTTPError)
     mapped = [
-        value for pattern, value in SpeedcurveSource().get_non_retryable_errors().items() if pattern in str(error.value)
+        value
+        for pattern, value in SpeedcurveSource().get_non_retryable_errors().items()
+        if pattern in str(result.raised)
     ]
-    assert mapped == [message]
-    assert len(responses.calls) == 2
+    assert mapped == [expected_message]
+    assert len(result.requests) == 1
 
 
 @responses.activate
@@ -204,14 +202,16 @@ def test_other_client_errors_propagate() -> None:
     assert len(responses.calls) == 1
 
 
-@responses.activate
 @pytest.mark.parametrize("endpoint", ["sites", "urls", "tests", "deploys", "notes", "budgets"])
-def test_missing_collection_does_not_silently_empty_table(manager: MagicMock, endpoint: str) -> None:
-    responses.get(BASE_URL + endpoint, json={"unexpected": []})
-    with pytest.raises(ValueError, match="selector"):
-        _rows(_source(manager, endpoint))
+def test_missing_collection_does_not_silently_empty_table(endpoint: str) -> None:
+    result = _run(endpoint, [ScriptedResponse(json={"unexpected": []})])
+
+    assert isinstance(result.raised, ValueError)
+    assert "selector" in str(result.raised)
 
 
-def test_unknown_table_fails_before_network(manager: MagicMock) -> None:
-    with pytest.raises(UnknownResourceError):
-        _source(manager, "unknown")
+def test_unknown_table_fails_before_network() -> None:
+    result = _run("unknown", [])
+
+    assert isinstance(result.raised, UnknownResourceError)
+    assert result.requests == []

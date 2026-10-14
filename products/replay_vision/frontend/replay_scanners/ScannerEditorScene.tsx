@@ -47,6 +47,7 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ExampleObservations } from './components/ExampleObservations'
 import { ScannerBudget } from './components/ScannerBudget'
+import { ScannerDraftStatus } from './components/ScannerDraftStatus'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerGoalFlow } from './components/ScannerGoalFlow'
 import { ScannerGoalOverview } from './components/ScannerGoalOverview'
@@ -551,6 +552,7 @@ function EditorFooter({
             {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ScannerDraftStatus scannerId={scannerId} fromOverview />
                     <LemonButton
                         type="tertiary"
                         onClick={handleCancel}
@@ -580,6 +582,7 @@ function EditorFooter({
                         </LemonButton>
                     ) : null}
                     <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <ScannerDraftStatus scannerId={scannerId} fromOverview={false} />
                         <LemonButton
                             type="tertiary"
                             onClick={handleCancel}

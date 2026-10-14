@@ -1082,6 +1082,8 @@ class TestRelaySandboxEventsErrorHandling:
         notify = MagicMock()
         monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        record_cause = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "record_run_failure_cause", record_cause)
         metric = "posthog_tasks_turn_completed_suppressed_total"
         labels = {"reason": "idle_resume"}
         suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
@@ -1098,8 +1100,10 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         if turn_failed:
+            record_cause.assert_called_once_with("run-id", "pi_runtime_error")
             handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
         else:
+            record_cause.assert_not_called()
             await asyncio.wait_for(dispatch_done.wait(), timeout=5)
             assert handle.signal.await_args_list == [
                 call("agent_state_changed", arg=False),
@@ -1830,7 +1834,7 @@ class TestFlushPendingText:
 class TestShouldSignalWorkflowHeartbeat:
     @parameterized.expand(
         [
-            # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
+            # Workflow runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
@@ -1843,7 +1847,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 set(),
                 False,
             ),
-            # Idle after end_of_turn: the short loop window applies and the run winds down.
+            # Idle after end_of_turn: the short window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
             # With no tool call in flight, the default and longer windows rely on the

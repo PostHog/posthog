@@ -274,7 +274,6 @@ describe('sqlEditorLogic', () => {
                     }
                     return [404]
                 },
-                '/api/environments/:team_id/data_modeling_dags/': { results: [] },
                 '/api/environments/:team_id/data_modeling_nodes/': { results: [] },
                 '/api/environments/:team_id/data_modeling_edges/': { results: [] },
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],

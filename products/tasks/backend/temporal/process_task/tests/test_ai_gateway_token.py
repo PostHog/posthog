@@ -85,6 +85,7 @@ class TestResolveSandboxAiProduct:
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
+            ("metrics_import", None, "posthog_ai"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):
@@ -198,7 +199,7 @@ class TestMintScopedToken:
         expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
         assert post.call_args[0][0] == f"{expected_url}/tokens"
         assert kwargs["json"] == {
-            "cap_usd": "3",
+            "cap_usd": "30",
             "ttl_seconds": 600 if private else 14400,
             "product": "signals_scout",
             "obo": "123",
@@ -296,8 +297,10 @@ class TestMintScopedToken:
         )
         pin = _PRODUCT_ALLOWED_MODELS[product]
         assert len(pin) == len(set(pin))
-        assert set(pin) == {model for model in registry if "/" not in model} | set(SDK_IMPLICIT_MODELS)
-        assert any("/" in model for model in registry), "the catalog no longer offers a gateway-served model"
+        expected = {model for model in registry if not model.startswith("@cf/")} | set(SDK_IMPLICIT_MODELS)
+        if product != "review_hog":
+            expected -= {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+        assert set(pin) == expected
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -420,7 +423,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
-            "AI_GATEWAY_TOKEN_CAP_USD": "3",
+            "AI_GATEWAY_TOKEN_CAP_USD": "30",
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
@@ -726,7 +729,7 @@ class TestProvisioningBoundaries:
                 "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
                 "AI_GATEWAY_TOKEN": "phe_private",
-                "AI_GATEWAY_TOKEN_CAP_USD": "3",
+                "AI_GATEWAY_TOKEN_CAP_USD": "30",
                 "AI_GATEWAY_PRODUCT": "signals_scout",
                 "AI_GATEWAY_AI_STAGE": "scout:logs",
             }
@@ -933,8 +936,8 @@ class TestUserPinAndCapOverride:
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
-            mint_scoped_token(ai_product="signals_scout", team_id=123)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=123)
         assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "10"
         assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "3"
 
@@ -944,7 +947,7 @@ class TestUserPinAndCapOverride:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_implementation", team_id=2)
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
         assert post.call_args_list[0].kwargs["json"]["cap_usd"] == "15"
         assert post.call_args_list[1].kwargs["json"]["cap_usd"] == "10"
 
@@ -952,18 +955,19 @@ class TestUserPinAndCapOverride:
     def test_invalid_product_cap_keeps_the_product_default(self, mint_settings, invalid_product_cap):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = json.dumps(
-            {"signals_implementation": invalid_product_cap, "signals_scout": invalid_product_cap}
+            {"signals_implementation": invalid_product_cap, "signals_scout_suggestions": invalid_product_cap}
         )
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_implementation", team_id=2)
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
         # The code default for a product that has one, else the team override.
         assert [c.kwargs["json"]["cap_usd"] for c in post.call_args_list] == ["20", "10"]
 
     @pytest.mark.parametrize(
         "ai_product,expected_cap",
         [
+            ("signals_scout", "30"),
             ("signals_implementation", "20"),
             ("signals_inbox", "75"),
             ("signals_chat", "30"),
@@ -991,7 +995,7 @@ class TestUserPinAndCapOverride:
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = "not json"
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=2)
+            mint_scoped_token(ai_product="signals_scout_suggestions", team_id=2)
         assert post.call_args.kwargs["json"]["cap_usd"] == "3"
 
 
@@ -1039,14 +1043,14 @@ class TestSlackAppMint:
         mint.assert_not_called()
 
     @pytest.mark.parametrize(
-        "model", ["zai-org/glm-5.3", "@cf/zai-org/glm-5.2", "moonshotai/kimi-k3", "deepseek-ai/deepseek-v4-flash-0731"]
+        "model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3", "deepseek-ai/deepseek-v4-flash-0731"]
     )
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("model", [None, "anthropic/claude-opus-5", "gpt-5.6-terra"])
+    @pytest.mark.parametrize("model", [None, "anthropic/claude-opus-5", "gpt-5.6-terra", "moonshotai/kimi-k3"])
     def test_unset_or_pinned_model_mints(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
@@ -1108,7 +1112,7 @@ class TestSlackAppMint:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("overrides", [{"runtime": "pi"}, {"model": "zai-org/glm-5.3"}])
+    @pytest.mark.parametrize("overrides", [{"runtime": "pi"}, {"model": "claude-opus-3"}])
     def test_other_gates_still_refuse_an_internal_helper_run(self, mint_settings, overrides):
         env, mint = self._env(mint_settings, state={"ai_stage": "repo_selection"}, internal=True, **overrides)
         assert "AI_GATEWAY_TOKEN" not in env
@@ -1195,9 +1199,11 @@ class TestSlackAppMint:
         assert body["product"] == "slack_app"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["slack_app"]
 
-    def test_pin_covers_every_first_party_catalog_model(self):
-        first_party = {entry.id for entry in model_catalog.MODELS if "/" not in entry.id}
-        missing = first_party - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
+    def test_pin_covers_every_routed_catalog_model(self):
+        routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
+        reserved = {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+        assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
+        missing = routed - reserved - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
         assert not missing, f"catalog models absent from the slack_app pin: {sorted(missing)}"
 
     def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):
@@ -1262,7 +1268,7 @@ class TestMintRefusalScope:
 
     @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
-        refusal = mint_refusal(product, team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp")
+        refusal = mint_refusal(product, team_id=2, state=None, model="claude-opus-3", runtime="acp")
         assert refusal == "model_outside_pin"
 
     def test_unpinned_products_take_any_model(self):
@@ -1306,11 +1312,16 @@ class TestWorkflowsMint:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    @pytest.mark.parametrize("model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3"])
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_served_model_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, model="moonshotai/kimi-k3")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once()
 
     def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
         env, mint = self._env(mint_settings, over_quota=True)
@@ -1374,11 +1385,16 @@ class TestPosthogAiMint:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    @pytest.mark.parametrize("model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3"])
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_served_model_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, model="moonshotai/kimi-k3")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once()
 
     def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
         env, mint = self._env(mint_settings, over_quota=True)

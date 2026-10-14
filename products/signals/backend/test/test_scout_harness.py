@@ -109,6 +109,7 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutOutput,
     RunSignalsScoutWorkflow,
     cancel_failed_scout_trial_activity,
+    check_signals_scout_config_runnable_activity,
     evaluate_signals_scout_precheck_activity,
     run_signals_scout_activity,
     start_trial_signals_scout_run,
@@ -986,6 +987,9 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
+        assert "never create one" not in granted
+        assert "never create one" in _prompt(write_scopes=["canvas:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1007,7 +1011,10 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=started_at,
+            project_timezone="America/Vancouver",
         )
+        assert "- **project_timezone**: `America/Vancouver`" in prompt
+        assert "toDateTime('YYYY-MM-DD HH:MM:SS', 'UTC')" in prompt
         # Identity carries the skill name + version so bootstrap can reference it. The version
         # renders as the bare number `skill-get` takes, since the endpoint validates it as an
         # integer and the bootstrap points here rather than interpolating the value itself.
@@ -1989,7 +1996,7 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
     assert captured["ai_agent_name"] == "signals-scout-errors"
-    assert captured["max_poll_seconds"] == 15 * 60
+    assert captured["max_poll_seconds"] == 20 * 60
     assert captured["context"].sandbox_timeout_seconds is None
 
 
@@ -3153,6 +3160,8 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
     "status,state,age_s,expect_reaped",
     [
         ("in_progress", {}, STALE_RUN_CUTOFF_S + 60, True),
+        # A paused lane dispatches again long after its orphan started; the reap has no age floor.
+        ("in_progress", {}, 31 * 24 * 60 * 60, True),
         # A worker death after the agent went idle: the Tasks inactivity timeout closes the TaskRun
         # before the next dispatch, so the run no longer blocks the lane but still never reported.
         ("completed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),
@@ -3646,7 +3655,7 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 )
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
-    [("job:step:1", None, 16), (None, None, 16), (None, "11111111-1111-1111-1111-111111111111", 36)],
+    [("job:step:1", None, 21), (None, None, 21), (None, "11111111-1111-1111-1111-111111111111", 36)],
 )
 async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
     outcome, workflow_origin_key, trial_launch_id, timeout_minutes
@@ -4082,3 +4091,68 @@ class TestScoutRunTokenCosts(BaseTest):
 def test_background_backoff_props(managed_by, backoff, level, expected):
     config = SignalScoutConfig(managed_by=managed_by, run_interval_minutes=10080, background_backoff_level=level)
     assert _background_backoff_props(config, backoff) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "start_delay_seconds,runnable,expected_sleep,runs",
+    [
+        (0, True, None, True),
+        (420, True, 420, True),
+        (420, False, 420, False),
+    ],
+)
+async def test_workflow_sleeps_its_start_delay_and_skips_a_config_disabled_meanwhile(
+    start_delay_seconds, runnable, expected_sleep, runs
+):
+    output = RunSignalsScoutOutput(
+        run_id="abc", task_run_id="def", status="completed", runtime_s=1.0, skill_name="s", skill_version=1
+    )
+    events: list[object] = []
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        events.append(activity_function)
+        if activity_function is check_signals_scout_config_runnable_activity:
+            return runnable
+        if activity_function is evaluate_signals_scout_precheck_activity:
+            return EvaluateScoutPrecheckOutput(should_run=True)
+        return output
+
+    async def sleep(duration, **kwargs):
+        events.append(duration)
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.sleep", side_effect=sleep),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.now",
+            return_value=datetime(2026, 10, 13, 9, 0, tzinfo=UTC),
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.upsert_memo"),
+    ):
+        result = await RunSignalsScoutWorkflow().run(
+            RunSignalsScoutInput(team_id=7, skill_name="s", start_delay_seconds=start_delay_seconds)
+        )
+
+    if expected_sleep is None:
+        assert events == [evaluate_signals_scout_precheck_activity, run_signals_scout_activity]
+    elif runs:
+        # The sleep comes first, so the pre-check and the run read fresh data after it.
+        assert events == [
+            timedelta(seconds=expected_sleep),
+            check_signals_scout_config_runnable_activity,
+            evaluate_signals_scout_precheck_activity,
+            run_signals_scout_activity,
+        ]
+    else:
+        assert events == [timedelta(seconds=expected_sleep), check_signals_scout_config_runnable_activity]
+    if runs:
+        assert result == output
+    else:
+        assert result.skip_reason == "config_disabled"

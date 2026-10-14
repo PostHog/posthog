@@ -1,4 +1,6 @@
-from django.db import models
+from collections.abc import Mapping
+
+from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils.functional import Promise
 
@@ -223,7 +225,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     # db_constraint=False keeps the migration lock-free on hot posthog_team.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
+    # db_index=False: the (report, type) composite indexes below lead with report_id, so they serve
+    # lookups and cascade deletes. A separate single-column index would be redundant.
+    report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts", db_index=False)
     type = models.CharField(max_length=100, choices=review_report_artefact_type_choices)
     content = models.TextField()
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
@@ -242,7 +246,6 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         indexes = [
-            models.Index(fields=["report"], name="reviewhog_art_report_idx"),
             models.Index(fields=["report", "type"], name="reviewhog_art_rpt_type_idx"),
             # Latest-wins seeks: WHERE report=? AND type=? ORDER BY created_at DESC.
             models.Index(fields=["report", "type", "-created_at"], name="reviewhog_art_rpt_type_ct_idx"),
@@ -487,7 +490,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.CONSIDER,
+        default=UrgencyThreshold.CONSIDER.value,
         db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -520,6 +523,22 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         project = ReviewProjectSettings.load(team_id).defaults
         rows = cls.load_many(team_id, user_ids)
         return {user_id: ReviewPreferences.resolve(row.preferences, project) for user_id, row in rows.items()}
+
+    @classmethod
+    def save_preference_changes(cls, team_id: int, user_id: int, changes: Mapping[str, object]) -> ReviewPreferences:
+        """Apply `changes` to the user's stored preferences and return the effective result.
+
+        Raises `InvalidPreference` for an unknown key or an invalid value.
+        """
+        rows = cls.objects.for_team(team_id, canonical=True)
+        with transaction.atomic():
+            row, _created = rows.get_or_create(team_id=team_id, user_id=user_id)
+            # The lock keeps two concurrent edits of different keys from losing one of them.
+            row = rows.select_for_update().get(id=row.id)
+            current = ReviewPreferences.resolve(row.preferences, ReviewProjectSettings.load(team_id).defaults)
+            row.preferences = current.with_changes(changes)
+            row.save(update_fields=["preferences", "updated_at"])
+        return cls.load_preferences(team_id, user_id)
 
 
 class ReviewInstallationClaim(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):

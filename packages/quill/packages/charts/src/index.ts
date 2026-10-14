@@ -85,6 +85,7 @@ export type {
     HeatmapTooltipContext,
 } from './charts/Heatmap/Heatmap'
 export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
+export type { HeatmapCellLabelFormatter } from './charts/Heatmap/HeatmapCellLabels'
 
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
@@ -116,6 +117,10 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 // Proportion bar
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
+
+// Bar list
+export { BarList } from './charts/BarList/BarList'
+export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
 
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'

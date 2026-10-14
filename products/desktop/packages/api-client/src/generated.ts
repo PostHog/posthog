@@ -18538,6 +18538,15 @@ export namespace Schemas {
         created_at?: (string | null) | undefined;
     };
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     */
+    export type TaskClientProvenanceEnum =
+        | "posthog_desktop"
+        | "posthog_mobile"
+        | "posthog_web";
+    /**
      * Detail response for a task.
      *
      * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
@@ -18626,6 +18635,14 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         origin_key?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -18739,6 +18756,17 @@ export namespace Schemas {
          * server-side.
          */
         origin_key?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
@@ -21041,6 +21069,14 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
         run_error?: string | undefined;
     };
     export type TaskReviewFile = {
@@ -21222,6 +21258,13 @@ export namespace Schemas {
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         origin_key?: (string | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
@@ -22618,7 +22661,10 @@ export namespace Endpoints {
                 basic: boolean;
                 channel: string;
                 ci_status: "passing" | "failing" | "pending" | "none";
-                client_provenance: "posthog_desktop";
+                client_provenance:
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web";
                 commented_by: number;
                 created_by: number;
                 exclude_origin_product:
@@ -22680,7 +22726,13 @@ export namespace Endpoints {
         requestFormat: "json";
         parameters: {
             path: { project_id: string };
-            header: Partial<{ "X-PostHog-Warm-Retry": string }>;
+            header: Partial<{
+                "X-PostHog-Client-Provenance":
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web";
+                "X-PostHog-Warm-Retry": string;
+            }>;
             body: Schemas.TaskCreate;
         };
         responses: {

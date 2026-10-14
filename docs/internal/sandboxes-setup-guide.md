@@ -238,7 +238,7 @@ access. A parent project's flag does not enable its child environments, even tho
 their settings and reviews under the shared parent project.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
-the `reviewhog` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
+the `posthog-review` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
 Inbox switch.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
 Automatic reviews and the label trigger also need the project to claim the repository in the Code review
@@ -327,6 +327,8 @@ Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY
 
 The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
 
+A run whose whole sandbox stops usually still ends as completed, with `termination_reason` set to `sandbox_gone`. The `error_message` property on `task_run_completed` carries the sandbox exit reason. Exit code 137 there usually means the sandbox ran out of memory.
+
 Cloud Claude and Codex sessions deliver each watchdog warning separately to subagents and their parent. Codex uses native MCP tool hooks for shell calls, including the final result of an `exec_command` completed through `write_stdin`. Claude shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM. Codex hook payloads carry the command output without its exit status, so a Codex command counts as stopped when a kill record lands between its start and shortly after its end. A quick rerun of a long Codex command waits for that record before it starts.
 
 Codex trusts only the PostHog memory hooks through session configuration. It does not store hook trust in the user's config file. The local tools MCP server opts out of Codex's tool catalog cache, so a subagent thread starts it before its first shell command instead of lazily on its first MCP tool call. Codex hook payloads do not include an `exec_command` `workdir`, so a Codex retry count is keyed by the thread directory and the command text. Put `cd <directory> &&` in the command to scope a retry count to a directory.
@@ -412,6 +414,34 @@ Each sandbox is created from a template that determines its base image and capab
 | `VM_BASE`       | `ghcr.io/posthog/posthog-sandbox-vm`       | Docker-in-Docker capable. Layers Docker engine, compose v2, and buildx on the base image. Includes an idempotent `start-dockerd` helper for on-demand dockerd. |
 
 `VM_BASE` uses the Modal VM runtime (real Linux kernel) instead of gVisor because `dockerd` cannot run under gVisor. When a sandbox is created with `template=SandboxTemplate.VM_BASE`, `ModalSandbox.create` automatically sets `experimental_options={"vm_runtime": True}`.
+
+### Protected dev-stack activation
+
+Dev-stack bakes can use a durable, regional activation pointer instead of publishing over a shared Modal image name. The two infrastructure models are instance-global: they describe the shared image, not a tenant's sandbox or custom image. Explicit rebuild requests are recorded before observing inputs, so a newer routine observation can carry a pending request forward.
+
+```text
+VM digest + repository SHA + bake recipe
+  -> generation -> immutable snapshot -> boot verification
+  -> atomic activation -> new task sandboxes
+```
+
+Activation locks the target and checks its generation, attempt owner, lease and deadline. A superseded bake can finish its snapshot but cannot change the active pointer. Candidate verification boots the exact snapshot, restores the manifest's repository revision for retained container bind mounts, and checks its manifest, agent version, Postgres, Redis and ClickHouse. The previous active image remains available if verification fails. Failed verification commands log bounded output tails with the stage and attempt, image and sandbox IDs. Cleanup retries cannot replace the original verification failure.
+
+The two-minute sweep reconciles durable state using a fresh registry digest rather than the task-provisioning cache. A changed bake recipe requests a new generation even when the VM digest is unchanged. Dispatch retries reuse an attempt's Temporal workflow ID, and a lost activation acknowledgment reads the committed result. Workers renew two-minute leases every 30 seconds, with a separate three-hour deadline. Failed bakes retry after 2, 5 and then 15 minutes with up to 29 seconds of jitter. Each region allows three full bakes per rolling six hours across generations; snapshot verification does not consume that budget. The dashboard shows the next retry or blocking reason. Provider boot failures retry the checkpointed snapshot; confirmed candidate defects require a corrected target or a new manual request.
+
+Roll out one region at a time:
+
+1. Apply the additive migration and deploy the new workers and task readers. With no target row, the existing named-image behavior remains in place.
+2. Disable the legacy `tasks-dev-stack-image-bake` flag and drain legacy bake executions and old task workers. All task readers must understand protected activation before initialization.
+3. Run `python manage.py bake_dev_stack_image --initialize --seed-image-id <immutable-image-id>` using a known existing snapshot. This boots and checks the baseline before recording its ID and a verified attempt for rollback. Save the printed attempt UUID; its base provenance remains unknown. Omitting the seed deliberately leaves tasks on the plain VM base until the first verified activation.
+4. Run `python manage.py bake_dev_stack_image --enable`. The durable enablement setting now controls scheduling in this region; the legacy flag no longer controls protected bakes. GitHub App Contents read access is needed to pin the repository revision. The next sweep requests a generation from the current VM digest.
+5. Verify a successful candidate and a new task's image selection before enabling another region. Existing sandboxes are unchanged.
+
+Use `python manage.py bake_dev_stack_image --request-key <request-id>` for a manual refresh. Protected bakes reject `--inline`. `--disable` stops scheduling and activation while preserving the active image. A database read failure or missing active pointer falls back to the plain VM base with a recorded image-fallback reason, never to the mutable named image.
+
+To roll back, use `python manage.py bake_dev_stack_image --rollback-attempt <verified-attempt-uuid>`, including the seed's UUID. This creates a new generation and reverifies that attempt's immutable candidate. Automatic target updates remain paused until `--enable` resumes them. Initialization, enablement, disablement, and rollback must be separate commands. Do not delete the target row or redeploy alias-only readers as a rollback strategy. Candidate snapshots are retained; this change does not add automatic image deletion.
+
+The admin separates **Base current / Base behind / Base unknown** from **Queued / Building / Rebuilding / Verifying / Retry scheduled / Blocked / Baking disabled**. A same-base nightly rebuild can show Base current and Rebuilding together. Budget cooldowns show Retry scheduled with their reason and retry time; Blocked means intervention is required. Failed Temporal reads show retry guidance even when no execution data is available. Source timestamps describe observation time; activation time and the exact attempt's Temporal run link describe the bake.
 
 ### Optional: local repository mounts (Docker only)
 

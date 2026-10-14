@@ -31,7 +31,8 @@ export type CustomImage = {
 }
 export type Workflow = {
     status: string
-    run_id?: string
+    workflow_id?: string
+    run_id?: string | null
     started_at?: string | null
     closed_at?: string | null
     url: string
@@ -56,7 +57,40 @@ export type SourceData = {
         }[]
     }
     custom: { images: CustomImage[]; truncated: boolean; limit: number }
-    dev_stack: { name: string; base_image_reference: string | null; workflow_url: string }
+    dev_stack: {
+        name: string
+        base_image_reference: string | null
+        workflow_url: string
+        protected?: boolean
+        attempt_id?: string | null
+        workflow_run_id?: string | null
+        auto_refresh?: boolean
+        observation_error?: string
+        status?:
+            | 'disabled'
+            | 'blocked'
+            | 'retry_scheduled'
+            | 'current'
+            | 'queued'
+            | 'building'
+            | 'verifying'
+            | 'failed'
+            | 'superseded'
+        generation?: number
+        active_generation?: number
+        active_image_id?: string | null
+        active_agent_version?: string | null
+        desired_base_reference?: string | null
+        repository_sha?: string | null
+        activated_at?: string | null
+        requested_at?: string | null
+        target_observed_at?: string | null
+        next_retry_at?: string | null
+        reason?: string
+        attempt_started_at?: string | null
+        lease_expires_at?: string | null
+        deadline_at?: string | null
+    }
 } & Record<ImageName, RegistryImage>
 export type Sources = { [K in keyof SourceData]?: Source<SourceData[K]> }
 export const sourceNames: (keyof SourceData)[] = ['package', 'release', ...imageNames, 'custom', 'dev_stack']
@@ -180,7 +214,72 @@ export function devStackBadge(sources: Sources): ReleaseBadge {
         return { label: 'Last seen', variant: 'default' }
     }
     const state = devStackState(sources)
+    if (sources.dev_stack?.data?.protected) {
+        return {
+            label: state === 'current' ? 'Base current' : state === 'waiting' ? 'Base behind' : 'Base unknown',
+            variant: variants[state],
+        }
+    }
     return { label: labels[state], variant: variants[state] }
+}
+
+export function devStackProgress(sources: Sources, now = Date.now()): ReleaseBadge | undefined {
+    const data = sources.dev_stack?.data
+    if (!data?.protected || !fresh(sources.dev_stack, now)) {
+        return undefined
+    }
+    if (data.status === 'disabled') {
+        return { label: 'Baking disabled', variant: 'default' }
+    }
+    if (data.status === 'blocked') {
+        return { label: 'Blocked', variant: 'destructive' }
+    }
+    if (data.status === 'retry_scheduled') {
+        return { label: 'Retry scheduled', variant: 'warning' }
+    }
+    if (
+        ['building', 'verifying'].includes(data.status || '') &&
+        (!data.lease_expires_at ||
+            Date.parse(data.lease_expires_at) <= Date.parse(sources.dev_stack!.observed_at!) ||
+            !data.deadline_at ||
+            Date.parse(data.deadline_at) <= now)
+    ) {
+        return { label: 'Recovery pending', variant: 'warning' }
+    }
+    if (data.status === 'building') {
+        return { label: devStackState(sources) === 'current' ? 'Rebuilding' : 'Building', variant: 'info' }
+    }
+    if (data.status === 'verifying') {
+        return { label: 'Verifying', variant: 'info' }
+    }
+    if (data.status === 'current') {
+        return { label: 'Active', variant: 'success' }
+    }
+    if (data.status === 'failed') {
+        return { label: 'Failed', variant: 'destructive' }
+    }
+    return { label: data.status === 'superseded' ? 'Superseded' : 'Queued', variant: 'default' }
+}
+
+export function selectedWorkflow(
+    selected: string,
+    sources: Sources,
+    workflow: { id: string; source: Source<Workflow> } | null
+): Source<Workflow> | null {
+    if (workflow?.id !== selected) {
+        return null
+    }
+    const devStack = sources.dev_stack?.data
+    if (
+        selected === 'dev_stack' &&
+        devStack?.protected &&
+        (!devStack.attempt_id ||
+            workflow.source.data?.workflow_id !== `activate-dev-stack-image-${devStack.attempt_id}` ||
+            (devStack.workflow_run_id && workflow.source.data?.run_id !== devStack.workflow_run_id))
+    ) {
+        return null
+    }
+    return workflow.source
 }
 
 export function customState(image: CustomImage, currentBase: string | undefined): Evidence {

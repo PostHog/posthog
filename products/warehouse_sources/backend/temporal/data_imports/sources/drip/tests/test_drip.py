@@ -1,16 +1,16 @@
-import json
-from types import SimpleNamespace
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip import (
     DripResumeConfig,
     _base_params,
-    drip_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import (
@@ -18,67 +18,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drip.setti
     DRIP_ENDPOINTS,
     ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the drip module.
-DRIP_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.drip.source import DripSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drip import DripSourceConfig
 
 
-def _response(body: dict[str, Any], status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(DripSource(), DripSourceConfig(api_token="token", account_id="9999"))
 
 
-def _page(data_key: str, items: list[dict[str, Any]], total_pages: int | None = None) -> Response:
+def _page(data_key: str, items: list[Any], total_pages: int | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {data_key: items}
     if total_pages is not None:
         body["meta"] = {"total_pages": total_pages}
-    return _response(body)
-
-
-def _make_manager(resume: DripResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[SimpleNamespace]:
-    """Wire a mock session and capture each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    captured: list[SimpleNamespace] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        captured.append(SimpleNamespace(params=dict(request.params or {}), auth=request.auth))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return captured
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(session: mock.MagicMock, endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
-    return _rows(
-        drip_source(
-            api_token="token",
-            account_id="9999",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-        )
-    )
+    return ScriptedResponse(json=body)
 
 
 class TestBaseParams:
@@ -92,7 +44,7 @@ class TestBaseParams:
             ("goals", {}),
         ]
     )
-    def test_base_params(self, endpoint, expected) -> None:
+    def test_base_params(self, endpoint: str, expected: dict[str, Any]) -> None:
         assert _base_params(endpoint) == expected
 
     @parameterized.expand(
@@ -106,40 +58,34 @@ class TestBaseParams:
             ("goals", {"page": 1}),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_params_sent_on_first_request(self, endpoint, expected, MockSession) -> None:
-        session = MockSession.return_value
-        captured = _wire(session, [_page(DRIP_ENDPOINTS[endpoint].data_key, [{"id": 1}])])
+    def test_params_sent_on_first_request(self, endpoint: str, expected: dict[str, Any]) -> None:
+        result = _driver().run(endpoint, [_page(DRIP_ENDPOINTS[endpoint].data_key, [{"id": 1}])])
 
-        _run(session, endpoint, _make_manager())
-
-        assert captured[0].params == expected
+        assert result.raised is None
+        assert result.queries[0] == {key: (str(value),) for key, value in expected.items()}
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        captured = _wire(session, [_page("subscribers", [{"id": 5}], total_pages=3)])
-        manager = _make_manager(DripResumeConfig(next_page=3))
-
-        _run(session, "subscribers", manager)
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "subscribers",
+            [_page("subscribers", [{"id": 5}], total_pages=3)],
+            resume_state=DripResumeConfig(next_page=3),
+        )
 
         # Starts at the resume point (page 3) and stops, since total_pages == 3.
-        assert captured[0].params["page"] == 3
-        assert session.send.call_count == 1
+        assert result.raised is None
+        assert result.params("page") == ["3"]
+        assert len(result.requests) == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_then_partial_terminates_without_meta(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_full_page_then_partial_terminates_without_meta(self) -> None:
         full_page = [{"id": i} for i in range(100)]  # workflows per_page == 100
         partial_page = [{"id": i} for i in range(100, 140)]
-        _wire(session, [_page("workflows", full_page), _page("workflows", partial_page)])
+        result = _driver().run("workflows", [_page("workflows", full_page), _page("workflows", partial_page)])
 
-        rows = _run(session, "workflows", _make_manager())
-
-        assert [r["id"] for r in rows] == list(range(140))
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == list(range(140))
+        assert result.params("page") == ["1", "2"]
 
 
 class TestValidateCredentials:
@@ -152,22 +98,20 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Drip API returned an unexpected status (500)"),
         ]
     )
-    @mock.patch(DRIP_SESSION_PATCH)
     def test_validate_credentials_status_mapping(
-        self, _name, status_code, expected_valid, expected_message, mock_session
+        self, _name: str, status_code: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, message = validate_credentials("token", "9999")
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, message = validate_credentials("token", "9999")
 
         assert is_valid is expected_valid
         assert message == expected_message
+        assert network.requests_log[0].path == "/v2/9999/subscribers"
+        assert network.requests_log[0].param("per_page") == "1"
 
-    @mock.patch(DRIP_SESSION_PATCH)
-    def test_validate_credentials_connection_error(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        is_valid, message = validate_credentials("token", "9999")
+    def test_validate_credentials_connection_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, message = validate_credentials("token", "9999")
 
         assert is_valid is False
         assert message == "Could not connect to the Drip API"
@@ -175,17 +119,17 @@ class TestValidateCredentials:
 
 class TestDripSourceResponse:
     @parameterized.expand(list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint, _MockSession) -> None:
-        response = drip_source(
-            api_token="token",
-            account_id="9999",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+    def test_source_response_shape(self, endpoint: str) -> None:
+        if endpoint == "campaign_subscribers":
+            script = [_page("campaigns", []) for _ in CAMPAIGN_SUBSCRIBER_STATUSES]
+        else:
+            script = [_page(DRIP_ENDPOINTS[endpoint].data_key, [])]
 
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         config = DRIP_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -204,29 +148,24 @@ class TestScalarEndpoints:
             ("custom_field_identifiers", "identifier", ["first_name", "last_name"]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bare_strings_become_single_column_rows(self, endpoint, column, values, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page(DRIP_ENDPOINTS[endpoint].data_key, values)])
+    def test_bare_strings_become_single_column_rows(self, endpoint: str, column: str, values: list[str]) -> None:
+        result = _driver().run(endpoint, [_page(DRIP_ENDPOINTS[endpoint].data_key, values)])
 
-        rows = _run(session, endpoint, _make_manager())
-
-        assert rows == [{column: value} for value in values]
+        assert result.raised is None
+        assert result.rows == [{column: value} for value in values]
 
 
 class TestCampaignSubscribersFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_pages_are_followed_per_campaign(self, MockSession) -> None:
-        session = MockSession.return_value
-        responses = []
+    def test_child_pages_are_followed_per_campaign(self) -> None:
+        responses: list[ScriptedResponse] = []
         for index, _status in enumerate(CAMPAIGN_SUBSCRIBER_STATUSES):
             responses.append(_page("campaigns", [{"id": 10}]))
             responses.append(_page("subscribers", [{"id": f"a{index}"}], total_pages=2))
             responses.append(_page("subscribers", [{"id": f"b{index}"}], total_pages=2))
-        captured = _wire(session, responses)
 
-        rows = _run(session, "campaign_subscribers", _make_manager())
+        result = _driver().run("campaign_subscribers", responses)
 
-        assert [row["id"] for row in rows] == ["a0", "b0", "a1", "b1", "a2", "b2"]
-        child_pages = [c.params["page"] for c in captured if "status" in c.params]
-        assert child_pages == [1, 2, 1, 2, 1, 2]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a0", "b0", "a1", "b1", "a2", "b2"]
+        child_pages = [request.param("page") for request in result.requests if request.param("status") is not None]
+        assert child_pages == ["1", "2", "1", "2", "1", "2"]

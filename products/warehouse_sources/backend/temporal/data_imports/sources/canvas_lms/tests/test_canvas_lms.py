@@ -1,12 +1,11 @@
-import json
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any
 
 import pytest
-from unittest import mock
+from unittest.mock import patch
 
+import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms import canvas_lms as canvas_lms_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms import (
@@ -14,53 +13,33 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms
     CanvasLmsResumeConfig,
     _format_canvas_datetime,
     _incremental_window,
-    canvas_lms_source,
     normalize_domain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.source import CanvasLmsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canvaslms import (
+    CanvasLmsSourceConfig,
+)
 
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-
-
-def _response(items: Optional[list[dict[str, Any]]], *, status_code: int = 200, link: Optional[str] = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(items if items is not None else []).encode()
-    if link:
-        resp.headers["Link"] = link
-    return resp
-
-
-def _make_manager(resume_state: Optional[CanvasLmsResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+DOMAIN = "yourschool.instructure.com"
+BASE_URL = f"https://{DOMAIN}/api/v1"
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        # Mirror `requests.Session.prepare_request`: the real prepared request's `.url`
-        # is what `RESTClient._check_allowed_host` inspects (host/scheme/port pinning), so
-        # a bare `MagicMock()` here -- whose `.url` is an unconfigured child mock -- fails
-        # `urlparse`/`urlsplit` with a `MagicMock`-vs-`int` `TypeError` once that host check
-        # runs, rather than exercising it.
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
+def _driver(account_id: str = "1") -> SourceDriver:
+    return SourceDriver(
+        CanvasLmsSource(), CanvasLmsSourceConfig(canvas_domain=DOMAIN, account_id=account_id, api_key="tok")
+    )
 
 
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+    return ScriptedResponse(json=rows, headers=headers)
 
 
 class TestNormalizeDomain:
@@ -115,47 +94,36 @@ class TestIncrementalWindow:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response=None, raises=None):
-        session = mock.MagicMock()
-        if raises is not None:
-            session.get.side_effect = raises
-        else:
-            session.get.return_value = response
-        return mock.patch.object(canvas_lms_module, "make_tracked_session", return_value=session)
-
-    def _resp(self, *, status_code=200, text=""):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        response.is_redirect = status_code in (301, 302, 303, 307, 308)
-        response.is_permanent_redirect = status_code in (301, 308)
-        response.text = text
-        return response
-
     def test_success(self):
-        with self._patch_session(self._resp(status_code=200)):
+        with scripted_network([ScriptedResponse(status=200, json=[])]) as network:
             assert validate_credentials("yourschool.instructure.com", "1", "tok") == (True, None)
+        assert network.requests_log[0].path == "/api/v1/accounts/1/courses"
+        assert network.requests_log[0].param("per_page") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
+        assert network.session_options[0]["redact_values"] == ("tok",)
+        assert network.session_options[0]["capture"] is False
 
     def test_invalid_token(self):
-        with self._patch_session(self._resp(status_code=401)):
+        with scripted_network([ScriptedResponse(status=401)]):
             valid, msg = validate_credentials("yourschool.instructure.com", "1", "tok")
-            assert valid is False
-            assert msg == "Invalid Canvas access token"
+        assert valid is False
+        assert msg == "Invalid Canvas access token"
 
     def test_unknown_account_is_rejected(self):
-        with self._patch_session(self._resp(status_code=404)):
+        with scripted_network([ScriptedResponse(status=404)]):
             valid, msg = validate_credentials("yourschool.instructure.com", "999", "tok")
-            assert valid is False
-            assert msg == "Canvas account not found. Check the account ID and try again."
+        assert valid is False
+        assert msg == "Canvas account not found. Check the account ID and try again."
 
     def test_403_at_source_create_is_accepted(self):
-        with self._patch_session(self._resp(status_code=403)):
+        with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("yourschool.instructure.com", "1", "tok", schema_name=None) == (True, None)
 
     def test_403_for_scoped_probe_fails(self):
-        with self._patch_session(self._resp(status_code=403)):
+        with scripted_network([ScriptedResponse(status=403)]):
             valid, msg = validate_credentials("yourschool.instructure.com", "1", "tok", schema_name="courses")
-            assert valid is False
-            assert msg is not None
+        assert valid is False
+        assert msg is not None
 
     @pytest.mark.parametrize("bad_domain", ["", "not a domain!", "https://"])
     def test_invalid_domain_short_circuits(self, bad_domain):
@@ -164,29 +132,26 @@ class TestValidateCredentials:
         assert msg is not None
 
     def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
             valid, msg = validate_credentials("yourschool.instructure.com", "1", "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
+        assert valid is False
+        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
-        with self._patch_session(self._resp(status_code=302)) as patched:
+        response = ScriptedResponse(status=302, headers={"Location": "http://169.254.169.254/"})
+        with scripted_network([response]) as network:
             valid, msg = validate_credentials("yourschool.instructure.com", "1", "tok")
-            assert valid is False
-            assert msg == canvas_lms_module.HOST_NOT_ALLOWED_ERROR
-            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+        assert valid is False
+        assert msg == canvas_lms_module.HOST_NOT_ALLOWED_ERROR
+        assert len(network.requests_log) == 1
 
     def test_blocks_unsafe_host(self):
-        with (
-            mock.patch.object(canvas_lms_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(self._resp(status_code=200)) as patched,
-        ):
-            valid, msg = validate_credentials("10.0.0.1", "1", "tok", team_id=99)
-            assert valid is False
-            assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+        with patch.object(canvas_lms_module, "_is_host_safe", return_value=(False, "internal address")):
+            with scripted_network([]) as network:
+                valid, msg = validate_credentials("10.0.0.1", "1", "tok", team_id=99)
+        assert valid is False
+        assert msg == "internal address"
+        assert network.requests_log == []
 
 
 class TestCanvasLmsSourceResponse:
@@ -200,15 +165,10 @@ class TestCanvasLmsSourceResponse:
         ]
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"
@@ -221,275 +181,157 @@ class TestCanvasLmsSourceResponse:
 
 
 class TestCanvasLmsTopLevelPagination:
-    def _source(self, endpoint="courses", manager=None, **kwargs):
-        return canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager if manager is not None else _make_manager(),
-            **kwargs,
-        )
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_link_header_across_pages(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+    def test_follows_link_header_across_pages(self):
+        result = _driver().run(
+            "courses",
             [
-                _response(
+                _page(
                     [{"id": "1"}, {"id": "2"}],
-                    link='<https://yourschool.instructure.com/api/v1/accounts/1/courses?page=bookmark>; rel="next"',
+                    f"{BASE_URL}/accounts/1/courses?page=bookmark",
                 ),
-                _response([{"id": "3"}]),
+                _page([{"id": "3"}]),
             ],
         )
-        rows = _rows(self._source())
 
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert snaps[0]["url"] == "https://yourschool.instructure.com/api/v1/accounts/1/courses"
-        assert snaps[0]["params"]["per_page"] == 100
-        assert snaps[1]["url"] == "https://yourschool.instructure.com/api/v1/accounts/1/courses?page=bookmark"
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["1", "2", "3"]
+        assert result.requests[0].path == "/api/v1/accounts/1/courses"
+        assert result.requests[0].param("per_page") == "100"
+        assert result.requests[1].param("page") == "bookmark"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_saves_state_after_yielding(self):
+        next_url = f"{BASE_URL}/accounts/1/courses?page=bookmark"
+        result = _driver().run(
+            "courses",
             [
-                _response(
-                    [{"id": "1"}],
-                    link='<https://yourschool.instructure.com/api/v1/accounts/1/courses?page=bookmark>; rel="next"',
-                ),
-                _response([{"id": "2"}]),
+                _page([{"id": "1"}], next_url),
+                _page([{"id": "2"}]),
             ],
         )
-        manager = _make_manager()
-        _rows(self._source(manager=manager))
 
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, CanvasLmsResumeConfig)
-        assert saved.next_url == "https://yourschool.instructure.com/api/v1/accounts/1/courses?page=bookmark"
+        assert result.raised is None
+        assert result.saved_states == [CanvasLmsResumeConfig(next_url=next_url)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": "9"}])])
-        manager = _make_manager(
-            CanvasLmsResumeConfig(next_url="https://yourschool.instructure.com/api/v1/accounts/1/courses?page=resume")
+    def test_resumes_from_saved_state(self):
+        resume_url = f"{BASE_URL}/accounts/1/courses?page=resume"
+        result = _driver().run(
+            "courses", [_page([{"id": "9"}])], resume_state=CanvasLmsResumeConfig(next_url=resume_url)
         )
-        rows = _rows(self._source(manager=manager))
 
-        assert snaps[0]["url"] == "https://yourschool.instructure.com/api/v1/accounts/1/courses?page=resume"
-        assert [r["id"] for r in rows] == ["9"]
+        assert result.raised is None
+        assert result.requests[0].url.startswith(resume_url)
+        assert [r["id"] for r in result.rows] == ["9"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_does_not_follow_next_url_on_foreign_host(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}], link='<http://169.254.169.254/latest/meta-data/>; rel="next"')])
-        rows = _rows(self._source())
+    def test_does_not_follow_next_url_on_foreign_host(self):
+        result = _driver().run("courses", [_page([{"id": "1"}], "http://169.254.169.254/latest/meta-data/")])
 
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["1"]
+        assert len(result.requests) == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_ignores_resume_url_on_foreign_host(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": "1"}])])
-        manager = _make_manager(CanvasLmsResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"))
-        rows = _rows(self._source(manager=manager))
+    def test_ignores_resume_url_on_foreign_host(self):
+        result = _driver().run(
+            "courses",
+            [_page([{"id": "1"}])],
+            resume_state=CanvasLmsResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"),
+        )
 
-        assert snaps[0]["url"].startswith("https://yourschool.instructure.com/api/v1/accounts/1/courses")
-        assert [r["id"] for r in rows] == ["1"]
+        assert result.raised is None
+        assert result.requests[0].path == "/api/v1/accounts/1/courses"
+        assert [r["id"] for r in result.rows] == ["1"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_runtime_host_check_blocks_unsafe_domain(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}])])
-        with mock.patch.object(canvas_lms_module, "_is_host_safe", return_value=(False, "internal address")):
-            with pytest.raises(CanvasHostNotAllowedError):
-                _rows(self._source())
-        session.send.assert_not_called()
+    def test_runtime_host_check_blocks_unsafe_domain(self):
+        with patch.object(canvas_lms_module, "_is_host_safe", return_value=(False, "internal address")):
+            result = _driver().run("courses", [])
+        assert isinstance(result.raised, CanvasHostNotAllowedError)
+        assert result.requests == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_users_endpoint_builds_correct_path(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": "1"}])])
-        _rows(self._source(endpoint="users"))
+    def test_users_endpoint_builds_correct_path(self):
+        result = _driver().run("users", [_page([{"id": "1"}])])
 
-        assert snaps[0]["url"] == "https://yourschool.instructure.com/api/v1/accounts/1/users"
-
-
-class _FakeDltResource:
-    """Stand-in for a DltResource returned by ``rest_api_resources``."""
-
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper: Any) -> "_FakeDltResource":
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+        assert result.raised is None
+        assert result.requests[0].path == "/api/v1/accounts/1/users"
 
 
 class TestCanvasLmsFanout:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_submissions_injects_course_id_from_parent(self, mock_rest_api_resources):
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("courses", [{"id": "1000"}]),
-            _FakeDltResource("submissions", [{"assignment_id": "1", "user_id": "2", "_courses_id": "1000"}]),
-        ]
-        manager = _make_manager()
-
-        resp = canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint="submissions",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
+    def test_submissions_injects_course_id_from_parent(self):
+        result = _driver().run(
+            "submissions",
+            [_page([{"id": "1000"}]), _page([{"assignment_id": "1", "user_id": "2"}])],
         )
 
-        rows = list(cast(Any, resp.items()))
-        assert len(rows) == 1
-        row = rows[0]
+        assert result.raised is None
+        assert len(result.rows) == 1
+        row = result.rows[0]
         assert row["course_id"] == "1000"
         assert "_courses_id" not in row
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms.build_dependent_resource"
-    )
-    def test_enrollments_fanout_pins_account_id_and_page_size_param(self, mock_build):
-        mock_build.return_value = iter([])
-        manager = _make_manager()
-
-        canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="42",
-            api_key="tok",
-            endpoint="enrollments",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
+    def test_enrollments_fanout_pins_account_id_and_page_size_param(self):
+        result = _driver(account_id="42").run(
+            "enrollments", [_page([{"id": "7"}]), _page([{"id": "1", "course_id": "7"}])]
         )
 
-        _, kwargs = mock_build.call_args
-        assert kwargs["path_format_values"] == {"account_id": "42"}
-        assert kwargs["page_size_param"] == "per_page"
+        assert result.raised is None
+        assert result.paths == ["/api/v1/accounts/42/courses", "/api/v1/courses/7/enrollments"]
+        assert result.params("per_page") == ["100", "100"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms.build_dependent_resource"
-    )
-    def test_submissions_incremental_maps_field_to_query_param(self, mock_build):
-        mock_build.return_value = iter([])
-        manager = _make_manager()
-
-        canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint="submissions",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
+    def test_submissions_incremental_maps_field_to_query_param(self):
+        graded = _driver().run(
+            "submissions",
+            [
+                _page([{"id": "7"}]),
+                _page([{"assignment_id": "1", "user_id": "2", "graded_at": "2024-01-02T00:00:00Z"}]),
+            ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
             incremental_field="graded_at",
         )
-
-        _, kwargs = mock_build.call_args
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["incremental_field"] == "graded_at"
-        window = kwargs["incremental_config_factory"]("submitted_at")
-        assert window["start_param"] == "submitted_since"
-        window = kwargs["incremental_config_factory"]("graded_at")
-        assert window["start_param"] == "graded_since"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms.build_dependent_resource"
-    )
-    def test_fanout_seeds_resume_state_and_wires_hook(self, mock_build):
-        mock_build.return_value = iter([])
-        manager = _make_manager(
-            CanvasLmsResumeConfig(
-                completed=["/courses/1/enrollments"], current="/courses/2/enrollments", child_state={"next_url": "x"}
-            )
+        submitted = _driver().run(
+            "submissions",
+            [
+                _page([{"id": "7"}]),
+                _page([{"assignment_id": "1", "user_id": "2", "submitted_at": "2024-01-02T00:00:00Z"}]),
+            ],
+            incremental_field="submitted_at",
         )
 
-        canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint="enrollments",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
+        assert graded.raised is None
+        assert submitted.raised is None
+        assert graded.requests[1].param("graded_since") == "2024-01-01T00:00:00Z"
+        assert graded.requests[1].param("submitted_since") is None
+        assert submitted.requests[1].param("submitted_since") == "1970-01-01T00:00:00Z"
+        assert submitted.requests[1].param("graded_since") is None
+
+    def test_fanout_seeds_resume_state_and_wires_hook(self):
+        resume_url = f"{BASE_URL}/courses/2/enrollments?page=resume"
+        result = _driver().run(
+            "enrollments",
+            [_page([{"id": "1"}, {"id": "2"}]), _page([{"id": "9", "course_id": "2"}])],
+            resume_state=CanvasLmsResumeConfig(
+                completed=["/courses/1/enrollments"],
+                current="/courses/2/enrollments",
+                child_state={"next_url": resume_url},
+            ),
         )
 
-        _, kwargs = mock_build.call_args
-        assert kwargs["initial_paginator_state"] == {
-            "completed": ["/courses/1/enrollments"],
-            "current": "/courses/2/enrollments",
-            "child_state": {"next_url": "x"},
-        }
-
-        kwargs["resume_hook"](
-            {"completed": ["/courses/1/enrollments", "/courses/2/enrollments"], "current": None, "child_state": None}
-        )
-        manager.save_state.assert_called_once_with(
+        assert result.raised is None
+        assert result.paths == ["/api/v1/accounts/1/courses", "/api/v1/courses/2/enrollments"]
+        assert result.requests[1].param("page") == "resume"
+        assert result.saved_states[-1] == (
             CanvasLmsResumeConfig(
                 completed=["/courses/1/enrollments", "/courses/2/enrollments"], current=None, child_state=None
             )
         )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms.build_dependent_resource"
-    )
-    def test_fanout_does_not_load_state_when_cannot_resume(self, mock_build):
-        mock_build.return_value = iter([])
-        manager = _make_manager()
+    def test_fanout_does_not_load_state_when_cannot_resume(self):
+        result = _driver().run("assignments", [_page([{"id": "2"}]), _page([{"id": "9"}])])
 
-        canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint="assignments",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-        )
+        assert result.raised is None
+        assert result.paths == ["/api/v1/accounts/1/courses", "/api/v1/courses/2/assignments"]
+        assert result.requests[1].param("page") is None
 
-        manager.load_state.assert_not_called()
-        _, kwargs = mock_build.call_args
-        assert kwargs["initial_paginator_state"] is None
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms._is_host_safe")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms.build_dependent_resource"
-    )
-    def test_fanout_runtime_host_check_blocks_unsafe_domain(self, mock_build, mock_is_host_safe):
-        mock_build.return_value = iter([[{"id": "1"}]])
-        mock_is_host_safe.return_value = (False, "internal address")
-        manager = _make_manager()
-
-        resp = canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint="assignments",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-        )
-
-        with pytest.raises(CanvasHostNotAllowedError):
-            _rows(resp)
+    def test_fanout_runtime_host_check_blocks_unsafe_domain(self):
+        with patch.object(canvas_lms_module, "_is_host_safe", return_value=(False, "internal address")):
+            result = _driver().run("assignments", [])
+        assert isinstance(result.raised, CanvasHostNotAllowedError)
+        assert result.requests == []

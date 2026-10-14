@@ -2,35 +2,32 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import ENDPOINTS, STYTCH_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import (
     StytchAPIError,
     StytchResumeConfig,
     build_users_search_body,
     check_endpoint_access,
-    get_rows,
-    stytch_source,
     validate_credentials,
 )
 
-MOCK_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch.make_tracked_session"
+
+def _response(payload: dict[str, Any], status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=payload)
 
 
-def _make_manager(resume_state: StytchResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.json.return_value = payload
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(StytchSource(), StytchSourceConfig(project_id="project-live-x", secret="secret"))
 
 
 def _search_page(data_key: str, items: list[dict[str, Any]], next_cursor: str | None) -> dict[str, Any]:
@@ -56,10 +53,9 @@ class TestBuildUsersSearchBody:
 
 
 class TestValidateCredentials:
-    @mock.patch(MOCK_PATH)
-    def test_network_errors_swallowed(self, mock_session):
-        mock_session.return_value.post.side_effect = Exception("boom")
-        assert validate_credentials("project-live-x", "secret") is False
+    def test_network_errors_swallowed(self):
+        with scripted_network(always(ConnectionError("boom"))):
+            assert validate_credentials("project-live-x", "secret") is False
 
 
 class TestCheckEndpointAccess:
@@ -77,120 +73,107 @@ class TestCheckEndpointAccess:
             ("some_other_denial", "Not available for this Stytch project (some_other_denial)"),
         ],
     )
-    @mock.patch(MOCK_PATH)
-    def test_product_line_mismatch_names_the_tables_to_use_instead(self, mock_session, error_type, expected_reason):
-        mock_session.return_value.post.return_value = _response({"error_type": error_type}, 400)
-
-        assert check_endpoint_access("project-live-x", "secret", "/v1/users/search") == expected_reason
+    def test_product_line_mismatch_names_the_tables_to_use_instead(self, error_type, expected_reason):
+        with scripted_network([_response({"error_type": error_type}, 400)]):
+            assert check_endpoint_access("project-live-x", "secret", "/v1/users/search") == expected_reason
 
 
 class TestGetRowsUsers:
-    @mock.patch(MOCK_PATH)
-    def test_resumes_from_saved_cursor(self, mock_session):
-        mock_session.return_value.request.return_value = _response(_search_page("results", [{"user_id": "u9"}], None))
-
-        manager = _make_manager(StytchResumeConfig(cursor="cursor-5"))
-        list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), manager))
-
-        first_call = mock_session.return_value.request.call_args_list[0]
-        assert first_call.kwargs["json"]["cursor"] == "cursor-5"
-
-    @mock.patch(MOCK_PATH)
-    def test_incremental_filter_sent_on_every_page(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _response(_search_page("results", [{"user_id": "u1"}], "cursor-2")),
-            _response(_search_page("results", [{"user_id": "u2"}], None)),
-        ]
-
-        list(
-            get_rows(
-                "project-live-x",
-                "secret",
-                "users",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-            )
+    def test_resumes_from_saved_cursor(self):
+        result = _driver().run(
+            "users",
+            [_response(_search_page("results", [{"user_id": "u9"}], None))],
+            resume_state=StytchResumeConfig(cursor="cursor-5"),
         )
 
-        for call in mock_session.return_value.request.call_args_list:
-            operands = call.kwargs["json"]["query"]["operands"]
+        assert result.requests[0].json()["cursor"] == "cursor-5"
+
+    def test_a_run_with_no_saved_state_starts_without_a_cursor(self):
+        result = _driver().run("users", [_response(_search_page("results", [{"user_id": "u9"}], None))])
+
+        assert "cursor" not in result.requests[0].json()
+
+    def test_incremental_filter_sent_on_every_page(self):
+        result = _driver().run(
+            "users",
+            [
+                _response(_search_page("results", [{"user_id": "u1"}], "cursor-2")),
+                _response(_search_page("results", [{"user_id": "u2"}], None)),
+            ],
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+
+        assert len(result.requests) == 2
+        for request in result.requests:
+            operands = request.json()["query"]["operands"]
             assert operands[0]["filter_name"] == "created_at_greater_than"
 
-    @mock.patch(MOCK_PATH)
-    def test_auth_error_raises_with_error_type(self, mock_session):
-        mock_session.return_value.request.return_value = _response({"error_type": "invalid_secret_authentication"}, 401)
+    def test_auth_error_raises_with_error_type(self):
+        result = _driver().run("users", [_response({"error_type": "invalid_secret_authentication"}, 401)])
 
-        with pytest.raises(StytchAPIError, match="error_type=invalid_secret_authentication"):
-            list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, StytchAPIError)
+        assert "error_type=invalid_secret_authentication" in str(result.raised)
 
-    @mock.patch(MOCK_PATH)
-    def test_search_timeout_is_retried_and_recovers(self, mock_session):
+    def test_search_timeout_is_retried_and_recovers(self):
         # Stytch's own backend search timeout comes back as a 400, not a 5xx, but it's the same
         # transient condition — it must be retried in-process rather than raised as a hard error.
-        mock_session.return_value.request.side_effect = [
-            _response({"error_type": "search_timeout"}, 400),
-            _response(_search_page("results", [{"user_id": "u1"}], None)),
-        ]
+        result = _driver().run(
+            "users",
+            [
+                _response({"error_type": "search_timeout"}, 400),
+                _response(_search_page("results", [{"user_id": "u1"}], None)),
+            ],
+        )
 
-        batches = list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), _make_manager()))
-
-        assert [item["user_id"] for batch in batches for item in batch] == ["u1"]
-        assert mock_session.return_value.request.call_count == 2
+        assert [item["user_id"] for item in result.rows] == ["u1"]
+        assert len(result.requests) == 2
 
 
 class TestGetRowsSessions:
-    @mock.patch(MOCK_PATH)
-    def test_saves_users_cursor_between_pages(self, mock_session):
-        mock_session.return_value.request.side_effect = [
-            _response(_search_page("results", [{"user_id": "u1"}], "cursor-2")),
-            _response({"sessions": [{"session_id": "s1", "user_id": "u1"}]}),
-            _response(_search_page("results", [], None)),
-        ]
+    def test_saves_users_cursor_between_pages(self):
+        result = _driver().run(
+            "sessions",
+            [
+                _response(_search_page("results", [{"user_id": "u1"}], "cursor-2")),
+                _response({"sessions": [{"session_id": "s1", "user_id": "u1"}]}),
+                _response(_search_page("results", [], None)),
+            ],
+        )
 
-        manager = _make_manager()
-        list(get_rows("project-live-x", "secret", "sessions", mock.MagicMock(), manager))
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].cursor == "cursor-2"
+        assert [state.cursor for state in result.saved_states] == ["cursor-2"]
 
 
 class TestGetRowsMembers:
-    @mock.patch(MOCK_PATH)
-    def test_resume_bookmark_skips_completed_chunks(self, mock_session):
-        org_pages = [
-            _response(
-                _search_page(
-                    "organizations",
-                    [{"organization_id": f"org-{i}"} for i in range(150)],
-                    None,
-                )
-            ),
-            _response(_search_page("members", [{"member_id": "m-late"}], None)),
-        ]
-        mock_session.return_value.request.side_effect = org_pages
+    def test_resume_bookmark_skips_completed_chunks(self):
+        org_page = _response(_search_page("organizations", [{"organization_id": f"org-{i}"} for i in range(150)], None))
+        member_page = _response(_search_page("members", [{"member_id": "m-late"}], None))
 
         # 150 sorted orgs chunk into [0..99] and [100..149]; the bookmark points at chunk two.
         sorted_ids = sorted(f"org-{i}" for i in range(150))
-        manager = _make_manager(StytchResumeConfig(cursor="member-cursor-3", org_bookmark=sorted_ids[100]))
-        list(get_rows("project-live-x", "secret", "members", mock.MagicMock(), manager))
+        result = _driver().run(
+            "members",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [org_page],
+                    "/v1/b2b/organizations/members/search": [member_page],
+                }
+            ),
+            resume_state=StytchResumeConfig(cursor="member-cursor-3", org_bookmark=sorted_ids[100]),
+        )
 
-        member_calls = [
-            call
-            for call in mock_session.return_value.request.call_args_list
-            if call.args[1].endswith("/members/search")
-        ]
+        member_calls = [request for request in result.requests if request.path.endswith("/members/search")]
         assert len(member_calls) == 1
-        assert member_calls[0].kwargs["json"]["organization_ids"] == sorted_ids[100:]
-        assert member_calls[0].kwargs["json"]["cursor"] == "member-cursor-3"
+        assert member_calls[0].json()["organization_ids"] == sorted_ids[100:]
+        assert member_calls[0].json()["cursor"] == "member-cursor-3"
 
 
 class TestStytchSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = STYTCH_ENDPOINTS[endpoint]
-        response = stytch_source("project-live-x", "secret", endpoint, mock.MagicMock(), _make_manager())
+        response = _driver().run(endpoint, []).response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -209,21 +192,24 @@ class TestHttpSampleCaptureDisabled:
     tracked session with capture disabled and the secret redacted — reverting either leaks PII
     into the shared HTTP sample bucket."""
 
-    def _drive_validate(self, session: mock.MagicMock) -> None:
-        session.post.return_value = _response({}, 200)
-        validate_credentials("project-live-x", "secret")
+    EXPECTED_OPTIONS = {"capture": False, "redact_values": ("secret",)}
 
-    def _drive_check_access(self, session: mock.MagicMock) -> None:
-        session.post.return_value = _response({}, 200)
-        check_endpoint_access("project-live-x", "secret", "/v1/users/search")
+    def _drive_validate(self) -> list[dict[str, Any]]:
+        with scripted_network([_response({}, 200)]) as network:
+            validate_credentials("project-live-x", "secret")
+        return network.session_options
 
-    def _drive_get_rows(self, session: mock.MagicMock) -> None:
-        session.request.return_value = _response(_search_page("results", [], None))
-        list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), _make_manager()))
+    def _drive_check_access(self) -> list[dict[str, Any]]:
+        with scripted_network([_response({}, 200)]) as network:
+            check_endpoint_access("project-live-x", "secret", "/v1/users/search")
+        return network.session_options
+
+    def _drive_get_rows(self) -> list[dict[str, Any]]:
+        return _driver().run("users", [_response(_search_page("results", [], None))]).session_options
 
     @pytest.mark.parametrize("driver", ["_drive_validate", "_drive_check_access", "_drive_get_rows"])
-    @mock.patch(MOCK_PATH)
-    def test_credentialed_paths_disable_capture_and_redact_secret(self, mock_session, driver):
-        getattr(self, driver)(mock_session.return_value)
+    def test_credentialed_paths_disable_capture_and_redact_secret(self, driver):
+        session_options = getattr(self, driver)()
 
-        mock_session.assert_called_with(capture=False, redact_values=("secret",))
+        assert session_options
+        assert all(options == self.EXPECTED_OPTIONS for options in session_options)

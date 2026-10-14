@@ -116,9 +116,10 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         manifest: str = MANIFEST,
         hours_ago: int = 1,
         served_version: str = SERVED_VERSION,
+        team: Team | None = None,
     ) -> None:
         SignalReportArtefact.objects.create(
-            team=self.team,
+            team=team or self.team,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
             content=_score(
@@ -176,7 +177,16 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         wrong_team = self._report(team=other_team)
         self._vector(wrong_team, hours_ago=5, team_id=self.team.pk)
 
-        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served])
+        # A newer current score stored under another team must not count as this report's score.
+        cross_team_score = self._report()
+        cross_team_vector = self._vector(cross_team_score, hours_ago=5)
+        self._scored(cross_team_score, vector_at=cross_team_vector, manifest=OLD_MANIFEST, hours_ago=3)
+        self._scored(cross_team_score, vector_at=cross_team_vector, team=other_team)
+        SignalReportArtefact.objects.filter(team=other_team, report_id=cross_team_score).update(
+            created_at=self.now + datetime.timedelta(hours=1)
+        )
+
+        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served, cross_team_score])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()
@@ -201,6 +211,8 @@ class TestScoreInboxReports(SimpleTestCase):
         self.served_rendering = self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
         self.due = self._patch(sweep, "reports_due_for_scoring", return_value=[])
         self.score_reports = self._patch(scorer, "score_reports", side_effect=self._outcomes)
+        self.project_vectors = MagicMock()
+        self.pass_project_vectors = self._patch(scorer, "pass_project_vectors", return_value=self.project_vectors)
         self.capture = MagicMock()
         self.capture_scopes = 0
         self._patch(sweep, "ph_scoped_capture", new=self._capture_scope)
@@ -230,6 +242,7 @@ class TestScoreInboxReports(SimpleTestCase):
         now: datetime.datetime,
         serving: Any = None,
         capture: Any = None,
+        project_vectors: Any = None,
     ) -> list:
         if team_id in self.failing_teams:
             raise self.failing_teams[team_id]
@@ -276,10 +289,13 @@ class TestScoreInboxReports(SimpleTestCase):
             (call.args[0], call.args[1], call.kwargs["persist"]) for call in self.score_reports.call_args_list
         ) == [(1, ["a", "novec-c"], True), (2, ["b"], True)]
         assert all(
-            call.kwargs["serving"] is self.serving and call.kwargs["capture"] is self.capture
+            call.kwargs["serving"] is self.serving
+            and call.kwargs["capture"] is self.capture
+            and call.kwargs["project_vectors"] is self.project_vectors
             for call in self.score_reports.call_args_list
         )
         assert (self.load_serving_set.call_count, self.capture_scopes, self.capture.flush.call_count) == (1, 1, 2)
+        self.pass_project_vectors.assert_called_once_with(self.serving, [1, 2])
         self.logger.info.assert_any_call(
             "inbox_ranking_sweep_started", candidates=3, teams=2, manifest_version=MANIFEST, peak_rss_mb=ANY
         )

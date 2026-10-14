@@ -4,7 +4,6 @@ import { useRef } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
 
@@ -25,7 +24,6 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 
 export function ModelsLineageTab(): JSX.Element {
     const searchInputRef = useRef<HTMLInputElement>(null)
-    const nodesDraggable = useFeatureFlag('DATA_MODELING_LINEAGE_NODE_DRAGGING')
     const {
         nodes,
         nodesLoading,
@@ -161,12 +159,12 @@ export function ModelsLineageTab(): JSX.Element {
                     searchFocusRequest={searchFocusRequest}
                     variant="canvas"
                     interactive
-                    nodesDraggable={nodesDraggable}
-                    nodePositions={nodesDraggable ? nodePositions : undefined}
+                    nodesDraggable
+                    nodePositions={nodePositions}
                     nodeOpenUrl={lineageNodeUrl}
                     selectable
-                    onNodeDragStop={nodesDraggable ? (node, position) => nodeDragStopped(node.id, position) : undefined}
-                    onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
+                    onNodeDragStop={(node, position) => nodeDragStopped(node.id, position)}
+                    onResetNodePositions={resetNodePositions}
                     showControls
                     showMinimap
                     loading={nodesLoading || edgesLoading}
