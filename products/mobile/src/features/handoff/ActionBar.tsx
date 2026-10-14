@@ -76,7 +76,7 @@ export function ActionBar({
                 ) : null}
                 {state === 'idle' ? (
                     <HandoffSplitButton
-                        agent={POSTHOG_AGENT}
+                        report={report}
                         onHandOff={() => void actions.handOff()}
                         onOpenPicker={onOpenHandoff}
                         pending={actions.pending.handOff}

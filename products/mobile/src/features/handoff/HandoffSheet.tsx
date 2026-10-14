@@ -23,6 +23,7 @@ import {
     openExternalHandoff,
 } from './externalHandoff'
 import { type HandoffOptionRow, HandoffOptionRows } from './HandoffOptionRows'
+import { useHandoffPreferenceStore } from './handoffPreferenceStore'
 import { ModelPage } from './ModelPage'
 import { ModePage } from './ModePage'
 import {
@@ -115,6 +116,7 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                 }
                 timer.current = setTimeout(() => setCopied(false), COPIED_MS)
             } else {
+                useHandoffPreferenceStore.getState().setTarget(target)
                 await openExternalHandoff(target, report)
             }
         } catch (cause) {
@@ -210,7 +212,10 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                         <ScrollView style={{ maxHeight: Math.max(120, height - insets.top - insets.bottom - 180) }}>
                             <View style={styles.agents}>
                                 <Pressable44
-                                    onPress={onHandOff}
+                                    onPress={() => {
+                                        useHandoffPreferenceStore.getState().setTarget('posthog')
+                                        onHandOff()
+                                    }}
                                     disabled={disabled}
                                     haptic="light"
                                     accessibilityLabel={`Hand off to ${POSTHOG_AGENT.name}`}

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
 import { Linking, Platform } from 'react-native'
@@ -5,8 +6,10 @@ import { Linking, Platform } from 'react-native'
 import { buildDemoFixtures } from '@/demo/fixtures'
 import { OverlayHost } from '@/ui/OverlayPortal'
 
-import { externalHandoffPrompt } from './externalHandoff'
+import { externalHandoffPrompt, externalHandoffUrl } from './externalHandoff'
 import { HandoffSheet } from './HandoffSheet'
+import { HandoffSplitButton } from './HandoffSplitButton'
+import { useHandoffPreferenceStore } from './handoffPreferenceStore'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -37,6 +40,7 @@ const originalOS = Platform.OS
 beforeEach(() => {
     jest.clearAllMocks()
     Platform.OS = 'android'
+    useHandoffPreferenceStore.getState().setTarget('posthog')
 })
 afterEach(() => {
     Platform.OS = originalOS
@@ -68,6 +72,7 @@ test('blocks repeated launches and offers copying after a failed launch without 
     expect(screen.getByTestId('handoff-external-error')).toHaveTextContent(/copy the prompt/)
     await act(async () => fireEvent.press(screen.getByTestId('copy-prompt')))
     expect(copy).toHaveBeenCalledWith(externalHandoffPrompt(REPORT))
+    expect(useHandoffPreferenceStore.getState().target).toBe('codex')
     expect(screen.queryByTestId('handoff-external-error')).toBeNull()
     expect(onHandOff).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
@@ -88,4 +93,80 @@ test('failed clipboard writes do not announce Copied and can be retried with the
     await act(async () => fireEvent.press(screen.getByTestId('copy-prompt')))
     expect(screen.getByText('Copied')).toBeTruthy()
     expect(copy).toHaveBeenLastCalledWith(externalHandoffPrompt(REPORT))
+})
+
+test.each(['claude', 'codex'] as const)(
+    'remembers %s across reports and reloads, and can switch back to PostHog',
+    async (target) => {
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+        const onHandOff = jest.fn()
+        const view = render(
+            <HandoffSheet visible report={REPORT} pending={false} onClose={jest.fn()} onHandOff={onHandOff} />,
+            { wrapper: OverlayHost }
+        )
+        await act(async () => fireEvent.press(screen.getByTestId(`handoff-agent-${target}`)))
+        expect(onHandOff).not.toHaveBeenCalled()
+        view.unmount()
+
+        // Rehydrate the saved preference as a fresh app instance would.
+        const saved = await AsyncStorage.getItem('posthog-mobile-handoff-preference')
+        if (!saved) {
+            throw new Error('Missing saved handoff preference')
+        }
+        useHandoffPreferenceStore.getState().setTarget('posthog')
+        await AsyncStorage.setItem('posthog-mobile-handoff-preference', saved)
+        await useHandoffPreferenceStore.persist.rehydrate()
+
+        const otherReport = { ...REPORT, id: 'another-report', prompt: 'Investigate this other report.' }
+        const button = render(
+            <HandoffSplitButton report={otherReport} pending={false} onOpenPicker={jest.fn()} onHandOff={onHandOff} />
+        )
+        const name = target === 'claude' ? 'Claude Code' : 'Codex / ChatGPT'
+        expect(screen.getByTestId('handoff-button')).toHaveTextContent(`Hand off to ${name}`)
+        await act(async () => fireEvent.press(screen.getByTestId('handoff-button')))
+        expect(open).toHaveBeenLastCalledWith(externalHandoffUrl(target, otherReport))
+        expect(onHandOff).not.toHaveBeenCalled()
+        button.unmount()
+
+        render(
+            <>
+                <HandoffSheet visible report={REPORT} pending={false} onClose={jest.fn()} onHandOff={onHandOff} />
+                <HandoffSplitButton report={REPORT} pending={false} onOpenPicker={jest.fn()} onHandOff={onHandOff} />
+            </>,
+            { wrapper: OverlayHost }
+        )
+        fireEvent.press(screen.getByTestId('handoff-agent-posthog'))
+        expect(screen.getByTestId('handoff-button')).toHaveTextContent(/Hand off to PostHog/)
+        await act(async () => fireEvent.press(screen.getByTestId('handoff-button')))
+        expect(onHandOff).toHaveBeenCalledTimes(2)
+        expect(open).toHaveBeenCalledTimes(2)
+    }
+)
+
+test('the preferred external shortcut prevents duplicate launches and recovers after a failure', async () => {
+    useHandoffPreferenceStore.getState().setTarget('claude')
+    let rejectLaunch!: (error: Error) => void
+    const open = jest
+        .spyOn(Linking, 'openURL')
+        .mockImplementationOnce(
+            () =>
+                new Promise((_, reject) => {
+                    rejectLaunch = reject
+                })
+        )
+        .mockResolvedValue(undefined)
+    const onHandOff = jest.fn()
+    render(<HandoffSplitButton report={REPORT} pending={false} onOpenPicker={jest.fn()} onHandOff={onHandOff} />)
+    fireEvent.press(screen.getByTestId('handoff-button'))
+    fireEvent.press(screen.getByTestId('handoff-button'))
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('handoff-button')).toBeDisabled()
+    expect(screen.getByTestId('handoff-picker-button')).toBeDisabled()
+    await act(async () => rejectLaunch(new Error('App unavailable')))
+    expect(screen.getByTestId('handoff-launch-error')).toHaveTextContent(/Couldn't open Claude Code/)
+    expect(screen.getByTestId('handoff-picker-button')).toBeEnabled()
+    await act(async () => fireEvent.press(screen.getByTestId('handoff-button')))
+    expect(screen.queryByTestId('handoff-launch-error')).toBeNull()
+    expect(open).toHaveBeenCalledTimes(2)
+    expect(onHandOff).not.toHaveBeenCalled()
 })

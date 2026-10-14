@@ -5,6 +5,14 @@ questions, and shows the PR it opens. Code lives in `src/features/handoff/` and 
 
 ## Flow
 
+### Default agent
+
+The report's hand-off button uses the last agent selected in the hand-off sheet: PostHog,
+Claude Code or Codex / ChatGPT. The selection is saved on this device across reports and app
+restarts, with PostHog as the initial default. Selecting PostHog again restores that default.
+Copy prompt does not change the preference. The preference is client-only; external handoffs
+still open a prepared prompt without starting a PostHog run.
+
 ### External agents on mobile
 
 The hand-off sheet offers two external destinations, independently of the PostHog run options:
