@@ -609,7 +609,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert scout is not None
         assert (scout.enabled, scout.write_scopes, scout.enabled_by_id) == (
             True,
-            ["hog_flow_proposal:write"],
+            ["hog_flow_proposal:write", "notebook:write"],
             self.user.id,
         )
 
@@ -693,7 +693,7 @@ class TestWorkflowProposals(APIBaseTest):
             response = self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
 
         scout = self._suggestions_scout()
-        assert scout is None or scout.write_scopes == []
+        assert scout is None or "hog_flow_proposal:write" not in scout.write_scopes
         assert response["scout_status"] == scout_status
         if case == "system_paused":
             assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
