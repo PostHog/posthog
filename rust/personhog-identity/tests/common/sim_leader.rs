@@ -48,6 +48,7 @@ pub enum Rpc {
     Fold,
     Release,
     PropertyPush,
+    IdentifiedRead,
 }
 
 /// A person's live fence in the simulated leader.
@@ -665,6 +666,9 @@ impl LifecycleLeader for SimLeader {
 impl PersonStateReader for SimLeader {
     async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status> {
         self.identified_reads.lock().unwrap().push(person_id);
+        if let Some(status) = self.take_scripted(Rpc::IdentifiedRead, person_id) {
+            return Err(status);
+        }
         if self.deaths.lock().unwrap().contains_key(&person_id) {
             return Ok(None);
         }

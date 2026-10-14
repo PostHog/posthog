@@ -529,18 +529,19 @@ impl MergeEntrance {
         team_id: i64,
         person_id: i64,
     ) -> Result<Option<bool>, Status> {
-        let identified = self.person_state.is_identified(team_id, person_id).await?;
+        let identified = self.person_state.is_identified(team_id, person_id).await;
         let result = match identified {
-            Some(true) => "identified",
-            Some(false) => "unidentified",
-            None => "absent",
+            Ok(Some(true)) => "identified",
+            Ok(Some(false)) => "unidentified",
+            Ok(None) => "absent",
+            Err(_) => "error",
         };
         common_metrics::inc(
             ESTABLISH_IDENTIFIED_READS_TOTAL,
             &[("result".to_string(), result.to_string())],
             1,
         );
-        Ok(identified)
+        identified
     }
 
     /// Re-resolve the target distinct id after losing an establishment

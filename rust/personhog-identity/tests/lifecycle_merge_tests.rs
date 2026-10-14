@@ -2512,6 +2512,59 @@ async fn a_source_destroyed_on_the_leader_is_skipped_and_the_target_is_born() {
 }
 
 #[tokio::test]
+async fn a_failed_leader_read_fails_the_call_and_attaches_nothing() {
+    // The identity row says unidentified; the row alone must not clear the source.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("readfail-source")
+        .await;
+    h.leader.fail_next(
+        Rpc::IdentifiedRead,
+        source,
+        Status::unavailable("leader down"),
+    );
+
+    let op_id = Uuid::now_v7();
+    let request = rpc_request(
+        h.ctx.team_id,
+        "readfail-target",
+        &["readfail-source"],
+        op_id,
+    );
+    let status = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect_err("a failed leader read fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    assert!(h.leader.scripted_drained(Rpc::IdentifiedRead, source));
+
+    let target_rows: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {} WHERE team_id = $1 AND distinct_id = $2",
+        h.ctx.tables.person_distinct_id
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind("readfail-target")
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(target_rows, 0);
+    let op_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {} WHERE op_id = $1",
+        h.ctx.tables.lifecycle_op
+    ))
+    .bind(op_id)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(op_count, 0);
+    assert!(h.leader.calls().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_target() {
     let h = MergeHarness::new().await;
     let service = h.service();
