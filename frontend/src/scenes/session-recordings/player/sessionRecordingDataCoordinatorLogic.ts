@@ -269,6 +269,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     snapshotStore: SnapshotStore // snapLogic
     sourceLoadingStates: SourceLoadingState[] // snapLogic
     storeVersion: number // snapLogic
+    livePolling: boolean // snapLogic
     bufferedToTime: number | null
     createExportJSON: () => ExportedSessionRecordingFileV2
     customRRWebEvents: customEvent[]
@@ -653,7 +654,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookCommentsLoading',
                 ],
                 snapLogic,
-                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates', 'livePolling'],
             ],
         }
     }),
@@ -892,18 +893,20 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         durationMs: [
-            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
+            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded, s.livePolling],
             (
                 start: Dayjs | null,
                 end: Dayjs | null,
                 meta: SessionRecordingType | null,
-                fullyLoaded: boolean
+                fullyLoaded: boolean,
+                livePolling: boolean
             ): number => {
                 if (!start || !end) {
                     return 0
                 }
                 const snapshotDuration = end.diff(start)
-                if (fullyLoaded && meta?.recording_duration) {
+                // metadata is not reloaded while live, so its duration falls behind the new snapshots
+                if (fullyLoaded && meta?.recording_duration && !livePolling) {
                     return Math.min(snapshotDuration, meta.recording_duration * 1000)
                 }
                 return snapshotDuration

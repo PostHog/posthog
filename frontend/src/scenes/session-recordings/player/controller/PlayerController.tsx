@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCamera, IconLive, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -25,6 +24,7 @@ import {
 import { SessionPlayerState } from '~/types'
 
 import { ClipRecording } from './ClipRecording'
+import { FollowLive } from './FollowLive'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -72,32 +72,6 @@ function PlayPauseButton(): JSX.Element {
     )
 }
 
-function FollowLive(): JSX.Element | null {
-    const { followLive, sessionPlayerMetaData, featureFlags } = useValues(sessionRecordingPlayerLogic)
-    const { setFollowLive } = useActions(sessionRecordingPlayerLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_FOLLOW_LIVE] || !sessionPlayerMetaData?.ongoing) {
-        return null
-    }
-
-    return (
-        <LemonButton
-            size="xsmall"
-            active={followLive}
-            onClick={() => setFollowLive(!followLive)}
-            tooltip={
-                followLive
-                    ? 'Stop following live'
-                    : 'Follow live. New activity plays as it arrives, about 30 seconds behind.'
-            }
-            icon={<IconLive className={cn('text-xl', followLive && 'text-danger motion-safe:animate-pulse')} />}
-            data-attr={followLive ? 'recording-follow-live-stop' : 'recording-follow-live-start'}
-        >
-            Live
-        </LemonButton>
-    )
-}
-
 function FullScreen(): JSX.Element {
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
@@ -134,7 +108,8 @@ function SkipToStart(): JSX.Element {
 
 function SkipToNext(): JSX.Element | null {
     const timeoutRef = useRef<NodeJS.Timeout>()
-    const { endReached, playNextAnimationInterrupted, playNextRecording } = useValues(sessionRecordingPlayerLogic)
+    const { endReached, followLive, playNextAnimationInterrupted, playNextRecording } =
+        useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered, setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
 
@@ -163,7 +138,7 @@ function SkipToNext(): JSX.Element | null {
     useEffect(() => {
         clearTimeout(timeoutRef.current)
 
-        if (endReached && playNextRecording) {
+        if (endReached && playNextRecording && !followLive) {
             setAnimate(true)
             setPlayNextAnimationInterrupted(false)
             timeoutRef.current = setTimeout(() => {
@@ -172,7 +147,7 @@ function SkipToNext(): JSX.Element | null {
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached, !!playNextRecording]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [endReached, followLive, !!playNextRecording]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (playNextAnimationInterrupted) {

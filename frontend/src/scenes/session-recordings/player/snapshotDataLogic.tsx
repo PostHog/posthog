@@ -52,10 +52,10 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
-    followLive: boolean
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
+    livePolling: boolean
     isSnapshotUnauthorized: boolean
     loadAllMode: boolean
     loadingSources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'>[]
@@ -158,8 +158,8 @@ export interface snapshotDataLogicActions {
     retrySnapshotLoading: () => {
         value: true
     }
-    setFollowLive: (followLive: boolean) => {
-        followLive: boolean
+    setLivePolling: (enabled: boolean) => {
+        enabled: boolean
     }
     setPlayerActive: (active: boolean) => {
         active: boolean
@@ -273,7 +273,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         maybeStartPolling: true,
         startPolling: true,
         stopPolling: true,
-        setFollowLive: (followLive: boolean) => ({ followLive }),
+        setLivePolling: (enabled: boolean) => ({ enabled }),
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
         setTargetTimestamp: (timestamp: number | null, windowId?: number) => ({ timestamp, windowId }),
@@ -325,10 +325,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 resetPollingInterval: () => DEFAULT_V2_POLLING_INTERVAL_MS,
             },
         ],
-        followLive: [
+        livePolling: [
             false,
             {
-                setFollowLive: (_, { followLive }) => followLive,
+                setLivePolling: (_, { enabled }) => enabled,
             },
         ],
         isPolling: [
@@ -632,7 +632,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (!props.sessionRecordingId) {
                 return
             }
-            if (props.blobV2PollingDisabled || !values.allSourcesLoaded || values.isPolling || document.hidden) {
+            // a live jump to the end leaves earlier sources unloaded, and new blocks must still arrive
+            const waitingOnSources = !values.allSourcesLoaded && !values.livePolling
+            if (props.blobV2PollingDisabled || waitingOnSources || values.isPolling || document.hidden) {
                 return
             }
 
@@ -644,11 +646,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
 
             actions.startPolling()
-            actions.loadSnapshotSources(values.followLive ? LIVE_POLLING_INTERVAL_MS : values.pollingInterval)
+            actions.loadSnapshotSources(values.livePolling ? LIVE_POLLING_INTERVAL_MS : values.pollingInterval)
         },
 
-        setFollowLive: ({ followLive }) => {
-            if (followLive) {
+        setLivePolling: ({ enabled }) => {
+            if (enabled) {
                 cache.lastSourcesChangeTime = Date.now()
                 // replaces a poll that may be waiting out a long backoff
                 actions.stopPolling()

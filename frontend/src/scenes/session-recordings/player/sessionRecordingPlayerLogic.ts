@@ -770,7 +770,6 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
-    followLive: boolean // snapshotDataLogic
     isSnapshotUnauthorized: boolean // snapshotDataLogic
     replayProxyToken: string | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
@@ -813,6 +812,8 @@ export interface sessionRecordingPlayerLogicValues {
     debugSnapshots: eventWithTime[]
     doctorDiagnostics: DoctorDiagnostics | null
     endReached: boolean
+    followLive: boolean
+    liveWaitingForData: boolean
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
     forceShowPlayerChrome: boolean
@@ -1013,8 +1014,8 @@ export interface sessionRecordingPlayerLogicActions {
     retrySnapshotLoading: () => {
         value: true
     } // snapshotDataLogic
-    setFollowLive: (followLive: boolean) => {
-        followLive: boolean
+    setLivePolling: (enabled: boolean) => {
+        enabled: boolean
     } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
@@ -1187,6 +1188,9 @@ export interface sessionRecordingPlayerLogicActions {
     }
     setDebugSnapshotTypes: (types: EventType[]) => {
         types: EventType[]
+    }
+    setFollowLive: (followLive: boolean) => {
+        followLive: boolean
     }
     setEndReached: (reached?: boolean) => {
         reached: boolean
@@ -1509,7 +1513,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotSources',
                 'snapshotStore',
                 'allSourcesLoaded',
-                'followLive',
                 'storeVersion',
                 'isSnapshotUnauthorized',
             ],
@@ -1553,7 +1556,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setTargetTimestamp',
                 'updatePlaybackPosition',
                 'setPlayerActive',
-                'setFollowLive',
+                'setLivePolling',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
@@ -1583,6 +1586,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlay: true,
         setPause: true,
         setEndReached: (reached: boolean = true) => ({ reached }),
+        setFollowLive: (followLive: boolean) => ({ followLive }),
         startBuffer: true,
         endBuffer: true,
         startScrub: true,
@@ -1867,6 +1871,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 flushDoctorDiagnostics: (_: any, { diagnostics }: { diagnostics: DoctorDiagnostics }) => diagnostics,
                 initializePlayerFromStart: () => null,
+            },
+        ],
+        followLive: [
+            false,
+            {
+                setFollowLive: (_, { followLive }) => followLive,
+            },
+        ],
+        // separate from endReached, which replayer re-init clears, so Live still resumes after a tab switch
+        liveWaitingForData: [
+            false,
+            {
+                setEndReached: (_, { reached }) => reached,
+                setFollowLive: () => false,
+                setPlay: () => false,
+                seekToTimestamp: () => false,
+                openExplorer: () => false,
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
             },
         ],
         endReached: [
@@ -3330,6 +3352,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setFollowLive: ({ followLive }) => {
             posthog.capture('recording follow live toggled', { follow_live: followLive })
+            actions.setLivePolling(followLive)
             const end = values.sessionPlayerData.end?.valueOf()
             if (followLive && end) {
                 const start = values.sessionPlayerData.start?.valueOf() ?? end
@@ -3967,7 +3990,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
 
                 const endGrew = (value?.end?.valueOf() ?? 0) > (oldValue?.end?.valueOf() ?? 0)
-                if (values.followLive && values.endReached && endGrew) {
+                if (values.followLive && values.liveWaitingForData && endGrew) {
                     // resume from the old end, not from the start as setPlay does after endReached
                     actions.setEndReached(false)
                     actions.setPlay()
