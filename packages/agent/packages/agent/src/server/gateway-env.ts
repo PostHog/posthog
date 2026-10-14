@@ -31,6 +31,7 @@ export interface GatewayEnvInput {
   snapshotKind?: string | null;
   prewarmed?: boolean | null;
   executionEnvironment?: "local" | "cloud";
+  sharedPromptCache?: boolean;
 }
 
 export function buildGatewayEnv(
@@ -56,6 +57,7 @@ export function buildGatewayEnv(
     snapshotKind,
     prewarmed,
     executionEnvironment,
+    sharedPromptCache,
   }: GatewayEnvInput = {},
   logger: Logger,
 ): GatewayEnv {
@@ -157,6 +159,11 @@ export function buildGatewayEnv(
       if (serviceTier === "flex") {
         openaiCustomHeaders["X-PostHog-Flex-Fallback"] = "standard";
       }
+    }
+    // The Go gateway then drops Codex's per-session prompt_cache_key on every
+    // request of the process, sub-agents included, so runs share one cache.
+    if (sharedPromptCache) {
+      openaiCustomHeaders["X-PostHog-Prompt-Cache-Scope"] = "shared";
     }
     // Codex sends no trace header, so the gateway stamps a fresh id per
     // request and a run's generations each land in a trace of one. Codex-only:

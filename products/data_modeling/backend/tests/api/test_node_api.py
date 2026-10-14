@@ -693,6 +693,19 @@ class TestNodeViewSet(APIBaseTest):
             team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW, description="orig"
         )
 
+    @parameterized.expand(["node", "edge"])
+    def test_deleting_the_last_reader_of_a_table_deletes_the_table_node(self, deleted):
+        if deleted == "node":
+            url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        else:
+            edge = Edge.objects.get(source=self.table_node, target=self.view_node)
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Node.objects.filter(id=self.table_node.id).exists())
+
     def test_cannot_delete_node_in_managed_dag(self):
         node = self._create_managed_node()
 
@@ -964,6 +977,33 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, expected_status)
         self.node.refresh_from_db()
         self.assertEqual(suspension_state(self.node) == {}, expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("node_viewer", "node", "viewer", status.HTTP_403_FORBIDDEN),
+            ("node_editor", "node", "editor", status.HTTP_204_NO_CONTENT),
+            ("edge_viewer", "edge", "viewer", status.HTTP_403_FORBIDDEN),
+            ("edge_editor", "edge", "editor", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_deleting_requires_warehouse_write_access(self, _name, deleted, access_level, expected_status):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+        target: Node | Edge = self.node if deleted == "node" else edge
+        if deleted == "node":
+            url = f"{self._list_url()}{self.node.id}/"
+        else:
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
+        )
 
     @parameterized.expand(
         [
