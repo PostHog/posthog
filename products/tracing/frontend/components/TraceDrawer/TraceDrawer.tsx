@@ -97,7 +97,9 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
-    const { aiEvents, hasMoreAiEvents, aiEventsLimit } = useValues(traceAiEventsLogic({ traceId }))
+    const { aiEvents, hasMoreAiEvents, aiEventsLimit, aiEventsResponseLoading } = useValues(
+        traceAiEventsLogic({ traceId })
+    )
     // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
     const spans = useMemo(() => {
         const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
@@ -193,7 +195,7 @@ export function TraceDrawer({
             {/* A failed refetch only replaces the waterfall when there are no spans to fall back on. */}
             {traceId && !loading && loadFailed && spans.length === 0 ? (
                 <TraceLoadErrorNotice onRetry={onRetry} />
-            ) : traceId && !loading && spans.length === 0 ? (
+            ) : traceId && !loading && !aiEventsResponseLoading && spans.length === 0 ? (
                 <TraceUnavailableNotice traceId={traceId} />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">

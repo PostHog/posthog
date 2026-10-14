@@ -3,14 +3,31 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
+
+import { tracingSpansTraceAiEventsRetrieve } from 'products/tracing/frontend/generated/api'
 
 import { makeSpan } from '../../__mocks__/span'
 import { EMPTY_TRACE_IDENTITY } from '../../traceIdentity'
 import { TraceDrawer, type TraceDrawerProps } from './TraceDrawer'
 
+jest.mock('products/tracing/frontend/generated/api', () => ({
+    tracingSpansTraceAiEventsRetrieve: jest.fn(),
+}))
+
+const mockAiEventsRetrieve = tracingSpansTraceAiEventsRetrieve as jest.MockedFunction<
+    typeof tracingSpansTraceAiEventsRetrieve
+>
+
 describe('TraceDrawer', () => {
-    beforeEach(() => initKeaTests())
+    beforeEach(() => {
+        initKeaTests()
+        mockAiEventsRetrieve.mockReset()
+        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: false, limit: 500 })
+    })
     afterEach(() => cleanup())
 
     const renderDrawer = (props: Partial<TraceDrawerProps>): void => {
@@ -78,5 +95,17 @@ describe('TraceDrawer', () => {
         // same handler, so any one of them firing once is the behavior under test.
         screen.getAllByText('Try again')[0].click()
         expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    // The spans fetch and the AI events fetch resolve independently, so a spans result that is empty
+    // must not read as "trace unavailable" while AI events for the same trace are still in flight.
+    it('waits for AI events to finish loading before showing the unavailable notice', () => {
+        mockAiEventsRetrieve.mockReturnValue(new Promise(() => {}))
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_AI_EVENTS]: true })
+
+        renderDrawer({ loading: false })
+
+        expect(screen.queryByText('Trace unavailable')).toBeNull()
     })
 })
