@@ -13813,6 +13813,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface AutoresearchTrainingTrendPoint {
+      /** Iteration number inside the training run. */
+      readonly iteration_number: number;
+      /** Best holdout AUC of the run up to and including this iteration. */
+      readonly best_holdout_score: number;
+    }
+
     export interface AutoresearchLiveTrainingRun {
       /** Unique UUID of the live training run. */
       readonly id: string;
@@ -13832,6 +13839,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly latest_summary: string | null;
+      /** Best-so-far holdout AUC per experiment of this run, oldest first. Experiments before the first holdout score are left out. */
+      readonly trend: readonly AutoresearchTrainingTrendPoint[];
     }
 
     /**
@@ -14027,13 +14036,6 @@ export namespace Schemas {
       readonly prediction_date: string;
       /** Realized AUC on that date. */
       readonly realized_auc: number;
-    }
-
-    export interface AutoresearchTrainingTrendPoint {
-      /** Iteration number inside the training run. */
-      readonly iteration_number: number;
-      /** Best holdout AUC of the run up to and including this iteration. */
-      readonly best_holdout_score: number;
     }
 
     export interface AutoresearchPredictionCoverage {
@@ -42146,6 +42148,8 @@ export namespace Schemas {
       other_enabled_scanners_monthly_credits: number;
       /** Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total. */
       active_backfill_credits: number;
+      /** The monthly credit rate the organization's free credits still cover for one more free-only scanner, after the other free-only scanners and backfills. The forecast caps a free-only scanner at this rate, because free-only scanners share one pool. */
+      free_only_monthly_credits_left: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
@@ -43520,26 +43524,6 @@ export namespace Schemas {
       AiSpan: '$ai_span',
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
-    } as const;
-
-    /**
-     * * `run_completed` - run_completed
-     * * `run_failed` - run_failed
-     * * `pr_created` - pr_created
-     * * `pr_merged` - pr_merged
-     * * `pr_closed` - pr_closed
-     * * `needs_attention` - needs_attention
-     */
-    export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
-
-
-    export const EventsEnum = {
-      RunCompleted: 'run_completed',
-      RunFailed: 'run_failed',
-      PrCreated: 'pr_created',
-      PrMerged: 'pr_merged',
-      PrClosed: 'pr_closed',
-      NeedsAttention: 'needs_attention',
     } as const;
 
     export interface EventsRetention {
@@ -46290,7 +46274,7 @@ export namespace Schemas {
       stats_method: string;
       /** Whether the experiment uses a holdout group. */
       has_holdout: boolean;
-      /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+      /** From the completed result that covers the latest data under the experiment's current configuration. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that configuration, for example after a relaunch or a settings edit until the results are recalculated, and for older metric definitions that results are never stored for. */
       outcome: ExperimentSetupOutcome | null;
     }
 
@@ -63172,6 +63156,130 @@ export namespace Schemas {
     }
 
     /**
+     * * `log` - Log
+     * * `log_attribute` - Log Attribute
+     * * `log_resource_attribute` - Log Resource Attribute
+     */
+    export type LogsNaturalLanguageFilterTypeEnum = typeof LogsNaturalLanguageFilterTypeEnum[keyof typeof LogsNaturalLanguageFilterTypeEnum];
+
+
+    export const LogsNaturalLanguageFilterTypeEnum = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    export interface _LogsNaturalLanguageDateRange {
+      /**
+         * Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * End of the date range. Same format as date_from. Null means "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
+    export interface LogsNaturalLanguageQueryRequest {
+      /**
+         * The plain-language request, for example 'error logs from checkout in the last 2 hours'.
+         * @maxLength 500
+         */
+      query: string;
+      /** The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from. */
+      dateRange?: _LogsNaturalLanguageDateRange;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
+
+
+    export const SeverityLevelsEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsNaturalLanguageCandidateFilter {
+      /** Attribute key, or "message" for the log body text. */
+      key: string;
+      /** "log" filters the log body. "log_attribute" and "log_resource_attribute" filter attributes.
+       *
+       * * `log` - Log
+       * * `log_attribute` - Log Attribute
+       * * `log_resource_attribute` - Log Resource Attribute */
+      type: LogsNaturalLanguageFilterTypeEnum;
+      /** Property operator, for example exact, icontains or is_set. */
+      operator: string;
+      /** A list of strings for exact and is_not, a string for text operators, absent for is_set. */
+      value?: unknown;
+    }
+
+    export interface _LogsNaturalLanguageCandidateQuery {
+      /** Date range of this reading. */
+      dateRange: _LogsNaturalLanguageDateRange;
+      /** Severity levels to keep. Empty means all levels. */
+      severityLevels: SeverityLevelsEnum[];
+      /** Services to keep. Empty means all services. */
+      serviceNames: string[];
+      /** Attribute and message filters, combined with AND. */
+      filterGroup: _LogsNaturalLanguageCandidateFilter[];
+    }
+
+    export interface _LogsNaturalLanguageCandidate {
+      /** Short plain-language summary of this reading of the request. */
+      label: string;
+      /** Viewer filters for this reading. */
+      query: _LogsNaturalLanguageCandidateQuery;
+      /**
+         * How likely the decision model thinks this reading is. Null when not ranked.
+         * @nullable
+         */
+      probability: number | null;
+    }
+
+    /**
+     * * `decision_model` - Decision Model
+     * * `proposal_order` - Proposal Order
+     */
+    export type LogsNaturalLanguageRankedByEnum = typeof LogsNaturalLanguageRankedByEnum[keyof typeof LogsNaturalLanguageRankedByEnum];
+
+
+    export const LogsNaturalLanguageRankedByEnum = {
+      DecisionModel: 'decision_model',
+      ProposalOrder: 'proposal_order',
+    } as const;
+
+    export interface LogsNaturalLanguageQueryResponse {
+      /** Readings of the request, best first. Can be empty. */
+      candidates: _LogsNaturalLanguageCandidate[];
+      /**
+         * The first candidate's probability from the decision model. Null when it did not rank them.
+         * @nullable
+         */
+      confidence: number | null;
+      /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
+       *
+       * * `decision_model` - Decision Model
+       * * `proposal_order` - Proposal Order */
+      ranked_by: LogsNaturalLanguageRankedByEnum;
+      /** Proposed readings dropped because they named a service or attribute key the project lacks. */
+      dropped_count: number;
+    }
+
+    /**
      * * `stored_patterns` - stored_patterns
      * * `body_mining` - body_mining
      */
@@ -63474,522 +63582,6 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly updated_at: string | null;
-    }
-
-    export interface LoopBehaviors {
-      /** Whether the agent may push branches and open PRs. False makes this a report-only loop. */
-      create_prs?: boolean;
-      /** Whether to watch CI on loop-created PRs and report status. */
-      watch_ci?: boolean;
-      /** Whether to automatically address review comments on loop-created PRs. */
-      fix_review_comments?: boolean;
-      /**
-         * Ceiling on automatic CI/review-comment fix iterations, capped at 10.
-         * @minimum 0
-         * @maximum 10
-         */
-      max_fix_iterations?: number;
-    }
-
-    export interface LoopBehaviorsDTO {
-      create_prs?: boolean;
-      watch_ci?: boolean;
-      fix_review_comments?: boolean;
-      max_fix_iterations?: number;
-    }
-
-    /**
-     * * `read_only` - read_only
-     * * `full` - full
-     */
-    export type PosthogMcpScopesEnum = typeof PosthogMcpScopesEnum[keyof typeof PosthogMcpScopesEnum];
-
-
-    export const PosthogMcpScopesEnum = {
-      ReadOnly: 'read_only',
-      Full: 'full',
-    } as const;
-
-    export interface LoopConnectors {
-      /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
-      mcp_installation_ids?: string[];
-      /** Scope of the PostHog MCP access injected into this loop's runs.
-       *
-       * * `read_only` - read_only
-       * * `full` - full */
-      posthog_mcp_scopes?: PosthogMcpScopesEnum;
-    }
-
-    export interface LoopConnectorsDTO {
-      mcp_installation_ids?: string[];
-      posthog_mcp_scopes?: string;
-    }
-
-    export interface LoopContextOutputsDTO {
-      post_to_feed?: boolean;
-      update_context?: boolean;
-      /** @nullable */
-      canvas_id?: string | null;
-    }
-
-    export interface LoopContextOutputsWrite {
-      /** Whether each run is filed into the context's feed as a card (sets the run's channel). */
-      post_to_feed?: boolean;
-      /** Whether each run reads and republishes the context's context.md to reflect the latest state. */
-      update_context?: boolean;
-      /**
-         * Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.
-         * @nullable
-         */
-      canvas_id?: string | null;
-    }
-
-    export interface LoopContextTargetDTO {
-      /** What the loop maintains in this context each run. */
-      outputs: LoopContextOutputsDTO;
-      channel_id: string;
-      name: string;
-    }
-
-    export interface LoopContextTargetWrite {
-      /** Id of the channel (context) this loop is attached to. */
-      channel_id: string;
-      /**
-         * Display name of the context, shown in the loop's publish prompt.
-         * @maxLength 128
-         */
-      name: string;
-      /** What the loop maintains in this context each run. */
-      outputs?: LoopContextOutputsWrite;
-    }
-
-    export interface LoopRepositoryEntryDTO {
-      github_integration_id: number;
-      full_name: string;
-    }
-
-    export type LoopNotificationChannelDTOParams = { [key: string]: unknown };
-
-    export interface LoopNotificationChannelDTO {
-      enabled?: boolean;
-      events?: string[];
-      params?: LoopNotificationChannelDTOParams;
-    }
-
-    export interface LoopNotificationsDTO {
-      push: LoopNotificationChannelDTO;
-      email: LoopNotificationChannelDTO;
-      slack: LoopNotificationChannelDTO;
-    }
-
-    export type LoopTriggerDTOConfig = { [key: string]: unknown };
-
-    /**
-     * Read response for a single loop trigger.
-     */
-    export interface LoopTriggerDTO {
-      id: string;
-      loop_id: string;
-      type: string;
-      enabled: boolean;
-      config: LoopTriggerDTOConfig;
-      /** @nullable */
-      schedule_sync_status: string | null;
-      /** @nullable */
-      last_fired_at: string | null;
-      created_at: string;
-      updated_at: string;
-    }
-
-    export interface LoopSkillBundleDTO {
-      id: string;
-      skill_name: string;
-      skill_source: string;
-      size: number;
-      content_sha256: string;
-      uploaded_at: string;
-    }
-
-    /**
-     * Detail/create/update response for a loop, including its triggers.
-     */
-    export interface LoopDTO {
-      id: string;
-      team_id: number;
-      /** @nullable */
-      created_by_id: number | null;
-      name: string;
-      description: string;
-      visibility: string;
-      instructions: string;
-      runtime_adapter: string;
-      model: string;
-      /** @nullable */
-      reasoning_effort: string | null;
-      /** Repositories this loop operates on. */
-      repositories: LoopRepositoryEntryDTO[];
-      /** @nullable */
-      sandbox_environment_id: string | null;
-      enabled: boolean;
-      /** @nullable */
-      disabled_reason: string | null;
-      overlap_policy: string;
-      /** PR / CI-follow-up behavior configuration. */
-      behaviors: LoopBehaviorsDTO;
-      /** MCP connector configuration for this loop's runs. */
-      connectors: LoopConnectorsDTO;
-      /** Per-channel notification configuration. */
-      notifications: LoopNotificationsDTO;
-      /** Context this loop is attached to, or null when unattached. */
-      context_target?: LoopContextTargetDTO | null;
-      internal: boolean;
-      origin_product: string;
-      /** @nullable */
-      last_run_at: string | null;
-      /** @nullable */
-      last_run_status: string | null;
-      /** @nullable */
-      last_error: string | null;
-      consecutive_failures: number;
-      created_at: string;
-      updated_at: string;
-      /** Triggers attached to this loop. */
-      triggers: LoopTriggerDTO[];
-      /** Skill bundles attached to this loop, seeded into every fired run. */
-      skill_bundles: LoopSkillBundleDTO[];
-    }
-
-    /**
-     * * `created` - created
-     * * `deduped` - deduped
-     * * `overlap_skipped` - overlap_skipped
-     * * `rate_capped` - rate_capped
-     * * `team_rate_capped` - team_rate_capped
-     * * `disabled` - disabled
-     * * `gate_blocked` - gate_blocked
-     * * `owner_inactive` - owner_inactive
-     * * `owner_changed` - owner_changed
-     */
-    export type LoopFireResultReasonEnum = typeof LoopFireResultReasonEnum[keyof typeof LoopFireResultReasonEnum];
-
-
-    export const LoopFireResultReasonEnum = {
-      Created: 'created',
-      Deduped: 'deduped',
-      OverlapSkipped: 'overlap_skipped',
-      RateCapped: 'rate_capped',
-      TeamRateCapped: 'team_rate_capped',
-      Disabled: 'disabled',
-      GateBlocked: 'gate_blocked',
-      OwnerInactive: 'owner_inactive',
-      OwnerChanged: 'owner_changed',
-    } as const;
-
-    /**
-     * Response for a manual (`run/`) or external (`trigger/`) fire.
-     */
-    export interface LoopFireResult {
-      created: boolean;
-      /** Outcome of the fire attempt.
-       *
-       * * `created` - created
-       * * `deduped` - deduped
-       * * `overlap_skipped` - overlap_skipped
-       * * `rate_capped` - rate_capped
-       * * `team_rate_capped` - team_rate_capped
-       * * `disabled` - disabled
-       * * `gate_blocked` - gate_blocked
-       * * `owner_inactive` - owner_inactive
-       * * `owner_changed` - owner_changed */
-      reason: LoopFireResultReasonEnum;
-      /**
-         * Id of the created task, when `created` is true.
-         * @nullable
-         */
-      task_id: string | null;
-      /**
-         * Id of the created task run, when `created` is true.
-         * @nullable
-         */
-      task_run_id: string | null;
-    }
-
-    /**
-     * Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.
-     */
-    export type LoopNotificationChannelParams = { [key: string]: unknown };
-
-    export interface LoopNotificationChannel {
-      /** Whether this channel is active. */
-      enabled?: boolean;
-      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
-      events?: EventsEnum[];
-      /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
-      params?: LoopNotificationChannelParams;
-    }
-
-    export interface LoopNotifications {
-      /** Push notification settings. */
-      push?: LoopNotificationChannel;
-      /** Email notification settings. */
-      email?: LoopNotificationChannel;
-      /** Slack notification settings. */
-      slack?: LoopNotificationChannel;
-    }
-
-    export interface LoopPreviewDTO {
-      instructions: string;
-      trigger_type: string;
-      trigger_context: string;
-    }
-
-    /**
-     * * `schedule` - schedule
-     * * `github` - github
-     * * `api` - api
-     */
-    export type LoopTriggerTypeEnum = typeof LoopTriggerTypeEnum[keyof typeof LoopTriggerTypeEnum];
-
-
-    export const LoopTriggerTypeEnum = {
-      Schedule: 'schedule',
-      Github: 'github',
-      Api: 'api',
-    } as const;
-
-    export interface LoopPreviewRequest {
-      /** Trigger type to simulate. Defaults to a synthetic schedule fire.
-       *
-       * * `schedule` - schedule
-       * * `github` - github
-       * * `api` - api */
-      trigger_type?: LoopTriggerTypeEnum;
-      /** Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context. */
-      payload?: unknown;
-    }
-
-    export interface LoopRepositoryEntry {
-      /** GitHub integration id this repository is accessed through. */
-      github_integration_id: number;
-      /**
-         * Repository in `organization/repo` format, e.g. `posthog/posthog`.
-         * @maxLength 255
-         */
-      full_name: string;
-    }
-
-    /**
-     * @nullable
-     */
-    export type LoopRunDTOOutput = { [key: string]: unknown } | null;
-
-    /**
-     * A single entry in a loop's run history.
-     */
-    export interface LoopRunDTO {
-      id: string;
-      task_id: string;
-      /** @nullable */
-      loop_trigger_id: string | null;
-      status: string;
-      environment: string;
-      /** @nullable */
-      branch: string | null;
-      /** @nullable */
-      error_message: string | null;
-      /** @nullable */
-      output: LoopRunDTOOutput;
-      created_at: string;
-      /** @nullable */
-      completed_at: string | null;
-    }
-
-    export interface LoopRunPage {
-      /** Run history entries, newest first. */
-      results: LoopRunDTO[];
-      /**
-         * Opaque cursor for the next page, or null when there are no more results.
-         * @nullable
-         */
-      next_cursor: string | null;
-    }
-
-    /**
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex
-     */
-    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
-
-
-    export const SkillSourceEnum = {
-      User: 'user',
-      Repo: 'repo',
-      Marketplace: 'marketplace',
-      Codex: 'codex',
-    } as const;
-
-    /**
-     * One zipped local skill in a skill-bundle replace request.
-     */
-    export interface LoopSkillBundleUpload {
-      /**
-         * File name for the stored bundle, e.g. `my-skill.zip`.
-         * @maxLength 255
-         */
-      file_name: string;
-      /**
-         * Name of the skill inside the bundle.
-         * @maxLength 255
-         */
-      skill_name: string;
-      /** Local source the bundle was built from, such as user or repo.
-       *
-       * * `user` - user
-       * * `repo` - repo
-       * * `marketplace` - marketplace
-       * * `codex` - codex */
-      skill_source: SkillSourceEnum;
-      /**
-         * SHA-256 hex digest of the bundle bytes.
-         * @pattern ^[a-f0-9]{64}$
-         */
-      content_sha256: string;
-      /** Archive format used for the bundle.
-       *
-       * * `zip` - zip */
-      bundle_format: BundleFormatEnum;
-      /** Base64-encoded bundle bytes. */
-      content_base64: string;
-    }
-
-    /**
-     * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
-     * list to detach every skill.
-     */
-    export interface LoopSkillBundlesWrite {
-      bundles: LoopSkillBundleUpload[];
-    }
-
-    export interface LoopTriggerWrite {
-      /** Existing trigger id to update in place. Omit to create a new trigger. */
-      id?: string;
-      /** Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).
-       *
-       * * `schedule` - schedule
-       * * `github` - github
-       * * `api` - api */
-      type: LoopTriggerTypeEnum;
-      /** Whether this trigger is active. Disabling pauses only this trigger. */
-      enabled?: boolean;
-      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that team is asked to review. All filters must match. API triggers take no config. */
-      config?: unknown;
-    }
-
-    /**
-     * * `personal` - personal
-     * * `team` - team
-     */
-    export type LoopWriteVisibilityEnum = typeof LoopWriteVisibilityEnum[keyof typeof LoopWriteVisibilityEnum];
-
-
-    export const LoopWriteVisibilityEnum = {
-      Personal: 'personal',
-      Team: 'team',
-    } as const;
-
-    /**
-     * * `claude` - claude
-     * * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
-
-
-    export const RuntimeAdapterEnum = {
-      Claude: 'claude',
-      Codex: 'codex',
-    } as const;
-
-    /**
-     * * `skip` - skip
-     * * `allow` - allow
-     * * `cancel_previous` - cancel_previous
-     */
-    export type OverlapPolicyEnum = typeof OverlapPolicyEnum[keyof typeof OverlapPolicyEnum];
-
-
-    export const OverlapPolicyEnum = {
-      Skip: 'skip',
-      Allow: 'allow',
-      CancelPrevious: 'cancel_previous',
-    } as const;
-
-    /**
-     * Request body for creating or updating a loop. Field required/default semantics match
-     * the `Loop` model; partial updates only touch keys present in the payload.
-     */
-    export interface LoopWrite {
-      /**
-         * Display name for the loop.
-         * @maxLength 400
-         */
-      name: string;
-      /** Free-form description of what this loop does. */
-      description?: string;
-      /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
-      take_ownership?: boolean;
-      /** `personal` (owner-only) or `team` (visible and fireable by any team member).
-       *
-       * * `personal` - personal
-       * * `team` - team */
-      visibility?: LoopWriteVisibilityEnum;
-      /** The prompt delivered to the agent on every run. */
-      instructions: string;
-      /** Runtime adapter: 'claude' or 'codex'.
-       *
-       * * `claude` - claude
-       * * `codex` - codex */
-      runtime_adapter: RuntimeAdapterEnum;
-      /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
-      model?: string;
-      /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
-       *
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high
-       * * `xhigh` - xhigh
-       * * `max` - max
-       * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
-      /**
-         * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
-         * @maxItems 1
-         */
-      repositories?: LoopRepositoryEntry[];
-      /**
-         * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
-         * @nullable
-         */
-      sandbox_environment?: string | null;
-      /** Whether the loop's triggers are active. Pausing disables all triggers. */
-      enabled?: boolean;
-      /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
-       *
-       * * `skip` - skip
-       * * `allow` - allow
-       * * `cancel_previous` - cancel_previous */
-      overlap_policy?: OverlapPolicyEnum;
-      /** PR / CI-follow-up behavior configuration. */
-      behaviors?: LoopBehaviors;
-      /** MCP connector configuration for this loop's runs. */
-      connectors?: LoopConnectors;
-      /** Per-channel notification configuration. */
-      notifications?: LoopNotifications;
-      /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
-      context_target?: LoopContextTargetWrite | null;
-      /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
-      triggers?: LoopTriggerWrite[];
     }
 
     export interface MCPActivityClientRow {
@@ -66874,6 +66466,18 @@ export namespace Schemas {
          */
       readonly last_seen_at: string | null;
     }
+
+    /**
+     * * `claude` - claude
+     * * `codex` - codex
+     */
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+
+
+    export const RuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+    } as const;
 
     /**
      * One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
@@ -71170,19 +70774,6 @@ export namespace Schemas {
       results: LogsView[];
     }
 
-    export interface PaginatedLoopDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: LoopDTO[];
-      /** Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value. */
-      max_loops_per_team?: number;
-      /** Current number of non-deleted, user-facing loops in this project, counted against `max_loops_per_team`. At or above the cap, creation is blocked. */
-      total_loop_count?: number;
-    }
-
     export interface PaginatedMCPAnalyticsSubmissionList {
       count: number;
       /** @nullable */
@@ -72225,6 +71816,8 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -72264,9 +71857,11 @@ export namespace Schemas {
       readonly credits_this_month: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit: number;
-      /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+      /** True when the organization's free credits bind this `free_only` scanner rather than its own `credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against its free credits. */
+      readonly limit_from_free_credits: boolean;
+      /** Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, because the organization has used its free credits. True when the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set and `free_only` is false. */
       readonly limit_reached: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
@@ -75156,6 +74751,22 @@ export namespace Schemas {
       Xhigh: 'xhigh',
       Max: 'max',
       Ultracode: 'ultracode',
+    } as const;
+
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
     } as const;
 
     export interface TaskRunSkillBundleMetadata {
@@ -82310,73 +81921,6 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
-    /**
-     * Request body for creating or updating a loop. Field required/default semantics match
-     * the `Loop` model; partial updates only touch keys present in the payload.
-     */
-    export interface PatchedLoopWrite {
-      /**
-         * Display name for the loop.
-         * @maxLength 400
-         */
-      name?: string;
-      /** Free-form description of what this loop does. */
-      description?: string;
-      /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
-      take_ownership?: boolean;
-      /** `personal` (owner-only) or `team` (visible and fireable by any team member).
-       *
-       * * `personal` - personal
-       * * `team` - team */
-      visibility?: LoopWriteVisibilityEnum;
-      /** The prompt delivered to the agent on every run. */
-      instructions?: string;
-      /** Runtime adapter: 'claude' or 'codex'.
-       *
-       * * `claude` - claude
-       * * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterEnum;
-      /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
-      model?: string;
-      /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
-       *
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high
-       * * `xhigh` - xhigh
-       * * `max` - max
-       * * `ultracode` - ultracode */
-      reasoning_effort?: ReasoningEffortEnum | null;
-      /**
-         * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
-         * @maxItems 1
-         */
-      repositories?: LoopRepositoryEntry[];
-      /**
-         * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
-         * @nullable
-         */
-      sandbox_environment?: string | null;
-      /** Whether the loop's triggers are active. Pausing disables all triggers. */
-      enabled?: boolean;
-      /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
-       *
-       * * `skip` - skip
-       * * `allow` - allow
-       * * `cancel_previous` - cancel_previous */
-      overlap_policy?: OverlapPolicyEnum;
-      /** PR / CI-follow-up behavior configuration. */
-      behaviors?: LoopBehaviors;
-      /** MCP connector configuration for this loop's runs. */
-      connectors?: LoopConnectors;
-      /** Per-channel notification configuration. */
-      notifications?: LoopNotifications;
-      /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
-      context_target?: LoopContextTargetWrite | null;
-      /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
-      triggers?: LoopTriggerWrite[];
-    }
-
     export interface PatchedMCPGatewayServerUpdate {
       /**
          * Display name shown across the gateway.
@@ -84235,6 +83779,8 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -84274,9 +83820,11 @@ export namespace Schemas {
       readonly credits_this_month?: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month?: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit?: number;
-      /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+      /** True when the organization's free credits bind this `free_only` scanner rather than its own `credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against its free credits. */
+      readonly limit_from_free_credits?: boolean;
+      /** Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, because the organization has used its free credits. True when the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set and `free_only` is false. */
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
@@ -101169,26 +100717,6 @@ export namespace Schemas {
       summary: string;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface SharePassword {
       readonly id: number;
       readonly created_at: string;
@@ -102330,6 +101858,21 @@ export namespace Schemas {
       default_slack_notification_channel?: string | null;
       /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
       autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
+      /**
+         * Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only.
+         * @maxLength 20000
+         */
+      scout_instructions?: string;
+      /**
+         * Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.
+         * @maxLength 20000
+         */
+      research_instructions?: string;
+      /**
+         * Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.
+         * @maxLength 20000
+         */
+      implementation_instructions?: string;
       /**
          * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
          * @nullable
@@ -115599,6 +115142,11 @@ export namespace Schemas {
       personGroupKey: _LogsImpactGroupKey | null;
     }
 
+    export interface _LogsNaturalLanguageError {
+      /** What went wrong. */
+      error: string;
+    }
+
     export interface _LogsPatternsBody {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -121501,6 +121049,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type DataCatalogMetricsListParams = {
@@ -121512,6 +121064,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type DataCatalogMetricsRunCreateParams = {
@@ -121550,6 +121106,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     /**
      * Filter by proposed/accepted/rejected.
      */
@@ -127228,61 +126788,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type LoopsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LoopsRunsRetrieveParams = {
-    /**
-     * Opaque pagination cursor from a previous response's `next_cursor`.
-     * @minLength 1
-     */
-    cursor?: string;
-    /**
-     * Max results per page (default 50, max 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
-     *
-     * * `not_started` - Not Started
-     * * `queued` - Queued
-     * * `in_progress` - In Progress
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `cancelled` - Cancelled
-     * @minLength 1
-     */
-    status?: LoopsRunsRetrieveStatus;
-    };
-
-    export type LoopsRunsRetrieveStatus = typeof LoopsRunsRetrieveStatus[keyof typeof LoopsRunsRetrieveStatus];
-
-
-    export const LoopsRunsRetrieveStatus = {
-      NotStarted: 'not_started',
-      Queued: 'queued',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-      Cancelled: 'cancelled',
-    } as const;
-
-    export type LoopsTriggerCreateBodyOne = { [key: string]: unknown };
-
-    export type LoopsTriggerCreateBodyTwo = { [key: string]: unknown };
-
-    export type LoopsTriggerCreateBodyThree = { [key: string]: unknown };
 
     export type ManagedMigrationsListParams = {
     /**

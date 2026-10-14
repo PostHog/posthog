@@ -21,12 +21,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
+import requests
 import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
@@ -37,12 +38,13 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
-from products.review_hog.backend.label_reviews import comment_commands_enabled, label_commands_hint
+from products.review_hog.backend.facade.enums import ReviewRequestRefusal
+from products.review_hog.backend.label_reviews import comment_commands_enabled, draft_review_notice, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
-from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
+from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
@@ -114,7 +116,14 @@ from products.review_hog.backend.reviewer.progress import (
     in_publish_window,
     record_run_outcome,
 )
-from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
+from products.review_hog.backend.reviewer.push_gate import (
+    SYSTEM_ONE_SKIP_BELOW,
+    PushGate,
+    PushGateDecision,
+    apply_draft_rule,
+    apply_next_push_rule,
+    apply_throttle,
+)
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
@@ -2032,6 +2041,11 @@ def _publish(input: PublishInput) -> PublishResult:
     footer = ""
     if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
         footer = label_commands_hint(input.review_mode)
+    # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
+    # without automatic reviews too.
+    draft_notice = ""
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        draft_notice = draft_review_notice(comment_commands_enabled(input.team_id))
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2046,6 +2060,7 @@ def _publish(input: PublishInput) -> PublishResult:
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
+        draft_notice=draft_notice,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
@@ -2143,6 +2158,11 @@ def _pr_size_properties(snapshot: "PRSnapshotArtefact | None") -> dict[str, int 
     }
 
 
+def _pr_draft(snapshot: "PRSnapshotArtefact | None") -> bool | None:
+    """Whether the PR was a draft when the turn fetched it; None when the turn's snapshot is unavailable."""
+    return snapshot.pr_metadata.draft if snapshot is not None else None
+
+
 def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionStats | None) -> dict[str, object]:
     """A single-agent turn's finding funnel and session health; empty for a pipeline turn.
 
@@ -2207,6 +2227,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             "review_design_reason": input.review_design_reason or None,
             "flash_coordinator": input.coordinator,
             **_pr_size_properties(snapshot),
+            "pr_draft": _pr_draft(snapshot),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
@@ -2236,15 +2257,19 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
     await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
-def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -> None:
+def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_push_gate_decided",
         # Keyed by head, not run_index: a skipped turn keeps the next turn's run_index, so two skipped
-        # pushes in a row share one.
+        # pushes in a row share one. The draft state and the reason are in the key too, because one head
+        # can get a draft or throttle skip and later a review, after the PR is marked ready or the bucket refills.
         uuid=str(
-            uuid5(NAMESPACE_URL, f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}")
+            uuid5(
+                NAMESPACE_URL,
+                f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}:{draft}:{decision.reason}",
+            )
         ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=TRIGGER_AUTOMATIC),
@@ -2259,28 +2284,68 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
+            "pr_draft": draft,
+            "next_push_probability": decision.next_push_probability,
         },
         groups=groups(team=report.team),
     )
 
 
+def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
+    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
+        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
+        return False
+    return response.json().get("draft") is True
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    draft = _pr_draft(current)
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
         token, installation_id = _installation_auth(input.team_id, input.repository)
-        decision = PushGate(
+        gate = PushGate(
             team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
-        ).decide(
+        )
+        push_decision = gate.decide(
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
         )
+        decision = apply_draft_rule(push_decision, draft=bool(draft))
+        # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
+        # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
+        # drops the ready request for the head this turn gates. So a draft skip reads GitHub again after the
+        # gate's other reads, which leaves only the moment between this read and the end of the turn.
+        if decision.reason == "draft" and not _pr_is_draft_now(
+            input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+        ):
+            draft = False
+            decision = push_decision
+        if not draft:
+            # The offline fit counted only automatic follow-ups. No turn stores its trigger, so this
+            # count is the completed turns after the first review, which also includes label, UI,
+            # and other human turns.
+            decision = apply_next_push_rule(
+                decision,
+                follow_up=input.run_index - 1,
+                pr_lines=current.pr_metadata.additions + current.pr_metadata.deletions,
+            )
+    decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
-        _track_push_gate_decided(input, decision)
+        _track_push_gate_decided(input, decision, draft)
     except Exception:
         logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
     return decision
@@ -2341,6 +2406,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
                 review_design=input.review_design,
             ),
             **_pr_size_properties(snapshot),
+            "pr_draft": _pr_draft(snapshot),
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,

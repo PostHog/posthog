@@ -114,6 +114,8 @@ import type {
     UserType,
 } from '../../types'
 import {
+    INTRO_SCREEN_DEFAULT_BUTTON_TEXT,
+    INTRO_SCREEN_TEXT_FIELDS,
     LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
     NewSurvey,
@@ -246,7 +248,7 @@ function getTranslationDraftQuestionId(question: SurveyQuestion, index: number):
     return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
 }
 
-function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
+export function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
     return {
         name: survey.name,
         description: survey.description,
@@ -257,7 +259,9 @@ function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTra
             thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
             introScreenHeader: survey.appearance?.introScreenHeader,
             introScreenDescription: survey.appearance?.introScreenDescription,
-            introScreenButtonText: survey.appearance?.introScreenButtonText,
+            introScreenButtonText: survey.appearance?.displayIntroScreen
+                ? survey.appearance.introScreenButtonText || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                : survey.appearance?.introScreenButtonText,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -3437,6 +3441,15 @@ export const surveyLogic = kea<surveyLogicType>([
                         key: 'thankYouMessageCloseButtonText',
                         defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
                     },
+                    ...(survey.appearance?.displayIntroScreen
+                        ? INTRO_SCREEN_TEXT_FIELDS.map((key) => ({
+                              key,
+                              defaultValue:
+                                  key === 'introScreenButtonText'
+                                      ? survey.appearance?.[key] || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                                      : survey.appearance?.[key],
+                          }))
+                        : []),
                 ]
 
                 // Get all languages

@@ -219,7 +219,8 @@ Retention stores one row per event matching the start or completion predicate, w
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `experiment_funnel_query_builder.py`        | `get_funnel_metric_events_query_for_precomputation()` (write), precomputed CTE in `build_funnel_query_legacy()` (read) |
 | `metric_source_precompute.py`               | Per-source build query and precomputed read CTE shared by mean metrics and both ratio sides                            |
-| `experiment_query_runner.py`                | `_ensure_metric_events_precomputed()`, wiring in `_get_experiment_query()`                                             |
+| `metric_events_precompute.py`               | `MetricEventsPrecompute`: eligibility per metric type, the ratio kill switch, and the builds that fill the table       |
+| `experiment_query_runner.py`                | Wiring in `_get_experiment_query()`: builds, then reads precomputed or direct                                          |
 | `lazy_computation_executor.py`              | Core lazy computation: `ensure_precomputed()`, job management                                                          |
 | `experiment_metric_events_sql.py`           | ClickHouse table definition                                                                                            |
 | `experiment_metric_events_preaggregated.py` | HogQL schema for the table                                                                                             |

@@ -65,7 +65,7 @@ export function SavedInsight({
         <Query
             attachTo={attachTo}
             query={query}
-            cachedResults={insight}
+            cachedResults={insightProps.retainResponseOnUnmount ? undefined : insight}
             context={{ ...context, insightProps }}
             embedded={embedded}
             readOnly={readOnly}
