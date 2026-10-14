@@ -2224,12 +2224,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tiles = request_data.get("tiles")
         if isinstance(tiles, list):
             filter_sets += [tile.get("filters_overrides") for tile in tiles if isinstance(tile, dict)]
+        # Normalized as the save normalizes them, so a filter nested in a property group is checked
+        # as the leaf that gets stored.
         properties = [
             property_filter
             for filters in filter_sets
-            if isinstance(filters, dict) and isinstance(filters.get("properties"), list)
-            for property_filter in filters["properties"]
-            if isinstance(property_filter, dict)
+            if isinstance(filters, dict)
+            for property_filter in DashboardSerializer._validated_filters(filters).get("properties", [])
         ]
         if not properties:
             return

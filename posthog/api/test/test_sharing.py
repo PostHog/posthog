@@ -2617,6 +2617,8 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
             ("tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
             ("dashboard_filters", "subscription", status.HTTP_400_BAD_REQUEST),
+            ("grouped_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("grouped_tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
             ("dashboard_filters", "none", status.HTTP_200_OK),
         ]
     )
@@ -2640,10 +2642,13 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 created_by=self.user,
             )
         filters = {"properties": [denied_filter]}
+        sent_filters = (
+            {"properties": [{"type": "AND", "values": [denied_filter]}]} if target.startswith("grouped") else filters
+        )
         payload = (
-            {"filters": filters}
-            if target == "dashboard_filters"
-            else {"tiles": [{"id": tile.id, "filters_overrides": filters}]}
+            {"filters": sent_filters}
+            if target.endswith("dashboard_filters")
+            else {"tiles": [{"id": tile.id, "filters_overrides": sent_filters}]}
         )
 
         response = self.client.patch(
