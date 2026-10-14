@@ -3,7 +3,7 @@
 //! sidecar still uses, with matching params), so tests assert structure (decodes to W x H PNG), not bytes.
 
 use base64::Engine;
-use image::{DynamicImage, GenericImageView, RgbaImage};
+use image::{DynamicImage, GenericImageView};
 
 const DOWNSAMPLE_RATIO: f32 = 0.12;
 const BLUR_SIGMA: f32 = 2.34;
@@ -135,33 +135,6 @@ pub fn blur_image_data_uri(s: &str) -> Option<String> {
     Some(format!("data:image/png;base64,{encoded}"))
 }
 
-/// De-identify raw RGBA pixels: downsample + blur, then scale back to the original W x H, preserving
-/// byte length (`4*W*H`) so it slots back into a `putImageData` ImageData. None if it can't.
-pub fn pixelate_raw_rgba(base64_pixels: &str, width: u32, height: u32) -> Option<String> {
-    let buf = base64::engine::general_purpose::STANDARD
-        .decode(base64_pixels.as_bytes())
-        .ok()?;
-    // `checked_mul`: `w*h*4` on attacker-controlled dims can overflow usize; overflow -> reject.
-    let expected = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|wh| wh.checked_mul(4))?;
-    if buf.len() != expected {
-        return None;
-    }
-    let img = RgbaImage::from_raw(width, height, buf)?;
-    let dynamic = DynamicImage::ImageRgba8(img);
-    let (sw, sh) = target_dims(width, height);
-    let small = dynamic
-        .resize_exact(sw, sh, image::imageops::FilterType::Triangle)
-        .blur(BLUR_SIGMA);
-    let restored = small.resize_exact(width, height, image::imageops::FilterType::Triangle);
-    let out = restored.to_rgba8().into_raw();
-    if out.len() != expected {
-        return None;
-    }
-    Some(base64::engine::general_purpose::STANDARD.encode(&out))
-}
-
 /// Split a `data:<mime>;...,<base64>` URI into (mime, base64). None if not a data URI.
 pub fn split_data_uri(uri: &str) -> Option<(String, String)> {
     let rest = uri.strip_prefix("data:")?;
@@ -242,23 +215,5 @@ mod tests {
     fn blur_rejects_non_image_data_uri() {
         assert!(blur_image_data_uri("data:text/plain;base64,aGVsbG8=").is_none());
         assert!(blur_image_data_uri("not a data uri").is_none());
-    }
-
-    #[test]
-    fn pixelate_preserves_rgba_byte_length() {
-        let (w, h) = (8u32, 8u32);
-        let raw = vec![200u8; (w * h * 4) as usize];
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&raw);
-        let out = pixelate_raw_rgba(&b64, w, h).expect("pixelate should succeed");
-        let out_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&out)
-            .unwrap();
-        assert_eq!(out_bytes.len(), raw.len());
-    }
-
-    #[test]
-    fn pixelate_rejects_wrong_length() {
-        let b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 10]);
-        assert!(pixelate_raw_rgba(&b64, 8, 8).is_none());
     }
 }

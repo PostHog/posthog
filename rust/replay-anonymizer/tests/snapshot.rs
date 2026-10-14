@@ -853,13 +853,19 @@ fn collect_payload() -> String {
                 "initialOffset": {"top": 0, "left": 0}
             }
         },
-        // Canvas blob carrying the same bytes under a bare base64 payload.
+        // A posthog-js canvas snapshot frame carrying the same bytes under a bare base64 payload.
         {
             "type": 3,
             "timestamp": TS0 + 1.0,
-            "data": {"source": 9, "id": 1, "type": 0, "commands": [{"property": "drawImage", "args": [
-                {"rr_type": "Blob", "type": "image/png", "data": [{"rr_type": "ArrayBuffer", "base64": COLLECT_PNG_B64}]}
-            ]}]}
+            "data": {"source": 9, "id": 1, "type": 0, "commands": [
+                {"property": "clearRect", "args": [0, 0, 8, 8]},
+                {"property": "drawImage", "args": [
+                    {"rr_type": "ImageBitmap", "args": [
+                        {"rr_type": "Blob", "type": "image/png", "data": [{"rr_type": "ArrayBuffer", "base64": COLLECT_PNG_B64}]}
+                    ]},
+                    0, 0, 8, 8
+                ]}
+            ]}
         },
     ])))
 }

@@ -32,11 +32,12 @@ fn img_line(value: &str, attr: &str) -> Value {
 
 fn canvas_line(value: &str) -> Value {
     json!(["w", { "type": 3, "timestamp": TS0, "data": {
-        "source": 9, "id": 5, "type": 0, "commands": [{
-            "property": "drawImage",
-            "args": [{ "rr_type": "ImageBitmap", "args": [{
+        "source": 9, "id": 5, "type": 0, "commands": [
+            { "property": "clearRect", "args": [0, 0, 8, 8] },
+            { "property": "drawImage",
+              "args": [{ "rr_type": "ImageBitmap", "args": [{
                 "rr_type": "Blob", "type": "image/png",
-                "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }] }] } }])
+                "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }, 0, 0, 8, 8] }] } }])
 }
 
 fn css_line(reference: &str) -> Value {

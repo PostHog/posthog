@@ -193,6 +193,15 @@ pub struct SnapshotMeta {
     /// with nothing to say why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_declines: Vec<UrlDecline>,
+    /// Content the scrub removed outright rather than replaced, by reason.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scrub_drops: Vec<ScrubDrop>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ScrubDrop {
+    pub reason: &'static str,
+    pub count: u32,
 }
 
 /// One reason the collector refused a URL, and how many times it did.
@@ -1006,6 +1015,11 @@ fn finish(
             urls: Vec::new(),
             image_sources: Vec::new(),
             url_declines: Vec::new(),
+            scrub_drops: ctx
+                .take_scrub_drops()
+                .into_iter()
+                .map(|(reason, count)| ScrubDrop { reason, count })
+                .collect(),
         },
         image_bytes: Vec::new(),
     })

@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
-use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
+use crate::blur::{blank_image_data_uri, blur_image_data_uri};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
     MAX_IMAGE_BYTES,
@@ -46,7 +46,7 @@ pub struct ImageSourceCount {
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     pub cv_budget: Cell<usize>,
-    // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
+    // key: the original data URI.
     // value: the replacement — a content ref (collection lane), a blurred data URI — or `None`
     // when neither could be produced (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
@@ -58,6 +58,7 @@ pub struct Ctx<'a> {
     // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
     url_collector: Option<RefCell<UrlCollector>>,
     image_source_counts: RefCell<BTreeMap<(ImageSource, &'static str), u32>>,
+    scrub_drops: RefCell<BTreeMap<&'static str, u32>>,
     // Whether a well-formed ref already present in the *input* is left alone. Off unless the
     // caller vouches for the input's provenance; see `preserving_image_refs`.
     preserve_image_refs: bool,
@@ -97,6 +98,7 @@ impl<'a> Ctx<'a> {
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
             url_collector: None,
             image_source_counts: RefCell::new(BTreeMap::new()),
+            scrub_drops: RefCell::new(BTreeMap::new()),
             preserve_image_refs: false,
         }
     }
@@ -223,6 +225,18 @@ impl<'a> Ctx<'a> {
         *count = count.saturating_add(1);
     }
 
+    pub(crate) fn record_scrub_drop(&self, reason: &'static str) {
+        let mut drops = self.scrub_drops.borrow_mut();
+        let count = drops.entry(reason).or_default();
+        *count = count.saturating_add(1);
+    }
+
+    pub fn take_scrub_drops(&self) -> Vec<(&'static str, u32)> {
+        std::mem::take(&mut *self.scrub_drops.borrow_mut())
+            .into_iter()
+            .collect()
+    }
+
     pub fn take_image_source_counts(&self) -> Vec<ImageSourceCount> {
         let counts = std::mem::take(&mut *self.image_source_counts.borrow_mut());
         counts
@@ -328,17 +342,6 @@ impl<'a> Ctx<'a> {
             .map_or(MAX_IMAGE_BYTES, |collector| {
                 collector.borrow().max_image_bytes()
             })
-    }
-
-    /// Pixelate raw RGBA pixels, memoized on dimensions + bytes.
-    pub fn pixelate_raw(&self, rgba_base64: &str, width: u32, height: u32) -> Option<String> {
-        let key = format!("raw:{width}x{height}:{rgba_base64}");
-        if let Some(hit) = self.blur_cache.borrow().get(&key) {
-            return hit.clone();
-        }
-        let result = self.timed("blur", || pixelate_raw_rgba(rgba_base64, width, height));
-        self.blur_cache.borrow_mut().insert(key, result.clone());
-        result
     }
 }
 
