@@ -130,6 +130,33 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse, and named so. `ready_to_merge_seconds` is the precise companion (last observed ready-for-review to merge, from `github_issue_events`); NULL means "not observed", never zero.
 - The GitHub `reviews` endpoint syncs; the author page is its first reader (the approval split and the review states of a PR timeline).
 
+## CI scouts for PostHog's own CI
+
+Three Signals scouts in [`scouts/`](./scouts/) each watch one component of PostHog's own CI and post what they see to their own Slack channel:
+
+| Scout                            | Watches                                                                                        |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `signals-scout-ci-merge-queue`   | Trunk merge-queue time, kickouts, why batches fail, and the share of PRs that claim every lane |
+| `signals-scout-ci-cost`          | Spend by workflow, p95 job duration drift between adjacent weeks, and re-run spend             |
+| `signals-scout-ci-master-health` | The green-to-red boundary on master, the flaky-test queue, and the hourly Depot backend matrix |
+
+They observe and narrate. `.github/workflows/ci-alerts-devex.yml` stays the only thing that pages, and each scout body says so.
+
+They live here and not in `products/signals/skills/` because they name things that exist only in PostHog's own project, and every skill in that directory is seeded onto every enrolled project.
+They are also outside `skills/`, so the skills build does not publish them.
+Register each one on the project that holds the engineering analytics views for `PostHog/posthog` with `scout-create`, passing the `SKILL.md` frontmatter and body.
+Create each paused (`enabled: false`), then set its config:
+
+- `output_destinations.slack`: the scout's own channel, with `thread_reports: true`. Never the alerter's channel.
+- A schedule that matches the component: hourly on weekdays for master health, every two hours on weekdays for the merge queue, and once a weekday for cost.
+- `tags: ["ci", "devex"]`.
+
+A Slack-delivered scout is exempt from the ignored-reports auto-pause, so its budget is explicit: each body caps the queries, reports, and minutes per run.
+`enabled: false` stops a scout, and `emit: false` keeps it running without posting.
+
+The trunk-impacted-targets workflow sends the `trunk_lane_targets` event to the hogli telemetry project.
+The merge-queue scout reads it only where it runs in the same project, and turns its lane lens off otherwise.
+
 ## Glossary
 
 | Term                | Definition                                                                                   |
