@@ -5,7 +5,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { BIComparisonRow, buildBIComparisonRows, getBIComparisonValues } from './biComparisonResults'
 import { getBIFieldPillLabel } from './biEditorTypes'
-import { getBIMemberLabel } from './biMemberAliases'
+import { createBIMemberLabelLookup } from './biMemberAliases'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
 
 export function BIComparisonSummary({
@@ -23,6 +23,7 @@ export function BIComparisonSummary({
     card?: boolean
     onInspect?: (record: Record<string, unknown>) => void
 }): JSX.Element {
+    const memberLabel = createBIMemberLabelLookup(config)
     const rows = buildBIComparisonRows(config, columns, results)
     const measures = getBIResultMeasures(config, chartSettings)
     const dimensions = [...config.rows, ...config.columns]
@@ -80,7 +81,7 @@ export function BIComparisonSummary({
                                     {row.dimensions
                                         .map(
                                             (value, index) =>
-                                                `${dimensions[index].name}: ${getBIMemberLabel(config, dimensions[index], value)}`
+                                                `${dimensions[index].name}: ${memberLabel(dimensions[index], value)}`
                                         )
                                         .join(' · ')}
                                 </div>
@@ -119,7 +120,7 @@ export function BIComparisonSummary({
                                       key: field.id,
                                       title: getBIFieldPillLabel(field),
                                       render: (_: unknown, row: BIComparisonRow) =>
-                                          getBIMemberLabel(config, field, row.dimensions[index]),
+                                          memberLabel(field, row.dimensions[index]),
                                   })),
                               },
                           ]

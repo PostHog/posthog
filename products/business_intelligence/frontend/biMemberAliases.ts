@@ -68,6 +68,17 @@ export function createBIMemberLabelLookup(config: BIConfig): (field: BIField, va
     return (field, value) => display(field, value) ?? defaultMemberLabel(field, value)
 }
 
+export function createBIMemberFormatter(config: BIConfig, field: BIField): ((value: unknown) => string) | undefined {
+    if (
+        !(field.localDefinition?.kind === 'groups' && field.localDefinition.preserveUngrouped) &&
+        !config.memberAliases?.some((entry) => biMemberFieldKey(entry.field) === biMemberFieldKey(field))
+    ) {
+        return undefined
+    }
+    const label = createBIMemberLabelLookup(config)
+    return (value) => label(field, value)
+}
+
 export function getBIMemberLabel(config: BIConfig, field: BIField, value: unknown): string {
     return getBIMemberAlias(config, field, value) ?? defaultMemberLabel(field, value)
 }

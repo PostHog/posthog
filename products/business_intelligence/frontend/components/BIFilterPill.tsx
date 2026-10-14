@@ -27,6 +27,7 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
         }
     }
     const label = getBIFilterLabel(filter)
+    const description = describeBIFilter(filter, config)
 
     return (
         <LemonDropdown
@@ -39,14 +40,8 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
             <BIPill
                 kind="filter"
                 label={label}
-                detail={
-                    getBIFilterValidationError(filter)
-                        ? 'Invalid'
-                        : filter.enabled === false
-                          ? 'Off'
-                          : describeBIFilter(filter, config)
-                }
-                title={`${label}: ${describeBIFilter(filter, config)}`}
+                detail={getBIFilterValidationError(filter) ? 'Invalid' : filter.enabled === false ? 'Off' : description}
+                title={`${label}: ${description}`}
                 shelf="filters"
                 index={index}
                 incomplete={!filter.field.expression.trim() && !filter.customExpression?.trim()}

@@ -7,7 +7,7 @@ import { biMemberAliasesLogic } from './biMemberAliasesLogic'
 
 export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element {
     const logic = biMemberAliasesLogic({ tabId })
-    const { field, draft, query } = useValues(logic)
+    const { field, draft, draftByValue, query } = useValues(logic)
     const { close, setAlias, save } = useActions(logic)
     const valuesLogic = biFilterValuesLogic({ query, active: !!field })
     const { options, optionsLoading, optionsError, hasMore, search } = useValues(valuesLogic)
@@ -18,10 +18,7 @@ export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element 
             String(value ?? '(no value)')
                 .toLowerCase()
                 .includes(search.toLowerCase()) ||
-            draft
-                .find((alias) => alias.value === value)
-                ?.label.toLowerCase()
-                .includes(search.toLowerCase())
+            draftByValue.get(value)?.toLowerCase().includes(search.toLowerCase())
     )
     return (
         <LemonModal
@@ -59,6 +56,8 @@ export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element 
                     </div>
                 )}
                 <LemonTable
+                    key={search}
+                    pagination={{ pageSize: 50 }}
                     size="small"
                     loading={optionsLoading}
                     dataSource={members.map((value) => ({ value }))}
@@ -75,7 +74,7 @@ export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element 
                             key: 'alias',
                             render: (_, { value }) => (
                                 <LemonInput
-                                    value={draft.find((alias) => alias.value === value)?.label ?? ''}
+                                    value={draftByValue.get(value) ?? ''}
                                     onChange={(label) => setAlias(value, label)}
                                     placeholder="Original value"
                                     aria-label={`Alias for ${value ?? '(no value)'}`}

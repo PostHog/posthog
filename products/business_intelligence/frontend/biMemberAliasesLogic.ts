@@ -17,6 +17,7 @@ export interface biMemberAliasesLogicValues {
         label: string
         value: string | null
     }[]
+    draftByValue: Map<string | null, string>
     field: BIField | null
     query: HogQLQuery | null
 }
@@ -55,6 +56,12 @@ export interface biMemberAliasesLogicActions {
 export interface biMemberAliasesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        draftByValue: (
+            draft: {
+                label: string
+                value: string | null
+            }[]
+        ) => Map<string | null, string>
         query: (field: BIField | null, config: BIConfig, worksheet: BIVisualizationNode) => HogQLQuery | null
     }
 }
@@ -81,14 +88,23 @@ export const biMemberAliasesLogic = kea<biMemberAliasesLogicType>([
             [] as { value: string | null; label: string }[],
             {
                 edit: (_, { aliases }) => aliases,
-                setAlias: (draft, { value, label }) => [
-                    ...draft.filter((alias) => alias.value !== value),
-                    { value, label },
-                ],
+                setAlias: (draft, { value, label }) =>
+                    draft.some((alias) => alias.value === value)
+                        ? draft.map((alias) => (alias.value === value ? { value, label } : alias))
+                        : [...draft, { value, label }],
             },
         ],
     }),
     selectors(({ props }) => ({
+        draftByValue: [
+            (s) => [s.draft],
+            (
+                draft: {
+                    label: string
+                    value: string | null
+                }[]
+            ): Map<string | null, string> => new Map(draft.map(({ value, label }) => [value, label])),
+        ],
         query: [
             (s) => [s.field, biEditorLogic(props).selectors.config, biSceneLogic(props).selectors.worksheet],
             (field: BIField | null, config: BIConfig, worksheet: BIVisualizationNode): HogQLQuery | null => {

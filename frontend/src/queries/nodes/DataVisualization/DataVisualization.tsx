@@ -39,7 +39,7 @@ import { getBIChartRecord } from 'products/business_intelligence/frontend/biDril
 import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
-import { biMemberFieldKey, getBIMemberLabel } from 'products/business_intelligence/frontend/biMemberAliases'
+import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
@@ -374,12 +374,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const dimensions = query.kind === NodeKind.BIVisualizationNode ? getBIResultDimensions(query.config) : []
         const xDimension = dimensions.find(({ column }) => column === _xData?.column.name)
         const aliasFormatter =
-            query.kind === NodeKind.BIVisualizationNode &&
-            xDimension &&
-            query.config.memberAliases?.some(
-                (entry) => biMemberFieldKey(entry.field) === biMemberFieldKey(xDimension.field)
-            )
-                ? (value: string): string => getBIMemberLabel(query.config, xDimension.field, value)
+            query.kind === NodeKind.BIVisualizationNode && xDimension
+                ? createBIMemberFormatter(query.config, xDimension.field)
                 : undefined
         component = (
             <BindLogic logic={insightLogic} props={alertsInsightProps}>
@@ -451,7 +447,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 : undefined
         const aliasLabels = new Map<string, string>()
         let pieXData = pieData.xData
-        if (query.kind === NodeKind.BIVisualizationNode && pieDimension && query.config.memberAliases?.length) {
+        const memberFormatter =
+            query.kind === NodeKind.BIVisualizationNode && pieDimension
+                ? createBIMemberFormatter(query.config, pieDimension.field)
+                : undefined
+        if (memberFormatter) {
             if (pieData.yData.some((series) => 'breakdownValue' in series)) {
                 for (const series of pieData.yData) {
                     if ('breakdownValue' in series) {
@@ -463,7 +463,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     ...pieXData,
                     data: pieXData.data.map((value) => {
                         const key = JSON.stringify(value ?? null)
-                        aliasLabels.set(key, getBIMemberLabel(query.config, pieDimension.field, value))
+                        aliasLabels.set(key, memberFormatter(value))
                         return key
                     }),
                 }

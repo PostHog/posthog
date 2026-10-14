@@ -4,7 +4,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { getBIDrillSelection } from './biDrilldown'
 import { BIEditorView, buildBIQuery, DEFAULT_BI_CONFIG, parseBIEditorState } from './biEditorTypes'
 import { getBIActiveFilterSummary, getBIFilterLabel } from './biFilterSummary'
-import { getBIMemberAlias, getBIMemberLabel, getBIMemberOptions } from './biMemberAliases'
+import { createBIMemberFormatter, getBIMemberAlias, getBIMemberLabel, getBIMemberOptions } from './biMemberAliases'
 import { buildBISourcePreview } from './biSourcePreview'
 
 const country: BIField = {
@@ -140,4 +140,49 @@ it('previews a blank source, separates all rows from worksheet filters and bound
     expect(matching.source.variables).toEqual(worksheet.source.variables)
     expect(buildBISourcePreview(worksheet, false, 999999)?.source.query).toContain('LIMIT 10000')
     expect(JSON.stringify(worksheet)).toBe(before)
+})
+
+it('formats preserved groups without saved aliases while leaving ordinary numeric axes to the chart', () => {
+    const grouped: BIField = {
+        ...country,
+        localDefinition: {
+            kind: 'groups',
+            expression: 'country',
+            other: 'Other',
+            groups: [{ name: 'Combined', values: ['north', 'east'] }],
+            preserveUngrouped: true,
+        },
+    }
+    const format = createBIMemberFormatter(config, grouped)!
+    expect(format(JSON.stringify(['group', 'Combined']))).toBe('Combined')
+    expect(format(JSON.stringify(['value', 'Combined']))).toBe('Combined (ungrouped)')
+    expect(format(JSON.stringify(['value', 'west']))).toBe('west')
+    expect(format(null)).toBe('(no value)')
+    expect(createBIMemberFormatter(config, { ...country, type: 'integer' })).toBeUndefined()
+})
+
+it('describes thousands of selected aliases with linear member reads', () => {
+    let reads = 0
+    const aliases = Array.from({ length: 2000 }, (_, index) => ({
+        get value(): string {
+            reads++
+            return `value-${index}`
+        },
+        label: `Label ${index}`,
+    }))
+    const summary = getBIActiveFilterSummary({
+        ...config,
+        memberAliases: [{ field: country, aliases }],
+        filters: [
+            {
+                field: country,
+                operator: 'in',
+                value: '',
+                values: Array.from({ length: 2000 }, (_, index) => `value-${index}`),
+            },
+        ],
+    })
+    expect(summary.rows).toContain('"Label 0", "Label 1"')
+    expect(summary.rows).toContain('"Label 1999"')
+    expect(reads).toBeLessThan(aliases.length * 4)
 })
