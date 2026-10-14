@@ -386,6 +386,15 @@ describe('traceDialogLogic', () => {
                 ['open_in_tracing'],
             ],
             [
+                'open in tracing without a pathname change',
+                () => {
+                    logic.actions.openInTracing()
+                    router.actions.push(router.values.location.pathname, { trace: 'abc123' })
+                    expect(logic.values.isOpen).toBe(false)
+                },
+                ['open_in_tracing'],
+            ],
+            [
                 'another trace opened over it',
                 () => logic.actions.openTraceDialog({ traceId: 'def456' }, { entryPoint: 'metric_sample' }),
                 // The second dialog closes on the final dismiss.

@@ -94,13 +94,12 @@ interface TraceDialogSession {
     spansSelected: number
     keyboardSteps: number
     tabsViewed: Set<SpanInspectorTab>
-    nextCloseReason: TraceDialogCloseReason | null
 }
 
 function captureClosed(session: TraceDialogSession, reason: TraceDialogCloseReason): void {
     posthog.capture('tracing trace dialog closed', {
         entry_point: session.entryPoint,
-        reason: session.nextCloseReason ?? reason,
+        reason,
         seconds_open: Math.round((Date.now() - session.openedAtMs) / 1000),
         spans_selected: session.spansSelected,
         keyboard_steps: session.keyboardSteps,
@@ -593,7 +592,6 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 spansSelected: 0,
                 keyboardSteps: 0,
                 tabsViewed: new Set(),
-                nextCloseReason: null,
             }
             cache.session = session
             posthog.capture('tracing trace dialog opened', {
@@ -637,10 +635,8 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             captureClosed(session, reason)
         },
         openInTracing: () => {
-            // The link navigates next, and the navigation closes the dialog.
-            if (cache.session) {
-                cache.session.nextCloseReason = 'open_in_tracing'
-            }
+            // Close here rather than on navigation: from /tracing itself the link only changes the query.
+            actions.closeTraceDialog('open_in_tracing')
         },
         loadTraceSpans: () => {
             if (cache.session) {
