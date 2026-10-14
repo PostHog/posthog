@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
@@ -1200,8 +1201,6 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
-        from django.db.models import Prefetch  # noqa: PLC0415
-
         from posthog.constants import AvailableFeature  # noqa: PLC0415
         from posthog.models.user import User  # noqa: PLC0415
 
@@ -1253,23 +1252,40 @@ class Team(UUIDTClassicModel):
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 
         # General case: resolve each active member through `SubjectAccessControl`, seeding its
-        # pool from the single team-rules fetch and from the prefetched role memberships so N
-        # subjects share one query of each rather than running N of them.
+        # pool from the single team-rules fetch so N subjects share one query rather than running
+        # N of them.
         memberships = list(
-            OrganizationMembership.objects.filter(organization_id=self.organization_id, user__is_active=True)
-            .select_related("user")
-            .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
+            OrganizationMembership.objects.filter(
+                organization_id=self.organization_id, user__is_active=True
+            ).select_related("user")
         )
+
+        # Roles the facade uses to resolve each user. User-keyed rather than keyed on the
+        # `organization_member` FK because that FK is NULL on legacy `RoleMembership` rows, so
+        # the enforced API gate (which goes through `user.role_memberships`) would honor a role
+        # rule we would silently drop and the two resolvers would disagree.
+        role_ids_by_user: dict[int, list[str]] = defaultdict(list)
+        if role_based_access_supported:
+            member_user_ids = [m.user_id for m in memberships]
+            for user_id, role_id in (
+                RoleMembership.objects.filter(user_id__in=member_user_ids, role__organization_id=self.organization_id)
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                role_ids_by_user[user_id].append(str(role_id))
+
         user_ids: list[int] = []
         for membership in memberships:
+            # Seed the organization that `SubjectAccessControl.rbac_supported` reads so each
+            # subject does not re-fetch the one organization every membership here already lives in.
+            membership.organization = organization
             subject = SubjectAccessControl(
                 user=membership.user,
                 team=self,
                 org_membership=membership,
                 member=membership,
             )
-            subject_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
-            subject.preload_access_controls(team_rows, subject_role_ids=subject_role_ids)
+            subject.preload_access_controls(team_rows, subject_role_ids=role_ids_by_user.get(membership.user_id, []))
             if subject.has_project_access:
                 user_ids.append(membership.user_id)
         return User.objects.filter(id__in=user_ids)
