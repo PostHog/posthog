@@ -6,6 +6,11 @@ sends, so an edit to what it sends would be dropped silently at cutover. This fi
 An edit is found by comparing a function with the first snapshot of its content, which the
 HogFunction API writes on the first change it records. A template's stock text changes over time,
 so comparing with what the code builds today would read an old, unedited function as edited.
+
+The first snapshot is the stock content only when the function was created with stock inputs. The
+logs alert API creates every logs destination that way. The HogFunction editor that insight alerts
+use lets a person change the message before the first save, so for insight a function without a
+later edit can still be customized.
 """
 
 from __future__ import annotations
