@@ -1,7 +1,6 @@
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { getRegisteredTriggerTypes } from '../hogflows/registry/triggers/triggerTypeRegistry'
-import { DurationUnit, parseDuration } from '../hogflows/steps/durations'
 import { FREQUENCY_OPTIONS, TTL_OPTIONS } from '../hogflows/steps/StepTrigger'
 import type { HogFlow } from '../hogflows/types'
 
@@ -74,16 +73,6 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
     // With a threshold of N, the 1st, (N + 1)th, (2N + 1)th... matching events start a run.
     const threshold = workflow.trigger_masking?.threshold ?? null
     return threshold && threshold > 1 ? `${base}, then again every ${threshold} matching events` : base
-}
-
-const WINDOW_UNITS: Record<DurationUnit, string> = { s: 'second', m: 'minute', h: 'hour', d: 'day' }
-
-export function conversionWindowLabel(window: string | undefined): string | null {
-    const parsed = window ? parseDuration(window) : null
-    if (!parsed || parsed.negative) {
-        return null
-    }
-    return `${parsed.amountText} ${WINDOW_UNITS[parsed.unit]}${parsed.amount === 1 ? '' : 's'}`
 }
 
 type GoalEntity = { name?: string | null; id?: string | number | null }

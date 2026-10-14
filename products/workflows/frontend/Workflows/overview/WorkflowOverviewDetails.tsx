@@ -7,11 +7,11 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { getDurationText } from '../hogflows/steps/stepDelayLogic'
 import { workflowLogic } from '../workflowLogic'
 import {
     EXIT_CONDITION_LABELS,
     conversionGoalEvents,
-    conversionWindowLabel,
     frequencySummary,
     triggerEventNames,
     triggerLeadIn,
@@ -66,7 +66,7 @@ export function WorkflowOverviewDetails({ id }: { id: string }): JSX.Element {
     const propertyFilters = triggerPropertyFilters(trigger)
     const goalEvents = conversionGoalEvents(conversion)
     const goalProperties = conversion?.filters ?? []
-    const goalWindow = conversionWindowLabel(conversion?.window)
+    const goalWindow = conversion?.window ? getDurationText(conversion.window) : null
     const hasGoal = goalEvents.length > 0 || goalProperties.length > 0
 
     return (
