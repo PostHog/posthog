@@ -96,31 +96,43 @@ c" \
 
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 
-git_in() {
+seed_in() {
+    git -C "$workdir/seed" "$@"
+}
+
+clone_in() {
     git -C "$workdir/clone" "$@"
 }
 
 commit_file() {
     local path=$1 content=$2
-    mkdir -p "$workdir/clone/$(dirname "$path")"
-    printf '%s\n' "$content" >"$workdir/clone/$path"
-    git_in add "$path"
-    git_in commit --quiet -m "change $path"
-    git_in rev-parse HEAD
+    mkdir -p "$workdir/seed/$(dirname "$path")"
+    printf '%s\n' "$content" >"$workdir/seed/$path"
+    seed_in add "$path"
+    seed_in commit --quiet -m "change $path"
+    seed_in rev-parse HEAD
 }
 
 git init --quiet --bare --initial-branch=master "$workdir/origin.git"
-git init --quiet --initial-branch=master "$workdir/clone"
-git_in remote add origin "file://$workdir/origin.git"
+git init --quiet --initial-branch=master "$workdir/seed"
+seed_in remote add origin "file://$workdir/origin.git"
 commit_file app.py "one" >/dev/null
 clean_culprit=$(commit_file app.py "two")
 workflow_culprit=$(commit_file .github/workflows/ci.yml "on: push")
 conflict_culprit=$(commit_file lib.py "first")
 commit_file lib.py "second" >/dev/null
-git_in push --quiet origin master
+tip_culprit=$(commit_file tip.py "new")
+seed_in push --quiet origin master
+# The task sandbox clones master at depth 1, so the harness does too.
+git clone --quiet --depth=1 "file://$workdir/origin.git" "$workdir/clone"
 
 prepare() {
     (cd "$workdir/clone" && cmd_prepare "$1") 2>&1
+}
+
+reset_clone() {
+    clone_in reset --quiet --hard
+    clone_in checkout --quiet master
 }
 
 check "prepare refuses without the opt-in" \
@@ -135,12 +147,40 @@ check "prepare refuses a commit that changes workflows" \
 
 check "prepare refuses a revert that conflicts with master and leaves the tree clean" \
     "refused=reverting $conflict_culprit conflicts with master|" \
-    "$(prepare "$conflict_culprit" || true)|$(git_in status --porcelain)"
+    "$(prepare "$conflict_culprit" || true)|$(clone_in status --porcelain)"
 
 check "prepare stages exactly the revert on the deterministic branch" \
     "branch=$(revert_branch "$clean_culprit")
 staged_files=1|one" \
     "$(prepare "$clean_culprit")|$(cat "$workdir/clone/app.py")"
+reset_clone
+
+check "prepare reverts the culprit when it is the master tip" \
+    "branch=$(revert_branch "$tip_culprit")
+staged_files=1|absent" \
+    "$(prepare "$tip_culprit" || true)|$([ -e "$workdir/clone/tip.py" ] && echo present || echo absent)"
+reset_clone
+
+seed_in mv app.py renamed.py
+seed_in commit --quiet -m "rename app.py"
+rename_culprit=$(seed_in rev-parse HEAD)
+commit_file other.py "after the rename" >/dev/null
+
+matches() {
+    (cd "$workdir/seed" && revert_matches_culprit "$1" "$2") && echo match || echo mismatch
+}
+
+seed_in checkout --quiet -b exact-revert master
+seed_in revert --no-edit "$rename_culprit" >/dev/null
+check "open accepts the exact revert of a rename" "match" "$(matches "$rename_culprit" exact-revert)"
+
+seed_in checkout --quiet -b altered-revert master
+seed_in revert --quiet --no-commit "$rename_culprit"
+printf 'edited\n' >"$workdir/seed/app.py"
+seed_in add app.py
+seed_in commit --quiet -m "revert with an edit"
+check "open refuses a revert commit that carries other changes" "mismatch" "$(matches "$rename_culprit" altered-revert)"
+seed_in checkout --quiet master
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"

@@ -174,7 +174,7 @@ With the switch, open the PR only after every check in [Proposing a revert](#pro
    MASTER_RED_ALLOW_REVERT_PR=1 .agents/skills/debugging-ci-failures/scripts/master-red-revert.sh prepare <culprit_sha>
    ```
 
-   It fetches the culprit at depth 2, which is all that `git revert` reads, and the master tip at depth 1.
+   It fetches the culprit and the master tip at depth 2 in one fetch, which is all that `git revert` reads.
    It refuses with exit 11 when the culprit is not a single-parent commit, when it changes `.github/workflows/`, which needs a GitHub permission the task may not hold, and when the revert conflicts with master or changes nothing.
    On success it prints the branch, `posthog/master-red-revert-<sha12>`. The branch name is also the dedupe key.
 
@@ -188,10 +188,10 @@ With the switch, open the PR only after every check in [Proposing a revert](#pro
 4. Open the draft:
 
    ```bash
-   MASTER_RED_ALLOW_REVERT_PR=1 .agents/skills/debugging-ci-failures/scripts/master-red-revert.sh open <culprit_sha> <culprit_pr> <body-file>
+   MASTER_RED_ALLOW_REVERT_PR=1 .agents/skills/debugging-ci-failures/scripts/master-red-revert.sh open <culprit_sha> <culprit_pr> <workflow-file> '<failing job name>' <body-file>
    ```
 
-   It checks for an existing revert again, checks that the branch is one commit ahead of master and changes the same files as the culprit, appends a marker, and runs `gh pr create --draft`.
+   It reruns the boundary check and refuses when the lane recovered or the boundary moved. It checks for an existing revert again, checks that the branch is one commit ahead of master and that its tree is exactly the revert of the culprit, appends a marker, and runs `gh pr create --draft`.
    Exit 12 means a revert appeared in the meantime: link it instead.
 
 Put the draft PR's link in the reply, in place of the revert commands.

@@ -12,13 +12,14 @@ REPO=PostHog/posthog
 BRANCH_PREFIX=posthog/master-red-revert-
 MARKER_PREFIX='<!-- master-red-revert:'
 MAX_RUN_PAGES=5
+MAX_COMPARE_PAGES=10
 
 usage() {
     echo "usage: $0 boundary <workflow-file> <job-name>" >&2
     echo "       $0 pr <culprit-sha>" >&2
     echo "       $0 existing <culprit-sha> <culprit-pr>" >&2
     echo "       $0 prepare <culprit-sha>" >&2
-    echo "       $0 open <culprit-sha> <culprit-pr> <body-file>" >&2
+    echo "       $0 open <culprit-sha> <culprit-pr> <workflow-file> <job-name> <body-file>" >&2
     echo "prepare and open require MASTER_RED_ALLOW_REVERT_PR=1" >&2
     exit 2
 }
@@ -166,11 +167,19 @@ find_existing() {
     branch=$(revert_branch "$sha")
     found=$(api "repos/$REPO/pulls?state=all&head=$owner:$branch&per_page=10" | jq -r '.[].html_url') ||
         fail "GitHub read failed: pulls from $branch"
-    found+=$'\n'$(api "search/issues?q=repo:$REPO+is:pr+$pr+revert+in:title,body&per_page=100" |
-        pick_existing_reverts "$sha" "$pr") || fail "GitHub read failed: revert pull request search"
-    found+=$'\n'$(api "repos/$REPO/compare/$sha...master" |
-        jq -r --arg sha "$sha" '.commits[] | select(.commit.message | contains("This reverts commit " + $sha)) | .html_url') ||
-        fail "GitHub read failed: compare $sha...master"
+    for query in "$pr+revert+in:title,body" "$sha"; do
+        found+=$'\n'$(api "search/issues?q=repo:$REPO+is:pr+$query&per_page=100" |
+            pick_existing_reverts "$sha" "$pr") || fail "GitHub read failed: revert pull request search"
+    done
+    local page out
+    for page in $(seq 1 "$MAX_COMPARE_PAGES"); do
+        out=$(api "repos/$REPO/compare/$sha...master?per_page=100&page=$page") ||
+            fail "GitHub read failed: compare $sha...master"
+        found+=$'\n'$(printf '%s' "$out" |
+            jq -r --arg sha "$sha" '.commits[] | select(.commit.message | contains("This reverts commit " + $sha)) | .html_url')
+        [ "$(printf '%s' "$out" | jq '.commits | length')" -eq 100 ] || break
+        [ "$page" -lt "$MAX_COMPARE_PAGES" ] || fail "more than $MAX_COMPARE_PAGES pages of commits follow $sha"
+    done
     printf '%s\n' "$found" | grep -v '^$' | sort -u || true
 }
 
@@ -184,15 +193,29 @@ cmd_existing() {
     printf '%s\n' "$found" | sed 's/^/existing=/'
 }
 
+# One fetch for both refs: a second, shallower fetch of master marks the culprit shallow again
+# when the culprit is the master tip, and its parent disappears.
+fetch_culprit_and_master() {
+    local sha=$1
+    git fetch --quiet --no-tags --depth=2 origin "$sha" "+refs/heads/master:refs/remotes/origin/master" ||
+        fail "could not fetch $sha and master"
+}
+
+# The tree that reverting the culprit onto the branch's parent produces, which is what
+# `git revert` computes. A branch whose tree differs carries something other than the revert.
+revert_matches_culprit() {
+    local sha=$1 ref=$2 expected
+    expected=$(git merge-tree --write-tree --merge-base="$sha" "$ref^" "$sha^" 2>/dev/null) || return 1
+    [ "$(printf '%s' "$expected" | head -1)" = "$(git rev-parse "$ref^{tree}")" ]
+}
+
 cmd_prepare() {
     local sha=$1 branch parents
     require_opt_in
     branch=$(revert_branch "$sha")
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || refuse 11 "not inside a git checkout"
     [ -z "$(git status --porcelain --untracked-files=no)" ] || refuse 11 "the checkout has uncommitted changes"
-    git fetch --quiet --no-tags --depth=2 origin "$sha" || fail "could not fetch $sha"
-    git fetch --quiet --no-tags --depth=1 origin "+refs/heads/master:refs/remotes/origin/master" ||
-        fail "could not fetch master"
+    fetch_culprit_and_master "$sha"
 
     parents=$(git rev-list --parents -n 1 "$sha" | awk '{print NF - 1}')
     [ "$parents" = "1" ] || refuse 11 "$sha has $parents parents; only a single-parent commit reverts cleanly"
@@ -214,10 +237,13 @@ cmd_prepare() {
 }
 
 cmd_open() {
-    local sha=$1 pr=$2 body_file=$3 branch ahead found culprit_files branch_files
+    local sha=$1 pr=$2 workflow=$3 job=$4 body_file=$5 branch ahead found lane
     require_opt_in
     [ -s "$body_file" ] || usage
     branch=$(revert_branch "$sha")
+
+    lane=$(cmd_boundary "$workflow" "$job") || refuse 10 "the lane changed since the boundary check: ${lane#refused=}"
+    printf '%s\n' "$lane" | grep -qx "culprit_sha=$sha" || refuse 10 "the boundary no longer names $sha"
 
     found=$(find_existing "$sha" "$pr")
     [ -z "$found" ] || refuse 12 "$(printf '%s' "$found" | head -1)"
@@ -225,11 +251,10 @@ cmd_open() {
     ahead=$(api "repos/$REPO/compare/master...$branch" | jq -r '.ahead_by') ||
         fail "GitHub read failed: compare master...$branch"
     [ "$ahead" = "1" ] || refuse 11 "$branch is $ahead commits ahead of master, expected the one revert commit"
-    culprit_files=$(api "repos/$REPO/commits/$sha" | jq -r '.files[].filename' | sort) ||
-        fail "GitHub read failed: files of $sha"
-    branch_files=$(api "repos/$REPO/compare/master...$branch" | jq -r '.files[].filename' | sort) ||
-        fail "GitHub read failed: files of $branch"
-    [ "$culprit_files" = "$branch_files" ] || refuse 11 "$branch changes different files than $sha"
+    git fetch --quiet --no-tags --depth=2 origin "$sha" "+refs/heads/$branch:refs/remotes/origin/$branch" ||
+        fail "could not fetch $sha and $branch"
+    revert_matches_culprit "$sha" "refs/remotes/origin/$branch" ||
+        refuse 11 "$branch holds something other than the exact revert of $sha"
 
     { cat "$body_file"; printf '\n%s%s -->\n' "$MARKER_PREFIX" "$sha"; } |
         gh pr create --repo "$REPO" --draft --base master --head "$branch" \
@@ -261,10 +286,10 @@ main() {
             cmd_prepare "$2"
             ;;
         open)
-            [ $# -eq 4 ] || usage
+            [ $# -eq 6 ] || usage
             require_sha "$2"
             require_number "$3"
-            cmd_open "$2" "$3" "$4"
+            cmd_open "$2" "$3" "$4" "$5" "$6"
             ;;
         *)
             usage
