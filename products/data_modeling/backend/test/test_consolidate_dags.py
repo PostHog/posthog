@@ -587,7 +587,8 @@ class TestConsolidateDags(BaseTest):
     def test_managed_dag_folds_into_the_default_dag(self, _name, user_dag_name):
         managed = DAG.get_or_create_revenue_analytics(self.team)
         managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
-        set_declared_target(self._node(managed, managed_query), H12)
+        managed_node = self._node(managed, managed_query)
+        set_declared_target(managed_node, H12)
         if user_dag_name is not None:
             default = DAG.objects.create(team=self.team, name=user_dag_name)
             reader = self._node(default, self._query("reads_mrr", "SELECT 1"))
@@ -606,7 +607,7 @@ class TestConsolidateDags(BaseTest):
         target = DAG.objects.get(team=self.team)
         self.assertEqual(target.name, DEFAULT_DAG_NAME)
         node = Node.objects.get(saved_query=managed_query)
-        self.assertEqual(node.dag_id, target.id)
+        self.assertEqual((node.id, node.dag_id), (managed_node.id, target.id))
         self.assertEqual(get_declared_target(node), H12)
         self.assertEqual(mocks.v2_delete.call_args.args, (str(managed.id),))
         self.assertEqual(mocks.tier_create.call_args.kwargs["id"], tier_schedule_id(str(target.id), H12))
@@ -648,6 +649,7 @@ class TestConsolidateDags(BaseTest):
             query.managed_viewset = viewset
             query.save(update_fields=["managed_viewset"])
         set_declared_target(self._node(managed, managed_query), H12)
+        set_declared_target(self._node(target, managed_query), timedelta(days=1))
         source = DAG.objects.create(team=self.team, name="posthog_team")
         self._node(source, managed_query)
         self._node(source, unplaced_managed_query)

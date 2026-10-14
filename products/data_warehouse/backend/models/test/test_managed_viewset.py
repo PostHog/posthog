@@ -13,6 +13,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Node,
+    NodeType,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,

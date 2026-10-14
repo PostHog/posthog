@@ -31,7 +31,11 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.saved_query_dag_sync import node_type_for, sync_saved_query_to_dag
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
+    move_node_out_of_managed_dag,
+    node_type_for,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.logic.saved_query_reads import PROXY_SAVED_QUERY_ID_PROPERTY
 from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_dag_schedules,
@@ -595,6 +599,8 @@ class Command(BaseCommand):
         moved_sq_ids: list[str] = []
         for item in plan.moves:
             try:
+                if plan.dag.is_managed:
+                    move_node_out_of_managed_dag(item.saved_query, target)
                 node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
             except Exception as error:
                 adoptable = adopt_unresolvable and isinstance(error, ADOPTABLE_SYNC_ERRORS)
@@ -628,7 +634,10 @@ class Command(BaseCommand):
                 orphaned_drops.append(drop.name)
                 self.stderr.write(f"    NOT dropping {drop.name}: its query never reached the target")
                 continue
-            self._carry_declared_target(node, drop.declared_target, drop.name)
+            if plan.dag.is_managed and drop.declared_target is not None:
+                set_declared_target(node, drop.declared_target)
+            else:
+                self._carry_declared_target(node, drop.declared_target, drop.name)
             self.stdout.write(f"    dropped duplicate {drop.name}")
 
         if failed_moves:
