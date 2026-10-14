@@ -9,7 +9,7 @@ from django.core.cache.backends.locmem import LocMemCache
 from django.db import OperationalError
 from django.utils import timezone
 
-from clickhouse_driver.errors import SocketTimeoutError
+from clickhouse_driver.errors import SocketTimeoutError, UnknownPacketFromServerError
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -60,6 +60,7 @@ class TestStoredReads(BaseTest):
             ),
             ("stored_read_lacks_capacity", True, True, ClickHouseAtCapacity(), [_STORED_READ], False, 1),
             ("stored_read_loses_its_connection", True, True, SocketTimeoutError(), [_STORED_READ], False, 1),
+            ("stored_read_misreads_the_protocol", True, True, UnknownPacketFromServerError(), [_STORED_READ], False, 1),
         ]
     )
     def test_two_floored_reads_take_the_stored_rows_only_while_they_answer(

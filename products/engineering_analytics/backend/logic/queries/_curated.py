@@ -28,6 +28,7 @@ from django.core.cache import cache
 from django.db import connections
 
 import structlog
+from clickhouse_driver.errors import UnexpectedPacketFromServerError, UnknownPacketFromServerError
 
 from posthog.schema import HogQLQueryResponse
 
@@ -145,8 +146,11 @@ def _stored_rows_rejected(error: Exception) -> bool:
     """Whether the raw tables can answer a query that failed on the stored rows.
 
     A read that ran out of time, memory or capacity fails harder on the raw tables. So does one that
-    lost its connection, which the classifier files with the rejected queries."""
-    return not isinstance(error, CH_TRANSIENT_ERRORS) and classify_query_error(error) in _STORED_READ_REJECTED
+    lost its connection or misread the protocol, which the classifier files with the rejected queries."""
+    return (
+        not isinstance(error, (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, UnexpectedPacketFromServerError))
+        and classify_query_error(error) in _STORED_READ_REJECTED
+    )
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
@@ -594,8 +598,8 @@ class CuratedGitHubSource:
         source = next(
             (
                 stored
-                for stored in resolve_precompute_sources(self._team)
-                if stored.source_id == self.source_id and stored.repository == repository
+                for stored in resolve_precompute_sources(self._team, source_id=self.source_id)
+                if stored.repository == repository
             ),
             None,
         )

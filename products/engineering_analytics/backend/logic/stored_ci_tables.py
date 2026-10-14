@@ -55,7 +55,8 @@ _STORAGE_FIELDS: dict[str, FieldOrTable] = {
 class _EngineeringAnalyticsCIPrecomputedTable(Table):
     table_name: ClassVar[str]
     top_level_settings: HogQLQuerySettings | None = Field(
-        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
+        # Both tables shard by source, and every read filters on one source.
+        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order", optimize_skip_unused_shards=True)
     )
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
