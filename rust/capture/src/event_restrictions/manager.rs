@@ -400,6 +400,7 @@ mod tests {
     use crate::event_restrictions::types::RestrictionScope;
     use crate::v0_request::DataType;
     use common_redis::CustomRedisError;
+    use strum::IntoEnumIterator;
     use tokio_util::sync::CancellationToken;
 
     fn test_lifecycle() -> (CancellationToken, lifecycle::Handle) {
@@ -590,37 +591,33 @@ mod tests {
             .is_empty());
     }
 
-    #[rstest::rstest]
-    #[case(DataType::AnalyticsMain)]
-    #[case(DataType::AnalyticsHistorical)]
-    #[case(DataType::AiEvents)]
-    #[case(DataType::ExceptionErrorTracking)]
-    #[case(DataType::HeatmapMain)]
-    #[case(DataType::ClientIngestionWarning)]
     #[tokio::test]
-    async fn events_deployment_loads_restrictions_for_every_classified_pipeline(
-        #[case] data_type: DataType,
-    ) {
-        let pipeline = data_type.pipeline().unwrap();
-        let repo = MockRestrictionsRepository::new();
-        repo.set_entries(
-            RestrictionType::DropEvent,
-            Some(vec![make_entry("token", vec![pipeline.as_str()])]),
-        )
-        .await;
+    async fn events_deployment_loads_restrictions_for_every_classified_pipeline() {
+        for data_type in DataType::iter() {
+            let Some(pipeline) = data_type.pipeline() else {
+                continue;
+            };
+            let repo = MockRestrictionsRepository::new();
+            repo.set_entries(
+                RestrictionType::DropEvent,
+                Some(vec![make_entry("token", vec![pipeline.as_str()])]),
+            )
+            .await;
 
-        let manager = RestrictionManager::from_repository(
-            &repo,
-            &Pipeline::for_capture_mode(CaptureMode::Events),
-        )
-        .await
-        .unwrap();
+            let manager = RestrictionManager::from_repository(
+                &repo,
+                &Pipeline::for_capture_mode(CaptureMode::Events),
+            )
+            .await
+            .unwrap();
 
-        let restrictions = manager.get_restrictions("token", &EventContext::default(), pipeline);
-        assert!(
-            restrictions.contains(RestrictionType::DropEvent),
-            "{data_type:?}"
-        );
+            let restrictions =
+                manager.get_restrictions("token", &EventContext::default(), pipeline);
+            assert!(
+                restrictions.contains(RestrictionType::DropEvent),
+                "{data_type:?}"
+            );
+        }
     }
 
     #[tokio::test]
