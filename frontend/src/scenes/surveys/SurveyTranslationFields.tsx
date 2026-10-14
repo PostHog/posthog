@@ -250,6 +250,19 @@ export function SurveyTranslationFields({ activeLanguage }: { activeLanguage: st
                 )
             })}
 
+            {appearance.allowGoBack ? (
+                <section className="space-y-3">
+                    <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">Navigation</h4>
+                    <GuidedTranslationInput
+                        label="Back button"
+                        value={translations[activeLanguage]?.backButtonText || ''}
+                        source={appearance.backButtonText || 'Back'}
+                        aiGenerated={isGeneratedSurveyField('backButtonText')}
+                        onChange={(backButtonText) => updateSurveyTranslation({ backButtonText })}
+                    />
+                </section>
+            ) : null}
+
             {appearance.displayThankYouMessage ? (
                 <section className="space-y-3">
                     <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">
