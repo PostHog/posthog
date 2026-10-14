@@ -115,6 +115,12 @@ class TestGuestObjectAccess(APIBaseTest):
         retrieved = self.client.get(f"/api/projects/{self.team.id}/{path}/{getattr(granted, key)}/")
         assert retrieved.status_code == status.HTTP_404_NOT_FOUND, retrieved.json()
 
+    @parameterized.expand([("retrieve", ""), ("stream tiles", "stream_tiles/")])
+    def test_guest_loses_a_granted_dashboard_once_it_is_deleted(self, _name: str, path: str) -> None:
+        dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=True)
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/{path}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_guest_cannot_list_recordings(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content

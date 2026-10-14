@@ -7,6 +7,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade import testing as access_control_testing
 from products.authz.backend.logic.synchronization import OrganizationProjection, Relationship
+from products.dashboards.backend.facade import testing as dashboard_testing
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
@@ -89,6 +91,19 @@ class TestOrganizationProjection(BaseTest):
             relationship
             for relationship in relationships
             if relationship.user == notebook_key and relationship.object.endswith(("/missing", "#1"))
+        }
+
+    def test_a_deleted_dashboard_passes_no_access_to_its_insights(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+        dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id)
+        DashboardTile.objects.create(dashboard_id=dashboard_id, insight=insight)
+        dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=dashboard_id, deleted=True)
+        relationships = OrganizationProjection(self.organization.id).build()
+        insight_key = self._key("insight", f"{self.team.id}/{insight.id}")
+        assert not {
+            relationship
+            for relationship in relationships
+            if relationship.object == insight_key and relationship.relation in ("dashboard", "has_dashboard")
         }
 
     @parameterized.expand([("embedded recording", True, "none"), ("recording with its own grant", False, "viewer")])
