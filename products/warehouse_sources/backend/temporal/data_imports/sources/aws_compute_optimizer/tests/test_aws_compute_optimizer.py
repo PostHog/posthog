@@ -142,6 +142,20 @@ def test_signed_json_request(region: str | None, token: str | None, host: str) -
             ["volume_arn"],
         ),
         (
+            "rds_database_recommendations",
+            "GetRDSDatabaseRecommendations",
+            "rdsDBRecommendations",
+            {"resourceArn": "arn:aws:rds:eu-west-1:123456789012:db:example"},
+            ["resource_arn"],
+        ),
+        (
+            "idle_recommendations",
+            "GetIdleRecommendations",
+            "idleRecommendations",
+            {"resourceArn": "arn:aws:ec2:eu-west-1:123456789012:volume/vol-idle", "resourceType": "EBSVolume"},
+            ["resource_arn"],
+        ),
+        (
             "recommendation_summaries",
             "GetRecommendationSummaries",
             "recommendationSummaries",
@@ -185,6 +199,125 @@ def test_full_refresh_pagination(
     source.on_complete()
     resume.clear_state.assert_called_once()
     session.close.assert_called_once()
+
+
+EC2_ARN = "arn:aws:ec2:eu-west-1:123456789012:instance/i-example"
+ECS_ARN = "arn:aws:ecs:eu-west-1:123456789012:service/example/service"
+
+
+@pytest.mark.parametrize(
+    "endpoint,parent_operation,parent_key,arn_field,lookback_field,option,metric,expected",
+    [
+        (
+            "ec2_recommendation_projected_metrics",
+            "GetEC2InstanceRecommendations",
+            "instanceRecommendations",
+            "instanceArn",
+            "lookBackPeriodInDays",
+            {"recommendedInstanceType": "m7i.large", "rank": 1},
+            {"name": "Cpu", "timestamps": [1735689600, 1735776000], "values": [40.5, 12.0]},
+            [
+                {"instance_arn": EC2_ARN, "recommended_instance_type": "m7i.large", "rank": 1, "value": 40.5},
+                {"instance_arn": EC2_ARN, "recommended_instance_type": "m7i.large", "rank": 1, "value": 12.0},
+            ],
+        ),
+        (
+            "ecs_service_recommendation_projected_metrics",
+            "GetECSServiceRecommendations",
+            "ecsServiceRecommendations",
+            "serviceArn",
+            "lookbackPeriodInDays",
+            {"recommendedCpuUnits": 256, "recommendedMemorySize": 512},
+            {
+                "name": "Memory",
+                "timestamps": [1735689600, 1735776000],
+                "upperBoundValues": [70.0, 60.0],
+                "lowerBoundValues": [30.0],
+            },
+            [
+                {
+                    "service_arn": ECS_ARN,
+                    "recommended_cpu_units": 256,
+                    "recommended_memory_size": 512,
+                    "upper_bound_value": 70.0,
+                    "lower_bound_value": 30.0,
+                },
+                {
+                    "service_arn": ECS_ARN,
+                    "recommended_cpu_units": 256,
+                    "recommended_memory_size": 512,
+                    "upper_bound_value": 60.0,
+                    "lower_bound_value": None,
+                },
+            ],
+        ),
+    ],
+)
+def test_projected_metrics_fan_out_over_recommendations(
+    endpoint: str,
+    parent_operation: str,
+    parent_key: str,
+    arn_field: str,
+    lookback_field: str,
+    option: dict[str, Any],
+    metric: dict[str, Any],
+    expected: list[dict[str, Any]],
+) -> None:
+    arn = expected[0][transport._column(arn_field)]
+    result = driver().run(
+        endpoint,
+        [
+            ScriptedResponse(
+                json={parent_key: [{arn_field: "arn:gone"}, {arn_field: arn, lookback_field: 32}], "nextToken": "p2"}
+            ),
+            ScriptedResponse(status=400, json={"__type": "ResourceNotFoundException"}),
+            ScriptedResponse(json={"recommendedOptionProjectedMetrics": [{**option, "projectedMetrics": [metric]}]}),
+            ScriptedResponse(json={parent_key: [], "nextToken": None}),
+        ],
+    )
+    assert result.raised is None
+    timestamps = [datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC)]
+    assert result.rows == [
+        {**row, "metric_name": metric["name"], "timestamp": timestamp, "region": "eu-west-1"}
+        for row, timestamp in zip(expected, timestamps)
+    ]
+    bodies = [json.loads(request.body or b"{}") for request in result.requests]
+    targets = [request.headers["x-amz-target"].rsplit(".", 1)[-1] for request in result.requests]
+    assert targets[0] == targets[3] == parent_operation
+    assert bodies[0] == {"maxResults": 100}
+    assert bodies[3] == {"maxResults": 100, "nextToken": "p2"}
+    gone, child = bodies[1], bodies[2]
+    assert gone[arn_field] == "arn:gone"
+    assert gone["endTime"] - gone["startTime"] == 14 * 86400
+    assert child == {
+        arn_field: arn,
+        "stat": "Maximum",
+        "period": 86400,
+        "startTime": child["endTime"] - 32 * 86400,
+        "endTime": child["endTime"],
+    }
+    assert child["endTime"] % 86400 == 0
+    assert result.committed_states == [
+        AwsComputeOptimizerResumeConfig(next_token=None, parent_offset=1),
+        AwsComputeOptimizerResumeConfig(next_token="p2"),
+        AwsComputeOptimizerResumeConfig(complete=True),
+    ]
+    assert result.completed_state is None
+
+
+def test_projected_metrics_resume_skips_finished_parents() -> None:
+    result = driver().run(
+        "ec2_recommendation_projected_metrics",
+        [
+            ScriptedResponse(json={"instanceRecommendations": [{"instanceArn": "arn:done"}, {"instanceArn": EC2_ARN}]}),
+            ScriptedResponse(json={"recommendedOptionProjectedMetrics": []}),
+        ],
+        resume_state=AwsComputeOptimizerResumeConfig(next_token="p2", parent_offset=1),
+    )
+    assert result.raised is None
+    assert [json.loads(request.body or b"{}").get("instanceArn") for request in result.requests] == [None, EC2_ARN]
+    assert json.loads(result.requests[0].body or b"{}") == {"maxResults": 100, "nextToken": "p2"}
+    assert result.final_state == AwsComputeOptimizerResumeConfig(complete=True)
 
 
 def test_completed_resume_does_not_refetch() -> None:
@@ -287,7 +420,10 @@ def test_partial_error_does_not_commit_incomplete_data(session: MagicMock) -> No
     session.close.assert_called_once()
 
 
-@pytest.mark.parametrize("schema,valid", [(None, True), ("ec2_instance_recommendations", False)])
+@pytest.mark.parametrize(
+    "schema,valid",
+    [(None, True), ("ec2_instance_recommendations", False), ("ec2_recommendation_projected_metrics", False)],
+)
 def test_missing_permission_at_creation_and_per_table(session: MagicMock, schema: str | None, valid: bool) -> None:
     session.post.return_value = response({"__type": "AccessDeniedException"}, 400)
     result, message = validate_credentials(config(), schema)
