@@ -33,7 +33,7 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
 # nosemgrep: no-new-uuidt-models -- an existing model, and a new primary key default would need a migration.
 class DataWarehouseJoin(ModelActivityMixin, CreatedMetaFields, UUIDTModel, DeletedMetaFields):
-    # The join API hard deletes. Only a table delete soft deletes its joins.
+    # The join API hard deletes. Other paths soft delete through save().
     activity_logging_on_delete = True
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")

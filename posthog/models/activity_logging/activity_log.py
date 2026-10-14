@@ -1520,6 +1520,7 @@ def log_activity_with_soft_delete(
     user: "User | None",
     was_impersonated: bool,
     name: str | None = None,
+    organization_id: UUID | None = None,
 ) -> None:
     instance = current or previous
     if instance is None:
@@ -1531,7 +1532,7 @@ def log_activity_with_soft_delete(
     if deleted_change:
         activity = "deleted" if deleted_change.after else "restored"
     log_activity(
-        organization_id=None,
+        organization_id=organization_id,
         team_id=instance.serializable_value("team"),
         user=user,
         was_impersonated=was_impersonated,

@@ -85,7 +85,7 @@ class TestTableActivitySnapshot(SimpleTestCase):
             (
                 "signed_query",
                 "https://bucket.example.com/data.csv?X-Amz-Signature=abc",
-                "https://bucket.example.com/data.csv?<redacted>",
+                "https://bucket.example.com/data.csv?<redacted:8fc87314>",
             ),
         ]
     )

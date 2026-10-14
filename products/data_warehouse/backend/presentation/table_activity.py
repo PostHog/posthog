@@ -5,6 +5,7 @@ reads the row before each save through a manager that adds two joins and a prefe
 write paths call ``log_table_activity`` instead.
 """
 
+import hashlib
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -17,10 +18,11 @@ if TYPE_CHECKING:
 
 def _redact_url(url: str) -> str:
     # A URL can carry an access key in its userinfo or a signature in its query string. The activity
-    # row and its internal event must not copy either.
+    # row and its internal event must not copy either. A short digest keeps a query-only change visible.
     parts = urlsplit(url)
     host = parts.netloc.rsplit("@", 1)[-1]
-    return urlunsplit((parts.scheme, host, parts.path, "<redacted>" if parts.query else "", ""))
+    query = f"<redacted:{hashlib.sha256(parts.query.encode()).hexdigest()[:8]}>" if parts.query else ""
+    return urlunsplit((parts.scheme, host, parts.path, query, ""))
 
 
 def snapshot_table(table: "DataWarehouseTable") -> dict[str, Any]:
