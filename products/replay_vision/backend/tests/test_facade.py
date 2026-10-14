@@ -171,7 +171,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("short", {"verdict": "yes"}, {"verdict": "yes"}, None),
+            ("short", {"verdict": "yes"}, {"verdict": "yes"}, []),
             (
                 "too_long",
                 {"verdict": "yes", "reasoning": "x" * 5000},
@@ -181,7 +181,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         ]
     )
     def test_returns_the_answer_at_once_when_the_session_was_already_scanned(
-        self, _name: str, model_output: dict[str, Any], output: dict[str, Any], warnings: list[str] | None
+        self, _name: str, model_output: dict[str, Any], output: dict[str, Any], warnings: list[str]
     ) -> None:
         scanner = self._scanner_with_answer(model_output)
 
@@ -239,6 +239,20 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         assert "This workflow reached the daily limit of 1" in workflow_capped.value.detail
         assert "This project's workflows reached the daily limit of 1" in team_capped.value.detail
 
+    def test_a_replay_that_loses_the_race_for_the_last_slot_still_gets_its_request(self) -> None:
+        lock = "products.replay_vision.backend.observation_requests._lock_workflow_scans"
+        first: list[Any] = []
+
+        def concurrent_call_with_the_same_key(_team_id: int) -> None:
+            if not first:
+                with patch(lock):
+                    first.append(self._start(per_workflow_daily_cap=1))
+
+        with patch(lock, side_effect=concurrent_call_with_the_same_key):
+            replayed = self._start(per_workflow_daily_cap=1)
+
+        assert (replayed.request_id, replayed.created) == (first[0].request_id, False)
+
     @parameterized.expand(
         [
             ("no_ai_consent", {}, "consent"),
@@ -293,6 +307,8 @@ class TestParseWorkflowScanSetup:
             ("scanner_without_id", {"type": "scanner", "scanner_id": ""}, "Choose a saved scanner."),
             ("monitor_without_prompt", {"type": "monitor", "prompt": " "}, "Prompt is required."),
             ("scorer_without_scale", {"type": "scorer", "prompt": "p"}, "Scale is required."),
+            ("scalar_categories", {"type": "classifier", "prompt": "p", "tags": 1}, "Categories must be a list."),
+            ("string_categories", {"type": "classifier", "prompt": "p", "tags": "buy"}, "Categories must be a list."),
         ],
     )
     def test_reads_the_step_setup(self, _name: str, setup: Any, error: str | None) -> None:

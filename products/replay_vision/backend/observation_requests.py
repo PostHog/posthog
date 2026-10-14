@@ -174,6 +174,15 @@ def create_observation_request(
     try:
         with transaction.atomic():
             if workflow_caps is not None:
+                _lock_workflow_scans(team.id)
+                # A same-key call that held the lock first has committed its row, which is visible now.
+                replayed = (
+                    ReplayObservationRequest.objects.for_team(team.id).filter(idempotency_key=idempotency_key).first()
+                    if idempotency_key
+                    else None
+                )
+                if replayed is not None:
+                    return _same_caller(replayed, team, source, user), False
                 _check_workflow_caps(team.id, reference, workflow_caps)
             request = ReplayObservationRequest.objects.for_team(team.id).create(
                 team=team,
@@ -204,10 +213,13 @@ def create_observation_request(
     return request, True
 
 
-def _check_workflow_caps(team_id: int, hog_flow_id: str, caps: WorkflowScanCaps) -> None:
+def _lock_workflow_scans(team_id: int) -> None:
     # Serializes the count and the insert, so two concurrent runs can't both take the last scan.
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"replay-vision-workflow-scans:{team_id}"])
+
+
+def _check_workflow_caps(team_id: int, hog_flow_id: str, caps: WorkflowScanCaps) -> None:
     recent = ReplayObservationRequest.objects.for_team(team_id).filter(
         source=ObservationRequestSource.WORKFLOW, created_at__gte=timezone.now() - timedelta(days=1)
     )
@@ -452,14 +464,17 @@ def complete_settled_requests(
         if not page:
             break
         cursor = (page[-1].created_at, page[-1].id)
-        completed += _complete_page(page, now)
+        completed += _complete_page(page, now, deadline)
     return completed
 
 
-def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
+def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline: float) -> int:
     progress = request_progress_many(page, now=now)
     sent: list[tuple[ReplayObservationRequest, ProduceResult]] = []
     for request in page:
+        # A wake can block on the engine, so the rest of the page waits for the next tick.
+        if time.monotonic() >= deadline:
+            break
         if not progress[request.id].settled:
             continue
         # The wake goes first, so a wake that fails leaves the request open without announcing it twice.
@@ -539,7 +554,7 @@ def _step_answer(state: str, output: Any, warnings: list[str]) -> dict[str, Any]
     if capped != output:
         cut = [key for key in output if (capped or {}).get(key) != output[key]] if isinstance(output, dict) else []
         warnings = [*warnings, "The answer was cut to fit the step result" + (f": {', '.join(cut)}" if cut else ".")]
-    return {"state": state, "output": capped, "warnings": warnings or None}
+    return {"state": state, "output": capped, "warnings": warnings}
 
 
 def _state_counts(progress: RequestProgress) -> dict[str, int]:
@@ -563,6 +578,8 @@ def _wake_workflow_step(request: ReplayObservationRequest, progress: RequestProg
             status="completed",
             result=step_result(request, progress),
             raise_on_error=True,
+            # A step the worker still holds gets the wake on the next tick, not after seconds of sleeping here.
+            retry_delays=(),
         )
     except Exception:
         logger.exception("replay_vision.observation_request.step_resume_failed", request_id=str(request.id))
