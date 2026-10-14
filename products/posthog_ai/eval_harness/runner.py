@@ -164,8 +164,8 @@ async def run_eval_case(
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
-        await _report_cleanup(on_cleanup)
         completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
+        await _report_cleanup(on_cleanup)
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
             raise WorkflowCleanupError(
@@ -177,19 +177,21 @@ async def run_eval_case(
         # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
-        await _report_cleanup(on_cleanup)
         cleanup_confirmed = False
-        if completion_task is not None:
-            # A case timeout can arrive while successful workflow cleanup is
-            # already running. Let that bounded task settle instead of sending a
-            # conflicting failed completion signal.
-            cleanup_confirmed = await asyncio.shield(completion_task)
-        elif state.handle is not None and not isinstance(e, WorkflowCleanupError):
-            cleanup_confirmed = await asyncio.shield(
+        # A case timeout can arrive while successful workflow cleanup is
+        # already running. Let that bounded task settle instead of sending a
+        # conflicting failed completion signal.
+        if completion_task is None and state.handle is not None and not isinstance(e, WorkflowCleanupError):
+            completion_task = asyncio.create_task(
                 _finish_workflow(state.handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
             )
-        if state.handle is not None and not cleanup_confirmed:
-            logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
+        try:
+            await _report_cleanup(on_cleanup)
+        finally:
+            if completion_task is not None:
+                cleanup_confirmed = await asyncio.shield(completion_task)
+            if state.handle is not None and not cleanup_confirmed:
+                logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
         raise
     finally:
         if state.task_id is not None:

@@ -331,6 +331,41 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(
 
 
 @pytest.mark.asyncio
+async def test_cancellation_during_failure_progress_waits_for_workflow_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = _FakeWorkflowHandle(complete_on_signal=False)
+    provider = _Provider()
+    _patch_runner_boundaries(monkeypatch, handle, AsyncMock(side_effect=RuntimeError("poll failed")))
+    progress_started = asyncio.Event()
+    progress_release = asyncio.Event()
+
+    async def on_cleanup() -> None:
+        progress_started.set()
+        await progress_release.wait()
+
+    case_task = asyncio.create_task(
+        runner.run_eval_case(
+            SandboxedEvalCase(name="case", prompt="prompt"),
+            MagicMock(),
+            provider=provider,
+            on_cleanup=on_cleanup,
+        )
+    )
+    try:
+        await asyncio.wait_for(progress_started.wait(), timeout=1)
+        case_task.cancel()
+        await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+        assert not case_task.done()
+    finally:
+        progress_release.set()
+        handle.terminal.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(case_task, timeout=1)
+    assert handle.signals[0][0] == "failed"
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
 async def test_cancellation_finishes_workflow_before_propagating(
     monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
