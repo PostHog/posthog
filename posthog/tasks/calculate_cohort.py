@@ -178,6 +178,7 @@ MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
+MAX_STUCK_SOURCELESS_STATIC_COHORTS_TO_RESET = 30
 # insert_cohort_from_feature_flag stops at the soft limit and records its own failure. The sweep measures a cohort with
 # no history row from created_at. The extra hour covers the time that the task of that cohort waits in the queue.
 # calculate_cohort_from_list has no time limit. The sweep therefore resets a CSV import that runs longer than this. When
@@ -289,7 +290,7 @@ def reset_stuck_sourceless_static_cohorts() -> None:
     cutoff = now - SOURCELESS_STATIC_COHORT_STUCK_AFTER
     reset_cohort_ids = []
     for cohort in get_stuck_sourceless_static_cohort_candidates_queryset(cutoff).order_by(F("created_at").asc())[
-        0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
+        0:MAX_STUCK_SOURCELESS_STATIC_COHORTS_TO_RESET
     ]:
         with transaction.atomic():
             # The update repeats the candidate test. It skips a cohort whose run finished after the query above read
