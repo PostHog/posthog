@@ -33,10 +33,12 @@ from products.workflows.backend.services.data_suggestions.planner import (
 )
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
+    _build_key,
     _cache_key,
     _generation_lock_key,
     _to_cache,
     run_data_suggestions,
+    start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.services.data_suggestions.team_context import email_sender, recent_event_names
@@ -336,6 +338,25 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             "user_registered": 3,
             "query executed": 30,
         }
+
+    def test_counts_every_candidate_event_past_the_default_row_limit(self, _flag) -> None:
+        names = [f"quiet_{index}" for index in range(150)]
+        for name in names:
+            _create_event(team=self.team, event=name, distinct_id="person-1")
+        flush_persons_and_events()
+
+        assert set(weekly_counts(self.team, names)) == set(names)
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock, _flag) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        suggestion_id = self._list()["suggestions"][0]["id"]
+        cache.set(_build_key(self.team.id, suggestion_id), {"status": "failed"}, 60)
+
+        retry = start_build(team=self.team, suggestion_id=suggestion_id, retry=True, enqueue=lambda _token: None)
+        poll = start_build(team=self.team, suggestion_id=suggestion_id, retry=False, enqueue=lambda _token: None)
+
+        assert retry.status == poll.status == "building"
 
     @patch(f"{TEAM_CONTEXT}.EVENT_DEFINITIONS_LIMIT", 2)
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])

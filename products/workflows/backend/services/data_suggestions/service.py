@@ -151,6 +151,8 @@ def start_build(*, team: Team, suggestion_id: str, retry: bool, enqueue: Callabl
     lock_token = str(uuid.uuid4())
     if not cache.add(_build_lock_key(team.id, suggestion_id), lock_token, _GENERATION_LOCK_SECONDS):
         return _BUILDING
+    # Cleared once the lock is held, so the polls of this retry read building instead of the old failure.
+    cache.delete(_build_key(team.id, suggestion_id))
     try:
         enqueue(lock_token)
     except Exception:

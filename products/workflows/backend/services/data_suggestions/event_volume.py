@@ -54,8 +54,13 @@ def _count_events(team: Team, names: list[str], sample_denominator: int) -> dict
         WHERE timestamp >= now() - INTERVAL 7 DAY AND event IN {names}
         GROUP BY event
         ORDER BY weekly_count DESC
+        LIMIT {limit}
         """,
-        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names])},
+        # Without an explicit limit HogQL returns 100 rows, which drops the quietest events, like a sign-up.
+        placeholders={
+            "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
+            "limit": ast.Constant(value=len(names)),
+        },
     )
     if sample_denominator > 1 and isinstance(query, ast.SelectQuery) and query.select_from is not None:
         query.select_from.sample = _sample(sample_denominator)
