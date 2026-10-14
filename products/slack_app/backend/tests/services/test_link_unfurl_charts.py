@@ -86,7 +86,6 @@ class TestLinkUnfurlCharts(BaseTest):
             SlackAppUnfurlChartsPostInput(
                 request=self._inputs(self.user),
                 rendered=[SlackUnfurlChartAsset(url=_URL, asset_id=asset.id, cache_key="unused", cached=False)],
-                failed_count=0,
                 elapsed_ms=1,
             )
         )

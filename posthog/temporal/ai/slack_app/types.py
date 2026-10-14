@@ -48,7 +48,6 @@ class SlackUnfurlChartAsset:
     url: str
     asset_id: int
     cache_key: str
-    # A cached asset already has its PNG, so the workflow does not render it again.
     cached: bool
 
 
@@ -56,14 +55,12 @@ class SlackUnfurlChartAsset:
 class SlackAppUnfurlChartsPrepared:
     distinct_id: str
     assets: list[SlackUnfurlChartAsset]
-    refused_count: int
 
 
 @frozen
 class SlackAppUnfurlChartsPostInput:
     request: SlackAppUnfurlChartsWorkflowInputs
     rendered: list[SlackUnfurlChartAsset]
-    failed_count: int
     elapsed_ms: int
 
 

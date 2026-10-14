@@ -11,7 +11,6 @@ from posthog.temporal.ai.slack_app.activities.unfurl_charts import (
 )
 from posthog.temporal.ai.slack_app.types import (
     SlackAppUnfurlChartsPostInput,
-    SlackAppUnfurlChartsPrepared,
     SlackAppUnfurlChartsWorkflowInputs,
     SlackUnfurlChartAsset,
 )
@@ -27,8 +26,6 @@ _ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3, initial_interval=timede
 
 @workflow.defn(name="slack-app-unfurl-charts")
 class SlackAppUnfurlChartsWorkflow(PostHogWorkflow):
-    """Render the insights in a link unfurl and post the cards again with their charts."""
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SlackAppUnfurlChartsWorkflowInputs:
         return SlackAppUnfurlChartsWorkflowInputs(**json.loads(inputs[0]))
@@ -42,15 +39,13 @@ class SlackAppUnfurlChartsWorkflow(PostHogWorkflow):
             retry_policy=_ACTIVITY_RETRY_POLICY,
         )
         rendered = [asset for asset in prepared.assets if asset.cached]
-        failed_count = prepared.refused_count
         to_render = [asset for asset in prepared.assets if not asset.cached]
         results = await asyncio.gather(
-            *(self._render(inputs, prepared, asset) for asset in to_render),
+            *(self._render(inputs, prepared.distinct_id, asset) for asset in to_render),
             return_exceptions=True,
         )
         for asset, result in zip(to_render, results):
             if isinstance(result, BaseException):
-                failed_count += 1
                 workflow.logger.warning(
                     "slack_app_unfurl_chart_render_failed",
                     extra={"asset_id": asset.asset_id, "error": str(result)},
@@ -63,7 +58,6 @@ class SlackAppUnfurlChartsWorkflow(PostHogWorkflow):
             SlackAppUnfurlChartsPostInput(
                 request=inputs,
                 rendered=rendered,
-                failed_count=failed_count,
                 elapsed_ms=int((workflow.now() - workflow.info().start_time).total_seconds() * 1000),
             ),
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
@@ -73,16 +67,15 @@ class SlackAppUnfurlChartsWorkflow(PostHogWorkflow):
     async def _render(
         self,
         inputs: SlackAppUnfurlChartsWorkflowInputs,
-        prepared: SlackAppUnfurlChartsPrepared,
+        distinct_id: str,
         asset: SlackUnfurlChartAsset,
     ) -> None:
-        # A child workflow, so no worker waits while the export renders.
         await workflow.execute_child_workflow(
             ExportAssetWorkflow.run,
             ExportAssetWorkflowInputs(
                 exported_asset_id=asset.asset_id,
                 team_id=inputs.team_id,
-                distinct_id=prepared.distinct_id,
+                distinct_id=distinct_id,
             ),
             id=f"export-asset-{asset.asset_id}",
             task_queue=inputs.export_task_queue,

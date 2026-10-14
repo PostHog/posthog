@@ -4,6 +4,7 @@ from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db.models import Q
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -267,13 +268,12 @@ def create_png_export_asset(
 
 
 def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
-    """Whether a PNG asset rendered without error and stored its bytes."""
-    asset = ExportedAsset.objects.filter(
-        team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG
-    ).first()
-    if asset is None or asset.exception:
-        return False
-    return bool(asset.content or asset.content_location)
+    return (
+        ExportedAsset.objects.filter(team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG)
+        .filter(Q(exception__isnull=True) | Q(exception=""))
+        .filter(Q(content__isnull=False) | (Q(content_location__isnull=False) & ~Q(content_location="")))
+        .exists()
+    )
 
 
 def render_png_export(

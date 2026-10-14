@@ -16,7 +16,7 @@ from django.core.exceptions import ValidationError
 import structlog
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
@@ -40,6 +40,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
 from products.slack_app.backend.services.followup_invite import build_followup_invite
+from products.slack_app.backend.services.link_unfurl_charts import chat_unfurl_kwargs
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -455,8 +456,7 @@ def _attach_public_slack_thread_reference(
 def _start_unfurl_charts(
     *,
     integration: Integration,
-    user_id: int,
-    distinct_id: str,
+    user: User,
     event: dict,
     unfurls: dict[str, dict],
     charts: list[SlackUnfurlChartRequest],
@@ -468,14 +468,14 @@ def _start_unfurl_charts(
     """
     if not integration.team.organization.allow_publicly_shared_resources:
         return False
-    if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=distinct_id):
+    if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=str(user.distinct_id)):
         return False
     channel = event["channel"]
     message_ts = event["message_ts"]
     inputs = SlackAppUnfurlChartsWorkflowInputs(
         team_id=integration.team_id,
         integration_id=integration.id,
-        user_id=user_id,
+        user_id=user.pk,
         slack_user_id=event["user"],
         channel=channel,
         message_ts=message_ts,
@@ -688,21 +688,16 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         if invite:
             unfurls[invite_url]["blocks"].append(invite)
 
-    unfurl_kwargs: dict = {"channel": channel, "ts": message_ts, "unfurls": unfurls}
-    if unfurl_id:
-        unfurl_kwargs["unfurl_id"] = unfurl_id
-    if source:
-        unfurl_kwargs["source"] = source
-
     try:
-        slack.client.chat_unfurl(**unfurl_kwargs)
+        slack.client.chat_unfurl(
+            **chat_unfurl_kwargs(channel=channel, ts=message_ts, unfurls=unfurls, unfurl_id=unfurl_id, source=source)
+        )
     except Exception:
         logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
     else:
         charts_started = bool(chart_requests) and _start_unfurl_charts(
             integration=integration,
-            user_id=user.pk,
-            distinct_id=str(user.distinct_id),
+            user=user,
             event=event,
             unfurls=unfurls,
             charts=chart_requests,

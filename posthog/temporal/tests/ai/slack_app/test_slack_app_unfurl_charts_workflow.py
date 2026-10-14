@@ -40,7 +40,6 @@ async def _fake_prepare(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAppU
                 (_FAILING_ASSET_ID, False),
             )
         ],
-        refused_count=1,
     )
 
 
@@ -99,4 +98,3 @@ async def test_a_failed_render_still_posts_the_other_charts(
     assert sorted(rendered_asset_ids) == [_RENDERED_ASSET_ID, _FAILING_ASSET_ID]
     assert len(posted) == 1
     assert sorted(asset.asset_id for asset in posted[0].rendered) == [_CACHED_ASSET_ID, _RENDERED_ASSET_ID]
-    assert posted[0].failed_count == 2
