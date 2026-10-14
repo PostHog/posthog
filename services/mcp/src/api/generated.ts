@@ -13813,6 +13813,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface AutoresearchTrainingTrendPoint {
+      /** Iteration number inside the training run. */
+      readonly iteration_number: number;
+      /** Best holdout AUC of the run up to and including this iteration. */
+      readonly best_holdout_score: number;
+    }
+
     export interface AutoresearchLiveTrainingRun {
       /** Unique UUID of the live training run. */
       readonly id: string;
@@ -13832,6 +13839,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly latest_summary: string | null;
+      /** Best-so-far holdout AUC per experiment of this run, oldest first. Experiments before the first holdout score are left out. */
+      readonly trend: readonly AutoresearchTrainingTrendPoint[];
     }
 
     /**
@@ -14027,13 +14036,6 @@ export namespace Schemas {
       readonly prediction_date: string;
       /** Realized AUC on that date. */
       readonly realized_auc: number;
-    }
-
-    export interface AutoresearchTrainingTrendPoint {
-      /** Iteration number inside the training run. */
-      readonly iteration_number: number;
-      /** Best holdout AUC of the run up to and including this iteration. */
-      readonly best_holdout_score: number;
     }
 
     export interface AutoresearchPredictionCoverage {
