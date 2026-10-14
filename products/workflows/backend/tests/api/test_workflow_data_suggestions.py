@@ -503,29 +503,34 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ai consent withdrawn after the click", False, "own-run", 0, False),
-            ("a run whose lease ran out before it started", True, "stale-run", 0, True),
+            ("ai consent withdrawn after the click", False, "own-run", "own-run", 0, False, False),
+            ("a run whose lease went to a newer run", True, "newer-run", "own-run", 1, True, False),
+            ("a replica that has not seen the lock yet", True, None, "own-run", 1, False, True),
         ]
     )
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
-    def test_a_background_run_checks_consent_and_only_releases_its_own_lock(
+    def test_a_background_run_checks_consent_and_only_writes_while_no_newer_run_holds_the_lock(
         self,
         _name: str,
         approved: bool,
+        holder: str | None,
         token: str,
         model_calls: int,
         lock_left: bool,
+        cached: bool,
         suggest_ideas: MagicMock,
         _flag,
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
-        cache.set(_generation_lock_key(self.team), "own-run", 60)
+        if holder is not None:
+            cache.set(_generation_lock_key(self.team), holder, 60)
 
         run_data_suggestions(team_id=self.team.id, user_id=self.user.id, lock_token=token)
 
         assert suggest_ideas.call_count == model_calls
         assert (cache.get(_generation_lock_key(self.team)) is not None) is lock_left
+        assert (cache.get(_cache_key(self.team)) is not None) is cached
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_run_that_loses_its_lease_does_not_replace_the_newer_cards(self, suggest_ideas: MagicMock, _flag) -> None:

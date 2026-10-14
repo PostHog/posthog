@@ -122,9 +122,6 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
     """The background run that `start_data_suggestions` queues. It caches the result and releases the lock."""
     lock_key = _generation_lock_key_for(team_id)
     try:
-        # A task that waited in the queue past its lease lost the lock to a newer run, so it does no work.
-        if cache.get(lock_key) != lock_token:
-            return
         team = Team.objects.select_related("organization").get(id=team_id)
         user = User.objects.get(id=user_id)
         # Consent or privacy settings can change between the click and the worker picking the run up.
@@ -139,7 +136,7 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
         # An empty answer often means the team's events have not arrived yet, so it is retried as soon as a failure.
         ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
         # A newer run owns the cache once this run lost the lock, and its suggestion ids must stay.
-        if cache.get(lock_key) != lock_token:
+        if _lost_lock(lock_key, lock_token):
             return
         # Written before the lock is released, so the next visit reads it instead of starting another run.
         cache.set(_cache_key(team), _to_cache(result), ttl)
@@ -195,8 +192,6 @@ def run_build(
 ) -> None:
     """The background build that `start_build` queues. It stores the result and releases the lock."""
     lock_key = _build_lock_key(team_id, suggestion_id, caller)
-    if cache.get(lock_key) != lock_token:
-        return
     try:
         try:
             team = Team.objects.select_related("organization").get(id=team_id)
@@ -216,7 +211,7 @@ def run_build(
             capture_exception(error, {"team_id": team_id})
             result = _BUILD_FAILED
         ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
-        if cache.get(lock_key) == lock_token:
+        if not _lost_lock(lock_key, lock_token):
             cache.set(_build_key(team_id, suggestion_id, caller), dataclasses.asdict(result), ttl)
     finally:
         _release(lock_key, lock_token)
@@ -321,6 +316,13 @@ def _generation_lock_key_for(team_id: int) -> str:
 
 def _release_lock(team_id: int, lock_token: str) -> None:
     _release(_generation_lock_key_for(team_id), lock_token)
+
+
+def _lost_lock(key: str, lock_token: str) -> bool:
+    # Reads can come from a Redis replica, which may not have the lock yet. Only another run's token means a newer run
+    # took over, so a missing lock does not count.
+    holder = cache.get(key)
+    return holder is not None and holder != lock_token
 
 
 def _release(key: str, lock_token: str) -> None:
