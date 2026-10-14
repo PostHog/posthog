@@ -3022,15 +3022,12 @@ def route_posthog_code_event_to_relevant_region(
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
-            # Mirror the app_mention gate: don't unfurl project data into an unapproved externally
-            # shared channel. A paste isn't an explicit invocation, so suppress without prompting.
-            channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
-            if (
-                is_ext_shared_channel
-                and channel_id
-                and not _channel_is_approved(local_match.integration_id, channel_id)
-            ):
-                logger.info("slack_link_unfurl_channel_unapproved", slack_team_id=slack_team_id, channel=channel_id)
+            # Never unfurl into a Slack Connect channel, even an approved one. A card or its chart shows
+            # project data to people outside the organization, and a pasted link is not a request for it.
+            if is_ext_shared_channel:
+                logger.info(
+                    "slack_link_unfurl_external_channel", slack_team_id=slack_team_id, channel=event.get("channel")
+                )
                 return ROUTE_HANDLED_LOCALLY
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
