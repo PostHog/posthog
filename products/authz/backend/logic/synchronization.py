@@ -2,6 +2,8 @@ import re
 from itertools import batched
 from uuid import UUID
 
+from django.db.models import Q
+
 from openfga_sdk import ReadRequestTupleKey
 from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
 from openfga_sdk.sync import OpenFgaClient
@@ -22,6 +24,13 @@ from . import sync_state
 
 # Notebook content is user input, and an OpenFGA object id cannot hold whitespace, "#" or ":".
 RECORDING_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,200}")
+
+
+def _uuid_or_none(value: str | None) -> UUID | None:
+    try:
+        return UUID(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 @frozen
@@ -206,23 +215,32 @@ class OrganizationProjection:
                     if embedded_insight_id is not None:
                         self.add(object_key, "notebook", self.key("insight", f"{team.id}/{embedded_insight_id}"))
                 for session_id in notebook.recording_ids:
-                    if not RECORDING_ID_PATTERN.fullmatch(session_id):
-                        continue
-                    embedded_session_ids.add(session_id)
-                    recording_key = self.key("session_recording", f"{team.id}/{session_id}")
-                    self.add(project_key, "project", recording_key)
-                    self.add(object_key, "notebook", recording_key)
-            for session_id in embedded_session_ids:
-                policy_key = self.key("access_policy", f"{team.id}/session_recording/{session_id}")
-                self.add(policy_key, "policy", self.key("session_recording", f"{team.id}/{session_id}"))
-                self.add(self.organization_key, "organization", policy_key)
+                    if RECORDING_ID_PATTERN.fullmatch(session_id):
+                        embedded_session_ids.add(session_id)
+                        self.add(object_key, "notebook", self.key("session_recording", f"{team.id}/{session_id}"))
+
+            rules = authorization_rules(team.id, self.organization_id)
             # Rules name a recording by its row id, and OpenFGA names it by its session id.
+            ruled_recording_ids = {
+                recording_id
+                for rule in rules
+                if rule.resource == "session_recording" and (recording_id := _uuid_or_none(rule.resource_id))
+            }
             session_ids_by_recording_id = {
                 str(recording_id): session_id
                 for recording_id, session_id in SessionRecording.objects.filter(
-                    team_id=team.id, session_id__in=embedded_session_ids
+                    Q(session_id__in=embedded_session_ids) | Q(id__in=ruled_recording_ids), team_id=team.id
                 ).values_list("id", "session_id")
+                if RECORDING_ID_PATTERN.fullmatch(session_id)
             }
+            # Only recordings that a notebook embeds or a rule names are objects. Guests reach no other recording.
+            for session_id in embedded_session_ids | set(session_ids_by_recording_id.values()):
+                object_key = self.key("session_recording", f"{team.id}/{session_id}")
+                policy_key = self.key("access_policy", f"{team.id}/session_recording/{session_id}")
+                self.add(project_key, "project", object_key)
+                self.add(resource_keys["session_recording"], "resource", object_key)
+                self.add(policy_key, "policy", object_key)
+                self.add(self.organization_key, "organization", policy_key)
             object_ids_by_resource = {
                 "dashboard": {id: id for id in dashboard_ids},
                 "insight": {id: id for id in insight_ids},
@@ -230,7 +248,7 @@ class OrganizationProjection:
                 "session_recording": session_ids_by_recording_id,
             }
 
-            for rule in authorization_rules(team.id, self.organization_id):
+            for rule in rules:
                 if rule.resource == "project":
                     if rule.resource_id != str(team.id):
                         continue
