@@ -23,9 +23,9 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
-from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gemini_client
+from products.replay_vision.backend.gemini_client import replay_gateway_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import gemini_api_key
 
 logger = structlog.get_logger(__name__)
 
@@ -135,13 +135,12 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
     properties = {"ai_product": "replay_vision", "feature": "pii_rewrite", "team_id": team_id}
-    routed = replay_gemini_client(
-        lambda: genai.AsyncClient(api_key=gemini_api_key(), posthog_privacy_mode=True, posthog_properties=properties),
-        team_id=team_id,
-        properties=properties,
+    gateway = replay_gateway_client(team_id, properties=properties)
+    client: Any = (
+        gateway.aio
+        if gateway is not None
+        else genai.AsyncClient(api_key=gemini_api_key(), posthog_privacy_mode=True, posthog_properties=properties)
     )
-    gateway = routed if isinstance(routed, GatewayGeminiClient) else None
-    client: Any = gateway.aio if gateway is not None else routed
     try:
         response = await client.models.generate_content(
             model=_REWRITE_MODEL,
@@ -159,25 +158,6 @@ async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, st
             await gateway.aclose()
     rewritten = _Rewrite.model_validate_json(response.text or "{}")
     return {field: new for field in text if isinstance(new := getattr(rewritten, field), str) and new.strip()}
-
-
-_REWRITE_ATTEMPTS = 3
-_REWRITE_BACKOFF_SECONDS = 1.0
-
-
-async def _rewrite_retrying_transients(
-    *, team_id: int, question: str, text: dict[str, str], trace_id: str
-) -> dict[str, str]:
-    """Retry a transient rewrite failure here: raised, it would rerun the whole scan."""
-    attempt = 1
-    while True:
-        try:
-            return await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
-        except Exception as e:
-            if attempt >= _REWRITE_ATTEMPTS or classify_gemini_error(e) is not FailureKind.PROVIDER_TRANSIENT:
-                raise
-        await asyncio.sleep(_REWRITE_BACKOFF_SECONDS * attempt)
-        attempt += 1
 
 
 def record_pii_check(outcome: str, scanner_type: str) -> None:
@@ -206,8 +186,7 @@ async def keep_unrequested_pii_out(
 
     When the question asks who the session belongs to, the session's own identity values are allowed and only the
     rest of the answer is judged. Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still
-    flagged or the rewrite fails. A transient rewrite failure is retried here and then raised with its own class;
-    a spend limit is raised at once.
+    flagged, or the rewrite fails.
     """
     text = answer_text(output)
     if not text:
@@ -223,13 +202,10 @@ async def keep_unrequested_pii_out(
         return output
     try:
         rewritten = output.model_copy(
-            update=await _rewrite_retrying_transients(team_id=team_id, question=question, text=text, trace_id=trace_id)
+            update=await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
         )
     except Exception as e:
         record_pii_check("failed", scanner_type)
-        # A spend limit or a transient provider failure keeps its own class, so Temporal stops or retries.
-        if classify_gemini_error(e) in (FailureKind.PROVIDER_TRANSIENT, FailureKind.INTERNAL_ERROR):
-            raise
         raise ScannerFailureError(
             "The answer included personal data the scanner didn't ask for, and it could not be removed.",
             kind=FailureKind.PII_DETECTED,

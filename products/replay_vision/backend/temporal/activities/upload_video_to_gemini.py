@@ -20,12 +20,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.gemini_client import (
-    GatewayGeminiClient,
-    disable_replay_gateway,
-    replay_gateway_client,
-    replay_gateway_enabled,
-)
+from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gateway_client
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import (
@@ -45,9 +40,6 @@ _MAX_PROCESSING_WAIT_SECONDS = 300
 # The poll starts fast and slows down, since gateway polls share Replay Vision's rate limit with its scans.
 _POLL_FIRST_SECONDS = 0.5
 _POLL_MAX_SECONDS = 5.0
-
-# Set once the direct key, which cleanup and the sweep use, has read a file the gateway stored.
-_cleanup_key_sees_gateway_files = False
 
 
 @activity.defn(name="replay_vision_upload_video_to_gemini_activity")
@@ -101,7 +93,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    gateway = replay_gateway_client() if replay_gateway_enabled(asset.team_id) else None
+    gateway = replay_gateway_client(asset.team_id)
     try:
         return await _store_video(gateway, video_bytes, asset.export_format, workflow_id)
     finally:
@@ -181,50 +173,11 @@ async def _store_video(
             kind=FailureKind.PROVIDER_TRANSIENT,
         )
 
-    if gateway is not None and not await _cleanup_key_sees(gateway, gemini_file_name):
-        return await _store_video(None, video_bytes, mime_type, workflow_id)
-
     return UploadedVideo(
         file_uri=uploaded_file.uri,
         mime_type=uploaded_file.mime_type or mime_type,
         gemini_file_name=gemini_file_name,
-        via_gateway=gateway is not None,
     )
-
-
-_KEY_MISMATCH = "REPLAY_VISION_GEMINI_API_KEY must reach the Google project bound to REPLAY_VISION_AI_GATEWAY_API_KEY"
-
-
-async def _cleanup_key_sees(gateway: GatewayGeminiClient, name: str) -> bool:
-    """False when cleanup's direct key cannot read an ACTIVE file the gateway stored; the file is then deleted and
-    the gateway disabled here. Any other error skips the check, so the next upload checks again.
-    """
-    global _cleanup_key_sees_gateway_files
-    if _cleanup_key_sees_gateway_files:
-        return True
-    raw_client = RawGenAIClient(api_key=gemini_api_key())
-    try:
-        await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=name)
-    except Exception as e:
-        if not isinstance(e, errors.ClientError) or e.code not in (403, 404):
-            logger.warning(
-                "replay_vision.upload_video_to_gemini.cleanup_key_check_skipped",
-                gemini_file_name=name,
-                error_type=type(e).__name__,
-                code=getattr(e, "code", None),
-            )
-            return True
-        logger.exception(
-            "replay_vision.upload_video_to_gemini.cleanup_key_mismatch", gemini_file_name=name, detail=_KEY_MISMATCH
-        )
-        try:
-            await sync_to_async(gateway.files.delete, thread_sensitive=False)(name=name)
-        except Exception:
-            logger.exception("replay_vision.upload_video_to_gemini.mismatch_delete_failed", gemini_file_name=name)
-        disable_replay_gateway(_KEY_MISMATCH)
-        return False
-    _cleanup_key_sees_gateway_files = True
-    return True
 
 
 def _write_and_upload(raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str) -> types.File:

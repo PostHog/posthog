@@ -40,12 +40,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import (
-    GatewayGeminiClient,
-    GatewaySpendLimitError,
-    replay_direct_route_fault,
-    replay_gateway_client,
-)
+from products.replay_vision.backend.gemini_client import replay_gateway_client
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
@@ -187,7 +182,6 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         team_name=team_name,
         file_uri=inputs.file_uri,
         mime_type=inputs.mime_type,
-        via_gateway=inputs.via_gateway,
         team_id=inputs.team_id,
         video_clock=video_clock,
         network_payload=network_payload,
@@ -267,7 +261,6 @@ async def run_scan(
     video_clock: VideoClock,
     network_payload: SessionNetworkPayload | None = None,
     trace_id: str | None = None,
-    via_gateway: bool = False,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
@@ -307,7 +300,6 @@ async def run_scan(
         llm_inputs=llm_inputs,
         video_clock=video_clock,
         network_index=network_index,
-        via_gateway=via_gateway,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
@@ -591,7 +583,6 @@ async def _run_mission(
     video_clock: VideoClock,
     trace_id: str,
     network_index: NetworkIndex | None = None,
-    via_gateway: bool = False,
 ) -> _MissionOutcome:
     """Cache the video, run every mission step (the core step after its lookup round), then assemble the output +
     side-mission findings.
@@ -606,14 +597,6 @@ async def _run_mission(
         "scanner_type": snapshot.scanner_type.value,
         "team_id": team_id,
     }
-
-    def direct_client() -> Any:
-        return genai.AsyncClient(
-            api_key=gemini_api_key(),
-            # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
-            posthog_privacy_mode=True,
-            posthog_properties=properties,
-        )
 
     model = f"models/{snapshot.model}"
     metric_labels = {
@@ -658,10 +641,19 @@ async def _run_mission(
             )
         steps.append(step)
 
-    # The upload chose the route, so the scan and its cache read the file from the project that holds it.
-    gateway = _upload_route_gateway(via_gateway, properties)
-    client: Any = gateway.aio if gateway is not None else direct_client()
-    cache_client: Any = gateway if gateway is not None else GoogleGenAIClient(api_key=gemini_api_key())
+    gateway = replay_gateway_client(team_id, properties=properties)
+    client: Any
+    cache_client: Any
+    if gateway is not None:
+        client, cache_client = gateway.aio, gateway
+    else:
+        client = genai.AsyncClient(
+            api_key=gemini_api_key(),
+            # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
+            posthog_privacy_mode=True,
+            posthog_properties=properties,
+        )
+        cache_client = GoogleGenAIClient(api_key=gemini_api_key())
     run = functools.partial(
         _run_steps,
         client=client,
@@ -692,29 +684,6 @@ async def _run_mission(
         key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
         core_response=step_outputs.get(STEP_CORE),
     )
-
-
-def _upload_route_gateway(via_gateway: bool, properties: dict[str, Any]) -> GatewayGeminiClient | None:
-    """The gateway client when the upload stored the file through it, else None for the direct route.
-
-    A direct read of a gateway upload is safe only when the upload's cleanup-key check ran; a skipped check
-    proved nothing.
-    """
-    if not via_gateway:
-        return None
-    gateway = replay_gateway_client(properties=properties)
-    if gateway is not None:
-        return gateway
-    if (fault := replay_direct_route_fault()) is not None:
-        raise ScannerFailureError(
-            f"The video was stored through the AI gateway, and this worker cannot read it direct: {fault}",
-            kind=FailureKind.INTERNAL_ERROR,
-        )
-    logger.warning(
-        "replay_vision_gateway_upload_scanned_direct",
-        reason="REPLAY_VISION_AI_GATEWAY_API_KEY is unset on this worker",
-    )
-    return None
 
 
 def _last_video_second(duration_seconds: float | None) -> int | None:
@@ -763,8 +732,8 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     record_mission_pass(model=model, path="cached")
     try:
         return await run(cache_name=cache.name)
-    except (ScannerFailureError, GatewaySpendLimitError):
-        raise  # a required step couldn't be satisfied, or the spend cap would refuse the re-run too.
+    except ScannerFailureError:
+        raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
         # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
         # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
@@ -822,7 +791,7 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            if step.required or isinstance(exc, GatewaySpendLimitError):
+            if step.required:
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
@@ -1100,8 +1069,6 @@ async def _maybe_create_video_cache(
                 ttl=_VIDEO_CACHE_TTL,
             ),
         )
-    except GatewaySpendLimitError:
-        raise
     except Exception as e:
         logger.info("replay_vision.video_cache.skipped", error=str(e))
         return None

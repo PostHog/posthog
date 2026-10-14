@@ -1,19 +1,16 @@
 import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any, cast
-from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-
-from django.test import override_settings
 
 import httpx
 from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
-from products.replay_vision.backend.gemini_client import GatewayGeminiClient, GatewaySpendLimitError
+from products.replay_vision.backend.gemini_client import GatewayGeminiClient
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _key_moment_session_ms,
@@ -33,7 +30,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalsResponse,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
-from products.replay_vision.backend.temporal.types import CallScannerProviderInputs, ScannerSnapshot, UploadedVideo
+from products.replay_vision.backend.temporal.types import ScannerSnapshot
 from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
@@ -142,7 +139,6 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
             team_id=42,
             llm_inputs=MagicMock(),
             trace_id="trace-1",
-            via_gateway=True,
         )
 
     assert create_cache.call_args.args[0] is gateway
@@ -154,58 +150,14 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
 
 
 @pytest.mark.asyncio
-async def test_a_direct_upload_is_scanned_direct_even_with_the_flag_on() -> None:
-    # Another pod uploaded direct; this pod has the gateway on and configured for the team.
-    scanner = MagicMock()
-    scanner.mission_steps.return_value = []
-    scanner.assemble.return_value = (MagicMock(), [])
-    create_cache = AsyncMock(return_value=None)
-    attempts = AsyncMock(return_value={})
-    gateway = MagicMock(spec=GatewayGeminiClient)
-    gateway.aclose = AsyncMock()
-    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
-    with (
-        patch("products.replay_vision.backend.gemini_client.replay_gateway_enabled", return_value=True),
-        patch("products.replay_vision.backend.gemini_client.replay_gateway_client", return_value=gateway),
-        patch(f"{module}.replay_gateway_client", return_value=gateway) as gateway_client,
-        patch(f"{module}.genai.AsyncClient") as direct_cls,
-        patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
-        patch(f"{module}.gemini_api_key", return_value="direct-key"),
-        patch(f"{module}._maybe_create_video_cache", new=create_cache),
-        patch(f"{module}._run_mission_attempts", new=attempts),
-        patch(f"{module}.build_events_index", return_value={}),
-    ):
-        await _run_mission(
-            scanner=scanner,
-            snapshot=_gateway_scan_snapshot(),
-            video_part=_VIDEO,
-            video_clock=_IDENTITY_CLOCK,
-            preamble_text="PRE",
-            team_id=42,
-            llm_inputs=MagicMock(),
-            trace_id="trace-1",
-            via_gateway=False,
-        )
-
-    gateway_client.assert_not_called()
-    gateway.aclose.assert_not_awaited()
-    assert create_cache.call_args.args[0] is direct_cache_cls.return_value
-    assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
-
-
-async def _scan_a_gateway_upload_without_a_gateway(
-    **settings: str,
-) -> tuple[MagicMock, MagicMock, AsyncMock, AsyncMock, MagicMock]:
+async def test_gateway_off_runs_the_scan_direct() -> None:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
     create_cache = AsyncMock(return_value=None)
     attempts = AsyncMock(return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
-    disabled = settings.pop("_disabled", None)
     with (
-        override_settings(**settings),
-        patch("products.replay_vision.backend.gemini_client._disabled_reason", disabled),
         patch(f"{module}.replay_gateway_client", return_value=None),
         patch(f"{module}.genai.AsyncClient") as direct_cls,
         patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
@@ -213,7 +165,6 @@ async def _scan_a_gateway_upload_without_a_gateway(
         patch(f"{module}._maybe_create_video_cache", new=create_cache),
         patch(f"{module}._run_mission_attempts", new=attempts),
         patch(f"{module}.build_events_index", return_value={}),
-        patch(f"{module}.logger") as log,
     ):
         await _run_mission(
             scanner=scanner,
@@ -224,61 +175,10 @@ async def _scan_a_gateway_upload_without_a_gateway(
             team_id=42,
             llm_inputs=MagicMock(),
             trace_id="trace-1",
-            via_gateway=True,
         )
-    return direct_cls, direct_cache_cls, create_cache, attempts, log
-
-
-@pytest.mark.asyncio
-async def test_a_gateway_upload_is_scanned_direct_when_this_worker_has_no_gateway_key() -> None:
-    # Rollback: the gateway key is unset here, and the direct key is Replay Vision's own.
-    direct_cls, direct_cache_cls, create_cache, attempts, log = await _scan_a_gateway_upload_without_a_gateway(
-        REPLAY_VISION_AI_GATEWAY_API_KEY="", REPLAY_VISION_GEMINI_API_KEY="rv-google-key"
-    )
 
     assert create_cache.call_args.args[0] is direct_cache_cls.return_value
     assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
-    warning = log.warning.call_args
-    assert warning.args[0] == "replay_vision_gateway_upload_scanned_direct"
-    assert "REPLAY_VISION_AI_GATEWAY_API_KEY" in warning.kwargs["reason"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "settings, setting_at_fault",
-    [
-        (
-            {"REPLAY_VISION_AI_GATEWAY_API_KEY": "phs_rv", "REPLAY_VISION_GEMINI_API_KEY": ""},
-            "REPLAY_VISION_GEMINI_API_KEY",
-        ),
-        (
-            {
-                "REPLAY_VISION_AI_GATEWAY_API_KEY": "phs_rv",
-                "REPLAY_VISION_GEMINI_API_KEY": "rv-google-key",
-                "_disabled": "REPLAY_VISION_GEMINI_API_KEY must reach the Google project bound to REPLAY_VISION_AI_GATEWAY_API_KEY",
-            },
-            "REPLAY_VISION_AI_GATEWAY_API_KEY",
-        ),
-    ],
-    ids=["direct key unset", "cleanup key mismatch"],
-)
-async def test_a_gateway_upload_fails_when_this_workers_direct_key_cannot_read_it(
-    settings: dict[str, str], setting_at_fault: str
-) -> None:
-    with pytest.raises(ScannerFailureError) as raised:
-        await _scan_a_gateway_upload_without_a_gateway(**settings)
-
-    assert raised.value.kind == FailureKind.INTERNAL_ERROR
-    assert setting_at_fault in str(raised.value)
-
-
-def test_a_scan_payload_without_the_upload_route_reads_direct() -> None:
-    # Payloads queued before the route existed carry no field; those uploads all went direct.
-    payload = {"file_uri": "https://x/files/abc", "mime_type": "video/mp4", "gemini_file_name": "files/abc"}
-    assert UploadedVideo.model_validate(payload).via_gateway is False
-    scan = {"team_id": 1, "observation_id": str(uuid4()), "exported_asset_id": 2, **payload}
-    scan.pop("gemini_file_name")
-    assert CallScannerProviderInputs.model_validate(scan).via_gateway is False
 
 
 @pytest.mark.asyncio
@@ -620,29 +520,6 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
 
 
 @pytest.mark.asyncio
-async def test_a_gateway_spend_limit_on_a_non_required_step_fails_the_scan() -> None:
-    steps = [
-        MissionStep(name="summary", instruction="sum", response_model=_Core),
-        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
-    ]
-    client = _FakeClient([_Resp(text='{"verdict":"yes"}'), GatewaySpendLimitError("AI gateway returned HTTP 402")])
-
-    with pytest.raises(GatewaySpendLimitError):
-        await _run(client, steps)
-
-
-@pytest.mark.asyncio
-async def test_a_spend_limit_skips_the_video_cache_never_silently() -> None:
-    caches = MagicMock()
-    caches.aio.caches.create = AsyncMock(side_effect=GatewaySpendLimitError("AI gateway returned HTTP 402"))
-    with pytest.raises(GatewaySpendLimitError):
-        await _maybe_create_video_cache(caches, "models/m", types.Part(text="v"), "PRE")
-
-    caches.aio.caches.create = AsyncMock(side_effect=RuntimeError("too short to cache"))
-    assert await _maybe_create_video_cache(caches, "models/m", types.Part(text="v"), "PRE") is None
-
-
-@pytest.mark.asyncio
 async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
     steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
 
@@ -789,13 +666,6 @@ class TestRunPass:
     async def test_transient_provider_error_is_not_retried_inline(self, error: Exception) -> None:
         run, calls = self._cached_run_failing_with(error)
         with pytest.raises(type(error)):
-            await _run_pass(run=run, cache=self._Cache(), model="m")
-        assert calls == ["cache-1"]
-
-    @pytest.mark.asyncio
-    async def test_a_spend_limit_is_not_retried_inline(self) -> None:
-        run, calls = self._cached_run_failing_with(GatewaySpendLimitError("AI gateway returned HTTP 402"))
-        with pytest.raises(GatewaySpendLimitError):
             await _run_pass(run=run, cache=self._Cache(), model="m")
         assert calls == ["cache-1"]
 

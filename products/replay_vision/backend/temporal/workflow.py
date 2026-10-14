@@ -347,7 +347,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
-                    via_gateway=uploaded.via_gateway,
                     experiment_variant=(
                         experiment_resolution.experiment_variant if experiment_resolution is not None else None
                     ),

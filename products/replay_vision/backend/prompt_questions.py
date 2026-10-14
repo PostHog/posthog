@@ -22,7 +22,6 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import replay_gemini_client
 from products.replay_vision.backend.models.replay_scanner import (
     PromptValence,
     ReplayScanner,
@@ -168,16 +167,12 @@ def _generate(
     )
     # Client setup is inside the guard too: a missing key must fall back, not fail the save.
     try:
-        client = replay_gemini_client(
-            lambda: genai.Client(
-                api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-                # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-                posthog_privacy_mode=True,
-                posthog_client=posthoganalytics.default_client,
-                http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-            ),
-            timeout_ms=_MODEL_CALL_TIMEOUT_MS,
-            team_id=team_id,
+        client = genai.Client(
+            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
         )
         response = client.models.generate_content(
             model=_QUESTION_MODEL,

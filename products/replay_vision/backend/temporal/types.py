@@ -271,8 +271,6 @@ class UploadedVideo(BaseModel, frozen=True):
     file_uri: str
     mime_type: str
     gemini_file_name: str  # opaque ID for `files.delete`
-    # Whether the AI gateway stored the file; later reads use the same route. Absent means direct.
-    via_gateway: bool = False
 
 
 class CallScannerProviderInputs(BaseModel, frozen=True):
@@ -282,7 +280,6 @@ class CallScannerProviderInputs(BaseModel, frozen=True):
     exported_asset_id: int
     file_uri: str
     mime_type: str
-    via_gateway: bool = False
     # Experiment scanners only: scan-time context the workflow resolved before this call, injected
     # into the scanner's prompt (see `ExperimentScanner`). Both stay None for the other types.
     experiment_variant: str | None = None
