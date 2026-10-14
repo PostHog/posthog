@@ -116,11 +116,6 @@ class PostgresPrinter(BasePrinter):
         return node.name.upper()
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() == "sha1" and (
-            self.DIALECT_NAME != "postgres" or "sha1" not in self._connection_supported_functions
-        ):
-            validate_function_args(node.args, 1, 1, node.name)
-
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:
             return super().visit_call(node)
 
@@ -175,6 +170,8 @@ class PostgresPrinter(BasePrinter):
 
         handler = function_handlers.get(func_name)
         if handler is not None:
+            if func_name == "sha1":
+                validate_function_args(node.args, 1, 1, node.name)
             if node.order_by:
                 raise QueryError(
                     f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
@@ -226,9 +223,13 @@ class PostgresPrinter(BasePrinter):
 
     def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
         """Lowercased HogQL-name → handler-callable map for functions that need custom rendering."""
-        if "sha1" in self._connection_supported_functions:
-            return POSTGRES_FUNCTION_HANDLERS_LOWER
-        return {**POSTGRES_FUNCTION_HANDLERS_LOWER, "sha1": self._render_sha1}
+        # Extension mappings are fallbacks; discovered functions keep their own signatures.
+        extension_handlers = {"sha1": self._render_sha1}
+        return POSTGRES_FUNCTION_HANDLERS_LOWER | {
+            name: handler
+            for name, handler in extension_handlers.items()
+            if name not in self._connection_supported_functions
+        }
 
     def _render_sha1(self, args: list[str]) -> str:
         metadata = self.context.direct_postgres_connection_metadata or {}

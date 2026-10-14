@@ -1890,7 +1890,7 @@ def _get_connection_functions(cursor: psycopg.Cursor, query: str) -> list[str]:
         functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
         return [fn for fn in functions if not is_dangerous_table_function(fn)]
     except Exception as error:
-        # A failed optional probe must not abort later catalog queries on this connection.
+        # Even a failed SELECT aborts PostgreSQL's transaction; reset it before the next catalog query.
         cursor.connection.rollback()
         capture_exception(error)
         return []
