@@ -67,10 +67,11 @@ You can create an API key in your [ElevenLabs account settings](https://elevenla
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations, agents, triage tickets, tools, and tool executions)
+- **Conversational AI** (conversations, agents, triage tickets, tools, tool executions, phone numbers, and batch calls)
 - **Voices**
 - **Models**
 - **Workspace** (members and groups)
+- **User** (subscription)
 """,
             iconPath="/static/services/elevenlabs.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/elevenlabs",

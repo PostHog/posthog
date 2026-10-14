@@ -154,8 +154,21 @@ def get_rows(
     if resume_config is not None:
         logger.debug(f"Rollbar: resuming {endpoint} from page {page}")
 
+    is_first_page = True
     while True:
-        body = fetch(_build_url(config.path, {"page": page}))
+        try:
+            body = fetch(_build_url(config.path, {"page": page}))
+        except requests.HTTPError as e:
+            # Rollbar's page-paginated list endpoints (items, deploys, environments) reject a page
+            # past an undocumented depth ceiling with a 422 instead of an empty page. That's
+            # deterministic — retrying never clears it — so once this run has already pulled at
+            # least one page, we treat the 422 as end-of-data rather than failing the whole sync. A
+            # 422 on the first fetch is left to propagate: Rollbar hasn't told us any page works.
+            if not is_first_page and e.response is not None and e.response.status_code == 422:
+                logger.warning(f"Rollbar: pagination ceiling reached on {endpoint}; stopping this sync early")
+                break
+            raise
+        is_first_page = False
         items = _extract_items(body, config.data_key)
 
         if not items:
