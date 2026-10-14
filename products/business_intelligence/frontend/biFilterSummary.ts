@@ -29,11 +29,11 @@ export function describeBIFilter(
     if (filter.operator === 'in' || filter.operator === 'not_in') {
         return `${filter.operator === 'in' ? 'is one of' : 'is not one of'} ${(filter.values ?? []).map((value) => JSON.stringify(memberLabel(filter.field, value))).join(', ')}`
     }
-    return getBIFilterSummary({
-        ...filter,
-        value: filter.value ? memberLabel(filter.field, filter.value) : filter.value,
-        valueTo: filter.valueTo ? memberLabel(filter.field, filter.valueTo) : filter.valueTo,
-    })
+    return getBIFilterSummary(
+        filter.operator === 'equals' || filter.operator === 'not_equals'
+            ? { ...filter, value: filter.value ? memberLabel(filter.field, filter.value) : filter.value }
+            : filter
+    )
 }
 
 export function getBIActiveFilterSummary(config: BIConfig): { rows: string | null; results: string | null } {

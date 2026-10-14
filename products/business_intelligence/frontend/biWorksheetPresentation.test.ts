@@ -1,9 +1,9 @@
-import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
+import { BIConfig, BIField, BIFilter, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { getBIDrillSelection } from './biDrilldown'
 import { BIEditorView, buildBIQuery, DEFAULT_BI_CONFIG, parseBIEditorState } from './biEditorTypes'
-import { getBIActiveFilterSummary, getBIFilterLabel } from './biFilterSummary'
+import { describeBIFilter, getBIActiveFilterSummary, getBIFilterLabel } from './biFilterSummary'
 import { createBIMemberFormatter, getBIMemberAlias, getBIMemberLabel, getBIMemberOptions } from './biMemberAliases'
 import { buildBISourcePreview } from './biSourcePreview'
 
@@ -15,6 +15,36 @@ const country: BIField = {
     source: { table: 'example_orders', connectionId: 'example-connection' },
 }
 const config: BIConfig = { ...DEFAULT_BI_CONFIG, source: country.source, rows: [country] }
+
+it.each<[BIFilter['operator'], string, string | undefined, string]>([
+    ['equals', 'US', undefined, 'United States'],
+    ['not_equals', 'US', undefined, 'Not United States'],
+    ['contains', 'US', undefined, 'Contains US'],
+    ['greater_than', '10', undefined, '> 10'],
+    ['less_than', '20', undefined, '< 20'],
+    ['between', '10', '20', '10 to 20'],
+])(
+    'describes %s operands without replacing substrings or bounds with member aliases',
+    (operator, value, valueTo, expected) => {
+        const field = ['greater_than', 'less_than', 'between'].includes(operator)
+            ? { ...country, type: 'integer' as const }
+            : country
+        const aliased: BIConfig = {
+            ...config,
+            memberAliases: [
+                {
+                    field,
+                    aliases: [
+                        { value: 'US', label: 'United States' },
+                        { value: '10', label: 'Ten' },
+                        { value: '20', label: 'Twenty' },
+                    ],
+                },
+            ],
+        }
+        expect(describeBIFilter({ field, operator, value, valueTo }, aliased)).toBe(expected)
+    }
+)
 
 it('renames filters independently and describes the executed nested conditions without inactive filters', () => {
     const filtered: BIConfig = {

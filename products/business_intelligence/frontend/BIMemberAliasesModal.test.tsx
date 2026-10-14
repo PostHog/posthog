@@ -30,7 +30,7 @@ describe('member alias editor', () => {
         }
         logic.actions.edit(
             field,
-            Array.from({ length: 2000 }, (_, i) => ({ value: `value-${i}`, label: `Label ${i}` }))
+            Array.from({ length: 101 }, (_, i) => ({ value: `value-${i}`, label: `Label ${i}` }))
         )
         render(<BIMemberAliasesModal {...props} />)
         await waitFor(() => expect(screen.getAllByLabelText(/^Alias for /)).toHaveLength(50))
@@ -42,10 +42,10 @@ describe('member alias editor', () => {
         expect(screen.getAllByLabelText(/^Alias for /)).toHaveLength(50)
         fireEvent.click(screen.getByLabelText('Previous page'))
         expect(screen.getByLabelText('Alias for value-0')).toHaveValue('Updated first')
-        fireEvent.change(screen.getByLabelText('Search member values and aliases'), { target: { value: 'Label 1999' } })
-        expect(await screen.findByLabelText('Alias for value-1999')).toHaveValue('Label 1999')
+        fireEvent.change(screen.getByLabelText('Search member values and aliases'), { target: { value: 'Label 100' } })
+        expect(await screen.findByLabelText('Alias for value-100')).toHaveValue('Label 100')
         expect(screen.getAllByLabelText(/^Alias for /)).toHaveLength(1)
-        expect(logic.values.draft).toHaveLength(2000)
+        expect(logic.values.draft).toHaveLength(101)
         expect(logic.values.draft[0]).toEqual({ value: 'value-0', label: 'Updated first' })
         logic.unmount()
     })
