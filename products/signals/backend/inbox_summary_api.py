@@ -1,4 +1,4 @@
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -11,9 +11,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission, is_service_auth
 
-from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.inbox_summary import INBOX_SUMMARY_PERIOD, generated_pull_requests
-from products.signals.backend.models import SignalReportPullRequest, SignalReportTask
+from products.signals.backend.models import SignalReportPullRequest
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -65,15 +64,13 @@ class InboxSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return SignalReportPullRequest.objects.for_team(0).none()
         if is_service_auth(self.request):
             return generated_pull_requests(self.team_id)
-        candidate_task_ids = list(
-            SignalReportTask.objects.filter(
-                team_id=self.team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-            ).values_list("task_id", flat=True)
-        )
-        accessible_task_ids = tasks_facade.filter_accessible_task_ids(
-            team_id=self.team_id, user=self.request.user, task_ids=candidate_task_ids
-        )
-        return generated_pull_requests(self.team_id, task_ids=accessible_task_ids)
+        access = tasks_facade.task_access_scope(team_id=self.team_id, user=self.request.user)
+        task_filter = tasks_facade.visible_tasks_q(access.user_id, relation="task")
+        if not access.has_resource_access:
+            task_filter &= Q(task_id__in=access.allowed_ids) | Q(task__created_by_id=access.user_id)
+        elif access.blocked_ids:
+            task_filter &= ~(Q(task_id__in=access.blocked_ids) & ~Q(task__created_by_id=access.user_id))
+        return generated_pull_requests(self.team_id, task_filter=task_filter)
 
     @extend_schema(responses=InboxSummarySerializer)
     def list(self, request: Request, **kwargs: object) -> Response:

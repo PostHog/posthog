@@ -12,7 +12,7 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -24,7 +24,8 @@ from products.signals.backend.inbox_summary import sync_pull_request_participant
 from products.signals.backend.models import SignalReport, SignalReportPullRequest, SignalReportTask
 from products.signals.backend.pull_requests import schedule_participant_refresh, update_pull_request_state
 from products.signals.backend.tasks import refresh_pull_request_participants, refresh_pull_request_review_decision
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 NOW = datetime(2026, 9, 20, 12, tzinfo=UTC)
 MERGED_AT = NOW - timedelta(days=1)
@@ -116,9 +117,11 @@ class TestInboxSummary(APIBaseTest):
             url="https://github.com/EXAMPLE/APP/pull/1/files"
         )
         TaskRun.objects.filter(team=self.team).update(
-            state={"verified_pr_urls": ["https://github.com/example/app/pull/1"]}
+            state={"verified_pr_urls": ["https://github.com/Example/App/pull/1"]}
         )
         self.make_pr(10, verified=False, participant_ids=[20])
+        assert self.summary()["merged_pr_count"] == 0
+        tasks_facade.normalize_verified_pull_request_urls_batch(team_id=self.team.id)
         assert self.summary()["merged_pr_count"] == 1
 
     def test_window_is_half_open_and_uses_merge_time(self) -> None:
@@ -198,6 +201,23 @@ class TestInboxSummary(APIBaseTest):
             {"repository": "example/app", "number": 2, "url": "https://github.com/example/app/pull/2"}
         ]
 
+    def test_tasks_in_another_users_personal_channel_do_not_contribute_to_summary(self) -> None:
+        self.make_pr(participant_ids=[10])
+        personal = Channel.objects.create(
+            team=self.team,
+            name="me",
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=self.user,
+        )
+        Task.objects.filter(team=self.team).update(channel=personal)
+        member = User.objects.create_and_join(self.organization, "channel-member@example.com", "test-password")
+        self.client.force_login(member)
+
+        result = self.summary()
+
+        assert result["merged_pr_count"] == 0
+        assert result["pull_requests"] == []
+
     def test_authentication_is_required(self) -> None:
         self.client.logout()
         assert self.client.get(f"/api/projects/{self.team.id}/signals/inbox_summary/").status_code in (401, 403)
@@ -264,6 +284,7 @@ class TestInboxSummary(APIBaseTest):
         ):
             sync_pull_request_participants(team_id=self.team.id, repository="example/app", pr_number=1)
         personal_github.assert_called_once_with(personal, source="signals_inbox_summary", priority=Priority.BATCH)
+        github.installation_can_access_repository.assert_called_once_with("example/app", raise_on_transient=True)
         team_github.assert_not_called()
         pr.refresh_from_db()
         assert pr.participant_ids == [10]
@@ -281,12 +302,44 @@ class TestInboxSummary(APIBaseTest):
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=fallback) as find_fallback,
         ):
             sync_pull_request_participants(team_id=self.team.id, repository="example/app", pr_number=1)
-        access.assert_called_once_with("example/app")
+        access.assert_called_once_with("example/app", raise_on_transient=True)
         find_fallback.assert_called_once_with(
             self.team.id, "example/app", source="signals_inbox_summary", priority=Priority.BATCH
         )
         pr.refresh_from_db()
         assert pr.participant_ids == [10]
+
+    def test_sync_tries_a_team_reader_after_a_personal_reader_exhausts_its_budget(self) -> None:
+        pr = self.make_pr(merged_at=None)
+        personal = UserIntegration.objects.create(user=self.user, kind="github", integration_id="123")
+        task = Task.objects.get(team=self.team)
+        task.created_by = self.user
+        task.github_user_integration = personal
+        task.save(update_fields=["created_by", "github_user_integration", "updated_at"])
+        attributed = self.github()
+        attributed.installation_can_access_repository.side_effect = GitHubEgressBudgetExhausted("shed")
+        fallback = self.github()
+        with (
+            patch("products.signals.backend.inbox_summary.UserGitHubIntegration", return_value=attributed),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=fallback),
+        ):
+            sync_pull_request_participants(team_id=self.team.id, repository="example/app", pr_number=1)
+        pr.refresh_from_db()
+        assert pr.participant_ids == [10]
+
+    def test_sync_retries_when_repository_access_probes_fail_transiently(self) -> None:
+        self.make_pr(merged_at=None)
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="123")
+        task = Task.objects.get(team=self.team)
+        task.github_integration = integration
+        task.save(update_fields=["github_integration", "updated_at"])
+        error = GitHubIntegrationError("GitHub unavailable", status_code=503)
+        with (
+            patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=error),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=None),
+            self.assertRaises(GitHubIntegrationError),
+        ):
+            sync_pull_request_participants(team_id=self.team.id, repository="example/app", pr_number=1)
 
     def test_refresh_uses_githubs_retry_delay(self) -> None:
         error = GitHubRateLimitError("rate limited", retry_after=120)
@@ -315,6 +368,22 @@ class TestInboxSummary(APIBaseTest):
                 "products.signals.backend.tasks.refresh_pull_request_participants.delay",
                 side_effect=RuntimeError("broker unavailable"),
             ) as enqueue,
+            patch("products.signals.backend.pull_requests.cache.delete", side_effect=RuntimeError("cache unavailable")),
+            patch("products.signals.backend.tasks.GitHubIntegration.first_for_team_repository", return_value=github),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                refresh_pull_request_review_decision.run(team_id=self.team.id, repository="example/app", pr_number=1)
+        enqueue.assert_called_once_with(team_id=self.team.id, repository="example/app", pr_number=1)
+        pr.refresh_from_db()
+        assert pr.review_decision == SignalReportPullRequest.ReviewDecision.APPROVED
+
+    def test_cache_failure_does_not_stop_participant_or_review_refresh(self) -> None:
+        pr = self.make_pr()
+        github = MagicMock()
+        github.get_pull_request_snapshot.return_value = {"success": True, "review_decision": "approved"}
+        with (
+            patch("products.signals.backend.pull_requests.cache.add", side_effect=RuntimeError("cache unavailable")),
+            patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue,
             patch("products.signals.backend.tasks.GitHubIntegration.first_for_team_repository", return_value=github),
         ):
             with self.captureOnCommitCallbacks(execute=True):

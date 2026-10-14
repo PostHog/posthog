@@ -1,6 +1,4 @@
-from collections.abc import Collection
 from datetime import datetime, timedelta
-from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet, TextField, Value
 from django.db.models.functions import Cast, Concat, JSONArray
@@ -8,6 +6,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
@@ -26,9 +25,7 @@ class GitHubParticipant:
     login: str
 
 
-def generated_pull_requests(
-    team_id: int, *, task_ids: Collection[str | UUID] | None = None
-) -> QuerySet[SignalReportPullRequest]:
+def generated_pull_requests(team_id: int, *, task_filter: Q | None = None) -> QuerySet[SignalReportPullRequest]:
     # Neither a manually attached PR nor an API-writable task output proves that the task created it.
     implementations = SignalReportTask.objects.filter(
         team_id=team_id,
@@ -49,8 +46,8 @@ def generated_pull_requests(
             )
         )
     )
-    if task_ids is not None:
-        implementations = implementations.filter(task_id__in=task_ids)
+    if task_filter is not None:
+        implementations = implementations.filter(task_filter)
     return SignalReportPullRequest.objects.for_team(team_id).filter(Exists(implementations))
 
 
@@ -102,6 +99,7 @@ def github_for_generated_pull_request(
         .order_by("task_id")
     )
     seen_task_ids: set[str] = set()
+    probe_error: Exception | None = None
     for implementation in implementations.iterator():
         task = implementation.task
         task_id = str(task.id)
@@ -118,16 +116,27 @@ def github_for_generated_pull_request(
             ).exists()
         ):
             github = UserGitHubIntegration(personal, source="signals_inbox_summary", priority=Priority.BATCH)
-            if github.installation_can_access_repository(repository):
-                return github
+            try:
+                if github.installation_can_access_repository(repository, raise_on_transient=True):
+                    return github
+            except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
+                probe_error = probe_error or error
         integration = task.github_integration
         if integration is not None and integration.kind == "github" and integration.team_id == team_id:
             github = GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
-            if github.installation_can_access_repository(repository):
-                return github
-    return GitHubIntegration.first_for_team_repository(
+            try:
+                if github.installation_can_access_repository(repository, raise_on_transient=True):
+                    return github
+            except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
+                probe_error = probe_error or error
+    fallback = GitHubIntegration.first_for_team_repository(
         team_id, repository, source="signals_inbox_summary", priority=Priority.BATCH
     )
+    if fallback is not None:
+        return fallback
+    if probe_error is not None:
+        raise probe_error
+    return None
 
 
 def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: int) -> None:

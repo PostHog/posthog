@@ -56,6 +56,16 @@ class TaskDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class TaskAccessScope:
+    """Task IDs a user can or cannot access through channel visibility rules."""
+
+    user_id: int
+    has_resource_access: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentTaskRunDTO:
     """Identity and workflow handle for a newly dispatched agent task."""
 
