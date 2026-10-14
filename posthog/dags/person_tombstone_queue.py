@@ -82,7 +82,10 @@ def _is_shown(row: tuple[int, int] | None, version: int) -> bool:
     if row is None:
         return False
     is_deleted, max_version = row
-    return max_version > version or (bool(is_deleted) and max_version >= version)
+    # Only the newest row counts. The persons DB still holds this tombstone, so a newer live row means
+    # ClickHouse is ahead of Postgres. The sweep never deletes that row, so acking it would hide the
+    # divergence for good; keeping it queued reports it as unresolved.
+    return bool(is_deleted) and max_version >= version
 
 
 def clickhouse_confirmed(team_id: int, tombstones: Sequence[PersonTombstone]) -> set[UUID]:

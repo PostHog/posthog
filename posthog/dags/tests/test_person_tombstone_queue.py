@@ -23,6 +23,7 @@ from posthog.models.person.util import (
     PersonTombstone,
     QueuedPersonTombstone,
     create_person as create_person_in_ch,
+    create_person_distinct_id,
     publish_person_tombstone,
     tombstone_persons_in_postgres,
 )
@@ -86,6 +87,43 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         publish.assert_called_once_with(self.team.pk, tombstone)
         assert [row.person_uuid for row in result.remaining] == [person.uuid]
         assert self._queued() == {person.uuid}
+
+    @parameterized.expand(
+        [
+            ("newer_tombstone", 1, True, None, True),
+            ("newer_live_person", 1, False, None, False),
+            ("newer_live_distinct_id", 0, True, False, False),
+            ("newer_deleted_distinct_id", 0, True, True, True),
+        ]
+    )
+    def test_confirms_only_when_the_newest_clickhouse_row_is_a_tombstone(
+        self,
+        _name: str,
+        person_version_offset: int,
+        person_deleted: bool,
+        newer_distinct_id_deleted: bool | None,
+        expected_confirmed: bool,
+    ) -> None:
+        person = create_person(team_id=self.team.pk, distinct_ids=["queue-newest"])
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        publish_person_tombstone(self.team.pk, tombstone)
+        create_person_in_ch(
+            uuid=str(person.uuid),
+            team_id=self.team.pk,
+            version=tombstone.version + person_version_offset,
+            is_deleted=person_deleted,
+        )
+        if newer_distinct_id_deleted is not None:
+            [distinct_id] = tombstone.distinct_ids
+            create_person_distinct_id(
+                team_id=self.team.pk,
+                distinct_id=distinct_id.id,
+                person_id=str(person.uuid),
+                version=distinct_id.version + 1,
+                is_deleted=newer_distinct_id_deleted,
+            )
+
+        assert (clickhouse_confirmed(self.team.pk, [tombstone]) == {person.uuid}) == expected_confirmed
 
     def test_dry_run_acks_and_publishes_nothing(self) -> None:
         confirmed = self._tombstoned("queue-dry-confirmed", published=True)
