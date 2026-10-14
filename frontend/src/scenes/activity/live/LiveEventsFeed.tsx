@@ -58,7 +58,8 @@ const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEven
     recording: {
         title: '',
         key: 'recording' as any,
-        width: 0,
+        // The table uses a fixed layout, so `width: 0` becomes a 1% column that clips the button
+        width: '3rem',
         render: function Render(_, event: LiveEvent) {
             const sessionId = event.properties.$session_id
             if (typeof sessionId !== 'string' || !sessionId) {
@@ -98,7 +99,7 @@ const COLUMN_DEFINITIONS: Record<LiveEventsFeedColumn, LemonTableColumn<LiveEven
                 />
             )
         },
-        width: 0,
+        width: '4rem',
     },
 }
 
