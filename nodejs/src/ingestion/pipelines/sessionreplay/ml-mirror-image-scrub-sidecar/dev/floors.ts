@@ -26,7 +26,7 @@ import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
 import { detectCodes } from '../src/qr.ts'
-import { FACE_INPUT_SIDE, limitsFromEnv, planScales } from '../src/scale-plan.ts'
+import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src } from '../src/src-image.ts'
 import { detectFacesYunet, loadYunet } from '../src/yunet.ts'
 
@@ -81,7 +81,7 @@ async function atScale(frame: Buffer, targetPx: number): Promise<Src> {
 
 // A re-identification attempt can enlarge the stored image, and YuNet never enlarges a small input itself, so the survival check reads the stored image at YuNet's longest side.
 async function enlargedForReader(art: Src): Promise<Src> {
-    const scale = FACE_INPUT_SIDE / Math.max(art.W, art.H)
+    const scale = LIMITS.faceInputSide / Math.max(art.W, art.H)
     const W = Math.round(art.W * scale)
     const H = Math.round(art.H * scale)
     const { data } = await sharp(art.data, { raw: { width: art.W, height: art.H, channels: 3 } })

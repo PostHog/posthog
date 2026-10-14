@@ -21,10 +21,11 @@ import { rgbToChw } from './pixel-convert.ts'
 // Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
 // know how much of a long frame this stage really sees, and two copies of it is the drift the
 // planner exists to remove.
-import { FACE_INPUT_SIDE, FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong } from './scale-plan.ts'
+import { FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong, limitsFromEnv } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
+const FACE_INPUT_SIDE = limitsFromEnv().faceInputSide
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
 const LARGEST_STRIDE = 32

@@ -36,7 +36,7 @@ import sharp, { type OverlayOptions } from 'sharp'
 import { numFromEnv } from '../src/env.ts'
 import { FACE_FLOOR } from '../src/floors.ts'
 import { type Box } from '../src/geometry.ts'
-import { FACE_INPUT_SIDE, limitsFromEnv, planScales } from '../src/scale-plan.ts'
+import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc, probeDims, srcSharp } from '../src/src-image.ts'
 import { type YunetModel, detectFacesYunet, detectionWindowsForTest, loadYunet } from '../src/yunet.ts'
 import { coverage, mulberry32 } from './bench-common.ts'
@@ -353,7 +353,7 @@ function iou(a: Box, b: Box): number {
 
 function inputScale(input: DetectorSpec['input'], win: Box): number {
     const long = Math.max(win.width, win.height)
-    return input === 'fixed' ? FIXED_SIDE / long : Math.min(1, FACE_INPUT_SIDE / long)
+    return input === 'fixed' ? FIXED_SIDE / long : Math.min(1, limitsFromEnv().faceInputSide / long)
 }
 
 // --dump-calibration builds its tensors here too, so that the int8 builds calibrate on the inputs the native variants see.

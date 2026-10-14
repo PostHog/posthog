@@ -54,6 +54,8 @@ export interface PlanLimits {
     storedPixels: number
     /** The longest side YuNet reads a frame or tile at. */
     faceInputSide: number
+    /** Longest side the stored image may have, or 0 for no bound beyond the area budget. */
+    storedMaxSide: number
     /** Stride the text encoder needs its input to be a multiple of. */
     stride: number
     /** Margin over the measured floors. 1 means exactly what the measurement supports. */
@@ -66,9 +68,9 @@ const atLeastOne = (n: number): number => Math.max(1, Math.floor(n))
  *  disagree, which is how a legal stored size produced an illegal frame size. */
 const MIN_FRAME_PIXELS = 96 * 96
 
-/** The face detector's input size and tiling rule, owned here because the plan has to model them. yunet.ts imports
- *  these rather than declaring its own, so the model and the plan cannot disagree. */
-export const FACE_INPUT_SIDE = 640
+/** The face detector's tiling rule and smallest input size, owned here because the plan has to model them. yunet.ts
+ *  reads its input size from `limitsFromEnv()` rather than declaring its own, so the model and the plan cannot disagree. */
+export const DEFAULT_FACE_INPUT_SIDE = 640
 export const FACE_TILE_ABOVE = 3
 export const FACE_TILE_ASPECT = 6
 
@@ -214,7 +216,8 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
     const weakest = Math.min(textScale, faceScale, 1)
 
     const ratio = bindingRatio() * limits.safetyFactor
-    const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels)))
+    const sideScale = limits.storedMaxSide > 0 ? limits.storedMaxSide / Math.max(frame.width, frame.height) : 1
+    const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels), sideScale))
     // zxing's cost grows with the pixels it reads and no model fixes its input, so it gets exactly the ratio. That is
     // measured against the stored axes as kept, because flooring an axis to a whole pixel keeps more than was asked.
     const keptScale = Math.max(stored.width / frame.width, stored.height / frame.height)
@@ -235,13 +238,29 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
  * to see enough to keep the ratio, and the frame has to carry enough for the detectors. Exposing the
  * others as independent knobs is what let a pair of individually-reasonable settings combine into a
  * pipeline that under-redacted.
+ *
+ * `SCRUB_STORED_MAX_SIDE` sets the stored size by its long side. The face detector's input and the
+ * text canvas then grow to `side x ratio`, because at their defaults the face input caps every
+ * stored image at about 161 px whatever the area budget allows.
  */
 export function limitsFromEnv(): PlanLimits {
-    const storedPixels = numFromEnv('SCRUB_OUT_MAX_PIXELS', 50_000, 16 * 16, LIMIT_INPUT_PIXELS)
+    const storedMaxSide = numFromEnv('SCRUB_STORED_MAX_SIDE', 0, 0, 4096)
     const safetyFactor = numFromEnv('SCRUB_SAFETY_FACTOR', 1.3, 1, 4)
+    const ratio = bindingRatio() * safetyFactor
+    const stride = 32
+    const faceInputSide =
+        storedMaxSide > 0
+            ? Math.max(DEFAULT_FACE_INPUT_SIDE, upToStride(Math.ceil(storedMaxSide * ratio), stride))
+            : DEFAULT_FACE_INPUT_SIDE
+    const storedPixels = numFromEnv(
+        'SCRUB_OUT_MAX_PIXELS',
+        storedMaxSide > 0 ? storedMaxSide * storedMaxSide : 50_000,
+        16 * 16,
+        LIMIT_INPUT_PIXELS
+    )
     // The frame has to carry the ratio for the tightest subject, with the margin, or no detector can
     // satisfy it however the later stages are sized.
-    const needed = storedPixels * (bindingRatio() * safetyFactor) ** 2
+    const needed = storedPixels * ratio ** 2
     return {
         // Clamped at BOTH ends: numFromEnv validates a default as strictly as an override, so a
         // legal storedPixels must never derive an illegal framePixels and hand the operator a refusal
@@ -253,12 +272,18 @@ export function limitsFromEnv(): PlanLimits {
             MIN_FRAME_PIXELS,
             LIMIT_INPUT_PIXELS
         ),
-        textCanvasPixels: numFromEnv('DET_CANVAS_PIXELS', 736 * 736, 256 * 256, 4096 * 4096),
+        textCanvasPixels: numFromEnv(
+            'DET_CANVAS_PIXELS',
+            Math.min(4096 * 4096, Math.max(736 * 736, faceInputSide * faceInputSide)),
+            256 * 256,
+            4096 * 4096
+        ),
         storedPixels,
-        faceInputSide: FACE_INPUT_SIDE,
+        faceInputSide,
+        storedMaxSide,
         faceTileAbove: FACE_TILE_ABOVE,
         faceTileAspect: FACE_TILE_ASPECT,
-        stride: 32,
+        stride,
         safetyFactor,
     }
 }

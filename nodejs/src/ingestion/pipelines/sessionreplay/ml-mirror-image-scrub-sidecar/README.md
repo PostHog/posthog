@@ -233,12 +233,16 @@ zxing reads the frame at exactly `ratio` times the stored scale, because its cos
 DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
-**`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
-It is what gets stored, and everything else follows from it: the frame budget is `stored x ratio^2`, because the detectors have to see enough to keep the rule.
+**`SCRUB_STORED_MAX_SIDE` is the knob most people should touch.**
+It caps the long side of what gets stored, and everything else follows from it: the face detector's input and the text canvas grow to `side x ratio`, and the frame budget to `stored x ratio^2`, because the detectors have to see enough to keep the rule.
+Unset (0), the face detector runs at 640 px, which caps every stored image at about 161 px on its long side.
+At 384 a 1080p capture is stored at 384x216; an image smaller than about `384 x ratio` still stores at `1/ratio` of its size.
+Each worker then budgets about 955 MB instead of 514 MB, so raise the container's memory with it or the pool runs fewer workers.
+`SCRUB_OUT_MAX_PIXELS` bounds the stored area (default `side^2`, or 50,000 when no side is set).
 Setting the frame budget independently is what let two individually-reasonable settings combine into a pipeline that under-redacted, so `SCRUB_MAX_PIXELS` still exists as an override but is derived by default.
 
 Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
-At the defaults a 1080p capture is stored at about 161x90.
+With no side set, a 1080p capture is stored at about 161x90.
 
 Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
