@@ -133,6 +133,7 @@ from products.slack_app.backend.services.slack_welcome_messages import (
     build_team_join_welcome,
 )
 from products.slack_app.backend.slack_link_unfurl import (
+    ADHOC_INSIGHT_KIND,
     handle_posthog_link_unfurl,
     link_url_region,
     parse_posthog_resource_link,
@@ -4245,14 +4246,18 @@ def _link_shared_resource_urls(event: dict[str, Any]) -> list[str]:
     links = event.get("links")
     if not isinstance(links, list):
         return []
-    urls: list[str] = []
+    refs: list[tuple[str, str]] = []
     for link in links:
         if not isinstance(link, dict):
             continue
         url = link.get("url")
-        if isinstance(url, str) and parse_posthog_resource_link(url) is not None:
-            urls.append(url)
-    return urls
+        if isinstance(url, str) and (ref := parse_posthog_resource_link(url)) is not None:
+            refs.append((url, ref.kind))
+    # An ad hoc insight link unfurls only as the message's single link, so beside other links it
+    # must not route the event to its own project or region.
+    if len(refs) > 1:
+        refs = [(url, kind) for url, kind in refs if kind != ADHOC_INSIGHT_KIND]
+    return [url for url, _ in refs]
 
 
 def _link_shared_url_region(event: dict[str, Any]) -> str | None:
