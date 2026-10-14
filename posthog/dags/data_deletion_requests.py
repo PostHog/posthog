@@ -53,6 +53,7 @@ from posthog.models.data_deletion_request import (
     event_removal_where,
     jsonhas_expr,
     portable_event_removal_where,
+    queued_requests_to_verify,
     reaches_target_through_event_uuids,
     rows_without_events_copy_criteria,
     verify_queued_request,
@@ -2354,18 +2355,16 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 class VerifyQueuedConfig(dagster.Config):
     lookback_days: int = pydantic.Field(
         default=28,
-        description="Only verify QUEUED requests created within this many days. Bounds the sweep so a "
-        "permanently stuck request isn't re-checked forever.",
+        description="Only verify QUEUED requests created within this many days. A deferred event removal "
+        "with a HogQL predicate is also verified for this many days after its window falls behind the "
+        "flag_evaluations TTL. Bounds the sweep so a permanently stuck request isn't re-checked forever.",
     )
 
 
 @dagster.op(tags=OWNER_TAG)
 def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, config: VerifyQueuedConfig) -> None:
     """Verify recently-QUEUED deletion requests and promote those whose events are gone."""
-    from django.utils import timezone
-
-    cutoff = timezone.now() - timedelta(days=config.lookback_days)
-    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED, created_at__gte=cutoff)
+    queued = queued_requests_to_verify(timedelta(days=config.lookback_days))
     promoted = 0
     still_queued = 0
     for request in queued:

@@ -228,17 +228,17 @@ def reaches_target_through_event_uuids(obj, target: "DeletionTarget") -> bool:
 
 # With ttl_only_drop_parts and monthly partitions, a part drops only once its newest row expires, so
 # a row can outlive the TTL by up to a month.
-_COPY_HORIZON_SLACK_DAYS = 33
+_TTL_HORIZON_SLACK_DAYS = 33
 
 # The copy subquery holds the uuid of every events copy in its window in memory on each shard.
 _COPY_CHECK_WINDOW = timedelta(days=7)
 
 
-def _copy_horizon(target: "DeletionTarget") -> datetime | None:
+def _ttl_horizon(target: "DeletionTarget") -> datetime | None:
     """The oldest timestamp at which ``target`` can still hold a row, or None when it has no TTL."""
     if target.ttl_days is None:
         return None
-    return timezone.now() - timedelta(days=target.ttl_days + _COPY_HORIZON_SLACK_DAYS)
+    return timezone.now() - timedelta(days=target.ttl_days + _TTL_HORIZON_SLACK_DAYS)
 
 
 def rows_without_events_copy_criteria(obj, target: "DeletionTarget") -> list[tuple[str, dict]]:
@@ -254,12 +254,12 @@ def rows_without_events_copy_criteria(obj, target: "DeletionTarget") -> list[tup
     assert target.copied_from is not None
     predicate, params = portable_event_removal_where(obj)
     copies = _EVENT_REMOVAL_TIME_PREDICATE
-    horizon = _copy_horizon(target)
+    horizon = _ttl_horizon(target)
     if horizon is not None:
         # The target holds no row older than its TTL horizon. A row older than the bound reads as
         # having no copy, which refuses or holds the request.
-        copies += " AND timestamp >= %(copies_horizon)s"
-        params["copies_horizon"] = horizon
+        copies += " AND timestamp >= %(ttl_horizon)s"
+        params["ttl_horizon"] = horizon
     if target.stored_events is not None:
         copies += " AND event IN %(copied_events)s"
         params["copied_events"] = sorted(target.stored_events)
@@ -887,12 +887,35 @@ def refresh_deletion_stats(request: "DataDeletionRequest", *, user_id: int | Non
     return stats
 
 
-def _queued_by_request_where(request: "DataDeletionRequest") -> tuple[str, dict]:
-    """The ``adhoc_events_deletion`` rows that ``request`` queued."""
-    return (
-        "team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s",
-        {"team_id": request.team_id, "request_id": str(request.pk)},
+def _count_via_sync_execute(team_id: int, sql: str, params: dict) -> int:
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.workload import Workload
+
+    result = sync_execute(
+        sql, params, team_id=team_id, readonly=True, workload=Workload.OFFLINE, ch_user=ClickHouseUser.META
     )
+    return int(result[0][0]) if result else 0
+
+
+def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
+    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_queued",
+    ):
+        return _count_via_sync_execute(
+            request.team_id,
+            f"SELECT count() FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+            "WHERE team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s AND is_deleted = 0",
+            {"team_id": request.team_id, "request_id": str(request.pk)},
+        )
 
 
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
@@ -901,18 +924,15 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     Counts across every default deletion target that could hold the named events. A request is only
     complete once its rows are gone from every table that the scheduled deletion job sweeps.
 
-    On a deferred request, a target that cannot take the compiled HogQL fragment but holds copies of
-    events is counted on two sets of rows. The first set is the rows whose uuids this request queued,
-    because the drain deletes exactly those rows there. The second set is the rows with no events
-    copy, which the drain cannot reach. A row in both sets counts twice. Any other target that cannot
-    take the fragment is counted with the portable predicate instead, which matches a superset. That
-    can only hold a request in QUEUED, never promote one early. It also means a non-zero count is not
-    proof that rows were missed: for a HogQL request the superset can match rows the predicate itself
-    never would.
+    On a deferred request with a HogQL predicate, a target that cannot take the compiled fragment but
+    holds copies of events gets two counts. The first is the request's queue rows that the drain has
+    not marked deleted, because the drain deletes the target's rows through those uuids. The second
+    is the target's rows with no events copy, which the drain cannot reach. Any other target that
+    cannot take the fragment is counted with the portable predicate instead, which matches a
+    superset. That can only hold a request in QUEUED, never promote one early. It also means a
+    non-zero count is not proof that rows were missed: for a HogQL request the superset can match
+    rows the predicate itself never would.
     """
-    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
-    from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
     from posthog.models.deletion_targets import (
@@ -922,15 +942,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     )
 
     def count_rows(read_table: str, predicate: str, params: dict) -> int:
-        result = sync_execute(
-            surviving_rows_sql(read_table, predicate),
-            params,
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-        return int(result[0][0]) if result else 0
+        return _count_via_sync_execute(request.team_id, surviving_rows_sql(read_table, predicate), params)
 
     events = [] if request.delete_all_events else request.events
     total = 0
@@ -952,17 +964,9 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
                 # rows in the request's window.
                 if not count_rows(target.read_table, predicate, params):
                     continue
-                # The queued set matches nothing after deletes_job, because the drain's is_deleted marker
-                # has no data_deletion_request_id. docs/internal/clickhouse-deletion-coverage.md says which
-                # set holds the request at each stage.
-                queued, queued_params = _queued_by_request_where(request)
-                criteria = [
-                    (
-                        f"{predicate} AND uuid IN (SELECT uuid FROM {ADHOC_EVENTS_DELETION_TABLE} WHERE {queued})",
-                        {**params, **queued_params},
-                    ),
-                    *rows_without_events_copy_criteria(request, target),
-                ]
+                # docs/internal/clickhouse-deletion-coverage.md says which count holds the request at each stage.
+                total += count_pending_hogql_event_removals(request)
+                criteria = rows_without_events_copy_criteria(request, target)
             else:
                 criteria = [portable_event_removal_where(request)]
             total += sum(count_rows(target.read_table, predicate, params) for predicate, params in criteria)
@@ -1070,8 +1074,6 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
     The presence predicate is built for the legacy schema, so the native-JSON table is left to the
     job's own verification.
     """
-    from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
     from posthog.models.deletion_targets import (
@@ -1106,15 +1108,7 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
             predicate, params = _property_presence_where(
                 request, mat_cols, person_mat_cols, with_hogql=target.accepts_hogql_predicate
             )
-            result = sync_execute(
-                surviving_rows_sql(target.read_table, predicate),
-                params,
-                team_id=request.team_id,
-                readonly=True,
-                workload=Workload.OFFLINE,
-                ch_user=ClickHouseUser.META,
-            )
-            total += int(result[0][0]) if result else 0
+            total += _count_via_sync_execute(request.team_id, surviving_rows_sql(target.read_table, predicate), params)
     return total
 
 
@@ -1130,33 +1124,6 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     if request.request_type == RequestType.PROPERTY_REMOVAL:
         return count_remaining_property_events(request)
     return None
-
-
-def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
-    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
-    from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.client.connection import ClickHouseUser
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.clickhouse.workload import Workload
-
-    with tags_context(
-        product=Product.INTERNAL,
-        feature=Feature.DATA_DELETION,
-        team_id=request.team_id,
-        workload=Workload.OFFLINE,
-        query_type="data_deletion_request_verify_queued",
-    ):
-        queued, params = _queued_by_request_where(request)
-        # nosemgrep: clickhouse-fstring-param-audit (queued is constant SQL text; request values are bound params)
-        result = sync_execute(
-            f"SELECT count() FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL WHERE {queued} AND is_deleted = 0",
-            params,
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-    return int(result[0][0]) if result else 0
 
 
 @dataclass
@@ -1190,6 +1157,33 @@ def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
         status=RequestStatus.COMPLETED, updated_at=timezone.now()
     )
     return VerifyOutcome(remaining=remaining, promoted=bool(promoted))
+
+
+def queued_requests_to_verify(lookback: timedelta) -> list["DataDeletionRequest"]:
+    """The QUEUED requests that the verify sweep checks.
+
+    The sweep checks a request for ``lookback`` after it is created. It also checks a request that
+    reaches a target through event uuids for ``lookback`` after the request's window falls behind
+    that target's TTL horizon. The target's rows with no events copy hold such a request until the
+    TTL drops them. docs/internal/clickhouse-deletion-coverage.md explains why a re-filed deferred
+    request does not delete them sooner.
+    """
+    from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS
+
+    created_after = timezone.now() - lookback
+    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED)
+    selected = {request.pk: request for request in queued.filter(created_at__gte=created_after)}
+    for target in DEFAULT_DELETION_TARGETS:
+        horizon = _ttl_horizon(target) if target.copied_from is not None else None
+        if horizon is None:
+            continue
+        candidates = queued.filter(
+            created_at__lt=created_after, request_type=RequestType.EVENT_REMOVAL, end_time__gte=horizon - lookback
+        )
+        for request in candidates:
+            if reaches_target_through_event_uuids(request, target):
+                selected.setdefault(request.pk, request)
+    return list(selected.values())
 
 
 # An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys

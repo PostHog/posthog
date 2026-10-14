@@ -860,16 +860,24 @@ def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseC
 
     recent = DataDeletionRequest.objects.create(**common)
     old = DataDeletionRequest.objects.create(**common)
-    # created_at uses auto_now_add, so push `old` outside the default 28-day window via update().
-    DataDeletionRequest.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
+    old_hogql, _ = _deferred_hogql_flag_request("test-verify-queued-hogql")
+    old_hogql_past_ttl, _ = _deferred_hogql_flag_request("test-verify-queued-hogql-past-ttl")
+    DataDeletionRequest.objects.filter(pk=old_hogql_past_ttl.pk).update(
+        start_time=now - timedelta(days=400), end_time=now - timedelta(days=300)
+    )
+    DataDeletionRequest.objects.filter(pk__in=[old.pk, old_hogql.pk, old_hogql_past_ttl.pk]).update(
+        created_at=timezone.now() - timedelta(days=60)
+    )
 
     result = verify_queued_deletion_requests_job.execute_in_process()
     assert result.success
 
-    recent.refresh_from_db()
-    old.refresh_from_db()
+    for request in (recent, old, old_hogql, old_hogql_past_ttl):
+        request.refresh_from_db()
     assert recent.status == RequestStatus.COMPLETED
     assert old.status == RequestStatus.QUEUED
+    assert old_hogql.status == RequestStatus.COMPLETED
+    assert old_hogql_past_ttl.status == RequestStatus.QUEUED
 
 
 def test_verify_queued_job_registered_in_clickhouse_location():
@@ -2611,13 +2619,25 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
         _run_event_deletion(cluster, ctx)
         assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome, earlier_chrome}
 
-        # The queued event no longer matches the predicate, so only its queued uuid holds the request.
-        cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
+        # The queued events no longer match the predicate, so only their queued uuids hold the request.
+        for queued_uuid in (chrome, earlier_chrome):
+            cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), queued_uuid)).result()
         cluster.any_host(
-            partial(_insert_events_with_properties, [(ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, "{}")])
+            partial(
+                _insert_events_with_properties,
+                [
+                    (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, "{}"),
+                    (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, earlier_chrome, earlier, "{}"),
+                ],
+            )
         ).result()
-        assert verify_queued_request(request).promoted is False
+        outcome = verify_queued_request(request)
+        assert outcome.remaining == 2
+        assert outcome.promoted is False
 
+        # Emptying the queue stands in for the drain marking the queued uuids deleted. From here on only
+        # flag rows with no events copy hold the request.
+        cluster.any_host(_truncate_adhoc_events_deletion).result()
         cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
         assert verify_queued_request(request).promoted is False
 

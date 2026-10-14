@@ -239,14 +239,18 @@ The gate therefore counts the matching rows that have no copy in `sharded_events
 Requests without a predicate, immediate or deferred, are swept normally.
 A deferred one reads the table's own uuids into the queue.
 
-Verification of a deferred request with a predicate counts two sets of the table's rows: the rows whose uuids the request queued, and the rows with no copy in `sharded_events`.
-The first set holds the request before the drain, including a queued row whose event a property removal changed so that the predicate no longer matches it.
-It matches nothing once `deletes_job` finishes, because the drain writes its `is_deleted` marker without `data_deletion_request_id` and `OPTIMIZE FINAL` keeps only the marker.
-The second set holds the request after the drain.
+Verification of a deferred request with a predicate, when the table holds rows in the request's window, makes two counts: the request's queue rows that the drain has not marked deleted, and the table's rows with no copy in `sharded_events`.
+The queue rows hold the request until `deletes_job` drains them, including a queued row whose event a property removal changed so that the predicate no longer matches it.
+The rows with no copy hold the request after the drain.
 A flag row stamped after its uuid was queued falls outside the drain's `inserted_at` bound, so it survives the drain.
 The drain still deletes its events copy.
-The second set therefore counts it and keeps the request in QUEUED.
-The second set also keeps a request the gate refused, which queued nothing, from passing verification as a FAILED request.
+The rows with no copy therefore include it and keep the request in QUEUED.
+A re-filed request does not reach that row.
+The gate refuses one with the predicate, because the row has no events copy.
+A deferred one without the predicate queues the uuid, but the drain skips it while the first drain's `is_deleted` marker lasts, which is 3 months.
+Only an immediate request without the predicate deletes the row, and it also deletes every other row in its window that its event filter names.
+The verify sweep therefore keeps checking a deferred request with a predicate for `lookback_days` after its window falls behind the table's TTL horizon, so the request moves to COMPLETED once the TTL drops the row.
+The rows with no copy also keep a request the gate refused, which queued nothing, from passing verification as a FAILED request.
 Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
 
 ## Producer prerequisite: person_id parity

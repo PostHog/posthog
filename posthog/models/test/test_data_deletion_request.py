@@ -692,7 +692,7 @@ def test_query_backed_deletion_stats_are_rejected():
 @pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0)])
 def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days_ago: int) -> None:
     now = timezone.now()
-    horizon = ddr._copy_horizon(FLAG_EVALUATIONS)
+    horizon = ddr._ttl_horizon(FLAG_EVALUATIONS)
     assert horizon is not None
     request = DataDeletionRequest(
         team_id=TEAM_ID,
