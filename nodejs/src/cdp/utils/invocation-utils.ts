@@ -244,10 +244,6 @@ export function cloneInvocation<T extends CyclotronJobInvocation>(
     }
 }
 
-/**
- * A failed result for a function whose inputs could not be built, so the caller records its logs
- * and metrics like any other failed run.
- */
 export function createInputsFailureResult(
     hogFunction: HogFunctionType,
     globals: HogFunctionInvocationGlobals,
