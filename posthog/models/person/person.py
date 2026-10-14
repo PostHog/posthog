@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, Optional
 from uuid import UUID
@@ -19,6 +20,8 @@ MAX_LIMIT_DISTINCT_IDS = 2500
 
 # Mirrors MAX_SPLIT_BATCH_SIZE enforced by the personhog SplitPerson RPC.
 PERSONHOG_SPLIT_BATCH_SIZE = 250
+SPLIT_DB_TIMEOUT_ATTEMPTS = 3
+SPLIT_DB_TIMEOUT_BACKOFF_SECONDS = 0.5
 
 
 class SplitOutcome(NamedTuple):
@@ -278,8 +281,7 @@ class Person(models.Model):
                 self._split_all_ids(client, main_distinct_id, max_splits)
 
     def _require_own_distinct_id(self, client: Any, distinct_id: str) -> None:
-        """A split must keep one distinct ID on the person: a live person without one is unreachable and
-        is never cleaned up. An unowned main ID would split off every ID, so reject it before any batch runs."""
+        """An unowned main ID would split off every ID and strand the person, so reject it before any batch runs."""
         from posthog.personhog_client.proto import GetPersonByDistinctIdRequest
 
         resp = client.get_person_by_distinct_id(
@@ -289,11 +291,7 @@ class Person(models.Model):
             raise ValueError(f"main_distinct_id is not on person_id={self.pk} (team_id={self.team_id})")
 
     def _split_explicit_ids(self, client: Any, distinct_ids_to_split: list[str]) -> None:
-        """Partial split: caller specifies exactly which IDs to move.
-
-        The RPC validates that every ID belongs to this person — no need to
-        fetch all distinct IDs upfront.
-        """
+        """Partial split: the caller names the IDs to move. The RPC checks ownership; a bounded fetch checks one ID stays."""
         from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest
 
         seen: set[str] = set()
@@ -398,7 +396,10 @@ class Person(models.Model):
         posthog/models/person/util.py (_delete_person) and
         rust/personhog-replica/src/storage/postgres/person.rs (SPLIT_VERSION_OFFSET).
         """
+        import grpc
+
         from posthog.personhog_client.client import get_personhog_client
+        from posthog.personhog_client.interceptor import is_db_timeout_error
         from posthog.personhog_client.proto import SplitPersonRequest
 
         client = get_personhog_client()
@@ -407,13 +408,16 @@ class Person(models.Model):
                 "split_person requires personhog, but the client is not configured (PERSONHOG_ADDR is unset)"
             )
 
-        response = client.split_person(
-            SplitPersonRequest(
-                team_id=self.team_id,
-                person_id=self.pk,
-                distinct_ids_to_split=distinct_ids,
-            )
-        )
+        request = SplitPersonRequest(team_id=self.team_id, person_id=self.pk, distinct_ids_to_split=distinct_ids)
+        for attempt in range(1, SPLIT_DB_TIMEOUT_ATTEMPTS + 1):
+            try:
+                response = client.split_person(request)
+                break
+            except grpc.RpcError as exc:
+                # A database timeout rolled the whole batch back, often behind a merge of the same person.
+                if attempt == SPLIT_DB_TIMEOUT_ATTEMPTS or not is_db_timeout_error(exc):
+                    raise
+                time.sleep(SPLIT_DB_TIMEOUT_BACKOFF_SECONDS * attempt)
         if len(response.splits) != len(distinct_ids):
             logger.error(
                 "split_person RPC returned unexpected number of splits",

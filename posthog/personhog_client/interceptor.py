@@ -179,6 +179,16 @@ def _is_db_timeout(exc: grpc.RpcError) -> bool:
     return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in exc.trailing_metadata() or ())
 
 
+def is_db_timeout_error(exc: BaseException) -> bool:
+    """Whether ``exc``, or the error it was raised from, is a database timeout, which the server rolled back."""
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            return callable(getattr(current, "trailing_metadata", None)) and _is_db_timeout(current)
+        current = current.__cause__
+    return False
+
+
 def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
     """Whether ``exc``, or the error it was raised from, is a gRPC failure with a status in ``codes``.
 
