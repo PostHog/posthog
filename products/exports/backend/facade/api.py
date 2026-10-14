@@ -208,7 +208,7 @@ def get_delivery_image_url(
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
-def create_png_export_asset(
+def _create_png_export_asset(
     *,
     team: Team,
     created_by: User,
@@ -219,12 +219,6 @@ def create_png_export_asset(
     is_system: bool = False,
     expires_after: datetime | None = None,
 ) -> ExportedAsset:
-    """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
-
-    For a caller that is itself a Temporal workflow: it runs the export as a child workflow
-    instead of blocking a worker on ``render_png_export``. The arguments and access rules are
-    the same as for ``render_png_export``.
-    """
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
         # silently skip it, so service callers must attribute the render to a real user.
@@ -267,6 +261,20 @@ def create_png_export_asset(
     return asset
 
 
+def create_insight_png_export(
+    *, team: Team, created_by: User, insight_id: int, is_system: bool = False, expires_after: datetime | None = None
+) -> int:
+    """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
+
+    Returns the asset id. For a caller that is itself a Temporal workflow: it runs the export as a
+    child workflow instead of blocking a worker on ``render_png_export``. The access rules and the
+    ``is_system`` and ``expires_after`` arguments are the same as for ``render_png_export``.
+    """
+    return _create_png_export_asset(
+        team=team, created_by=created_by, insight_id=insight_id, is_system=is_system, expires_after=expires_after
+    ).id
+
+
 def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
     return (
         ExportedAsset.objects.filter(team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG)
@@ -297,7 +305,7 @@ def render_png_export(
     the format's default TTL; pass it when the render backs a short-lived delivery URL so
     the stored bytes do not outlive their only consumer by months.
     """
-    asset = create_png_export_asset(
+    asset = _create_png_export_asset(
         team=team,
         created_by=created_by,
         export_context=export_context,

@@ -6,6 +6,7 @@ from celery import shared_task
 
 from posthog.models import User
 from posthog.models.integration import Integration
+from posthog.models.scoping import with_team_scope
 from posthog.temporal.ai.slack_app.types import SlackUnfurlChartRequest
 
 from products.slack_app.backend.api import (
@@ -39,6 +40,7 @@ def mirror_slack_message_event(
 
 
 @shared_task(ignore_result=True)
+@with_team_scope()
 def start_slack_unfurl_charts(
     *,
     team_id: int,

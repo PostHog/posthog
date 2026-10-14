@@ -26,9 +26,12 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.exports.backend.facade.api import create_png_export_asset, get_delivery_image_url, png_export_has_content
-from products.product_analytics.backend.facade.models import Insight
+from products.exports.backend.facade.api import (
+    create_insight_png_export,
+    get_delivery_image_url,
+    png_export_has_content,
+)
+from products.product_analytics.backend.facade.api import user_can_view_insight
 from products.slack_app.backend.analytics import capture_slack_event
 
 # Slack fetches image_url again after the unfurl is posted, so the token must outlive the post.
@@ -74,7 +77,7 @@ def prepare_unfurl_charts(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAp
     # Two links to the same insight in one message share one render.
     for insight_id in dict.fromkeys(chart.insight_id for chart in inputs.charts):
         try:
-            asset = create_png_export_asset(
+            asset_id = create_insight_png_export(
                 team=team,
                 created_by=user,
                 insight_id=insight_id,
@@ -83,7 +86,7 @@ def prepare_unfurl_charts(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAp
             )
         except ValueError:
             continue
-        assets.append(SlackUnfurlChartAsset(insight_id=insight_id, asset_id=asset.id))
+        assets.append(SlackUnfurlChartAsset(insight_id=insight_id, asset_id=asset_id))
     return SlackAppUnfurlChartsPrepared(distinct_id=str(user.distinct_id), assets=assets)
 
 
@@ -101,13 +104,10 @@ def with_chart_images(unfurls: dict[str, Any], image_urls: dict[str, str], title
 
 
 def _image_urls_by_insight(team: Team, user: User, rendered: list[SlackUnfurlChartAsset]) -> dict[int, str]:
-    # Checked again because the sharer's access can change while the chart renders.
-    access = UserAccessControl(user, team=team)
-    insights = Insight.objects.filter(team_id=team.pk, id__in=[asset.insight_id for asset in rendered], deleted=False)
-    allowed_ids = {insight.id for insight in insights if access.check_access_level_for_object(insight, "viewer")}
     image_urls: dict[int, str] = {}
     for asset in rendered:
-        if asset.insight_id not in allowed_ids:
+        # Checked again because the sharer's access can change while the chart renders.
+        if not user_can_view_insight(team=team, user=user, insight_id=asset.insight_id):
             continue
         if not png_export_has_content(team_id=team.pk, asset_id=asset.asset_id):
             continue
