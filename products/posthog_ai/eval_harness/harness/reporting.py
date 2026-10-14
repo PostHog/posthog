@@ -45,6 +45,7 @@ class ProgressReporter:
         self._finished_suites = 0
         self._summaries: dict[str, EvalSummary] = {}
         self._case_counts: dict[str, int] = defaultdict(int)
+        self._setup_retry_count = 0
         self._case_durations: dict[str, float] = defaultdict(float)
         self._case_statuses: dict[str, Counter[str]] = defaultdict(Counter)
         self._summary_error_counts: dict[str, int] = defaultdict(int)
@@ -104,6 +105,23 @@ class ProgressReporter:
                 f"CASE {marker:<7} {experiment_name} :: {case_name}  {progress}  {_format_duration(duration_seconds)}"
             )
 
+    async def case_setup_retry(
+        self,
+        experiment_name: str,
+        case_name: str,
+        *,
+        next_attempt: int,
+        total_attempts: int,
+        delay_seconds: float,
+        error_type: str,
+    ) -> None:
+        async with self._lock:
+            self._setup_retry_count += 1
+            _emit(
+                f"CASE RETRY   {experiment_name} :: {case_name}  setup attempt {next_attempt}/{total_attempts} "
+                f"in {delay_seconds:.1f}s ({error_type}). No action required."
+            )
+
     async def suite_finished(self, result: SuiteRunResult) -> None:
         async with self._lock:
             self._finished_suites += 1
@@ -161,6 +179,7 @@ class ProgressReporter:
             ),
             f"Mean score: {self._mean_score_text()}",
             f"Score gate: {self._score_gate_text(fail_under)}",
+            f"Case setup retries: {self._setup_retry_count}",
             f"Duration: {_format_duration(duration_seconds)}",
         ]
 
@@ -185,6 +204,9 @@ class ProgressReporter:
                 ]
             )
         )
+
+    def has_case_errors(self) -> bool:
+        return self._combined_case_statuses()["error"] > 0
 
     def mean_score(self) -> float | None:
         scores = [

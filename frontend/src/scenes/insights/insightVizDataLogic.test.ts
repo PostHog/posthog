@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -37,6 +39,8 @@ import {
 import { insightDataLogic } from './insightDataLogic'
 
 const Insight123 = '123' as InsightShortId
+
+type PickerLogic = ReturnType<typeof entityFilterLogic.build>
 
 describe('insightVizDataLogic', () => {
     let builtInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
@@ -580,6 +584,85 @@ describe('insightVizDataLogic', () => {
                 filterTestAccounts: false,
             })
             expect(builtInsightVizDataLogic.values.hasDataWarehouseEntity).toBe(true)
+        })
+    })
+
+    describe('updateSeries', () => {
+        const pageview = { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }
+        const signUp = { kind: NodeKind.ActionsNode, id: 7, name: 'Sign up' }
+        const added = { kind: NodeKind.EventsNode, event: getDefaultEventName(), name: getDefaultEventLabel() }
+
+        it.each([
+            {
+                edit: 'adds a series with the default math',
+                source: { kind: NodeKind.TrendsQuery, series: [{ ...pageview, math: BaseMathType.UniqueUsers }] },
+                apply: (picker: PickerLogic) => picker.actions.addSeries(),
+                expected: [
+                    { ...pageview, math: BaseMathType.UniqueUsers },
+                    { ...added, math: BaseMathType.TotalCount },
+                ],
+            },
+            {
+                edit: 'changes a math',
+                source: { kind: NodeKind.TrendsQuery, series: [{ ...pageview, math: BaseMathType.TotalCount }] },
+                apply: (picker: PickerLogic) =>
+                    picker.actions.updateSeriesMath(0, { math: BaseMathType.WeeklyActiveUsers, math_hogql: undefined }),
+                expected: [{ ...pageview, math: BaseMathType.WeeklyActiveUsers }],
+            },
+            {
+                edit: 'removes a series',
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        { ...pageview, math: BaseMathType.TotalCount },
+                        { ...signUp, math: BaseMathType.TotalCount },
+                    ],
+                },
+                apply: (picker: PickerLogic) => picker.actions.removeSeries(0),
+                expected: [{ ...signUp, math: BaseMathType.TotalCount }],
+            },
+            {
+                edit: 'reorders series',
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        { ...pageview, math: BaseMathType.TotalCount },
+                        { ...signUp, math: BaseMathType.TotalCount },
+                    ],
+                },
+                apply: (picker: PickerLogic) => picker.actions.setLocalSeries([...picker.values.localSeries].reverse()),
+                expected: [
+                    { ...signUp, math: BaseMathType.TotalCount },
+                    { ...pageview, math: BaseMathType.TotalCount },
+                ],
+            },
+            {
+                edit: 'adds a stickiness series with an actors math',
+                source: { kind: NodeKind.StickinessQuery, series: [{ ...pageview, math: BaseMathType.UniqueUsers }] },
+                apply: (picker: PickerLogic) => picker.actions.addSeries(),
+                expected: [
+                    { ...pageview, math: BaseMathType.UniqueUsers },
+                    { ...added, math: BaseMathType.UniqueUsers },
+                ],
+            },
+            {
+                edit: 'moves an optional funnel step to the start',
+                source: { kind: NodeKind.FunnelsQuery, series: [pageview, { ...signUp, optionalInFunnel: true }] },
+                apply: (picker: PickerLogic) => picker.actions.setLocalSeries([...picker.values.localSeries].reverse()),
+                expected: [signUp, pageview],
+            },
+        ])('$edit', ({ source, apply, expected }) => {
+            builtInsightDataLogic.actions.setQuery({ kind: NodeKind.InsightVizNode, source } as Node)
+            const picker = entityFilterLogic({
+                typeKey: 'insight-series',
+                series: builtInsightVizDataLogic.values.series ?? [],
+                onChange: builtInsightVizDataLogic.actions.updateSeries,
+            })
+            picker.mount()
+
+            apply(picker)
+
+            expect(builtInsightVizDataLogic.values.series).toEqual(expected)
         })
     })
 

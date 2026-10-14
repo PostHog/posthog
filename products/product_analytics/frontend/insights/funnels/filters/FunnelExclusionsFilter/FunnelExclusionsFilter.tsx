@@ -2,14 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-
-import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { ActionsNode, EventsNode } from '~/queries/schema/schema-general'
-import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
@@ -18,39 +14,21 @@ import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { exclusionFilters, exclusionDefaultStepRange, isFunnelWithEnoughSteps } = useValues(
-        funnelDataLogic(insightProps)
-    )
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { funnelsFilter, newExclusionDefaults, isFunnelWithEnoughSteps } = useValues(funnelDataLogic(insightProps))
+    const { updateExclusions } = useActions(funnelDataLogic(insightProps))
 
     const ref = useRef(null)
-
-    const setFilters = (filters: Partial<FilterType>): void => {
-        const exclusions = filters.events?.map((entity) => {
-            const baseEntity = legacyEntityToNode(entity as ActionFilterType, true, MathAvailability.None) as
-                | EventsNode
-                | ActionsNode
-            return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
-        })
-        updateInsightFilter({ exclusions })
-    }
 
     const typeKey = `${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`
 
     return (
         <div data-attr="funnel-exclusions-filter">
-            <ActionFilter
+            <SeriesActionFilter
                 ref={ref}
-                setFilters={setFilters}
-                filters={exclusionFilters}
+                series={funnelsFilter?.exclusions ?? []}
+                onChange={updateExclusions}
                 typeKey={typeKey}
-                addFilterDefaultOptions={{
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: EntityTypes.EVENTS,
-                    funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
-                    funnel_to_step: exclusionDefaultStepRange.funnelToStep,
-                }}
+                newSeriesDefaults={newExclusionDefaults}
                 disabled={!isFunnelWithEnoughSteps}
                 buttonCopy="Add exclusion"
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}

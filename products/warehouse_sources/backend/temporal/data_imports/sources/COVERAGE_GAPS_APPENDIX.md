@@ -2174,10 +2174,10 @@ Diffed against: <https://docs.campfire.ai/llms.txt>
 - [x] `revenue-recognition/list-contract-subscriptions` — subscription schedules per contract, needed for ARR/MRR and rev-rec waterfalls (high)
 - [x] `revenue-recognition/list-contract-customers` — lookup table resolving the customer IDs carried on contracts, invoices and revenue transactions (high)
 - [x] `settings/list-chart-entities` — legal entity lookup - every transaction carries an entity ID and multi-entity consolidation is unusable without it (high)
-- [ ] `company-objects/list-custom-dimensions (+ list-custom-dimension-groups)` — the breakdown dimensions tagged on chart transactions and journal entries (medium)
-- [ ] `revenue-recognition/list-contract-milestones` — milestone-based recognition triggers on contracts we sync (medium)
-- [ ] `core-accounting/list-fixed-assets` — fixed asset register and depreciation, a whole ledger area currently absent (medium)
-- [ ] `core-accounting/list-budgets (+ list-budget-accounts)` — budget vs actual reporting against chart_of_accounts we already have (medium)
+- [x] `company-objects/list-custom-dimensions (+ list-custom-dimension-groups)` — the breakdown dimensions tagged on chart transactions and journal entries (medium)
+- [x] `revenue-recognition/list-contract-milestones` — milestone-based recognition triggers on contracts we sync (medium)
+- [x] `core-accounting/list-fixed-assets` — fixed asset register and depreciation, a whole ledger area currently absent (medium)
+- [x] `core-accounting/list-budgets (+ list-budget-accounts)` — budget vs actual reporting against chart_of_accounts we already have (medium)
 - [ ] `revenue-recognition/list-prepaid-commits (+ list-prepaid-commit-consumption)` — committed spend and drawdown, core usage-based revenue analytics (medium)
 - [ ] `revenue-recognition/list-contract-usage-revenue` — usage-driven revenue rows that reconcile to revenue_transactions (medium)
 - [ ] `core-accounting/list-intercompany-journal-entries` — intercompany JEs are excluded from the journal_entries table today (medium)
@@ -4509,10 +4509,10 @@ Today (6): `customers`, `estimates`, `invoices`, `jobs`, `payments`, `projects`
 
 Diffed against: <https://help.fieldpulse.com/openapi/fieldpulse-api.json>
 
-- [ ] `Company users (GET /users)` — resolve customer assignees and job member IDs for technician productivity and revenue attribution (high)
-- [ ] `Job status workflows and statuses (GET /jobs/status-workflows; GET /jobs/status-workflow-statuses)` — resolve status_workflow_id and status_id on jobs for completion and workload analysis (high)
-- [ ] `Pipeline statuses (GET /pipeline-status)` — resolve pipeline_status_id on customers for sales funnel and conversion analysis (high)
-- [ ] `Lead sources (GET /lead-source)` — resolve lead_source_id on customers to measure acquisition channels and resulting revenue (high)
+- [x] `Company users (GET /users)` — resolve customer assignees and job member IDs for technician productivity and revenue attribution (high)
+- [x] `Job status workflows and statuses (GET /jobs/status-workflows; GET /jobs/status-workflow-statuses)` — resolve status_workflow_id and status_id on jobs for completion and workload analysis (high)
+- [x] `Pipeline statuses (GET /pipeline-status)` — resolve pipeline_status_id on customers for sales funnel and conversion analysis (high)
+- [x] `Lead sources (GET /lead-source)` — resolve lead_source_id on customers to measure acquisition channels and resulting revenue (high)
 - [ ] `Company teams (GET /teams)` — resolve team assignments on jobs and customers to compare team performance (high)
 - [ ] `Invoice items (GET /items)` — resolve item references and compare products, costs, and billed quantities across invoices (high)
 - [ ] `Tags (GET /tags)` — resolve customer tag IDs into named segments for conversion and revenue analysis (high)
@@ -9880,14 +9880,14 @@ Note: The official Stoplight operation index and individual operation schemas we
 
 ## QualysVmdr — gaps
 
-Today (4): `host_list_detection`, `hosts`, `knowledge_base`, `scans`
+Today (8): `appliances`, `asset_groups`, `host_list_detection`, `hosts`, `ips`, `knowledge_base`, `reports`, `scans`
 
 Diffed against: <https://cdn2.qualys.com/docs/qualys-api-vmpc-user-guide.pdf>
 
-- [ ] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
-- [ ] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
-- [ ] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
-- [ ] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
+- [x] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
+- [x] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
+- [x] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
+- [x] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
 - [ ] `GET /api/2.0/fo/activity_log/ (action=list)` — user activity log for who ran or changed what, the audit dimension of the platform (medium)
 - [ ] `GET /api/2.0/fo/schedule/scan/ (action=list)` — scheduled scan definitions that explain the cadence behind the scans table (low)
 - [ ] `GET /api/2.0/fo/compliance/posture/info/ (action=list)` — per-host control pass/fail posture for Policy Compliance subscriptions (low)
@@ -10253,10 +10253,10 @@ Today (12): `agent`, `agent_endpoint`, `call`, `chat`, `issue`, `knowledge_base`
 
 Diffed against: <https://docs.roark.ai/llms.txt>
 
-- [ ] `call/list-call-metrics (GET /calls/{id}/metrics)` — the scored per-call metric values - the product's headline output and the only numeric quality data (high)
-- [ ] `metric-collection-job/get-metric-values-produced-by-a-metric-collection-job` — metric values per collection job, giving metric history over time rather than only the latest run (high)
+- [x] `call/list-call-metrics (GET /calls/{id}/metrics)` — the scored per-call metric values - the product's headline output and the only numeric quality data (high)
+- [x] `metric-collection-job/get-metric-values-produced-by-a-metric-collection-job` — metric values per collection job, giving metric history over time rather than only the latest run (high)
 - [ ] `call/list-call-evaluation-runs` — pass/fail evaluation results per call, the row grain quality dashboards are built on (high)
-- [ ] `call/get-call-transcript` — turn-level transcript for the calls already synced; enables text and duration analysis (high)
+- [x] `call/get-call-transcript` — turn-level transcript for the calls already synced; enables text and duration analysis (high)
 - [ ] `call/list-call-sentiment-runs` — sentiment scores and key phrases per call, a standard breakdown dimension (high)
 - [ ] `chat/list-chat-metrics` — the chat-channel equivalent of call metrics; chats are synced but their scores are not (medium)
 - [ ] `chat/get-chat-transcript` — message-level content under the chats already synced (medium)
@@ -11246,10 +11246,10 @@ Today (7): `data_models`, `data_structures`, `failed_event_metrics`, `job_run_st
 
 Diffed against: <https://console.snowplowanalytics.com/api/msc/v1/docs/docs.yaml>
 
-- [ ] `GET /data-products/v2 (plus /metrics and /{dataProductId}/history)` — Data Products are the vendor's headline governance object and /metrics carries their volume numbers (high)
-- [ ] `GET /event-specs/v1 (plus /metrics, /{eventSpecId}/versions, /{eventSpecId}/history)` — event specifications with observed-volume metrics and version history - the tracking-quality core (high)
-- [ ] `GET /source-apps/v1` — lookup table resolving the source app ids referenced by data products and event specs (high)
-- [ ] `GET /data-catalog/v1 (and /data-catalog/v1/search)` — the catalog of events and entities actually observed in the pipeline, the join key between data structures and real traffic (high)
+- [x] `GET /data-products/v2 (plus /metrics and /{dataProductId}/history)` — Data Products are the vendor's headline governance object and /metrics carries their volume numbers (high)
+- [x] `GET /event-specs/v1 (plus /metrics, /{eventSpecId}/versions, /{eventSpecId}/history)` — event specifications with observed-volume metrics and version history - the tracking-quality core (high)
+- [x] `GET /source-apps/v1` — lookup table resolving the source app ids referenced by data products and event specs (high)
+- [x] `GET /data-catalog/v1 (and /data-catalog/v1/search)` — the catalog of events and entities actually observed in the pipeline, the join key between data structures and real traffic (high)
 - [ ] `GET /data-structures/v1/{schemaHash}/deployments` — which schema version is deployed to dev vs prod - deployment state history for structures we already sync (medium)
 - [ ] `GET /metrics/v1/pipelines/{pipelineId}/failed-events/{errorId}` — per-error breakdown behind the failed-event totals already synced (medium)
 - [ ] `GET /tracking-scenarios/v2 (plus /metrics and /{scenarioId}/history)` — tracking scenarios and their conformance metrics for orgs not yet migrated to event specs (medium)

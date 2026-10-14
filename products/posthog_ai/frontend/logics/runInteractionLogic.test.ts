@@ -24,6 +24,7 @@ import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { taskCommentContextsLogic } from './taskCommentContextsLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistence'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
@@ -264,6 +265,66 @@ describe('runInteractionLogic', () => {
             expect(attachments.values.uploading).toBe(false)
         })
 
+        it('uploads a comment chip screenshot with the message and names it in the chip block', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValue(['art-1', 'art-2'])
+            const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+            comments.mount()
+            const screenshot = new File(['png'], 'comment-1.png', { type: 'image/png' })
+            comments.actions.addCommentToChat(
+                { label: 'chart.png (region)', body: '- **Artifact** chart.png' },
+                'x',
+                screenshot
+            )
+
+            logic.actions.setComposerFormValues({ draft: 'Fix this bar' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(uploadRunAttachments).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, [
+                expect.objectContaining({ name: 'rows.csv' }),
+                screenshot,
+            ])
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'user_message',
+                params: {
+                    content:
+                        '<comment_context label="chart.png (region)" screenshot="comment-1.png">\n- **Artifact** chart.png\n</comment_context>\nFix this bar',
+                    artifact_ids: ['art-1', 'art-2'],
+                },
+            })
+            comments.unmount()
+        })
+
+        it('keeps the chip screenshot name when a failed send is retried', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValueOnce(new Error('S3 said no'))
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValueOnce(['art-1', 'art-2'])
+            const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+            comments.mount()
+            const screenshot = new File(['png'], 'comment-1.png', { type: 'image/png' })
+            comments.actions.addCommentToChat(
+                { label: 'chart.png (region)', body: '- **Artifact** chart.png' },
+                'x',
+                screenshot
+            )
+
+            logic.actions.setComposerFormValues({ draft: 'Fix this bar' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                RUN_ID,
+                expect.objectContaining({
+                    params: expect.objectContaining({
+                        content:
+                            '<comment_context label="chart.png (region)" screenshot="comment-1.png">\n- **Artifact** chart.png\n</comment_context>\nFix this bar',
+                    }),
+                })
+            )
+            comments.unmount()
+        })
+
         it('keeps the files staged when the send fails', async () => {
             ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
 
@@ -362,6 +423,57 @@ describe('runInteractionLogic', () => {
             ...userMessageCommand('queued first\n\nqueued second\n\nlast keystroke')
         )
         expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()).toBeNull()
+    })
+
+    it('restores the saved draft and its chips, then adds comment text and sends every chip before it', async () => {
+        const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+        comments.mount()
+        new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).save({
+            runId: RUN_ID,
+            draft: '<comment_context label="chart.png">\n- **Artifact** chart.png\n</comment_context>\nsaved draft',
+            queuedText: '',
+            recovery: null,
+        })
+        comments.actions.addCommentToChat({ label: 'report.md', body: '- **Artifact** report.md' }, 'Fix the title')
+        logic.actions.applyPendingCommentText()
+        expect(logic.values.composerForm.draft).toBe('')
+
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
+
+        logic.actions.persistTaskDraft()
+        logic.unmount()
+        logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
+        logic.mount()
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(comments.values.commentContexts.map((context) => context.label)).toEqual(['chart.png', 'report.md'])
+        expect(logic.values.composerForm.draft).toBe('saved draft\n\nFix the title')
+
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+            ...userMessageCommand(
+                '<comment_context label="chart.png">\n- **Artifact** chart.png\n</comment_context>\n<comment_context label="report.md">\n- **Artifact** report.md\n</comment_context>\nsaved draft\n\nFix the title'
+            )
+        )
+        expect(comments.values.commentContexts).toEqual([])
+        comments.unmount()
+    })
+
+    it('gives the comment chips back and keeps the XML out of the draft when a send fails', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(new Error('network'))
+        const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+        comments.mount()
+        comments.actions.addCommentToChat({ label: 'report.md', body: '- **Artifact** report.md' }, 'unused')
+
+        logic.actions.setComposerFormValues({ draft: 'Fix the title' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(logic.values.composerForm.draft).toBe('Fix the title')
+        expect(comments.values.commentContexts).toEqual([
+            { id: expect.any(String), label: 'report.md', body: '- **Artifact** report.md' },
+        ])
+        comments.unmount()
     })
 
     it('does not prewarm a recovered terminal draft or copy it into another user or project', async () => {
