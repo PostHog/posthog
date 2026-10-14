@@ -224,9 +224,8 @@ class PostgresPrinter(BasePrinter):
     def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
         """Lowercased HogQL-name → handler-callable map for functions that need custom rendering."""
         handlers = POSTGRES_FUNCTION_HANDLERS_LOWER.copy()
-        # Extension mappings are fallbacks; discovered functions keep their own signatures.
-        extension_handlers = {"sha1": self._render_sha1}
-        for name, handler in extension_handlers.items():
+        extension_fallbacks = {"sha1": self._render_sha1}
+        for name, handler in extension_fallbacks.items():
             if name not in self._connection_supported_functions:
                 handlers[name] = handler
         return handlers
