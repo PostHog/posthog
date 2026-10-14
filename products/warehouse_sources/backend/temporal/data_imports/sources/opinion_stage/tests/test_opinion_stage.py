@@ -1,138 +1,181 @@
-import json
 from typing import Any
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
+    OpinionStageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage import (
-    OPINION_STAGE_BASE_URL,
     OpinionStageResumeConfig,
-    opinion_stage_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.settings import ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the opinion_stage module.
-OPINION_STAGE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage.make_tracked_session"
-)
-# Backoff sleeps happen inside tenacity; patch its clock so retry tests don't actually wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source import OpinionStageSource
 
 
-def _page(
-    items: list[dict[str, Any]] | None, next_link: str | None, *, status: int = 200, reason: str = "OK"
-) -> Response:
+def _page(items: list[dict[str, Any]], next_link: str | None) -> ScriptedResponse:
     # JSON:API collection envelope: rows under `data`, pagination via `links.next`.
-    body: dict[str, Any] = {
-        "data": items if items is not None else [],
-        "meta": {},
-        "links": {"self": "s", "next": next_link},
-    }
-    return _raw(body, status=status, reason=reason)
+    return ScriptedResponse(json={"data": items, "meta": {}, "links": {"self": "s", "next": next_link}})
 
 
-def _raw(body: Any, *, status: int = 200, reason: str = "OK") -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.reason = reason
-    resp.url = f"{OPINION_STAGE_BASE_URL}/api/v2/items"
-    resp.headers["Content-Type"] = "application/vnd.api+json"
-    resp._content = b"" if body is None else json.dumps(body).encode()
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Wire a mock session, snapshotting each request's params and auth AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so a copy is taken per page.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    auth_snapshots: list[Any] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        auth_snapshots.append(request.auth)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, auth_snapshots
-
-
-def _make_manager(resume_state: OpinionStageResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _counted_page(items: list[dict[str, Any]], current: int, total: int) -> ScriptedResponse:
+    # The envelope the OpenAPI spec documents: page counters under `meta.page` and no `links.next`.
+    return ScriptedResponse(
+        json={"data": items, "meta": {"page": {"current": current, "size": 100, "total": total}}, "links": {}}
+    )
 
 
 class TestOpinionStage:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_page([{"id": "2"}], next_link="p3"), _page([{"id": "3"}], next_link=None)])
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(OpinionStageSource(), OpinionStageSourceConfig(api_key="os-key"))
 
-        manager = _make_manager(OpinionStageResumeConfig(next_page=2))
-        rows = _rows(opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_resumes_from_saved_page(self) -> None:
+        result = self._driver().run(
+            "items",
+            [_page([{"id": "2"}], next_link="p3"), _page([{"id": "3"}], next_link=None)],
+            resume_state=OpinionStageResumeConfig(next_page=2),
+        )
 
-        assert [r["id"] for r in rows] == ["2", "3"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["2", "3"]
         # Page 1 is never fetched on resume — the first request targets page 2.
-        assert params[0]["page[number]"] == 2
+        assert result.params("page[number]") == ["2", "3"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_data_yields_no_rows(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], next_link=None)])
+    @parameterized.expand([("responses",), ("questions",)])
+    def test_fan_out_walks_every_item_and_every_child_page(self, endpoint: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            route(
+                {
+                    "/api/v2/items": [
+                        _counted_page([{"id": "item-a"}, {"id": "item-gone"}], current=1, total=2),
+                        _counted_page([{"id": "item-b"}], current=2, total=2),
+                    ],
+                    f"/api/v2/items/item-a/{endpoint}": [
+                        _counted_page([{"id": "1", "attributes": {"title": None}}], current=1, total=2),
+                        _page([{"id": "2"}], next_link=None),
+                    ],
+                    f"/api/v2/items/item-gone/{endpoint}": [
+                        ScriptedResponse(
+                            status=404, json={"errors": [{"status": "404", "title": "resource not found"}]}
+                        )
+                    ],
+                    f"/api/v2/items/item-b/{endpoint}": [_page([{"id": "1"}], next_link=None)],
+                }
+            ),
+        )
 
-        manager = _make_manager()
-        rows = _rows(opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=manager))
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["item_id", "id"]
+        assert [(row["item_id"], row["id"]) for row in result.rows] == [
+            ("item-a", "1"),
+            ("item-a", "2"),
+            ("item-b", "1"),
+        ]
+        assert result.rows[0]["attributes"] == {"title": None}
+        assert [(request.path, request.param("page[number]")) for request in result.requests] == [
+            ("/api/v2/items", "1"),
+            (f"/api/v2/items/item-a/{endpoint}", "1"),
+            (f"/api/v2/items/item-a/{endpoint}", "2"),
+            (f"/api/v2/items/item-gone/{endpoint}", "1"),
+            ("/api/v2/items", "2"),
+            (f"/api/v2/items/item-b/{endpoint}", "1"),
+        ]
+        assert set(result.params("page[size]")) == {"100"}
 
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+    def test_fan_out_resumes_inside_the_item_in_progress(self) -> None:
+        result = self._driver().run(
+            "responses",
+            route(
+                {
+                    "/api/v2/items": [_page([{"id": "item-a"}, {"id": "item-b"}, {"id": "item-c"}], next_link=None)],
+                    "/api/v2/items/item-b/responses": [_page([{"id": "9"}], next_link=None)],
+                    "/api/v2/items/item-c/responses": [_page([], next_link=None)],
+                }
+            ),
+            resume_state=OpinionStageResumeConfig(
+                fanout_state={
+                    "completed": ["/api/v2/items/item-a/responses"],
+                    "current": "/api/v2/items/item-b/responses",
+                    "child_state": {"next_page": 3},
+                }
+            ),
+        )
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_is_retried_then_reraises(
-        self, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
+        assert result.raised is None
+        assert [(row["item_id"], row["id"]) for row in result.rows] == [("item-b", "9")]
+        assert [(request.path, request.param("page[number]")) for request in result.requests] == [
+            ("/api/v2/items", "1"),
+            ("/api/v2/items/item-b/responses", "3"),
+            ("/api/v2/items/item-c/responses", "1"),
+        ]
+        assert result.committed_states
+
+    @parameterized.expand(
+        [
+            ("next_link_without_counters", {"links": {"next": "p2"}}, ["1", "2"]),
+            ("counters_without_next_link", {"meta": {"page": {"current": 1, "total": 2}}, "links": {}}, ["1", "2"]),
+            ("last_page_by_counters", {"meta": {"page": {"current": 1, "total": 1}}}, ["1"]),
+            ("malformed_counters", {"meta": {"page": {"current": "x"}}}, ["1"]),
+            ("no_paging_fields", {}, ["1"]),
+        ]
+    )
+    def test_next_page_signal(self, _name: str, envelope: dict[str, Any], expected_pages: list[str]) -> None:
+        result = self._driver().run(
+            "items",
+            [ScriptedResponse(json={"data": [{"id": "1"}], **envelope}), _page([{"id": "2"}], next_link=None)][
+                : len(expected_pages)
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("page[number]") == expected_pages
+
+    def test_counters_stuck_on_page_1_stop_the_walk(self) -> None:
+        stuck = {"meta": {"page": {"current": 1, "total": 5}}, "links": {}}
+        result = self._driver().run(
+            "items",
+            always(ScriptedResponse(json={"data": [{"id": "1"}], **stuck})),
+        )
+
+        assert result.raised is None
+        assert result.params("page[number]") == ["1", "2"]
+
+    def test_empty_data_yields_no_rows(self) -> None:
+        result = self._driver().run("items", [_page([], next_link=None)])
+
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
+        assert result.params("page[number]") == ["1"]
+        assert result.saved_states == []
+
+    def test_missing_data_key_is_retried_then_reraises(self) -> None:
         # A 200 body without a top-level `data` list is malformed for JSON:API; treat it as transient
         # and reissue rather than silently yielding nothing.
-        session = MockSession.return_value
-        _wire(session, [_raw({"errors": [{"detail": "nope"}]})] * 5)
+        result = self._driver().run("items", always(ScriptedResponse(json={"errors": [{"detail": "nope"}]})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(
-                opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_data_is_retried_then_reraises(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw({"data": {"unexpected": "object"}})] * 5)
+    def test_non_list_data_is_retried_then_reraises(self) -> None:
+        result = self._driver().run("items", always(ScriptedResponse(json={"data": {"unexpected": "object"}})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(
-                opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
 
     @parameterized.expand(
         [
@@ -141,50 +184,35 @@ class TestOpinionStage:
             ("bad_gateway", 503, "Service Unavailable"),
         ]
     )
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_retries_then_raises(
-        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw({}, status=status, reason=reason)] * 5)
+    def test_retryable_status_retries_then_raises(self, _name: str, status: int, _reason: str) -> None:
+        result = self._driver().run("items", always(ScriptedResponse(status=status, json={})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(
-                opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert f"HTTP {status}" in str(result.raised)
+        assert len(result.requests) == 5
 
     @parameterized.expand(
         [("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden"), ("not_found", 404, "Not Found")]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_http_error_without_retry(
-        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock
-    ) -> None:
+    def test_client_error_raises_http_error_without_retry(self, _name: str, status: int, reason: str) -> None:
         # 4xx are credential/permission/shape failures — never retried, surfaced as an HTTPError whose
         # message carries the stable status text that get_non_retryable_errors matches on.
-        session = MockSession.return_value
-        _wire(session, [_raw({"errors": ["denied"]}, status=status, reason=reason)])
+        result = self._driver().run("items", [ScriptedResponse(status=status, json={"errors": ["denied"]})])
 
-        with pytest.raises(requests.HTTPError) as exc_info:
-            _rows(
-                opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
-        assert f"{status} Client Error" in str(exc_info.value)
-        assert "https://api.opinionstage.com" in str(exc_info.value)
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert f"{status} Client Error: {reason}" in str(result.raised)
+        assert "https://api.opinionstage.com" in str(result.raised)
+        assert len(result.requests) == 1
 
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        # No network: SourceResponse metadata is built eagerly, rows only on iteration.
-        response = opinion_stage_source(
-            "os-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        result = self._driver().run(endpoint, [_page([], next_link=None)])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
         # JSON:API items carry no guaranteed stable creation timestamp column, so we don't partition.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None
 
 
 class TestValidateCredentials:
@@ -197,9 +225,10 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool, expected_status: int | None) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(OPINION_STAGE_SESSION_PATCH, return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, returned_status = validate_credentials("os-key")
+
         assert ok is expected_ok
         assert returned_status == expected_status
+        assert network.requests_log
+        assert all(request.path == "/api/v2/items" for request in network.requests_log)

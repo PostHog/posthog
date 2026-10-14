@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChessComSource(SimpleSource[ChessComSourceConfig]):
+    codebase_detection = detect(env=("^(CHESS_COM|CHESSCOM)_",), npm=("chess-web-api",), pypi=("chess-com",))
+
     api_docs_url = "https://www.chess.com/news/view/published-data-api"
 
     lists_tables_without_credentials = True
@@ -57,7 +60,8 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
             caption=(
                 "Sync the games and ratings of a list of Chess.com players.\n\n"
                 "Chess.com publishes this data without a key. "
-                "The tables identify each player by an opaque key. They hold no username, game link, or moves.\n\n"
+                "The tables identify each player by an opaque key. They hold no username or game link. "
+                "Each game's PGN keeps the moves and replaces the player names with ?.\n\n"
                 "After you add a username, resync the `games` table to load that player's earlier games."
             ),
             iconPath="/static/services/chess-com.png",

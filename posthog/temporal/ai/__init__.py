@@ -13,6 +13,7 @@ from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import Pos
 from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import PostHogSlackInboxOnboardingWorkflow
 from posthog.temporal.ai.slack_app.slack_app_fork import SlackAppForkThreadWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
+from posthog.temporal.ai.slack_app.slack_app_unfurl_charts import SlackAppUnfurlChartsWorkflow
 
 from products.posthog_ai.backend.temporal.activities import mirror_conversation_to_task_activity
 from products.posthog_ai.backend.temporal.workflows import ConversationMirrorWorkflow
@@ -40,6 +41,7 @@ POSTHOG_CODE_SLACK_WORKFLOWS = [
     PostHogCodeSlackMentionCommandWorkflow,
     SlackAppForkThreadWorkflow,
     PostHogSlackInboxOnboardingWorkflow,
+    SlackAppUnfurlChartsWorkflow,
 ]
 
 POSTHOG_CODE_SLACK_ACTIVITIES = [*SLACK_APP_ACTIVITIES]

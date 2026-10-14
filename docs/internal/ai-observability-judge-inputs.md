@@ -170,13 +170,11 @@ N/A and skipped numeric runs omit the score, while zero remains a graded result.
 Separate properties preserve the existing boolean property's type and saved queries.
 The numeric property uses normal numeric inference and can be aggregated in Insights.
 Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
-No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
+No property-definition migration is required for numeric evaluations.
 
 ## Categorical outputs
 
 Hog and LLM judge evaluations support categorical output for generation, trace, and session targets.
-Creation is gated by `llm-analytics-categorical-evaluations`, disabled by default, in the API and frontend.
-Existing evaluations remain editable and continue running when the flag is off.
 
 The output configuration defines `options` as `{key, label}` pairs, `selection_mode` as `single` or `multiple`, and optional `allows_na`.
 Each evaluation supports 1 to 100 categories, enforced by the API and editor.

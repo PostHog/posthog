@@ -37,16 +37,14 @@ from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
     get_user_friendly_message,
 )
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
-from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, resolve_scheduled_metrics
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricResult,
-    ExperimentMetricsRecalculation,
-)
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
+from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import (
+    CAPACITY_MAX_METRIC_ATTEMPTS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
     CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
     MAX_METRIC_ATTEMPTS,
@@ -55,22 +53,17 @@ from products.experiments.backend.temporal.models import (
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
+    TIMEOUT_MAX_METRIC_ATTEMPTS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
 
 # Cap stored/returned error messages so a pathological traceback can't bloat the Temporal payload (~2 MiB cap).
 _MAX_ERROR_MESSAGE_LENGTH = 2000
-
-_TERMINAL_RECALC_STATUSES = frozenset(
-    {ExperimentMetricsRecalculation.Status.COMPLETED, ExperimentMetricsRecalculation.Status.FAILED}
-)
-
 
 # ---------------------------------------------------------------------------
 # Discovery
@@ -131,7 +124,7 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     """
     return [
         ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-        for metric in resolve_scheduled_metrics(experiment)
+        for metric in get_metrics_for_calculation(experiment)
     ]
 
 
@@ -353,9 +346,8 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         )
         # Hours since the experiment launched, matching the legacy frontend definition exactly
         # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
-        experiment_duration_hours = (
-            round((timezone.now() - experiment.start_date).total_seconds() / 3600) if experiment.start_date else None
-        )
+        hours_since_launch = experiment.hours_since_launch
+        experiment_duration_hours = round(hours_since_launch) if hours_since_launch is not None else None
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
         roles = [metric.metric_type for metric in discover_experiment_metrics(experiment)]
@@ -463,7 +455,13 @@ def _safe_retry_message(error: Exception, error_type: str) -> str:
 
 
 def _record_retry(
-    recalculation_id: str, metric_uuid: str, attempt: int, error_type: str, message: str, delay_seconds: float
+    recalculation_id: str,
+    metric_uuid: str,
+    attempt: int,
+    max_attempts: int,
+    error_type: str,
+    message: str,
+    delay_seconds: float,
 ) -> None:
     """Transient attempt state for the UI, keyed by metric_uuid; overwritten per attempt, removed by the
     metric's terminal write. Carries a user-safe description of the error that triggered the retry;
@@ -473,7 +471,7 @@ def _record_retry(
         metric_retries = recalc.metric_retries or {}
         metric_retries[metric_uuid] = {
             "attempt": attempt,
-            "max_attempts": MAX_METRIC_ATTEMPTS,
+            "max_attempts": max_attempts,
             "error_type": error_type,
             "message": message[:_MAX_ERROR_MESSAGE_LENGTH],
             "next_retry_at": (timezone.now() + timedelta(seconds=delay_seconds)).isoformat(),
@@ -488,56 +486,6 @@ def _clear_retry(recalculation_id: str, metric_uuid: str) -> None:
         if metric_uuid in (recalc.metric_retries or {}):
             recalc.metric_retries.pop(metric_uuid)
             recalc.save(update_fields=["metric_retries"])
-
-
-def _store_result(
-    *,
-    recalculation_id: str,
-    experiment_id: int,
-    metric_uuid: str,
-    recalc_fp: str,
-    query_from: datetime,
-    query_to: datetime,
-    status: str,
-    result: dict | None,
-    error_message: str | None,
-    query_id: str | None = None,
-) -> None:
-    with transaction.atomic():
-        # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
-        Experiment.objects.select_for_update(no_key=True).filter(id=experiment_id).exists()
-        current_status = (
-            ExperimentMetricsRecalculation.objects.select_for_update()
-            .filter(id=recalculation_id, experiment_id=experiment_id)
-            .values_list("status", flat=True)
-            .first()
-        )
-        if current_status is None or current_status in _TERMINAL_RECALC_STATUSES:
-            logger.warning(
-                "Skipping experiment metric result write for a terminal or missing recalculation",
-                recalculation_id=recalculation_id,
-                metric_uuid=metric_uuid,
-                recalculation_status=current_status,
-            )
-            return
-
-        # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
-        # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
-        # duplicate. This heals rows written under the old per-run fingerprint scheme.
-        ExperimentMetricResult.objects.update_or_create(
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-            query_to=query_to,
-            defaults={
-                "fingerprint": recalc_fp,
-                "query_from": query_from,
-                "status": status,
-                "result": result,
-                "query_id": query_id,
-                "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
-                "error_message": error_message,
-            },
-        )
 
 
 def _fail(
@@ -712,8 +660,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        metric_dict = find_metric_dict(experiment, metric_uuid)
-        if metric_dict is None:
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
             return _fail(
                 recalculation_id,
                 metric_uuid,
@@ -721,6 +669,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 f"Metric {metric_uuid} not found in experiment {experiment_id}",
                 error_type="validation_error",
             )
+        metric_dict = calculation_config.definition
 
         if not experiment.start_date:
             return _fail(
@@ -731,26 +680,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        results = MetricResultStore(experiment_id=experiment_id)
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.
-        already_computed = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
-            query_to=query_to_dt,
-            fingerprint=recalc_fp,
-            status=ExperimentMetricResult.Status.COMPLETED,
-        ).exists()
-        if already_computed:
+        if results.has_completed(calculation_config, window=query_to_dt):
             # A crash between the result write and the retry cleanup on a prior attempt lands here on the
             # next one; clear so a completed metric can't keep reporting as retrying.
             _clear_retry(recalculation_id, metric_uuid)
@@ -762,15 +696,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
         query_from = experiment.start_date
 
         def record_terminal_error(message: str, error_type: str, *, retriable: bool) -> None:
-            _store_result(
-                recalculation_id=recalculation_id,
-                experiment_id=experiment_id,
-                metric_uuid=metric_uuid,
-                recalc_fp=recalc_fp,
+            results.record_run_failure(
+                recalculation_id,
+                calculation_config,
+                window=query_to_dt,
                 query_from=query_from,
-                query_to=query_to_dt,
-                status=ExperimentMetricResult.Status.FAILED,
-                result=None,
                 error_message=message,
                 query_id=client_query_id,
             )
@@ -821,16 +751,12 @@ def _calculate_experiment_metric_for_recalculation_sync(
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-            _store_result(
-                recalculation_id=recalculation_id,
-                experiment_id=experiment_id,
-                metric_uuid=metric_uuid,
-                recalc_fp=recalc_fp,
-                query_from=experiment.start_date,
-                query_to=query_to_dt,
-                status=ExperimentMetricResult.Status.COMPLETED,
+            results.record_run_result(
+                recalculation_id,
+                calculation_config,
+                window=query_to_dt,
+                query_from=query_from,
                 result=result_dict,
-                error_message=None,
                 query_id=client_query_id,
             )
             _capture_experiment_metric_event(
@@ -848,15 +774,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except (StatisticError, ZeroDivisionError) as e:
             # Expected "not enough data" style failures — warn, no exception capture.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
-            _store_result(
-                recalculation_id=recalculation_id,
-                experiment_id=experiment_id,
-                metric_uuid=metric_uuid,
-                recalc_fp=recalc_fp,
-                query_from=experiment.start_date,
-                query_to=query_to_dt,
-                status=ExperimentMetricResult.Status.FAILED,
-                result=None,
+            results.record_run_failure(
+                recalculation_id,
+                calculation_config,
+                window=query_to_dt,
+                query_from=query_from,
                 error_message=message,
                 query_id=client_query_id,
             )
@@ -884,16 +806,18 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             retry_delay_seconds = _concurrency_limit_retry_delay_seconds()
-            if is_final_attempt:
+            capacity_attempts_exhausted = attempt >= CAPACITY_MAX_METRIC_ATTEMPTS
+            is_last_attempt = is_final_attempt or capacity_attempts_exhausted
+            if is_last_attempt:
                 record_terminal_error(message, classify_experiment_query_error(e), retriable=True)
             logger.warning(
                 "Experiment metric recalculation deferred by ClickHouse backpressure",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
-                is_final_attempt=is_final_attempt,
+                is_final_attempt=is_last_attempt,
                 error_class=type(e).__name__,
             )
-            if is_final_attempt:
+            if is_last_attempt:
                 _clear_retry(recalculation_id, metric_uuid)
             else:
                 # Exact, not estimated: this branch sets the delay explicitly via next_retry_delay.
@@ -903,6 +827,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     recalculation_id,
                     metric_uuid,
                     attempt,
+                    CAPACITY_MAX_METRIC_ATTEMPTS,
                     error_type,
                     safe_message,
                     retry_delay_seconds,
@@ -918,7 +843,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "error_type": error_type,
                         "error_message": safe_message,
                         "attempt": attempt,
-                        "max_attempts": MAX_METRIC_ATTEMPTS,
+                        "max_attempts": CAPACITY_MAX_METRIC_ATTEMPTS,
                         "next_retry_delay_seconds": round(retry_delay_seconds, 1),
                     },
                     trigger=state.trigger,
@@ -927,12 +852,15 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 message,
                 type=type(e).__name__,
                 next_retry_delay=timedelta(seconds=retry_delay_seconds),
+                non_retryable=capacity_attempts_exhausted,
             ) from e
 
         except Exception as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
+            max_attempts = TIMEOUT_MAX_METRIC_ATTEMPTS if error_type == "timeout" else MAX_METRIC_ATTEMPTS
+            is_last_attempt = is_final_attempt or attempt >= max_attempts
             # validation_error = the user's metric config is broken (e.g. HogQL referencing a
             # column outside an aggregate) — a stored failure, not a platform error to track.
             if error_type != "validation_error":
@@ -944,16 +872,16 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "recalculation_id": recalculation_id,
                     },
                 )
-            if is_final_attempt or is_permanent:
+            if is_last_attempt or is_permanent:
                 record_terminal_error(message, error_type, retriable=not is_permanent)
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
-                is_final_attempt=is_final_attempt,
+                is_final_attempt=is_last_attempt,
                 error_type=error_type,
             )
-            if is_final_attempt or is_permanent:
+            if is_last_attempt or is_permanent:
                 _clear_retry(recalculation_id, metric_uuid)
             else:
                 retry_delay_seconds = _estimated_retry_delay_seconds(attempt)
@@ -962,6 +890,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     recalculation_id,
                     metric_uuid,
                     attempt,
+                    max_attempts,
                     error_type,
                     safe_message,
                     retry_delay_seconds,
@@ -977,7 +906,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "error_type": error_type,
                         "error_message": safe_message,
                         "attempt": attempt,
-                        "max_attempts": MAX_METRIC_ATTEMPTS,
+                        "max_attempts": max_attempts,
                         "next_retry_delay_seconds": retry_delay_seconds,
                     },
                     trigger=state.trigger,
@@ -988,5 +917,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     # would undo the capture skip above. The non-reportable variant keeps the
                     # stored failure out of error tracking.
                     raise NonReportableApplicationError(message, type=error_type, non_retryable=True) from e
+                raise ApplicationError(message, type=error_type, non_retryable=True) from e
+            if is_last_attempt and not is_final_attempt:
+                # The error class cap is below MAX_METRIC_ATTEMPTS, so stop the RetryPolicy from retrying further.
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise

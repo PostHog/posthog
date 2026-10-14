@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
+    codebase_detection = detect(
+        env=("^SINGLESTORE_", "^SINGLESTOREDB_"),
+        npm=("@singlestore/client",),
+        pypi=("singlestoredb", "sqlalchemy-singlestoredb"),
+    )
+
     # get_schemas below just iterates the static ENDPOINTS catalog — no network call.
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.singlestore.com/cloud/reference/management-api/"

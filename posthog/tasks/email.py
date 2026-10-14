@@ -588,7 +588,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", repository: str | None = None) -> None:
+def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -601,7 +601,6 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", 
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "partner_name": partner_name,
-            "repository": repository or "",
         },
     )
     message.add_user_recipient(user)
@@ -1324,7 +1323,7 @@ def send_warehouse_destination_paused(
             "team": team,
             "destination_name": destination_name,
             "latest_error": latest_error,
-            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations",
+            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations?destination={destination_id}",
         },
     )
     for membership in memberships_to_email:

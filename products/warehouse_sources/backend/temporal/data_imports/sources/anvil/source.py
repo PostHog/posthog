@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class AnvilSource(ResumableSource[AnvilSourceConfig, AnvilResumeConfig]):
+    codebase_detection = detect(npm=("@anvilco/anvil",), pypi=("python-anvil",))
+
     # Anvil's GraphQL API is unversioned; the REST-only fill/generate endpoints carry the
     # /v1 path segment, but this source never calls them.
     api_docs_url = "https://www.useanvil.com/docs/api/graphql/reference/"
@@ -55,7 +58,7 @@ class AnvilSource(ResumableSource[AnvilSourceConfig, AnvilResumeConfig]):
             category=DataWarehouseSourceCategory.SALES,
             label="Anvil",
             keywords=["useanvil.com", "e-signature", "pdf"],
-            caption="""Sync metadata about your Anvil documents into the PostHog Data warehouse: organizations, PDF templates (casts), workflows (welds), workflow submissions, and e-signature packets with their signer status.
+            caption="""Sync metadata about your Anvil documents into the PostHog Data warehouse: organizations, PDF templates (casts), workflows (welds), workflow submissions with their webforms and signers, e-signature packets with their signer status, and form and signing activity logs.
 
 Create an API key in your Anvil organization settings, under API settings. Development keys are rate limited to 4 requests per second, so large accounts sync faster with a production key.
 

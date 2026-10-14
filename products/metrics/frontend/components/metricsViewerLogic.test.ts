@@ -28,7 +28,13 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { createViewerClause, isBuilderCompatibleQuery, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
+import {
+    MetricRangeFunction,
+    createViewerClause,
+    isBuilderCompatibleQuery,
+    metricsViewerLogic,
+    resolveDate,
+} from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -101,16 +107,18 @@ describe('metricsViewerLogic', () => {
     })
 
     // Regression: the builder used to pick an aggregation from the metric type. An unaggregated
-    // clause must stay one line per series, whatever the metric is.
-    it.each(['requests_total', 'queue_depth', 'request_duration'])(
-        'selecting %s leaves the clause without operations',
-        (metricName) => {
-            logic.actions.setMetricName(metricName)
-            expect(logic.values.aggregation).toBeNull()
-            expect(logic.values.rangeFunction).toBeNull()
-            expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'none' })
-        }
-    )
+    // counter or gauge must stay one line per series. A histogram is the exception: its scalar
+    // value is the running sum of observations, so only its buckets chart something useful.
+    it.each<[string, string | null, Record<string, unknown>]>([
+        ['requests_total', null, { aggregation: 'none' }],
+        ['queue_depth', null, { aggregation: 'none' }],
+        ['request_duration', 'histogram_p95', { aggregation: 'histogram_quantile', quantile: 0.95 }],
+    ])('selecting %s applies aggregation %s', (metricName, expected, payloadFields) => {
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.aggregation).toBe(expected)
+        expect(logic.values.rangeFunction).toBeNull()
+        expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject(payloadFields)
+    })
 
     it('keeps the operations when the metric changes', () => {
         logic.actions.setMetricName('requests_total')
@@ -119,6 +127,41 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.rangeFunction).toBe('rate')
         expect(logic.values.aggregation).toBe('max')
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.aggregation).toBe('max')
+    })
+
+    it.each<[string, string[], string | null]>([
+        ['without a group-by', [], null],
+        ['with a group-by', ['container'], 'sum'],
+    ])(
+        'drops a histogram percentile when the metric changes to one without buckets, %s',
+        (_name, groupBy, expected) => {
+            logic.actions.setMetricName('request_duration')
+            logic.actions.setGroupByKeys(groupBy)
+            logic.actions.setMetricName('queue_depth')
+            expect(logic.values.aggregation).toBe(expected)
+            expect(logic.values.groupByKeys).toEqual(groupBy)
+        }
+    )
+
+    // The backend rejects a histogram percentile after a range function, so the later pick replaces the earlier one.
+    it.each<[string, () => void, string | null, string | null]>([
+        [
+            'a histogram percentile after a range function',
+            () => {
+                logic.actions.setRangeFunction('rate')
+                logic.actions.setAggregation('histogram_p99')
+            },
+            null,
+            'histogram_p99',
+        ],
+        ['a range function after a histogram percentile', () => logic.actions.setRangeFunction('rate'), 'rate', null],
+    ])('picking %s drops the other operation', (_name, pick, rangeFunction, aggregation) => {
+        logic.actions.setMetricName('request_duration')
+        pick()
+        expect(logic.values.rangeFunction).toBe(rangeFunction)
+        expect(logic.values.aggregation).toBe(aggregation)
     })
 
     it('sends a range function without an aggregation as per-series rates', () => {
@@ -139,6 +182,31 @@ describe('metricsViewerLogic', () => {
         logic.actions.setGroupByKeys(['container'])
         logic.actions.setAggregation(null)
         expect(logic.values.groupByKeys).toEqual([])
+    })
+
+    it.each<[string, MetricRangeFunction | null, string]>([
+        ['queue_depth', null, 'sum'],
+        ['request_duration', null, 'histogram_p95'],
+        ['request_duration', 'rate', 'sum'],
+    ])(
+        'adds an aggregation when grouping %s with range function %s and no aggregation: %s',
+        (metricName, rangeFunction, expected) => {
+            logic.actions.setMetricName(metricName)
+            logic.actions.setAggregation(null)
+            logic.actions.setRangeFunction(rangeFunction)
+            logic.actions.setGroupByKeys(['container'])
+            expect(logic.values.aggregation).toBe(expected)
+            expect(logic.values.rangeFunction).toBe(rangeFunction)
+            expect(logic.values.groupByKeys).toEqual(['container'])
+        }
+    )
+
+    it('keeps the chosen aggregation when grouping', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('max')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.aggregation).toBe('max')
     })
 
     // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
@@ -384,7 +452,14 @@ describe('metricsViewerLogic', () => {
 
     it('runs a PromQL query through the query runner and charts its series', async () => {
         jest.mocked(performQuery).mockResolvedValue({
-            results: [{ labels: { job: 'api' }, points: [{ time: '2026-01-01T00:00:00Z', value: 1 }], clause: 'a' }],
+            results: [
+                {
+                    labels: { job: 'api' },
+                    points: [{ time: '2026-01-01T00:00:00Z', value: 1 }],
+                    clause: 'a',
+                    unit: 's',
+                },
+            ],
         })
         logic.actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(up)' })
 
@@ -400,6 +475,7 @@ describe('metricsViewerLogic', () => {
                 points: [{ time: '2026-01-01T00:00:00Z', value: 1 }],
                 metricName: null,
                 clause: 'a',
+                unit: 's',
             },
         ])
     })
@@ -417,6 +493,16 @@ describe('metricsViewerLogic', () => {
 
         expect(metricsCharacterizeCreate).not.toHaveBeenCalled()
         expect(logic.values.anomalyReport).toBeNull()
+    })
+
+    // The endpoint has no viewer shorthand: an unmapped value fails validation and the badge silently disappears.
+    it('asks the anomaly badge for the histogram percentile the chart shows', () => {
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.anomalyQuery).toEqual({
+            metricName: 'request_duration',
+            aggregation: 'histogram_quantile',
+            quantile: 0.95,
+        })
     })
 
     // Without an AbortController, a superseded characterize call keeps running server-side
@@ -510,6 +596,16 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('queue_depth')
         metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it.each([
+        ['from the full list', 'request_duration'],
+        ['from a server search', 'checkout_latency'],
+    ])('keeps the type of a metric picked %s while the service scope reloads', (_source, metricName) => {
+        metricNamePickerLogic.actions.searchItemsSuccess([{ name: 'checkout_latency', metric_type: 'histogram' }])
+        metricNamePickerLogic.actions.setServices(['web'])
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.selectedMetricType).toBe('histogram')
     })
 
     it('backfills the metric type when the picker loads after the metric was set', () => {
@@ -902,7 +998,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({ debounce: true })
+            metricNamePickerLogic.actions.loadItems()
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')
@@ -977,6 +1073,23 @@ describe('metricsViewerLogic', () => {
         // query, merely opening edit mode would mark the insight as changed.
         it.each<[string, MetricsQuery]>([
             ['builder', SAVED_QUERY],
+            [
+                'builder histogram percentile',
+                {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [
+                        {
+                            name: 'a',
+                            metricName: 'request_duration',
+                            aggregation: 'histogram_quantile',
+                            metricType: 'histogram',
+                            quantile: 0.99,
+                            groupBy: [{ key: 'container' }],
+                        },
+                    ],
+                    dateRange: { date_from: '-6h' },
+                },
+            ],
             [
                 'PromQL',
                 {
@@ -1097,7 +1210,10 @@ describe('isBuilderCompatibleQuery', () => {
         ['a range function', queryWith({ aggregation: undefined, rangeFunction: 'rate' }), true],
         ['p95', queryWith({ aggregation: 'quantile', quantile: 0.95 }), true],
         ['another quantile', queryWith({ aggregation: 'quantile', quantile: 0.99 }), false],
-        ['histogram_quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), false],
+        ['histogram p50', queryWith({ aggregation: 'histogram_quantile', quantile: 0.5 }), true],
+        ['histogram p95', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), true],
+        ['histogram p99', queryWith({ aggregation: 'histogram_quantile', quantile: 0.99 }), true],
+        ['another histogram quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.9 }), false],
         ['a scoped filter', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'resource' }] }), false],
         ['a scoped group-by', queryWith({ groupBy: [{ key: 'k', scope: 'attribute' }] }), false],
         ['auto scopes', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'auto' }] }), true],

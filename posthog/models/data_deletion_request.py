@@ -914,7 +914,6 @@ def _property_presence_where(
     mat_cols: list[tuple[str, bool]] | None = None,
     person_mat_cols: list[tuple[str, bool]] | None = None,
     *,
-    with_person_properties: bool = True,
     with_hogql: bool = True,
 ) -> tuple[str, dict]:
     """WHERE predicate + params matching events that still carry any target (person_)property.
@@ -925,8 +924,8 @@ def _property_presence_where(
     column reset on every matching event, this count reaches zero. The presence set must match the
     deletion path (``_property_removal_where``) or a row it still considers dirty reads as clean here.
 
-    ``with_person_properties`` and ``with_hogql`` drop the parts a table without the events schema
-    cannot run: its ``person_properties`` column and the compiled HogQL fragment.
+    ``with_hogql`` drops the compiled HogQL fragment, which a table without the events schema cannot
+    run.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(request)]
     params = event_match_params(request)
@@ -938,7 +937,7 @@ def _property_presence_where(
             params[f"fp_{i}_{j}"] = part
     if mat_cols:
         presence.extend(_mat_col_presence_clauses(mat_cols))
-    for i, prop in enumerate((request.person_properties or []) if with_person_properties else []):
+    for i, prop in enumerate(request.person_properties or []):
         presence.append(jsonhas_expr(prop, f"pp_{i}", column="person_properties"))
         for j, part in enumerate(prop.split(".")):
             params[f"pp_{i}_{j}"] = part
@@ -958,10 +957,9 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
     """Count rows that still carry any of a property-removal request's target properties.
 
     Counts across every default deletion target the property-removal job rewrites, because a request
-    is only complete once each of those tables is clean. A target without ``stores_person_properties``
-    is checked for the event ``properties`` only, and skipped when the request names only person
-    properties, as the job does. A target that cannot take the compiled HogQL fragment is counted
-    without it, which matches a superset. That can only hold a request open, never complete it early.
+    is only complete once each of those tables is clean. A target that cannot take the compiled HogQL
+    fragment is counted without it, which matches a superset. That can only hold a request open,
+    never complete it early.
     The presence predicate is built for the legacy schema, so the native-JSON table is left to the
     job's own verification.
     """
@@ -974,6 +972,9 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
         resolve_read_targets_via_sync_execute,
         surviving_rows_sql,
     )
+
+    if not request.properties and not request.person_properties:
+        return 0
 
     events = [] if request.delete_all_events else request.events
     total = 0
@@ -991,17 +992,12 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
                 or not target.may_hold_any_of(events)
             ):
                 continue
-            person_properties = (request.person_properties or []) if target.stores_person_properties else []
-            if not request.properties and not person_properties:
-                continue
             mat_cols = discover_affected_mat_columns(request.properties or [], "properties", target.read_table)
-            person_mat_cols = discover_affected_mat_columns(person_properties, "person_properties", target.read_table)
+            person_mat_cols = discover_affected_mat_columns(
+                request.person_properties or [], "person_properties", target.read_table
+            )
             predicate, params = _property_presence_where(
-                request,
-                mat_cols,
-                person_mat_cols,
-                with_person_properties=target.stores_person_properties,
-                with_hogql=target.accepts_hogql_predicate,
+                request, mat_cols, person_mat_cols, with_hogql=target.accepts_hogql_predicate
             )
             result = sync_execute(
                 surviving_rows_sql(target.read_table, predicate),

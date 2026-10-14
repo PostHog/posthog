@@ -205,6 +205,31 @@ def _format_http_error(error: requests.HTTPError, forbidden_hint: str | None = N
     return "RevenueCat could not complete the request. Try again in a few minutes, and check the RevenueCat status page if it keeps failing."
 
 
+_READ_FORBIDDEN_HINT = "Give your v2 secret API key read permission for the data you want to sync, then reconnect."
+
+
+def _validate_project_read_access(session: requests.Session, project_id: str) -> tuple[bool, str | None]:
+    """Accept the key when it can read at least one endpoint the sync uses in ``project_id``."""
+    last_forbidden: requests.HTTPError | None = None
+    for endpoint in REVENUECAT_API_ENDPOINTS.values():
+        url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, endpoint.path_suffix)}"
+        try:
+            response = session.get(url, params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 403:
+                last_forbidden = e
+                continue
+            return False, _format_http_error(e, forbidden_hint=_READ_FORBIDDEN_HINT)
+        except requests.RequestException as e:
+            LOGGER.warning("Could not reach RevenueCat to validate credentials", error=str(e))
+            return False, UNREACHABLE_MESSAGE
+        return True, None
+    if last_forbidden is not None:
+        return False, _format_http_error(last_forbidden, forbidden_hint=_READ_FORBIDDEN_HINT)
+    return True, None
+
+
 def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, str | None]:
     """Confirm the key works and (when set) that it can reach ``project_id``.
 
@@ -218,20 +243,19 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     "double-check the project id".
     """
     session = _session(api_key)
+    normalized_project_id = _normalize_project_id(project_id)
     try:
         accessible_ids = _list_accessible_project_ids(session)
     except requests.HTTPError as e:
-        return False, _format_http_error(
-            e,
-            forbidden_hint=(
-                "Give your v2 secret API key read permission for the data you want to sync, then reconnect."
-            ),
-        )
+        # Listing projects needs a projects permission the sync never uses, so a key scoped to just
+        # the synced resources is denied here. Check the project's own endpoints instead.
+        if normalized_project_id and e.response is not None and e.response.status_code == 403:
+            return _validate_project_read_access(session, normalized_project_id)
+        return False, _format_http_error(e, forbidden_hint=_READ_FORBIDDEN_HINT)
     except requests.RequestException as e:
         LOGGER.warning("Could not reach RevenueCat to validate credentials", error=str(e))
         return False, UNREACHABLE_MESSAGE
 
-    normalized_project_id = _normalize_project_id(project_id)
     if not normalized_project_id:
         return True, None
 

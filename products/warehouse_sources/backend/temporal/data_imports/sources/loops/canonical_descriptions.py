@@ -118,6 +118,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lmx": "The component's LMX markup.",
         },
     },
+    "event_patterns": {
+        "description": "An event pattern that workflow event triggers can start on, either a custom event or one from an incoming webhook.",
+        "docs_url": "https://loops.so/docs/api-reference/list-event-patterns",
+        "columns": {
+            "id": "The ID of the event pattern.",
+            "eventName": "The name of the event pattern. Use this when sending events with the API.",
+            "incomingWebhookPlatform": "The platform that sent this event pattern if it comes from an incoming webhook (clerk, polar, stripe, supabase), or null for custom events.",
+        },
+    },
     "campaign_metrics": {
         "description": "All-time email engagement counters for a sent campaign. Opens and clicks count sends, not events.",
         "docs_url": "https://loops.so/docs/api-reference/get-campaign-metrics",

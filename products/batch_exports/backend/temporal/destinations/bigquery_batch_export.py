@@ -48,7 +48,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     BigQueryBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -256,7 +255,7 @@ class BigQueryField(Field):
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
         name = field.name
-        type_name = field.field_type
+        type_name = typing.cast(BigQueryTypeName, field.field_type)
 
         mode = field.mode
         repeated = mode == "REPEATED"
@@ -553,6 +552,7 @@ async def verify_impersonated_service_account_ownership(
 
 def impersonate_service_account(
     integration: GoogleCloudServiceAccountIntegration,
+    scopes: tuple[str, ...] = ("https://www.googleapis.com/auth/bigquery",),
 ) -> google.auth.impersonated_credentials.Credentials:
     """Impersonate a user's service account using our own.
 
@@ -565,7 +565,7 @@ def impersonate_service_account(
     their_credentials = google.auth.impersonated_credentials.Credentials(
         source_credentials=our_credentials,
         target_principal=service_account_email,
-        target_scopes=["https://www.googleapis.com/auth/bigquery"],
+        target_scopes=list(scopes),
         lifetime=3600,
     )
 
@@ -1369,7 +1369,7 @@ class MergeSettings(typing.NamedTuple):
 
 
 def _get_merge_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
 ) -> MergeSettings | None:
     """Return merge settings for models that require merging."""
     if isinstance(model, BatchExportModel):
@@ -1464,11 +1464,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
     )
 
     async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+        model = inputs.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1744,8 +1740,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
             integration_id=inputs.integration_id,

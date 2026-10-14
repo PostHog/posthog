@@ -1015,10 +1015,12 @@
   '''
   
   SELECT team_id,
-         count(1) as count
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events_json
   WHERE timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
+    AND timestamp < '2022-01-10 02:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
     AND (properties.`$group_0` != ''
          OR properties.`$group_1` != ''
          OR properties.`$group_2` != ''
@@ -1095,59 +1097,54 @@
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.50]
   '''
   
-  SELECT distinct_id as team,
-         sum(toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                              AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), ''))) as sum
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events_json
-  WHERE team_id = 99999
-    AND event='decide usage'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                            AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), ''))
-  GROUP BY team
+  WHERE timestamp >= '2022-01-10 02:00:00'
+    AND timestamp < '2022-01-10 04:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.51]
   '''
   
-  SELECT distinct_id as team,
-         sum(toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                              AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), ''))) as sum
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events_json
-  WHERE team_id = 99999
-    AND event='local evaluation usage'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                            AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), ''))
-  GROUP BY team
+  WHERE timestamp >= '2022-01-10 04:00:00'
+    AND timestamp < '2022-01-10 06:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.52]
   '''
   
   SELECT team_id,
-         COUNT() as count
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events_json
-  WHERE event = 'survey sent'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND uuid IN
-      (SELECT argMax(uuid, timestamp)
-       FROM events_json
-       WHERE timestamp >= '2022-01-10 00:00:00'
-         AND timestamp < '2022-01-10 23:59:59'
-         AND event = 'survey sent'
-       GROUP BY team_id,
-                ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_id`), '\\/', '/'), toJSONString(properties.^`$survey_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_id`), '\\/', '/'), toJSONString(properties.^`$survey_id`)), if(ascii(toString(properties.`$survey_id`)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                                               AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_id`), '\\/', '/'), toJSONString(properties.`$survey_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_id`), '\\/', '/'), toJSONString(properties.`$survey_id`)), '[]'), '{}'), toString(properties.`$survey_id`))), ''),
-                CASE
-                    WHEN COALESCE(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)), if(ascii(toString(properties.`$survey_submission_id`)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                                                                                                             AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`)), '[]'), '{}'), toString(properties.`$survey_submission_id`))), ''), '') = '' THEN toString(uuid)
-                    ELSE ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)), if(ascii(toString(properties.`$survey_submission_id`)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                                                                                                    AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`)), '[]'), '{}'), toString(properties.`$survey_submission_id`))), '')
-                END)
+  WHERE timestamp >= '2022-01-10 06:00:00'
+    AND timestamp < '2022-01-10 08:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
   GROUP BY team_id
   '''
 # ---
@@ -1155,24 +1152,17 @@
   '''
   
   SELECT team_id,
-         COUNT() - uniqExactIf(request_id, verified
-                               AND NOT relay
-                               AND request_id != '') AS count,
-         max(relay) AS has_verified_relay
-  FROM
-    (SELECT team_id,
-            ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_verified`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_verified`)), if(ascii(toString(properties.`$ai_gateway_verified`)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                                                                                   AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.`$ai_gateway_verified`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.`$ai_gateway_verified`)), '[]'), '{}'), toString(properties.`$ai_gateway_verified`))), '') IN ('true',
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            '1') AS verified,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           if(verified, ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_request_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_request_id`)), if(ascii(toString(properties.`$ai_gateway_request_id`)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.`$ai_gateway_request_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.`$ai_gateway_request_id`)), '[]'), '{}'), toString(properties.`$ai_gateway_request_id`))), ''), '') AS request_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           if(verified, ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_relay`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_relay`)), if(ascii(toString(properties.`$ai_gateway_relay`)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.`$ai_gateway_relay`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.`$ai_gateway_relay`)), '[]'), '{}'), toString(properties.`$ai_gateway_relay`))), ''), '') IN ('true',
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  '1') AS relay
-     FROM events_json
-     WHERE startsWith(event, '$ai_')
-       AND timestamp >= '2022-01-10 00:00:00'
-       AND timestamp < '2022-01-10 23:59:59')
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 08:00:00'
+    AND timestamp < '2022-01-10 10:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
   GROUP BY team_id
   '''
 # ---
@@ -1180,16 +1170,107 @@
   '''
   
   SELECT team_id,
-         COUNT() - uniqExactIf(request_id, verified
-                               AND request_id != '') as count
-  FROM
-    (SELECT team_id,
-            JSONExtractBool(toJSONString(properties), '$ai_gateway_verified') as verified,
-            if(verified, JSONExtractString(toJSONString(properties), '$ai_gateway_request_id'), '') as request_id
-     FROM events_json
-     WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
-       AND timestamp >= '2022-01-10 00:00:00'
-       AND timestamp < '2022-01-10 23:59:59')
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 10:00:00'
+    AND timestamp < '2022-01-10 12:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.55]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 12:00:00'
+    AND timestamp < '2022-01-10 14:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.56]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 14:00:00'
+    AND timestamp < '2022-01-10 16:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.57]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 16:00:00'
+    AND timestamp < '2022-01-10 18:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.58]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 18:00:00'
+    AND timestamp < '2022-01-10 20:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.59]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 20:00:00'
+    AND timestamp < '2022-01-10 22:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
   GROUP BY team_id
   '''
 # ---
@@ -1256,6 +1337,108 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             'posthog-rs'))
   GROUP BY team_id,
            metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.60]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 22:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND NOT startsWith(event, '$ai_')
+    AND (properties.`$group_0` != ''
+         OR properties.`$group_1` != ''
+         OR properties.`$group_2` != ''
+         OR properties.`$group_3` != ''
+         OR properties.`$group_4` != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.61]
+  '''
+  
+  SELECT distinct_id as team,
+         sum(toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                              AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), ''))) as sum
+  FROM events_json
+  WHERE team_id = 99999
+    AND event='decide usage'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                            AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), ''))
+  GROUP BY team
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.62]
+  '''
+  
+  SELECT distinct_id as team,
+         sum(toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                              AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), ''))) as sum
+  FROM events_json
+  WHERE team_id = 99999
+    AND event='local evaluation usage'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                            AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), ''))
+  GROUP BY team
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.63]
+  '''
+  
+  SELECT team_id,
+         COUNT() as count
+  FROM events_json
+  WHERE event = 'survey sent'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events_json
+       WHERE timestamp >= '2022-01-10 00:00:00'
+         AND timestamp < '2022-01-10 23:59:59'
+         AND event = 'survey sent'
+       GROUP BY team_id,
+                ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_id`), '\\/', '/'), toJSONString(properties.^`$survey_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_id`), '\\/', '/'), toJSONString(properties.^`$survey_id`)), if(ascii(toString(properties.`$survey_id`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                               AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_id`), '\\/', '/'), toJSONString(properties.`$survey_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_id`), '\\/', '/'), toJSONString(properties.`$survey_id`)), '[]'), '{}'), toString(properties.`$survey_id`))), ''),
+                CASE
+                    WHEN COALESCE(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)), if(ascii(toString(properties.`$survey_submission_id`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                                                                                             AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`)), '[]'), '{}'), toString(properties.`$survey_submission_id`))), ''), '') = '' THEN toString(uuid)
+                    ELSE ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$survey_submission_id`), '\\/', '/'), toJSONString(properties.^`$survey_submission_id`)), if(ascii(toString(properties.`$survey_submission_id`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                                                                                    AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$survey_submission_id`), '\\/', '/'), toJSONString(properties.`$survey_submission_id`)), '[]'), '{}'), toString(properties.`$survey_submission_id`))), '')
+                END)
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.64]
+  '''
+  
+  SELECT team_id,
+         COUNT() - uniqExactIf(request_id, verified
+                               AND NOT relay
+                               AND request_id != '') AS count,
+         max(relay) AS has_verified_relay
+  FROM
+    (SELECT team_id,
+            ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_verified`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_verified`)), if(ascii(toString(properties.`$ai_gateway_verified`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                                                                   AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.`$ai_gateway_verified`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_verified`), '\\/', '/'), toJSONString(properties.`$ai_gateway_verified`)), '[]'), '{}'), toString(properties.`$ai_gateway_verified`))), '') IN ('true',
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            '1') AS verified,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           if(verified, ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_request_id`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_request_id`)), if(ascii(toString(properties.`$ai_gateway_request_id`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.`$ai_gateway_request_id`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_request_id`), '\\/', '/'), toJSONString(properties.`$ai_gateway_request_id`)), '[]'), '{}'), toString(properties.`$ai_gateway_request_id`))), ''), '') AS request_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           if(verified, ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_relay`)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.^`$ai_gateway_relay`)), if(ascii(toString(properties.`$ai_gateway_relay`)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.`$ai_gateway_relay`))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.`$ai_gateway_relay`), '\\/', '/'), toJSONString(properties.`$ai_gateway_relay`)), '[]'), '{}'), toString(properties.`$ai_gateway_relay`))), ''), '') IN ('true',
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  '1') AS relay
+     FROM events_json
+     WHERE startsWith(event, '$ai_')
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59')
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.6]

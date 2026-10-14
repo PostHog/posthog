@@ -23,6 +23,7 @@ from posthog.api.llm_prompt_serializers import (
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.auth import DelegatedOAuthAccessTokenAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -35,6 +36,7 @@ from posthog.rate_limit import (
     SustainedRateThrottle,
 )
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
+from posthog.test.authentication_checks import covers_authentication
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
 from products.ai_observability.backend.prompt_references import (
@@ -1592,6 +1594,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
     @override_settings(TEST=False)
     @patch("posthog.api.llm_prompt.capture_internal")
     @patch("posthog.api.llm_prompt.report_team_action")
+    @covers_authentication(DelegatedOAuthAccessTokenAuthentication)
     def test_list_reports_one_fetch_per_request_unless_the_caller_is_the_ui(
         self, mock_report: Any, mock_capture: Any
     ) -> None:

@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel
 
@@ -195,7 +197,7 @@ class TestMaxToolClientExecution(BaseTest):
                 tool.request_client_execution()
 
 
-class TestMaxToolErrorHierarchy(BaseTest):
+class TestMaxToolErrorHierarchy(SimpleTestCase):
     """Test the MaxToolError exception hierarchy and retry strategies."""
 
     def test_max_tool_error_base_has_never_retry_strategy(self):
@@ -322,7 +324,7 @@ class TestMaxToolErrorHierarchy(BaseTest):
         self.assertEqual(summary, "MaxToolFatalError: Error with whitespace")
 
 
-class TestMaxToolAccessDeniedError(BaseTest):
+class TestMaxToolAccessDeniedError(SimpleTestCase):
     """Test the MaxToolAccessDeniedError exception."""
 
     def test_access_denied_error_formats_correctly(self):

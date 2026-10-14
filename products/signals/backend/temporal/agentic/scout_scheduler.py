@@ -8,34 +8,39 @@ from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
+from django.db.models import Q
 
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError, is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError, is_cancelled_exception
 
-from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
+from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.cdp.backend.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     notify_scout_quota_paused,
     self_driving_quota_gate,
 )
 from products.signals.backend.scout_harness.limits import (
+    TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_HARD_CEILING_S,
 )
+from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
 from products.signals.backend.temporal import metrics
 
 if TYPE_CHECKING:
@@ -68,6 +73,13 @@ class RunSignalsScoutInput:
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
     check_id: str | None = None
+    # The rows the pre-check found, set by the workflow on a scheduled run the pre-check started.
+    precheck_rows: str | None = None
+    # Which pre-check started the run (`config` or `skill_default`), stamped on the run row.
+    precheck_query_source: str | None = None
+    # Seconds a coordinator dispatch sleeps before it starts work, to spread the run starts of one
+    # tick. 0 for every other trigger, so those runs start at once.
+    start_delay_seconds: int = 0
 
 
 @frozen
@@ -119,6 +131,58 @@ def resume_signals_scout_workflow_step(input: RunSignalsScoutInput, output: RunS
     _resume_workflow_step(input, output, raise_on_error=True)
 
 
+@frozen
+class EvaluateScoutPrecheckOutput:
+    should_run: bool
+    # The capped rows the run renders into its prompt. None when there are no rows to pass.
+    rows_text: str | None = None
+    # Where the query came from. None when the scout has no pre-check.
+    query_source: str | None = None
+
+
+@temporalio.activity.defn
+@close_db_connections
+async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
+    """Evaluate the scout's effective pre-check query. A scout without one always runs."""
+    result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
+        input.team_id, input.skill_name
+    )
+    if result is None:
+        return EvaluateScoutPrecheckOutput(should_run=True)
+    return EvaluateScoutPrecheckOutput(
+        should_run=result.should_run, rows_text=result.rows_text, query_source=result.query_source
+    )
+
+
+def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
+    """Whether the coordinator would still dispatch this scout: enabled, or paused by the failure
+    breaker, which the coordinator probes."""
+    return (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .filter(
+            Q(enabled=True)
+            | Q(
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            )
+        )
+        .exists()
+    )
+
+
+@temporalio.activity.defn
+@close_db_connections
+async def check_signals_scout_config_runnable_activity(input: RunSignalsScoutInput) -> bool:
+    """Check the config again after the start delay. A person can disable or delete it while the child sleeps."""
+    runnable = await database_sync_to_async(_scout_config_runnable, thread_sensitive=False)(
+        input.team_id, input.skill_name
+    )
+    if not runnable:
+        metrics.increment_scout_run("config_disabled")
+    return runnable
+
+
 @temporalio.activity.defn
 @close_db_connections
 async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
@@ -127,6 +191,39 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     if not input.workflow_managed_resume:
         await database_sync_to_async(_resume_workflow_step, thread_sensitive=False)(input, output)
     return output
+
+
+@temporalio.activity.defn
+@close_db_connections
+def cancel_failed_scout_trial_activity(input: RunSignalsScoutInput) -> None:
+    # Deferred because the trial harness and Tasks cancellation import the workflow registry.
+    from products.signals.backend.scout_harness.trial_evaluation import _bound_run  # noqa: PLC0415
+    from products.signals.backend.scout_harness.trial_launch import read_trial_launch  # noqa: PLC0415
+    from products.tasks.backend.facade.cancellation import cancel_task_run  # noqa: PLC0415
+
+    if input.trial_launch_id is None:
+        return
+    with private_capture_context():
+        launch = read_trial_launch(input.team_id, input.trial_launch_id)
+        if launch.skill_name != input.skill_name or (
+            input.skill_version is not None and launch.skill_version != input.skill_version
+        ):
+            raise ApplicationError("The trial launch does not match this scout workflow.", non_retryable=True)
+        run = _bound_run(launch)
+        if run is None:
+            return
+        outcome, _ = cancel_task_run(
+            run.task_run_id,
+            run.task_run.task_id,
+            input.team_id,
+            reason="The scout trial worker stopped before the run finished.",
+            source="scout_trial_worker_failure",
+        )
+        if outcome not in {"accepted", "already_terminal", "not_found"}:
+            raise ApplicationError(
+                "The failed scout trial's task could not be stopped.",
+                non_retryable=outcome != "unavailable",
+            )
 
 
 async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
@@ -211,6 +308,8 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 run_note=input.run_note,
                 trial_launch_id=input.trial_launch_id,
                 check_id=input.check_id,
+                precheck_rows=input.precheck_rows,
+                precheck_query_source=input.precheck_query_source,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -259,15 +358,61 @@ class RunSignalsScoutWorkflow:
         managed_resume = bool(input.workflow_origin_key) and temporalio.workflow.patched("scout-workflow-step-resume")
         if managed_resume:
             input = replace(input, workflow_managed_resume=True)
+        if temporalio.workflow.patched("scout-start-delay") and input.start_delay_seconds > 0:
+            if not await self._sleep_start_delay(input):
+                return RunSignalsScoutOutput(
+                    run_id=None,
+                    task_run_id=None,
+                    status=None,
+                    runtime_s=0.0,
+                    skill_name=input.skill_name,
+                    skill_version=input.skill_version or 0,
+                    skip_reason="config_disabled",
+                )
+        if input.triggered_by == TRIGGERED_BY_SCHEDULE and temporalio.workflow.patched("scout-precheck"):
+            precheck = await self._evaluate_precheck(input)
+            if not precheck.should_run:
+                # No run row exists for a skipped run. The coordinator already advanced `last_run_at`.
+                return RunSignalsScoutOutput(
+                    run_id=None,
+                    task_run_id=None,
+                    status=None,
+                    runtime_s=0.0,
+                    skill_name=input.skill_name,
+                    skill_version=input.skill_version or 0,
+                    skip_reason="precheck_skipped",
+                )
+            if precheck.rows_text:
+                input = replace(input, precheck_rows=precheck.rows_text)
+            if precheck.query_source:
+                input = replace(input, precheck_query_source=precheck.query_source)
         try:
             output = await temporalio.workflow.execute_activity(
                 run_signals_scout_activity,
                 input,
-                start_to_close_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S),
+                start_to_close_timeout=timedelta(
+                    seconds=TRIAL_ACTIVITY_TIMEOUT_S if input.trial_launch_id is not None else WORKFLOW_HARD_CEILING_S
+                ),
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except (ActivityError, asyncio.CancelledError) as error:
+            if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
+                try:
+                    await asyncio.shield(
+                        temporalio.workflow.execute_activity(
+                            cancel_failed_scout_trial_activity,
+                            input,
+                            start_to_close_timeout=timedelta(minutes=1),
+                            schedule_to_close_timeout=timedelta(minutes=3),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                    )
+                except (ActivityError, asyncio.CancelledError):
+                    temporalio.workflow.logger.exception(
+                        "Failed to stop the task after its scout trial worker failed",
+                        extra={"team_id": input.team_id, "trial_launch_id": input.trial_launch_id},
+                    )
             if managed_resume:
                 output = RunSignalsScoutOutput(
                     run_id=None,
@@ -283,6 +428,37 @@ class RunSignalsScoutWorkflow:
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _sleep_start_delay(self, input: RunSignalsScoutInput) -> bool:
+        """Sleep the start delay, then return whether the config can still run.
+
+        The wake time goes on the memo, so a sleeping child does not look stuck in the Temporal UI.
+        """
+        delay = timedelta(seconds=input.start_delay_seconds)
+        temporalio.workflow.upsert_memo({"scout_starts_at": (temporalio.workflow.now() + delay).isoformat()})
+        await temporalio.workflow.sleep(delay, summary="Spread the scout run starts of one tick")
+        return await temporalio.workflow.execute_activity(
+            check_signals_scout_config_runnable_activity,
+            input,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _evaluate_precheck(self, input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
+        try:
+            return await temporalio.workflow.execute_activity(
+                evaluate_signals_scout_precheck_activity,
+                input,
+                start_to_close_timeout=timedelta(seconds=PRECHECK_TIMEOUT_S + 20),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            # A pre-check that cannot finish must not turn the scout off.
+            temporalio.workflow.logger.warning(
+                "signals_scout: pre-check activity failed, running the scout",
+                extra={"team_id": input.team_id, "skill_name": input.skill_name},
+            )
+            return EvaluateScoutPrecheckOutput(should_run=True)
 
     async def _resume_step(self, input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
         await temporalio.workflow.execute_activity(

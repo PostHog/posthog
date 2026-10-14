@@ -1,12 +1,15 @@
-import json
-from typing import Any
-
 import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
 from requests.exceptions import ConnectionError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify import (
     CoolifyHostNotAllowedError,
     DeploymentsPaginationTruncatedError,
@@ -22,23 +25,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.se
     COOLIFY_ENDPOINTS,
     DEPLOYMENTS_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.source import CoolifySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coolify import (
+    CoolifySourceConfig,
+)
 
 BASE_URL = "https://coolify.example.com"
 API_BASE = f"{BASE_URL}/api/v1"
 APP_UUID = "o8g80wkc4s0gks0k0ok8cog4"
 
 
-def _make_response(json_body: Any = None, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp.headers["Content-Type"] = "application/json"
-    resp._content = json.dumps(json_body if json_body is not None else {}).encode()
-    return resp
-
-
-def _rows(endpoint: str, base_url: str = BASE_URL) -> list[dict[str, Any]]:
-    resource = coolify_source(base_url, "coolify-token", endpoint, team_id=1, job_id="job-1")
-    return [row for page in resource for row in page]
+def _driver(base_url: str = BASE_URL) -> SourceDriver:
+    return SourceDriver(CoolifySource(), CoolifySourceConfig(base_url=base_url, api_token="coolify-token"))
 
 
 class TestCoolifyNormalizeBaseUrl:
@@ -117,51 +115,60 @@ class TestCoolifyClientConfig:
 
 
 class TestCoolifyFlatEndpoints:
-    def test_reads_the_bare_array_from_the_versioned_path(self, requests_mock: Any) -> None:
+    def test_reads_the_bare_array_from_the_versioned_path(self) -> None:
         # Coolify list endpoints answer a bare JSON array under /api/v1; a wrong data_selector or
         # a doubled/missing API prefix would sync zero rows without erroring.
-        servers = requests_mock.get(f"{API_BASE}/servers", json=[{"uuid": "srv-1", "name": "hetzner-1"}])
+        result = _driver(base_url=f"{BASE_URL}/api/v1").run(
+            "servers", [ScriptedResponse(json=[{"uuid": "srv-1", "name": "hetzner-1"}])]
+        )
 
-        assert _rows("servers", base_url=f"{BASE_URL}/api/v1") == [{"uuid": "srv-1", "name": "hetzner-1"}]
-        assert servers.call_count == 1
+        assert result.raised is None
+        assert result.rows == [{"uuid": "srv-1", "name": "hetzner-1"}]
+        assert result.urls == [f"{API_BASE}/servers"]
 
 
 class TestCoolifyDeploymentsFanout:
-    def _mock_applications(self, requests_mock: Any, uuids: list[str]) -> None:
-        requests_mock.get(f"{API_BASE}/applications", json=[{"uuid": uuid, "name": f"app-{uuid}"} for uuid in uuids])
-
-    def test_an_application_deleted_mid_sync_does_not_fail_the_table(self, requests_mock: Any) -> None:
+    def test_an_application_deleted_mid_sync_does_not_fail_the_table(self) -> None:
         # An app removed between the parent listing and its child fetch answers 404; one such app
         # must cost only its own rows, not the whole deployments table.
         gone_uuid = "gone0000000000000000000000"
-        self._mock_applications(requests_mock, [gone_uuid, APP_UUID])
-        requests_mock.get(f"{API_BASE}/deployments/applications/{gone_uuid}", status_code=404, json={})
-        requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            json={"count": 1, "deployments": [{"deployment_uuid": "dep-1"}]},
+        result = _driver().run(
+            "deployments",
+            [
+                ScriptedResponse(json=[{"uuid": uuid, "name": f"app-{uuid}"} for uuid in [gone_uuid, APP_UUID]]),
+                ScriptedResponse(status=404, json={}),
+                ScriptedResponse(json={"count": 1, "deployments": [{"deployment_uuid": "dep-1"}]}),
+            ],
         )
 
-        assert [row["deployment_uuid"] for row in _rows("deployments")] == ["dep-1"]
+        assert result.raised is None
+        assert [row["deployment_uuid"] for row in result.rows] == ["dep-1"]
+        assert result.paths == [
+            "/api/v1/applications",
+            f"/api/v1/deployments/applications/{gone_uuid}",
+            f"/api/v1/deployments/applications/{APP_UUID}",
+        ]
 
-    def test_a_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self, requests_mock: Any) -> None:
+    def test_a_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self) -> None:
         # The deployments table replaces on every sync (`write_disposition: "replace"`). Stopping
         # at the safety cap while `count` still claims more rows exist would silently swap a
         # complete table for an incomplete one; it must raise instead.
-        self._mock_applications(requests_mock, [APP_UUID])
         page = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
-        requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            json={"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page},
-        )
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
-                DEPLOYMENTS_PAGE_SIZE,
-            ),
-            pytest.raises(DeploymentsPaginationTruncatedError),
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
+            DEPLOYMENTS_PAGE_SIZE,
         ):
-            _rows("deployments")
+            result = _driver().run(
+                "deployments",
+                [
+                    ScriptedResponse(json=[{"uuid": APP_UUID}]),
+                    ScriptedResponse(json={"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page}),
+                ],
+            )
+
+        assert isinstance(result.raised, DeploymentsPaginationTruncatedError)
+        assert result.paths == ["/api/v1/applications", f"/api/v1/deployments/applications/{APP_UUID}"]
+        assert result.params("skip") == [None, "0"]
 
     def test_an_unparseable_body_at_the_cap_stops_without_crashing(self) -> None:
         # If the response at the cap boundary isn't valid JSON, `_DeploymentsPaginator` can't read
@@ -203,25 +210,25 @@ class TestCoolifyValidateCredentials:
             pytest.param(500, False, "try again", id="transient_server_error"),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.make_tracked_session")
     def test_maps_status_to_a_message(
-        self, mock_session: MagicMock, status_code: int, expected_valid: bool, expected_fragment: str | None
+        self, status_code: int, expected_valid: bool, expected_fragment: str | None
     ) -> None:
-        mock_session.return_value.get.return_value = _make_response(status_code=status_code)
-
-        valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
+        answer = ScriptedResponse(status=status_code, json={})
+        with scripted_network(always(answer) if status_code == 500 else [answer]) as network:
+            valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
 
         assert valid is expected_valid
         if expected_fragment is not None:
             assert error is not None and expected_fragment in error
+        assert {request.path for request in network.requests_log} == {"/api/v1/teams"}
+        assert all(request.headers["authorization"] == "Bearer coolify-token" for request in network.requests_log)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.make_tracked_session")
-    def test_transport_error_does_not_blame_the_token(self, mock_session: MagicMock) -> None:
+    def test_transport_error_does_not_blame_the_token(self) -> None:
         # An unreachable instance is not proof the token is bad; the message must point at the
         # URL, not tell the user to regenerate a good token.
-        mock_session.return_value.get.side_effect = ConnectionError("boom")
-
-        valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            valid, error = validate_credentials(BASE_URL, "coolify-token", team_id=1)
 
         assert not valid
         assert error is not None and "reach" in error
+        assert {request.path for request in network.requests_log} == {"/api/v1/teams"}

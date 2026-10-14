@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -55,6 +56,16 @@ class SparkPostSource(
     ResumableSource[SparkPostSourceConfig, SparkPostResumeConfig],
     WebhookSource[SparkPostSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^SPARKPOST_",),
+        npm=("sparkpost",),
+        pypi=("sparkpost",),
+        composer=("sparkpost/sparkpost", "sparkpost/php-sparkpost"),
+        go=("github.com/SparkPost/gosparkpost",),
+        maven=("com.sparkpost:sparkpost-lib", "com.sparkpost:sparkpost"),
+        rubygems=("sparkpost",),
+    )
+
     api_docs_url = "https://developers.sparkpost.com/api/"
 
     @property

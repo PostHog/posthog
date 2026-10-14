@@ -2,6 +2,7 @@ import time
 import typing
 import datetime as dt
 import collections.abc
+from zoneinfo import ZoneInfo
 
 from django.db import OperationalError, close_old_connections
 
@@ -36,7 +37,7 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -45,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.change_events import ChangeEventReader
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsSourceConfigUnion,
@@ -239,7 +241,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
-        resolved = integration_secrets.get_secrets(
+        resolved = credentials_service.get_secrets(
             ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"]
         )
         config_dict: dict[str, object] = {
@@ -273,20 +275,21 @@ class GoogleAdsColumn(Column):
     def __init__(
         self,
         qualified_name: str,
-        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType,
+        data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType | int,
         is_repeatable: bool,
         type_url: str,
         output_name: str | None = None,
     ):
         self.name = output_name if output_name is not None else qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
-        self.data_type = data_type
+        self.data_type = ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType(int(data_type))
         self.type_url = type_url
         # Some types require special handling, so we provide quick access to them
         self.is_repeatable = is_repeatable
-        self.is_enum = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.ENUM
-        self.is_message = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
-        self.is_date = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE
+        self.is_enum = self.data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.ENUM
+        self.is_message = self.data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
+        self.is_date = self.data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE
+        self.is_datetime = qualified_name == "change_event.change_date_time"
 
     @staticmethod
     def _safe_get_enum(enum_cls, value) -> str:
@@ -297,6 +300,8 @@ class GoogleAdsColumn(Column):
 
     def resolve_value(self, value):
         """Coerce a raw protobuf value to the appropriate Python type."""
+        if self.is_datetime:
+            return dt.datetime.fromisoformat(value) if value else None
         if self.is_enum:
             enum_cls = _resolve_protobuf_message_type_url(self.type_url)
             if self.is_repeatable:
@@ -305,8 +310,8 @@ class GoogleAdsColumn(Column):
 
         if self.is_message:
             if self.is_repeatable:
-                return list(map(MessageToJson, value))
-            return MessageToJson(value)
+                return [MessageToJson(getattr(item, "_pb", item)) for item in value]
+            return MessageToJson(getattr(value, "_pb", value))
 
         if self.is_date:
             if self.is_repeatable:
@@ -323,6 +328,9 @@ class GoogleAdsColumn(Column):
           * MESSAGE: Serialized as JSON strings.
         """
         arrow_type: pa.DataType
+
+        if self.is_datetime:
+            return pa.field(self.name, pa.timestamp("us"))
 
         match self.data_type:
             case ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.BOOLEAN:
@@ -638,6 +646,43 @@ def google_ads_source(
 
     name = NamingConvention.normalize_identifier(resource_name)
     table = schema_for_resource(get_schemas(config, team_id, api_version), resource_name)
+
+    if table.name == "change_event":
+        if should_use_incremental_field and incremental_field != "change_event.change_date_time":
+            raise ValueError("Use change_event.change_date_time as the Google Ads change history cursor.")
+
+        def get_change_events() -> collections.abc.Iterator[pa.Table]:
+            customer_id = clean_customer_id(config.customer_id)
+            service = GoogleAdsSearchService(google_ads_client(config, team_id), api_version, customer_id)
+            customer_query = _search_with_transient_retry(
+                service, {"customer_id": customer_id, "query": "SELECT customer.time_zone FROM customer"}
+            )
+            customer = next(iter(customer_query), None)
+            if customer is None:
+                raise ValueError("Google Ads did not return the account time zone. Reconnect the account.")
+            now = dt.datetime.now(ZoneInfo(customer.customer.time_zone)).replace(tzinfo=None, microsecond=0)
+
+            def fetch(query: str) -> list[dict[str, typing.Any]]:
+                response = _search_with_transient_retry(service, {"customer_id": customer_id, "query": query})
+                return [row for page in response.pages for row in _response_as_dicts(page, table)]
+
+            reader = ChangeEventReader(
+                [column.qualified_name for column in table], fetch, resumable_source_manager.safe_point
+            )
+            start = reader.start_time(
+                now,
+                db_incremental_field_last_value if should_use_incremental_field else None,
+                parse_start_date(requested_start) if requested_start else None,
+            )
+            for rows in reader.read(start, now):
+                yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+
+        return SourceResponse(
+            name=name,
+            items=get_change_events,
+            primary_keys=table.primary_key,
+            supports_resume=should_use_incremental_field,
+        )
 
     # Report tables always need a date filter, so a full-refresh schema is forced onto the
     # incremental query path here. Record whether the pipeline itself is incremental first: only an

@@ -8,7 +8,8 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
+import { ProjectTree } from '../ProjectTree/ProjectTree'
+import { PROJECT_TREE_KEY } from '../ProjectTree/projectTreeLogic'
 
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 

@@ -22,6 +22,7 @@ import {
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
+    RealtimeOnlyEventsOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
@@ -77,7 +78,9 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     // than relying on the runtime shape.
     Pick<
         IngestionOutputsConfig,
-        'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC' | 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'
+        | 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'
+        | 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'
+        | 'INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC'
     >
 
 export interface IngestionConsumerDeps {
@@ -88,6 +91,7 @@ export interface IngestionConsumerDeps {
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
+        | RealtimeOnlyEventsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput

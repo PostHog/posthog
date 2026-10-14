@@ -7,15 +7,17 @@ import { pluralize } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { EXPERIMENT_HEALTH_PANEL_ELEMENT_ID } from '../constants'
+import { healthIssues } from './healthPanelFindings'
 
 export function ExperimentHealthChip(): JSX.Element | null {
     const { healthFindings } = useValues(experimentLogic)
+    const issues = healthIssues(healthFindings)
 
-    if (!healthFindings?.length) {
+    if (!issues.length) {
         return null
     }
 
-    const hasCritical = healthFindings.some((finding) => finding.severity === 'critical')
+    const hasCritical = issues.some((finding) => finding.severity === 'critical')
 
     return (
         <LemonButton
@@ -28,7 +30,7 @@ export function ExperimentHealthChip(): JSX.Element | null {
             tooltip="Show the health checks"
             data-attr="experiment-health-chip"
         >
-            {pluralize(healthFindings.length, 'issue')}
+            {pluralize(issues.length, 'issue')}
         </LemonButton>
     )
 }
