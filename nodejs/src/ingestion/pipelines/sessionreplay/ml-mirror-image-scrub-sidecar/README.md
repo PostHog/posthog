@@ -236,8 +236,11 @@ DBNet reads exactly `ratio` times the stored size too, cut down from its canvas 
 **`SCRUB_STORED_MAX_SIDE` is the knob most people should touch.**
 It caps the long side of what gets stored, and everything else follows from it: the face detector's input and the text canvas grow to `side x ratio`, and the frame budget to `stored x ratio^2`, because the detectors have to see enough to keep the rule.
 Unset (0), the face detector runs at 640 px, which caps every stored image at about 161 px on its long side.
+It takes 0 (off) or a value from 16 to 1024.
 At 384 a 1080p capture is stored at 384x216; an image smaller than about `384 x ratio` still stores at `1/ratio` of its size.
-Each worker then budgets about 955 MB instead of 514 MB, so raise the container's memory with it or the pool runs fewer workers.
+A frame past the face tiling aspect (3:1) keeps the default stored size, because capping a banner's long side would crush its short one.
+Above 640 px the face detector also runs a second pass at 640, since its floors were measured there and a close-up face at the larger input reaches the model bigger than anything checked.
+The worker memory model gives about 955 MB at 384 instead of 514 MB, but it was fitted at the default detector sizes: measure with `dev/mem-probe.ts` before turning it on, and raise the container's memory with it or the pool runs fewer workers.
 `SCRUB_OUT_MAX_PIXELS` bounds the stored area (default `side^2`, or 50,000 when no side is set).
 Setting the frame budget independently is what let two individually-reasonable settings combine into a pipeline that under-redacted, so `SCRUB_MAX_PIXELS` still exists as an override but is derived by default.
 

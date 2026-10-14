@@ -11,7 +11,8 @@ import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { rgbToChw } from './pixel-convert.ts'
-// Tiling bounds for extreme-aspect frames. A single pass scales by 640/longSide, so on a
+// Tiling bounds for extreme-aspect frames, with figures for the default 640 input (a larger input
+// scales them up). A single pass scales by 640/longSide, so on a
 // very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
 // stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
 // (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
@@ -21,11 +22,26 @@ import { rgbToChw } from './pixel-convert.ts'
 // Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
 // know how much of a long frame this stage really sees, and two copies of it is the drift the
 // planner exists to remove.
-import { FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong, limitsFromEnv } from './scale-plan.ts'
+import {
+    DEFAULT_FACE_INPUT_SIDE,
+    FACE_TILE_ABOVE,
+    FACE_TILE_ASPECT,
+    faceWindowLong,
+    limitsFromEnv,
+} from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
-const FACE_INPUT_SIDE = limitsFromEnv().faceInputSide
+const FACE_INPUT_SIDES = faceInputSides(limitsFromEnv().faceInputSide)
+
+/**
+ * The input sizes faces are detected at. YuNet's measured floors come from 640, and a close-up face at a larger input
+ * reaches the model bigger than anything it was checked against, so a larger input adds a 640 pass rather than
+ * replacing it.
+ */
+export function faceInputSides(inputSide: number): number[] {
+    return inputSide > DEFAULT_FACE_INPUT_SIDE ? [inputSide, DEFAULT_FACE_INPUT_SIDE] : [inputSide]
+}
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
 const LARGEST_STRIDE = 32
@@ -119,10 +135,11 @@ async function detectInWindow(
     W: number,
     H: number,
     win: Window,
-    scoreMin: number
+    scoreMin: number,
+    inputSide: number
 ): Promise<{ b: Box; s: number }[]> {
     // Padding rather than resizing to reach the stride, because resizing up enlarges real pixels (rule 1 in scale-plan.ts).
-    const scale = Math.min(1, FACE_INPUT_SIDE / Math.max(win.width, win.height))
+    const scale = Math.min(1, inputSide / Math.max(win.width, win.height))
     const dw = Math.max(1, Math.round(win.width * scale))
     const dh = Math.max(1, Math.round(win.height * scale))
     const cw = upToStride(dw)
@@ -186,8 +203,10 @@ export async function detectFacesYunet(
 ): Promise<Box[]> {
     const scoreMin = opts.scoreMin ?? SCORE_MIN
     const cand: { b: Box; s: number }[] = []
-    for (const win of detectionWindows(W, H)) {
-        cand.push(...(await detectInWindow(model, src, W, H, win, scoreMin)))
+    for (const inputSide of FACE_INPUT_SIDES) {
+        for (const win of detectionWindows(W, H)) {
+            cand.push(...(await detectInWindow(model, src, W, H, win, scoreMin, inputSide)))
+        }
     }
 
     // greedy NMS over all windows (overlap regions produce duplicates for the same face)

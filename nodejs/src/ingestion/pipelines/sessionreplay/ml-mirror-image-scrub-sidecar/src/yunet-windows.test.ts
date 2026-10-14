@@ -1,7 +1,15 @@
 import { FACE_MAX_WINDOWS } from './scale-plan.ts'
-import { detectionWindowsForTest } from './yunet.ts'
+import { detectionWindowsForTest, faceInputSides } from './yunet.ts'
 
 describe('detectionWindows', () => {
+    it.each([
+        [640, [640]],
+        [1536, [1536, 640]],
+    ])('keeps the measured 640 face pass when the input is %p', (inputSide, sides) => {
+        // YuNet's floors were measured at 640; a larger input alone could miss a close-up face it was never checked on.
+        expect(faceInputSides(inputSide)).toEqual(sides)
+    })
+
     // A window starting off the edge is not an error anywhere downstream: face boxes are translated
     // by its offset, so they land at negative coordinates and are clamped away. Face redaction goes
     // silently off for the whole shape class, which is why this needs a test rather than a reader

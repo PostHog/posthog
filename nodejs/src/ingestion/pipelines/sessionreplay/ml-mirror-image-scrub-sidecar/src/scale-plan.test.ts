@@ -123,6 +123,20 @@ describe('scale-plan', () => {
         expect(limits.faceInputSide).toBeGreaterThanOrEqual(384 * bindingRatio() * limits.safetyFactor)
     })
 
+    it.each([
+        ['a wide banner', 8000, 60],
+        ['a tall strip', 60, 8000],
+    ])('keeps the default stored size for %s past the tiling aspect', (_case, width, height) => {
+        const capped = planScales({ width, height }, limitsWithStoredSide(384)).stored
+        const unset = planScales({ width, height }, LIMITS).stored
+
+        expect(Math.min(capped.width, capped.height)).toBeGreaterThanOrEqual(Math.min(unset.width, unset.height))
+    })
+
+    it.each([1, 15, 2048])('refuses a stored side of %p', (side) => {
+        expect(() => limitsWithStoredSide(side)).toThrow('SCRUB_STORED_MAX_SIDE')
+    })
+
     it('respects the stored budget when that is the tighter bound', () => {
         // Two independent bounds: the ratio, and an operator's cap. The smaller wins.
         const tight = planScales({ width: 1920, height: 1080 }, { ...LIMITS, storedPixels: 2_000 })

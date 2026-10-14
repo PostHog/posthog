@@ -11,7 +11,7 @@
  *       models/candidates/yunet_n_dynamic.onnx out/face-calibration models/candidates/yunet_n_dynamic_int8.onnx
  *   ORT_THREADS=1 tsx dev/face-bench.ts [--detectors a,b] [--sets a,b] [--limit N] [--label name]
  *
- * Production reads each frame at min(1, 640 / long side) with the dynamic-shape YuNet export, on a
+ * Production reads each frame at min(1, inputSide / long side), inputSide 640 by default, with the dynamic-shape YuNet export, on a
  * canvas that pads only to the model's stride, which is the scale the plan counts for the face stage.
  * The fixed-shape builds take only a 640x640 input, so their "fixed" entries letterbox: a frame
  * smaller than 640 is enlarged and a 16:9 frame is padded with black to a square, and neither buys
@@ -96,7 +96,7 @@ interface GtImage {
 interface DetectorSpec {
     name: string
     file: string
-    /** native: production's input, the frame at min(1, 640/long), stride-padded. fixed: the 640x640 letterbox. */
+    /** native: production's input, the frame at min(1, inputSide/long), stride-padded. fixed: the 640x640 letterbox. */
     input: 'fixed' | 'native'
 }
 

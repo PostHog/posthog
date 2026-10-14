@@ -216,7 +216,11 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
     const weakest = Math.min(textScale, faceScale, 1)
 
     const ratio = bindingRatio() * limits.safetyFactor
-    const sideScale = limits.storedMaxSide > 0 ? limits.storedMaxSide / Math.max(frame.width, frame.height) : 1
+    // A frame past the tiling aspect is a banner or a strip: capping its long side would crush the short one to a
+    // pixel or two, so it keeps the stored size the defaults give it.
+    const long = Math.max(frame.width, frame.height)
+    const capsSide = limits.storedMaxSide > 0 && long / Math.min(frame.width, frame.height) <= limits.faceTileAbove
+    const sideScale = capsSide ? limits.storedMaxSide / long : 1
     const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels), sideScale))
     // zxing's cost grows with the pixels it reads and no model fixes its input, so it gets exactly the ratio. That is
     // measured against the stored axes as kept, because flooring an axis to a whole pixel keeps more than was asked.
@@ -244,7 +248,10 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
  * stored image at about 161 px whatever the area budget allows.
  */
 export function limitsFromEnv(): PlanLimits {
-    const storedMaxSide = numFromEnv('SCRUB_STORED_MAX_SIDE', 0, 0, 4096)
+    const storedMaxSide = numFromEnv('SCRUB_STORED_MAX_SIDE', 0, 0, 1024)
+    if (storedMaxSide > 0 && storedMaxSide < 16) {
+        throw new Error(`SCRUB_STORED_MAX_SIDE must be 0 or in [16, 1024], got ${storedMaxSide}`)
+    }
     const safetyFactor = numFromEnv('SCRUB_SAFETY_FACTOR', 1.3, 1, 4)
     const ratio = bindingRatio() * safetyFactor
     const stride = 32
