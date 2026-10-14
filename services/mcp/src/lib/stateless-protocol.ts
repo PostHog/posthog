@@ -8,6 +8,7 @@
 // header (SEP-2243 requires the operation headers below on every modern request,
 // and requires servers that process the body to reject header/body mismatches).
 
+import { getUiCapability } from '@modelcontextprotocol/ext-apps/server'
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js'
 
 export const STATELESS_PROTOCOL_VERSION = '2026-07-28'
@@ -53,6 +54,18 @@ export interface RequestProtocolMeta {
     protocolVersion?: string | undefined
     clientName?: string | undefined
     clientVersion?: string | undefined
+    supportsUiApps?: boolean | undefined
+}
+
+/**
+ * Whether client capabilities declare the MCP Apps UI extension.
+ * Returns undefined when the client sent no capabilities object.
+ */
+export function clientCapabilitiesSupportUiApps(capabilities: unknown): boolean | undefined {
+    if (!capabilities || typeof capabilities !== 'object') {
+        return undefined
+    }
+    return !!getUiCapability(capabilities as Parameters<typeof getUiCapability>[0])
 }
 
 function requestMetaRecord(params: unknown): Record<string, unknown> | undefined {
@@ -87,6 +100,7 @@ export function parseRequestProtocolMeta(params: unknown): RequestProtocolMeta {
                 : undefined,
         clientName: typeof clientInfoRecord?.name === 'string' ? clientInfoRecord.name : undefined,
         clientVersion: typeof clientInfoRecord?.version === 'string' ? clientInfoRecord.version : undefined,
+        supportsUiApps: clientCapabilitiesSupportUiApps(metaRecord[META_CLIENT_CAPABILITIES]),
     }
 }
 

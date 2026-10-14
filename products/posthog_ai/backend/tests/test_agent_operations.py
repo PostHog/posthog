@@ -88,11 +88,19 @@ class TestAgentOperationsAPI(APIBaseTest):
         self.addCleanup(patch.stopall)
         self.url = f"/api/projects/{self.team.id}/agent_operations/"
 
-    def _start(self, *, client_request_id: str = "req-1", goal: str = "Why did signups drop?", key: str | None = None):
+    def _start(
+        self,
+        *,
+        client_request_id: str = "req-1",
+        goal: str = "Why did signups drop?",
+        key: str | None = None,
+        approvals: str | None = None,
+    ):
         headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"} if key else {}
-        return self.client.post(
-            self.url, {"goal": goal, "client_request_id": client_request_id}, format="json", **headers
-        )
+        body = {"goal": goal, "client_request_id": client_request_id}
+        if approvals:
+            body["approvals"] = approvals
+        return self.client.post(self.url, body, format="json", **headers)
 
     def _run(self, operation_id: str) -> TaskRun:
         operation = AgentOperation.objects.for_team(self.team.id).get(id=operation_id)
@@ -110,8 +118,48 @@ class TestAgentOperationsAPI(APIBaseTest):
         task = Task.objects.get(id=response.json()["task_id"])
         assert task.json_schema == AGENT_RESULT_SCHEMA
         assert task.client_provenance == "agent_mcp"
-        assert TaskRun.objects.get(id=response.json()["run_id"]).state["initial_permission_mode"] == "bypassPermissions"
         assert response.json()["project"] == {"id": self.team.id, "name": self.team.name}
+
+    @parameterized.expand([("no_ui_client", None, "bypassPermissions"), ("ui_client", "client", "auto")])
+    def test_only_a_client_with_approval_ui_gets_approval_prompts(self, _name, approvals, permission_mode):
+        response = self._start(approvals=approvals)
+
+        assert response.status_code == 201, response.json()
+        assert TaskRun.objects.get(id=response.json()["run_id"]).state["initial_permission_mode"] == permission_mode
+
+    @parameterized.expand(
+        [("allow_all", "allow all", "always"), ("allow", "allow", "once"), ("deny", "deny", "reject")]
+    )
+    def test_approval_reply_picks_the_matching_option(self, _name, message, option_id):
+        operation_id = self._start(approvals="client").json()["id"]
+        run = self._run(operation_id)
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save()
+        AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
+            state="needs_input",
+            state_reason="approval_required",
+            pending_permission_request={
+                "request_id": "perm-1",
+                "title": "Run SQL",
+                "options": [
+                    {"option_id": "once", "kind": "allow_once", "name": "Allow"},
+                    {"option_id": "always", "kind": "allow_always", "name": "Always allow"},
+                    {"option_id": "reject", "kind": "reject_once", "name": "Deny"},
+                ],
+            },
+        )
+
+        with (
+            patch(f"{SERVICE}.tasks_facade.send_permission_response", return_value=True) as send,
+            patch(f"{SERVICE}.SandboxSession.open") as open_,
+        ):
+            response = self.client.post(
+                f"{self.url}{operation_id}/reply/", {"message": message, "client_request_id": "r-1"}, format="json"
+            )
+
+        assert response.status_code == 200, response.json()
+        assert send.call_args.kwargs["option_id"] == option_id
+        open_.assert_not_called()
 
     def test_retry_with_same_request_id_returns_the_same_operation(self):
         first = self._start()
