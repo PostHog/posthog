@@ -163,17 +163,12 @@ class TestFlagChart:
             (
                 "odd_count",
                 ["Signups", "Activation", "Revenue"],
-                [
-                    "┌────────────────────────┬────────────────────────┐",
-                    "│ Signups                │ Activation             │",
-                    "│ Revenue                │                        │",
-                    "└────────────────────────┴────────────────────────┘",
-                ],
+                ["▪ Signups                  ▪ Activation", "▪ Revenue"],
             ),
             (
                 "more_than_shown",
                 [f"Tile {index}" for index in range(8)],
-                "└────────────────────────┴────────────────────────┘",
+                "▪ Tile 4                   ▪ Tile 5",
             ),
             ("empty", [], None),
         ]

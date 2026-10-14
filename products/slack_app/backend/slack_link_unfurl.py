@@ -67,7 +67,7 @@ logger = structlog.get_logger(__name__)
 _MAX_BODY_CHARS = 200
 _MAX_TITLE_CHARS = 150
 _MAX_CHART_LINES = 4
-_MAX_GRID_TILES = 4
+_MAX_GRID_TILES = 6
 _CHART_WIDTH = 20
 _CHART_LABEL_CHARS = 16
 
@@ -556,12 +556,9 @@ def _tile_grid(names: list[str]) -> str | None:
     if not names:
         return None
     width = _CHART_WIDTH + 2
-    cells = [_truncate(name.replace("`", "'"), width).ljust(width) for name in names[:_MAX_GRID_TILES]]
-    if len(cells) % 2:
-        cells.append(" " * width)
-    rule = "─" * (width + 2)
-    rows = [f"│ {cells[index]} │ {cells[index + 1]} │" for index in range(0, len(cells), 2)]
-    return "\n".join([f"┌{rule}┬{rule}┐", *rows, f"└{rule}┴{rule}┘"])
+    cells = [f"▪ {_truncate(name.replace('`', "'"), width)}" for name in names[:_MAX_GRID_TILES]]
+    rows = [cells[index : index + 2] for index in range(0, len(cells), 2)]
+    return "\n".join("   ".join(cell.ljust(width + 2) for cell in row).rstrip() for row in rows)
 
 
 def _question_list(questions: object) -> str | None:
