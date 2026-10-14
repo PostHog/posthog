@@ -183,10 +183,8 @@ _MAX_ALLOWED_MODELS = 32
 # The models are every one the wizard CLI dispatches (its *_MODEL constants in
 # src/lib/constants.ts), so widen them here when one is added. The efforts are
 # every one the CLI can declare; "max" is absent because the CLI cannot send it.
-# The programs are exactly the ids the wizard sends as `program` to this mint: its
-# Program registry (src/programs/program-registry.ts) plus `mcp-tutorial`, the one
-# tool that streams a model call. The other tools make none, so they never mint.
-# An unreadable allowlist still admits them.
+# The programs match the deploy's former WIZARD_GATEWAY_PROGRAM_IDS, so older wizards
+# that mint for a tool keep working when the allowlist is unreadable.
 WIZARD_DEFAULT_MODELS: tuple[str, ...] = (
     "claude-sonnet-5",
     "claude-haiku-4-5",
@@ -203,17 +201,21 @@ WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
     "warehouse-source",
     "error-tracking-upload-source-maps",
     "error-tracking",
-    "migration",
     "audit",
     "events-audit",
+    "posthog-doctor",
     "web-analytics-doctor",
+    "migration",
     "self-driving",
     "agent-skill",
+    "mcp-add",
+    "mcp-remove",
+    "mcp-tutorial",
     "mcp-analytics",
     "replay-vision",
     "ai-observability",
     "metrics",
-    "mcp-tutorial",
+    "slack",
 )
 
 
