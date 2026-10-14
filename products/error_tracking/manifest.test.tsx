@@ -1,3 +1,7 @@
+import { router } from 'kea-router'
+
+import { initKeaTests } from '~/test/init'
+
 import { manifest } from './manifest'
 
 type RedirectFn = (params: Record<string, string>, searchParams: Record<string, string>, hashParams: object) => string
@@ -27,11 +31,19 @@ describe('error tracking routes', () => {
         ['/error_tracking/:id', { id: 'issue-id' }, '/error-tracking/issue-id'],
         ['/error_tracking/alerts/:id', { id: 'alert-id' }, '/error-tracking/alerts/alert-id'],
         ['/error_tracking/alerts/new/:templateId', { templateId: 'tpl' }, '/error-tracking/alerts/new/tpl'],
-        ['/error_tracking/fingerprint/*', { _: 'Error%3A%20x' }, '/error-tracking/fingerprint/Error%3A%20x'],
     ])('redirects %s to the canonical error-tracking path', (path, params, expectedPath) => {
         const redirect = manifest.redirects![path] as RedirectFn
 
         expect(redirect(params, { dateRange: '7d' }, { foo: 'bar' })).toBe(`${expectedPath}?dateRange=7d#foo=bar`)
+    })
+
+    // kea-router decodeURI()s the wildcard capture, so a literal `%` in a fingerprint must come from the raw path.
+    it.each(['Error%3A%20x', '100%25', 'a%252Fb'])('keeps the raw encoding of the legacy fingerprint %s', (raw) => {
+        initKeaTests()
+        router.actions.push(`/error_tracking/fingerprint/${raw}`)
+        const redirect = manifest.redirects!['/error_tracking/fingerprint/*'] as RedirectFn
+
+        expect(redirect({ _: decodeURI(raw) }, {}, {})).toBe(`/error-tracking/fingerprint/${raw}`)
     })
 
     // Legacy settings links (from docs, bookmarks, and old onboarding) used to dead-end on a blank

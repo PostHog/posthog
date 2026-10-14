@@ -17,7 +17,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         [
             ("insight", "9pQx3", "/insights/9pQx3"),
             ("dashboard", "123", "/dashboard/123"),
-            ("error", UUID, f"/error_tracking/{UUID}"),
+            ("error", UUID, f"/error-tracking/{UUID}"),
             ("replay", "0190f8a1-sess", "/replay/0190f8a1-sess"),
             ("flag", "42", "/feature_flags/42"),
             ("experiment", "7", "/experiments/7"),

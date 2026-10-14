@@ -70,7 +70,8 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
     "error": ObjectKindSpec(
         kind_label="Error issue",
         source="Error tracking",
-        path_template="/error_tracking/{id}",
+        path_template="/error-tracking/{id}",
+        url_aliases=("/error_tracking/{id}",),
     ),
     "replay": ObjectKindSpec(
         kind_label="Session replay",
