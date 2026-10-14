@@ -289,6 +289,12 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             object_storage_source = object_storage_upload_source()
+            # The image exporter renders replay exports in the bare /exporter document, and a frame of
+            # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
+            # code in each script-src report, which identifies the code behind those reports. A sample
+            # can carry page code to the report endpoint, so no other document asks for one, and that
+            # includes the shared page at /exporter/<token>.
+            report_sample = " 'report-sample'" if request.path == "/exporter" else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
@@ -320,7 +326,7 @@ class CSPMiddleware:
                 # matched against the URL path alone, so the `?2` the library appends does not
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
