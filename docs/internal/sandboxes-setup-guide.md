@@ -133,6 +133,11 @@ keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
+Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
+The agent server links Claude's projects, session environment, plans and todos, and
+Codex's sessions and shell snapshots into that directory before starting a session.
+Authentication and platform configuration stay outside these mappings. Pi restores
+its session history through the task-session API.
 
 ## Running via the UI
 
