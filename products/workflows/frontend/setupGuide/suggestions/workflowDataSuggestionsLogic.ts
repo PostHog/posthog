@@ -21,6 +21,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import { saveEntrySource } from '../../Broadcasts/broadcastUsage'
 import {
     hogFlowsCreate,
     workflowDataSuggestionsBuild,
@@ -286,8 +287,11 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
                     )
                     breakpoint()
+                    // pinned: entry source value - 'workflow enabled' reports it, so renaming breaks the funnel
+                    saveEntrySource(workflow.id, 'data_suggestion')
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('workflows data suggestion built', {
+                        workflow_id: workflow.id,
                         surface: props.surface,
                         trigger_event: card.triggerEvent,
                         stage: card.stage,

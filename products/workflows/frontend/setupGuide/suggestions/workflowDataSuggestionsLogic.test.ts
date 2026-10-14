@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { initKeaTests } from '~/test/init'
 
+import { loadEntrySource } from '../../Broadcasts/broadcastUsage'
 import {
     hogFlowsCreate,
     workflowDataSuggestionsBuild,
@@ -90,6 +91,7 @@ describe('workflowDataSuggestionsLogic', () => {
             expect.objectContaining({ signal: expect.anything() })
         )
         expect(router.values.location.pathname).toContain('workflow-1')
+        expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
         expect(logic.values.buildingKey).toBeNull()
     })
 
