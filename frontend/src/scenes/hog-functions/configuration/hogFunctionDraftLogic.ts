@@ -116,14 +116,14 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
     }),
     reducers({
         // Drives the buttons' loading and disabled state, so publish and discard can't race each other
-        // or double-submit. A publish or discard holds it until the reload that follows lands, because the
-        // configuration page locks the form while it is set.
+        // or double-submit. The configuration page locks the form while it is set. It clears only once
+        // fresh function data lands: a failed reload keeps the lock, because the form would hold config
+        // that is no longer live, and saving it would undo the publish.
         draftActionPending: [
             null as HogFunctionDraftAction | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
                 loadHogFunctionSuccess: () => null,
-                loadHogFunctionFailure: () => null,
             },
         ],
     }),
@@ -144,6 +144,11 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        loadHogFunctionFailure: () => {
+            if (values.draftActionPending) {
+                lemonToast.error('Could not reload this destination. Refresh the page before you edit it.')
+            }
+        },
         publishDraft: async (_, breakpoint) => {
             const id = values.hogFunction?.id
             const type = values.type
@@ -203,22 +208,27 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             }
             actions.setDraftActionPending('publish')
             try {
-                await hogFunctionsPublishCreate(String(values.currentTeamIdStrict), id, {
+                const response = await hogFunctionsPublishCreate(String(values.currentTeamIdStrict), id, {
                     confirm: true,
                     confirm_token: confirmToken,
                 })
                 lemonToast.success('Changes published')
                 // pinned: analytics event name
                 posthog.capture('hog function draft published', { type })
+                // The response carries the published function, so the form gets the new live config
+                // without a second request that could fail.
+                if (response.function) {
+                    actions.loadHogFunctionSuccess(response.function as unknown as HogFunctionType)
+                    return
+                }
             } catch (error) {
                 lemonToast.error(
                     error instanceof ApiError && error.status !== 409 && error.detail
                         ? error.detail
                         : 'Publishing failed. Review the staged changes and try again.'
                 )
-            } finally {
-                actions.loadHogFunction()
             }
+            actions.loadHogFunction()
         },
         discardDraft: () => {
             if (values.draftActionPending) {
@@ -246,13 +256,13 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             }
             actions.setDraftActionPending('discard')
             try {
-                await hogFunctionsDiscardDraftCreate(String(values.currentTeamIdStrict), id)
+                const hogFunction = await hogFunctionsDiscardDraftCreate(String(values.currentTeamIdStrict), id)
                 lemonToast.success('Staged changes discarded')
                 // pinned: analytics event name
                 posthog.capture('hog function draft discarded', { type })
+                actions.loadHogFunctionSuccess(hogFunction as unknown as HogFunctionType)
             } catch {
                 lemonToast.error('Could not discard the staged changes. Try again.')
-            } finally {
                 actions.loadHogFunction()
             }
         },
