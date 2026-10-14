@@ -212,6 +212,9 @@ export function createParseAndAnonymizeMessageStep<
             if (result.reason && DLQ_REASONS.has(result.reason)) {
                 return dlq(result.reason, new Error(result.error ?? result.reason))
             }
+            if (result.reason === 'ml_mirror_non_web_replay') {
+                return drop('ml_mirror_non_web_replay')
+            }
             if (result.reason === 'message_contained_no_valid_rrweb_events') {
                 return drop(
                     'message_contained_no_valid_rrweb_events',

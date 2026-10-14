@@ -58,6 +58,8 @@ pub enum FailKind {
     NoValidEvents,
     /// An event could not be scrubbed — fail closed (drop `anonymize_failed`).
     AnonymizeFailed,
+    /// A mobile replay under [`AnonymizeOpts::web_only`] (drop `ml_mirror_non_web_replay`).
+    NonWebReplay,
 }
 
 impl FailKind {
@@ -69,6 +71,7 @@ impl FailKind {
             FailKind::NonSnapshotMessage => "received_non_snapshot_message",
             FailKind::NoValidEvents => "message_contained_no_valid_rrweb_events",
             FailKind::AnonymizeFailed => "anonymize_failed",
+            FailKind::NonWebReplay => "ml_mirror_non_web_replay",
         }
     }
 }
@@ -235,11 +238,88 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
+    /// Refuse a replay whose `$snapshot_source` or `$lib` names a mobile SDK. Mobile SDKs send
+    /// wireframes and screenshots, which none of the scrubbers read.
+    pub web_only: bool,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
-        Self { byte_walk: true }
+        Self {
+            byte_walk: true,
+            web_only: false,
+        }
+    }
+}
+
+const MOBILE_SNAPSHOT_LIBRARIES: &[&str] = &[
+    "posthog-ios",
+    "posthog-android",
+    "posthog-react-native",
+    "posthog-flutter",
+];
+
+/// A missing source is web, as in the main replay lane, because older web SDKs send none.
+pub fn is_web_replay(snapshot_source: Option<&str>, snapshot_library: Option<&str>) -> bool {
+    let web_source = matches!(snapshot_source, None | Some("") | Some("web"));
+    let mobile_library = snapshot_library.is_some_and(|library| {
+        let library = library.to_ascii_lowercase();
+        MOBILE_SNAPSHOT_LIBRARIES
+            .iter()
+            .any(|mobile| library.starts_with(mobile))
+    });
+    web_source && !mobile_library
+}
+
+fn non_web_replay() -> Failure {
+    Failure::new(FailKind::NonWebReplay, "replay is not from a web SDK")
+}
+
+/// `$snapshot_source` and `$lib` read from a props object by key alone, before any event is walked.
+/// `None` when the scan cannot be sure (an escaped key or value, or anything malformed), in which
+/// case the check after the walk decides.
+fn prescan_source_and_library(
+    inner: &[u8],
+    props_start: usize,
+) -> Option<(Option<String>, Option<String>)> {
+    let mut source = None;
+    let mut library = None;
+    let mut pos = props_start + 1;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(inner, pos);
+        if inner.get(pos) == Some(&b'}') {
+            return Some((source, library));
+        }
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return None;
+            }
+            pos = scan::skip_ws(inner, pos + 1);
+        }
+        first = false;
+        let key_end = scan::skip_string(inner, pos).ok()?;
+        let key = inner.get(pos + 1..key_end - 1)?;
+        if key.contains(&b'\\') {
+            return None;
+        }
+        pos = scan::skip_ws(inner, key_end);
+        if inner.get(pos) != Some(&b':') {
+            return None;
+        }
+        let value = scan::locate_value(inner, scan::skip_ws(inner, pos + 1)).ok()?;
+        pos = value.1;
+        let slot = match key {
+            b"$snapshot_source" => &mut source,
+            b"$lib" => &mut library,
+            _ => continue,
+        };
+        if slot.is_some() {
+            return None;
+        }
+        if scan::is_string(inner, value) {
+            *slot = Some(scan::unescape(inner, value).ok()?.into_owned());
+        }
     }
 }
 
@@ -554,6 +634,14 @@ fn anonymize_snapshot_data_inner(
             anonymize_via_tree_mut(&ctx, distinct_id, inner)?
         }
     };
+    if opts.web_only
+        && !is_web_replay(
+            msg.meta.snapshot_source.as_deref(),
+            msg.meta.snapshot_library.as_deref(),
+        )
+    {
+        return Err(non_web_replay());
+    }
     msg.meta.url_declines = ctx
         .take_url_declines()
         .into_iter()
@@ -704,6 +792,13 @@ fn stream_message(
                     session_id_span = None;
                     saw_props = false; // "missing properties object", matching the old filter
                     continue;
+                }
+                if opts.web_only {
+                    if let Some((source, library)) = prescan_source_and_library(inner, vstart) {
+                        if !is_web_replay(source.as_deref(), library.as_deref()) {
+                            return Err(non_web_replay());
+                        }
+                    }
                 }
                 // Inline props walk.
                 let mut ppos = vstart + 1;

@@ -91,7 +91,10 @@ fn scrub_ingestion(line: &Value, byte_walk: bool) -> String {
     let out = anonymize_kafka_payload_opts(
         &AllowLists::default(),
         &mut bytes,
-        AnonymizeOpts { byte_walk },
+        AnonymizeOpts {
+            byte_walk,
+            ..Default::default()
+        },
         None,
     )
     .expect("anonymize should succeed");

@@ -456,8 +456,15 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
     // per-event fallbacks) vs the simd path.
     for byte_walk in [true, false] {
         let mut bytes = payload.as_bytes().to_vec();
-        let stream =
-            anonymize_kafka_payload_opts(allow, &mut bytes, AnonymizeOpts { byte_walk }, None);
+        let stream = anonymize_kafka_payload_opts(
+            allow,
+            &mut bytes,
+            AnonymizeOpts {
+                byte_walk,
+                ..Default::default()
+            },
+            None,
+        );
         match (&stream, &tree) {
             (Ok(s), Ok(t)) => {
                 let s_lines = parse_lines(&s.lines);
@@ -859,6 +866,50 @@ fn collect_payload() -> String {
 }
 
 #[test]
+fn web_only_refuses_a_mobile_replay_before_and_after_the_walk() {
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let event = json!({"type": 3, "timestamp": TS0, "data": {"source": 0, "texts": [], "attributes": [], "removes": [], "adds": []}});
+    let payload = |source: &str, library: &str, escape_key: bool| {
+        let mut message = snapshot_message(json!([event.clone()]));
+        message["properties"]["$snapshot_source"] = json!(source);
+        message["properties"]["$lib"] = json!(library);
+        let mut inner = serde_json::to_string(&message).unwrap();
+        if escape_key {
+            // An escaped key defeats the key-only prescan and sends the message down the tree path.
+            inner = inner.replace("\"$snapshot_source\"", "\"$snapshot_\\u0073ource\"");
+        }
+        serde_json::to_string(&json!({"distinct_id": "d-1", "data": inner})).unwrap()
+    };
+    let cases = [
+        ("mobile", "posthog-ios", false, false),
+        ("web", "posthog-android", false, false),
+        ("mobile", "posthog-ios", true, false),
+        ("web", "web", false, true),
+    ];
+    for (source, library, escape_key, kept) in cases {
+        for web_only in [true, false] {
+            let mut bytes = payload(source, library, escape_key).into_bytes();
+            let out = anonymize_kafka_payload_opts(
+                &allow,
+                &mut bytes,
+                AnonymizeOpts {
+                    web_only,
+                    ..Default::default()
+                },
+                None,
+            );
+            let refused = matches!(&out, Err(f) if f.kind == FailKind::NonWebReplay);
+            assert_eq!(
+                refused,
+                web_only && !kept,
+                "{source} {library} escaped={escape_key} web_only={web_only}: {:?}",
+                out.as_ref().err()
+            );
+        }
+    }
+}
+
+#[test]
 fn both_engines_count_and_collect_an_image_once_or_not_at_all() {
     // The byte walk walks children before it knows their parent, then re-walks or discards them.
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
@@ -898,7 +949,10 @@ fn both_engines_count_and_collect_an_image_once_or_not_at_all() {
             let out = anonymize_kafka_payload_opts(
                 &allow,
                 &mut bytes,
-                AnonymizeOpts { byte_walk },
+                AnonymizeOpts {
+                    byte_walk,
+                    ..Default::default()
+                },
                 Some(ImageCollection::new(
                     "42".to_string(),
                     "fedcba9876543210fedcba9876543210".to_string(),
@@ -938,7 +992,10 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
         let out = anonymize_kafka_payload_opts(
             &allow,
             &mut bytes,
-            AnonymizeOpts { byte_walk },
+            AnonymizeOpts {
+                byte_walk,
+                ..Default::default()
+            },
             Some(ImageCollection::new(team_id.clone(), content_key.clone())),
         )
         .expect("anonymizes (walk={byte_walk})");
