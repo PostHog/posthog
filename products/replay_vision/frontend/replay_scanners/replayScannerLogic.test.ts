@@ -1306,6 +1306,36 @@ describe('replayScannerLogic', () => {
                 updated_at: '2026-09-24T10:00:00Z',
             })
         })
+
+        it('turns off free credits only with a patch of that one field and clears the stopped state', async () => {
+            let patchedBody: any
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
+                        patchedBody = await request.json()
+                        return [
+                            200,
+                            {
+                                ...loadedScanner,
+                                free_only: false,
+                                limit_reached: false,
+                                limit_from_free_credits: false,
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            editLogic.actions.setScannerValues({ free_only: true, limit_reached: true, limit_from_free_credits: true })
+            await expectLogic(editLogic, () => editLogic.actions.turnOffFreeOnly()).toDispatchActions([
+                'turnOffFreeOnlySuccess',
+            ])
+            expect(patchedBody).toEqual({ free_only: false })
+            const running = { free_only: false, limit_reached: false, limit_from_free_credits: false }
+            expect(editLogic.values.scanner).toMatchObject(running)
+            expect(editLogic.values.originalScanner).toMatchObject(running)
+            expect(editLogic.values.turningOffFreeOnly).toBe(false)
+        })
     })
 
     describe('buildObservationListParams', () => {

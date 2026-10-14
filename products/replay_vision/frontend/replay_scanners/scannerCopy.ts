@@ -4,10 +4,8 @@ const LIMIT_REACHED_TOOLTIP =
     'Sessions skipped while capped are not scanned later.'
 
 const FREE_CREDITS_USED_TOOLTIP =
-    'This scanner only uses free credits, and your organization has used them for this billing period. ' +
-    'It starts again when the period resets. Sessions skipped until then are not scanned later. ' +
-    'To keep scanning now, turn off "Free credits only" in its settings. ' +
-    "If your organization's spend limit is used up too, raise it in billing as well."
+    'Paused until your free credits reset. Recordings until then are skipped. ' +
+    'To keep scanning, turn off "Free credits only" on the scanner page.'
 
 type LimitFields =
     | { free_only?: boolean; credit_limit?: number | null; limit_from_free_credits?: boolean }

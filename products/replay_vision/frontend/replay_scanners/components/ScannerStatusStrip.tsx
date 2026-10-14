@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -15,7 +16,7 @@ import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
-import { limitReachedTooltip } from '../scannerCopy'
+import { limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
 
@@ -42,7 +43,8 @@ function formatInterval(minutes: number): string {
 
 function statusCopy(
     status: ScannerStatus,
-    resetsOn: string | null
+    resetsOn: string | null,
+    periodEndsOn: string | null
 ): { label: string; tone: StatusTone; detail: React.ReactNode } {
     switch (status.kind) {
         case 'off':
@@ -58,7 +60,9 @@ function statusCopy(
             return {
                 label: 'Stopped',
                 tone: 'danger',
-                detail: limitReachedTooltip(status),
+                detail: stoppedByFreeCredits(status)
+                    ? `Paused until your free credits reset${periodEndsOn ? ` on ${periodEndsOn}` : ''}. Recordings until then are skipped.`
+                    : limitReachedTooltip(status),
             }
         case 'quota_exhausted':
             return {
@@ -124,8 +128,10 @@ function statusCopy(
 }
 
 export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, observationStatsApi, togglingEnabled } = useValues(replayScannerLogic({ id: scannerId }))
-    const { toggleEnabled } = useActions(replayScannerLogic({ id: scannerId }))
+    const { scanner, observationStatsApi, togglingEnabled, turningOffFreeOnly } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
+    const { toggleEnabled, turnOffFreeOnly } = useActions(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
     if (!scanner) {
         return null
@@ -135,7 +141,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
         quotaExhausted: quotaState.kind === 'exhausted',
         drought: scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date()),
     })
-    const { label, tone, detail } = statusCopy(status, quotaState.kind ? quotaState.resetsOn : null)
+    const periodEndsOn = quota ? dayjs.utc(quota.period_end).format('MMMM D') : null
+    const { label, tone, detail } = statusCopy(status, quotaState.kind ? quotaState.resetsOn : null, periodEndsOn)
+    const pausedByFreeCredits = status.kind === 'limit_reached' && stoppedByFreeCredits(status)
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
     const spend = spendAgainstLimit(scanner, quota)
 
@@ -173,6 +181,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                     </div>
                     <div className="text-xs text-muted pl-4">
                         {detail}
+                        {pausedByFreeCredits && quotaState.kind === 'exhausted' && (
+                            <> Your organization's spend limit is used up too, so raise it in billing as well.</>
+                        )}
                         {status.kind === 'no_matches' && (
                             <>
                                 {' '}
@@ -185,6 +196,21 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                             </>
                         )}
                     </div>
+                    {pausedByFreeCredits && (
+                        <div className="pl-4 pt-1">
+                            <LemonSwitch
+                                checked
+                                onChange={() => turnOffFreeOnly()}
+                                loading={turningOffFreeOnly}
+                                disabledReason={editDisabledReason}
+                                label="Free credits only"
+                                size="small"
+                                bordered
+                                data-attr="vision-scanner-status-turn-off-free-only"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            />
+                        </div>
+                    )}
                 </div>
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
@@ -201,7 +227,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                             />
                             <span className="text-xs text-muted tabular-nums">
                                 {spend.freeCredits
-                                    ? `Your organization used ${Math.min(spend.used, spend.limit).toLocaleString('en-US')} of its ${spend.limit.toLocaleString('en-US')} free credits this billing period. This scanner stops when they run out.`
+                                    ? `${Math.min(spend.used, spend.limit).toLocaleString('en-US')} of ${spend.limit.toLocaleString('en-US')} free credits used`
                                     : `${formatCreditsRange(spend.used, spend.limit)} used this billing period`}
                             </span>
                         </>

@@ -168,23 +168,27 @@ export function ReplayScannersScene(): JSX.Element {
             title: 'Status',
             key: 'enabled',
             render: (_, scanner) => (
-                <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={scanner.enabled}
-                        onChange={() => toggleScannerEnabled(scanner.id)}
-                        disabledReason={
-                            togglingIds.includes(scanner.id)
-                                ? 'Updating…'
-                                : getReplayVisionEditDisabledReason(scanner.user_access_level)
-                        }
-                        size="small"
-                        data-attr="vision-scanner-toggle-enabled"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                    />
-                    <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
-                        {scanner.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
+                <div className="flex flex-col items-start gap-1">
+                    <div className="flex items-center gap-2">
+                        <LemonSwitch
+                            checked={scanner.enabled}
+                            onChange={() => toggleScannerEnabled(scanner.id)}
+                            disabledReason={
+                                togglingIds.includes(scanner.id)
+                                    ? 'Updating…'
+                                    : getReplayVisionEditDisabledReason(scanner.user_access_level)
+                            }
+                            size="small"
+                            data-attr="vision-scanner-toggle-enabled"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                        />
+                        <span
+                            className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}
+                        >
+                            {scanner.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
                     {scanner.limit_reached && (
                         <Tooltip title={limitReachedTooltip(scanner)}>
                             <LemonTag type="danger">{limitReachedLabel(scanner)}</LemonTag>
