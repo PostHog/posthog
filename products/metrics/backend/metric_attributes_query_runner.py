@@ -161,13 +161,16 @@ class MetricAttributeKeysQueryRunner:
 class MetricAttributeValuesQueryRunner:
     """Observed values for one attribute key in a window, most frequent first.
     `service_name`/`service.name` read the first-class column instead of
-    attribute rows, matching how filters on it are executed."""
+    attribute rows, matching how filters on it are executed. With a metric name,
+    values come from that metric's recent series and count series, because the
+    aggregate table does not record which metric emitted an attribute."""
 
     def __init__(
         self,
         team: Team,
         *,
         key: str,
+        metric_name: str = "",
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
@@ -177,12 +180,15 @@ class MetricAttributeValuesQueryRunner:
             raise ValueError("key is required")
         self.team = team
         self.key = key
+        self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
-        if self.key in _SERVICE_NAME_KEYS:
+        if self.metric_name:
+            query = self._series_query()
+        elif self.key in _SERVICE_NAME_KEYS:
             query = parse_select(
                 """
                     SELECT
@@ -232,6 +238,32 @@ class MetricAttributeValuesQueryRunner:
         )
 
         return [{"id": row[0], "name": row[0], "count": int(row[1])} for row in response.results]
+
+    def _series_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Same value precedence as the keys series query: the service column, then the
+        # resource attribute, then the datapoint attribute.
+        value_expr = (
+            "service_name"
+            if self.key in _SERVICE_NAME_KEYS
+            else "if(arrayElement(resource_attributes, {key}) != '', "
+            "arrayElement(resource_attributes, {key}), arrayElement(attributes, {key}))"
+        )
+        return parse_select(
+            f"""
+                SELECT value, uniqCombined64(series_fingerprint) AS total_count
+                FROM (
+                    SELECT {value_expr} AS value, series_fingerprint
+                    FROM posthog.metric_series
+                    WHERE last_seen >= {{date_from}}
+                      AND metric_name = {{metric_name}}
+                )
+                WHERE value != '' AND value ILIKE {{search_pattern}}
+                GROUP BY value
+                ORDER BY lower(value) = lower({{exact}}) DESC, total_count DESC, value ASC
+                LIMIT {{limit}}
+            """,
+            placeholders={**self._placeholders(), "metric_name": ast.Constant(value=self.metric_name)},
+        )
 
     def _placeholders(self) -> dict[str, ast.Expr]:
         return {

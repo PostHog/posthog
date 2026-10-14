@@ -477,21 +477,30 @@ def list_metric_attribute_values(
     *,
     team: Team,
     key: str,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """List observed values for one metric attribute key, most frequent first,
-    for the filter bar's value autocomplete.
+    for the filter bar's value autocomplete and the facet rail.
 
     `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 24 hours. Returns
+    filters on it execute. When a metric name is provided, only series that
+    emitted that metric in the recent window supply values, and `count` is the
+    number of those series. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
     runner = MetricAttributeValuesQueryRunner(
-        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        team=team,
+        key=key,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
     return runner.run()
 

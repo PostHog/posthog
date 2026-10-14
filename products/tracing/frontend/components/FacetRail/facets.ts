@@ -426,29 +426,6 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
     return resolved
 }
 
-/**
- * Ensure every selected value of a dynamic facet renders even when absent from the fetched list —
- * a filter from a URL or saved view can reference a value with no matches in the current scope
- * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
- * Missing values are prepended with a zero count. An active type-ahead search still applies to
- * injected rows, matching the server-side substring semantics of the fetched ones.
- */
-export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[], search?: string): FacetOption[] {
-    const needle = (search ?? '').trim().toLowerCase()
-    const seen = new Set(fetched.map((option) => option.value))
-    // Dedupe as we go: a URL or saved view can carry the same value twice, and two rows sharing a
-    // value would collide on their React key and toggle target.
-    const missing: FacetOption[] = []
-    for (const value of selected) {
-        if (seen.has(value) || (needle && !value.toLowerCase().includes(needle))) {
-            continue
-        }
-        seen.add(value)
-        missing.push({ value, label: value, count: 0 })
-    }
-    return missing.length > 0 ? [...missing, ...fetched] : fetched
-}
-
 /** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
 export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
     return {

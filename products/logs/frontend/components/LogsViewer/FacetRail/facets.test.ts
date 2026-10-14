@@ -1,5 +1,3 @@
-import { FacetOption } from 'lib/components/FacetRail/Facet'
-
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
@@ -9,51 +7,12 @@ import {
     buildCustomFacet,
     customFacetIdentity,
     facetScopeSignature,
-    mergeSelectedIntoOptions,
     presenceProbeKeys,
     presenceProbeWindow,
     resolveFacets,
 } from './facets'
 
 describe('facets', () => {
-    describe('mergeSelectedIntoOptions', () => {
-        const fetched: FacetOption[] = [
-            { value: 'api', label: 'api', count: 10 },
-            { value: 'worker', label: 'worker', count: 5 },
-        ]
-
-        it.each<[string, string[], string | undefined, string[]]>([
-            ['no selected values leaves fetched unchanged', [], undefined, ['api', 'worker']],
-            ['selected value already fetched is not duplicated', ['api'], undefined, ['api', 'worker']],
-            ['missing selected value is prepended', ['batch-exports'], undefined, ['batch-exports', 'api', 'worker']],
-            ['multiple missing values keep selection order', ['b', 'a'], undefined, ['b', 'a', 'api', 'worker']],
-            // A value hand-edited into both polarities reaches here twice (included ++ excluded).
-            [
-                'a value repeated across polarities is not duplicated',
-                ['dup', 'dup'],
-                undefined,
-                ['dup', 'api', 'worker'],
-            ],
-            ['missing selected value not matching the search is omitted', ['batch-exports'], 'api', ['api', 'worker']],
-            [
-                'search match is a case-insensitive substring',
-                ['Batch-Exports'],
-                'batch',
-                ['Batch-Exports', 'api', 'worker'],
-            ],
-        ])('%s', (_, selected, search, expectedValues) => {
-            expect(mergeSelectedIntoOptions(fetched, selected, search).map((o) => o.value)).toEqual(expectedValues)
-        })
-
-        it('injects missing selected values with a zero count', () => {
-            expect(mergeSelectedIntoOptions(fetched, ['batch-exports'], undefined)[0]).toEqual({
-                value: 'batch-exports',
-                label: 'batch-exports',
-                count: 0,
-            })
-        })
-    })
-
     describe('facetScopeSignature', () => {
         const configured = (key: string): FacetConfig => CONFIGURED_FACETS.find((f) => f.key === key)!
         const LEVEL = configured('level')

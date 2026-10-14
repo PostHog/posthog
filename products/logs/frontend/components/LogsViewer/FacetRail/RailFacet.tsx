@@ -3,12 +3,13 @@ import { useCallback, useMemo } from 'react'
 
 import { customFacetsLogic } from 'lib/components/FacetRail/customFacetsLogic'
 import { Facet, FacetOption } from 'lib/components/FacetRail/Facet'
+import { mergeSelectedIntoOptions } from 'lib/components/FacetRail/facetGroups'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { facetFilterTarget, facetSelection } from './facetFilters'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, customFacetIdentity, mergeSelectedIntoOptions } from './facets'
+import { FacetConfig, customFacetIdentity } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
