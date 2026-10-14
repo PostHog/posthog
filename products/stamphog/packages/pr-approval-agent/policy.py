@@ -181,6 +181,7 @@ class Policy:
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
     deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
+    diff_shape_tier: bool = False
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -269,7 +270,7 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
-_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "diff_shape"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -447,6 +448,14 @@ def _parse_deny_exceptions(raw: object, deny: dict[str, DenyCategory]) -> dict[s
             parsed.append(DenyException(keyword=keyword, path_prefixes=prefixes, extensions=extensions))
         exceptions[category] = tuple(parsed)
     return exceptions
+
+
+def _parse_diff_shape(raw: object) -> bool:
+    if not isinstance(raw, dict):
+        raise PolicyError("diff_shape: must be a mapping")
+    _require_exact_keys(raw, {"enabled"}, "diff_shape")
+    _require(isinstance(raw["enabled"], bool), "diff_shape.enabled: must be a boolean")
+    return raw["enabled"]
 
 
 def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
@@ -663,6 +672,7 @@ def load_policy(
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
         deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
+        diff_shape_tier=_parse_diff_shape(raw["diff_shape"]) if "diff_shape" in raw else False,
     )
 
 

@@ -134,6 +134,22 @@ Title scrutiny, other categories, prerequisites, and size gates remain active.
 Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
 Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
 
+### Diff-shape tier
+
+A repository can let diffs that cannot change production code skip the size gate:
+
+```yaml
+diff_shape:
+  enabled: true
+```
+
+A diff qualifies when every changed file is docs, a test, or a Python file whose only changes are comments or docstrings.
+The engine checks the Python files with a parser, so other languages never qualify.
+Such a PR also needs no independent assurance in risky territory.
+The deny-list, prerequisites and the reviewer's refusal grounds still apply.
+The hosted default leaves the tier off.
+See [the engine's "Diff shape" section](packages/pr-approval-agent/README.md#diff-shape) for the exact rules.
+
 ### The `digest:` key
 
 `policy.yml` may also carry a `digest:` section.

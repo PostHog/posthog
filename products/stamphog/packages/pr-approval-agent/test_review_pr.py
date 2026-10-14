@@ -1,6 +1,7 @@
 """Tests for the review_pr.py output format."""
 
 import sys
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -403,6 +404,37 @@ def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
 
     assert pipeline.classification["deny_categories"] == []
     assert pipeline.classification["tier"] == "T1-agent"
+
+
+_COMMENT_ONLY_BLOBS = {"base": b"x = 1\n", "head": b"x = 1  # the answer\n"}
+
+
+@pytest.mark.parametrize(
+    "filename, tier_enabled, expected_failed_gates",
+    [
+        pytest.param("posthog/api/insight.py", True, [], id="comment-only-skips-the-size-ceiling"),
+        pytest.param("posthog/api/insight.py", False, ["size"], id="tier-disabled-keeps-the-ceiling"),
+        pytest.param("posthog/api/login.py", True, ["deny-list", "tier"], id="deny-list-outranks-the-shape"),
+        pytest.param("frontend/src/insight.ts", True, ["size"], id="typescript-falls-back-to-logic"),
+    ],
+)
+def test_diff_shape_tier_lifts_only_the_size_gate(
+    monkeypatch: pytest.MonkeyPatch, filename: str, tier_enabled: bool, expected_failed_gates: list[str]
+) -> None:
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "POLICY", dataclasses.replace(review_pr.POLICY, diff_shape_tier=tier_enabled))
+    monkeypatch.setattr(review_pr, "diff_base_rev", lambda *a, **k: "base")
+    monkeypatch.setattr(review_pr, "git_blob", lambda rev, path, root: _COMMENT_ONLY_BLOBS.get(rev))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="head")
+    pr.files = [{"filename": filename, "additions": 900, "deletions": 0, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+    pipeline._run_gates()
+
+    assert [g.gate for g in pipeline.gate_results if not g.passed] == expected_failed_gates
 
 
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:

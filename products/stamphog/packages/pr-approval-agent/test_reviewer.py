@@ -307,6 +307,9 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             "ESCALATE",
             id="automated-review-skipped-any-file",
         ),
+        pytest.param(
+            _RISKY_FACTS, {"diff_shape_approvable": True}, False, "APPROVE", id="approvable-shape-needs-no-assurance"
+        ),
     ],
 )
 def test_verdict_from_facts_keeps_the_consumer_contract(

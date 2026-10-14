@@ -185,7 +185,10 @@ def _verdict_from_facts(output: dict, classification: dict, *, head_reviewed: bo
         "facts": {name: output.get(name) for name in FACT_FIELDS},
     }
     try:
-        ruled = derive_verdict(_cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed))
+        ruled = derive_verdict(
+            _cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed),
+            approvable_shape=classification.get("diff_shape_approvable") is True,
+        )
     except InvalidFactsError as exc:
         return {
             **result,
@@ -724,6 +727,13 @@ class Reviewer:
             )
         elif gate_verdict == "AUTO-APPROVED":
             constraint = "\nGates auto-approved (T0). Confirm or flag concerns."
+
+        if cl.get("diff_shape_approvable") is True:
+            constraint += (
+                f"\nDiff shape: {cl['diff_shape']}. A parser confirmed that no changed file alters production "
+                "code, so risky territory needs no independent assurance here. Still report refusal grounds "
+                "and unresolved concerns."
+            )
 
         title_flags = cl.get("title_scrutiny_flags", [])
         if title_flags:

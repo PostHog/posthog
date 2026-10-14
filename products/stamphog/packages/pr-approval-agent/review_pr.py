@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from diff_shape import DiffShape, classify_diff_shape
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
@@ -65,7 +66,9 @@ from github import (
     PRData,
     check_team_membership,
     describe_review_evidence,
+    diff_base_rev,
     fetch_pr,
+    git_blob,
     is_in_flight_bot_eyes,
     pr_provenance,
     provenance_evidence,
@@ -481,6 +484,9 @@ class Pipeline:
             and not exception_lifted
         )
         is_test = test_only(categories) and not owner_exempted and not exception_lifted
+        diff_shape = (
+            self._diff_shape() if POLICY.diff_shape_tier and not owner_exempted and not exception_lifted else None
+        )
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -519,6 +525,8 @@ class Pipeline:
             "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
+            "diff_shape": diff_shape.label if diff_shape else None,
+            "diff_shape_approvable": diff_shape is not None and diff_shape.approvable,
             "has_dep_changes": has_dependency_changes(file_paths),
             "dep_manifests_without_lockfile": dep_manifests,
             "manifest_script_changes": risky_manifests,
@@ -535,6 +543,18 @@ class Pipeline:
             "self_driving": self.self_driving,
             "review_trigger": self.review_trigger,
         }
+
+    def _diff_shape(self) -> DiffShape | None:
+        """The diff's shape, or None when no git tree can show both sides (the server's pre-check)."""
+        if not self.checkout:
+            return None
+        pr = self.pr
+        base_rev = diff_base_rev(pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
+        return classify_diff_shape(
+            pr.files,
+            read_base=lambda path: git_blob(base_rev, path, REPO_ROOT) if base_rev else None,
+            read_head=lambda path: git_blob(pr.head_sha, path, REPO_ROOT),
+        )
 
     def _author_on_team(self, team_slug: str) -> bool:
         if self.author_team_slugs is not None:
@@ -719,6 +739,12 @@ class Pipeline:
         return self.classification["ownership_summary"]
 
     def _check_size(self) -> tuple[bool, str]:
+        if self.classification.get("diff_shape_approvable"):
+            return (
+                True,
+                f"{self.classification['diff_shape']} diff ({self.pr.lines_total}L, {len(self.pr.files)}F) "
+                "— the size ceiling does not apply",
+            )
         lines, files = substantive_size(self.pr.files)
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
         exempt_files = len(self.pr.files) - files
@@ -1049,6 +1075,7 @@ class Pipeline:
                 "stamphog_t1_subclass": cl.get("t1_subclass", ""),
                 "stamphog_breadth": cl.get("breadth", ""),
                 "stamphog_commit_type": cl.get("commit_type") or "",
+                "stamphog_diff_shape": cl.get("diff_shape") or "",
                 "stamphog_files_changed": len(pr.files),
                 "stamphog_lines_total": pr.lines_total,
                 "stamphog_pr_reactions_count": len(pr.pr_reactions),
@@ -1155,6 +1182,7 @@ class Pipeline:
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
                 "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
+                "diff_shape": self.classification.get("diff_shape"),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
                 "familiarity": familiarity_evidence(self.familiarity),

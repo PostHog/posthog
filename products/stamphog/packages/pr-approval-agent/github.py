@@ -591,6 +591,30 @@ def git_touched_paths(base_sha: str, head_sha: str, repo_root: Path, merge_base_
     return [path for path in result.stdout.split("\0") if path]
 
 
+def diff_base_rev(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> str | None:
+    """The commit the PR diff's old side comes from (see diff_range), or None when git cannot name it."""
+    if merge_base_sha:
+        return merge_base_sha
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", base_sha, head_sha], capture_output=True, text=True, timeout=30, cwd=repo_root
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def git_blob(rev: str, path: str, repo_root: Path) -> bytes | None:
+    """The file's bytes at ``rev``, or None when git cannot read them."""
+    try:
+        result = subprocess.run(["git", "show", f"{rev}:{path}"], capture_output=True, timeout=30, cwd=repo_root)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
 def new_diff_file(directory: Path) -> Path:
     """Create a fresh, empty diff file under an unpredictable name inside ``directory``.
 

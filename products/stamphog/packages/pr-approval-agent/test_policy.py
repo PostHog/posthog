@@ -293,6 +293,10 @@ def _set_deny_exceptions(d: dict, *, raw: object) -> None:
     d["deny_exceptions"] = raw
 
 
+def _set_diff_shape(d: dict, *, raw: object) -> None:
+    d["diff_shape"] = raw
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -311,6 +315,15 @@ def _set_deny_exceptions(d: dict, *, raw: object) -> None:
         _ownership_empty_sources,
         _ownership_path_escapes_repo,
         _ownership_wrong_locator_for_format,
+        *[
+            pytest.param(partial(_set_diff_shape, raw=raw), id=f"diff-shape-{name}")
+            for name, raw in [
+                ("not-mapping", True),
+                ("string-flag", {"enabled": "true"}),
+                ("unknown-key", {"enabled": True, "max_lines": 5000}),
+                ("missing-flag", {}),
+            ]
+        ],
         *[
             pytest.param(partial(_set_deny_exceptions, raw=raw), id=f"deny-exceptions-{name}")
             for name, raw in [

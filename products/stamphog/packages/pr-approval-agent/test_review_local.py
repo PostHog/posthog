@@ -842,6 +842,28 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
     assert result["final_verdict"] == expected_verdict
 
 
+@pytest.mark.parametrize(
+    "filename, expect_final",
+    [
+        pytest.param("src/big.py", False, id="python-could-be-comment-only"),
+        pytest.param("src/big.ts", True, id="typescript-is-always-logic"),
+    ],
+)
+def test_pregate_leaves_a_possible_comment_only_diff_to_the_sandbox(
+    monkeypatch, filename: str, expect_final: bool
+) -> None:
+    # The pre-check reads no blobs, so it cannot rule out a comment-only diff the sandbox would pass.
+    policy = replace(review_pr.POLICY, diff_shape_tier=True)
+    monkeypatch.setattr(review_pr, "POLICY", policy)
+    monkeypatch.setattr(review_local, "POLICY", policy)
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    outcome = review_local.pregate(_pregate_context([_lines(filename, 900)], folder_policies_known=True))
+
+    assert outcome["final"] is expect_final
+
+
 def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) -> None:
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     context = _pregate_context([_api_file("terraform/main.tf")])

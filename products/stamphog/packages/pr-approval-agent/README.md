@@ -30,7 +30,7 @@ It reports facts in a fixed schema: the risky territory the diff enters, the rev
 `verdict_rule.py` derives `APPROVE`, `REFUSE` or `ESCALATE` from those facts, and the pipeline maps that onto the names above:
 
 - any refusal ground or unresolved concern: `REFUSE`
-- risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`
+- risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`, unless the diff has an approvable shape (see [Diff shape](#diff-shape))
 - everything else: `APPROVE`
 
 Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
@@ -80,6 +80,12 @@ Deny-list (hard gate)
   - PR-title keywords never deny on their own. They surface as scrutiny
     flags the LLM must verify against the diff (REFUSE if the change
     behaviorally touches the flagged domain, judge normally if incidental)
+  │
+  ▼
+Diff shape (when policy.yml enables `diff_shape`)
+  - Comment-only, docstring-only, docs-only or test-only diffs skip the
+    size ceiling below; see "Diff shape"
+  - Never lifts a deny-list match
   │
   ▼
 Size ceiling (hard gate)
@@ -193,6 +199,7 @@ Top-level sections:
 | `overrides`       | The keys a folder file may override, and each key's ceiling               |
 | `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
 | `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
+| `diff_shape`      | Optional. `enabled: true` turns on the [diff-shape tier](#diff-shape)     |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
@@ -300,6 +307,37 @@ The loader rejects a ceiling under its own global default, which would otherwise
 
 `deny`, `allow`, `dismiss` and `tiers` are non-delegable by construction.
 They are absent from the contract and cannot be granted from a folder file.
+
+## Diff shape
+
+`diff_shape.py` decides whether any changed file can alter production code.
+Each file gets one shape:
+
+| Shape       | How the engine decides                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `docs`      | The path, through the same `classify_path` the tier gate uses (`.md` files)                                  |
+| `test`      | The path, through the same test-file pattern the tier gate and size gate use                                 |
+| `comment`   | A modified `.py` file whose base and head parse to the same syntax tree with Python's `ast`                  |
+| `docstring` | A modified `.py` file whose trees match once module, class and function docstrings are removed               |
+| `logic`     | Everything else: other languages, added or renamed code files, binaries, unparseable files, unreadable blobs |
+
+Only Python gets parser-based comment detection, because the engine ships no TypeScript or JavaScript parser.
+Comparing syntax trees rather than patch text means a string literal written to look like a comment still counts as code.
+A comment that a tool reads is code too: a changed or moved `# noqa`, `# nosemgrep`, `# nosec`, `# type:`, `# pragma`, linter or formatter directive, shebang or encoding cookie makes the file `logic`.
+
+A PR has an approvable shape when every changed file is one of the first four shapes.
+With `diff_shape: {enabled: true}` in `policy.yml`, such a PR:
+
+- passes the size gate whatever its size;
+- tells the reviewer its shape in the trusted prompt block;
+- approves risky territory without independent assurance in `verdict_rule.py`.
+
+It changes nothing else.
+The deny-list, prerequisites, refusal grounds and unresolved concerns still refuse.
+A PR whose deny-list match was lifted by an owner-only team or a `deny_exceptions` rule gets no shape.
+Docstring changes can still reach users through `__doc__`, for example in generated API descriptions, which is why docstring-only is its own shape in telemetry (`stamphog_diff_shape`).
+
+The server's gate-only pre-check reads no file contents, so it never treats a size denial as final when the paths alone could have an approvable shape.
 
 ## Stacked PRs (Graphite / git stacks)
 
@@ -434,6 +472,7 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - `reviewer.py` - the shared prompt and the Claude Agent SDK rollback reviewer (reports facts)
 - `openai_reviewer.py` - the GPT-6.1 Sol reviewer: Responses tool loop and the read-only repo tools
 - `verdict_rule.py` - the facts schema and the rule that derives the verdict from it
+- `diff_shape.py` - the per-file shape classifier behind the diff-shape tier
 
 ## Empirical basis
 

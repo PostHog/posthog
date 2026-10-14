@@ -56,8 +56,19 @@ _RISKY = ["billing: ee/billing/quota.py changes how the quota limit is computed"
         ),
         pytest.param({"risky_areas": _RISKY, "strong_familiarity": True}, "APPROVE", "medium", (), id="risky-strong"),
         pytest.param({"other_refusal_grounds": ["  "], "risky_areas": [""]}, "APPROVE", "low", (), id="blank-entries"),
+        pytest.param(
+            {"risky_areas": _RISKY, "approvable_shape": True}, "APPROVE", "medium", (), id="risky-approvable-shape"
+        ),
+        pytest.param(
+            {"other_refusal_grounds": ["Maintainer hold by @alice"], "approvable_shape": True},
+            "REFUSE",
+            "low",
+            ("Maintainer hold by @alice",),
+            id="refusal-ground-beats-approvable-shape",
+        ),
     ],
 )
 def test_derive_verdict(overrides: dict, verdict: str, risk: str, issues: tuple[str, ...]) -> None:
-    ruled = derive_verdict(_facts(**overrides))
+    facts = _facts(**{name: value for name, value in overrides.items() if name != "approvable_shape"})
+    ruled = derive_verdict(facts, approvable_shape=overrides.get("approvable_shape", False))
     assert (ruled.verdict, ruled.risk, ruled.issues) == (verdict, risk, issues)

@@ -52,6 +52,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from diff_shape import could_be_approvable
 from familiarity import (
     AuthorFamiliarity,
     _band,
@@ -465,7 +466,13 @@ def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bo
     whole-PR roof is the most generous ceiling in play. A PR past the higher of the global ceiling
     and the contract ceiling therefore fails the size gate in the sandbox, whatever folder files it
     carries. A PR between the two can pass there, so it is not final here.
+
+    The pre-check cannot read file contents, so it cannot see a comment-only diff. When the policy
+    enables the diff-shape tier and every changed path could have an approvable shape, the sandbox
+    may pass the size gate on shape alone, so the denial is not final.
     """
+    if POLICY.diff_shape_tier and could_be_approvable(pipeline.pr.files):
+        return False
     if folder_policies_known:
         return True
     lines, files = substantive_size(pipeline.pr.files)
