@@ -63,15 +63,13 @@ def classify_alert_destinations(
     )
 
 
-def unbound_alert_destinations(
-    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
-) -> tuple[UUID, ...]:
-    """Enabled functions that take a source's alert events but belong to none of its alerts.
+def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
+    """Enabled functions that take a source's alert events without being bound to one alert.
 
-    Such a function fires for every alert of the team. Native delivery reads destinations per
-    alert, so it would stop sending at cutover.
+    Such a function fires for many alerts of the team. Native delivery reads destinations per
+    alert, so it would stop sending at cutover. A function bound to a deleted alert receives
+    nothing, so it is not unbound.
     """
-    known_alert_ids = set(alert_ids)
     candidates = (
         HogFunction.objects.filter(
             _allowed_event_filter(allowed_event_ids),
@@ -85,12 +83,10 @@ def unbound_alert_destinations(
         .order_by("created_at", "id")
         .values_list("id", "filters")
     )
-    return tuple(
-        function_id for function_id, filters in candidates if not _bound_to_one_alert(filters, known_alert_ids)
-    )
+    return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
 
 
-def _bound_to_one_alert(filters: Any, alert_ids: set[str]) -> bool:
+def _bound_to_one_alert(filters: Any) -> bool:
     # Only an exact match on one alert id scopes a function to that alert. Any other operator,
     # such as `is_not`, still lets it fire for other alerts.
     properties = filters.get("properties") if isinstance(filters, dict) else None
@@ -99,7 +95,6 @@ def _bound_to_one_alert(filters: Any, alert_ids: set[str]) -> bool:
         and prop.get("key") == "alert_id"
         and prop.get("operator", "exact") == "exact"
         and isinstance(prop.get("value"), str)
-        and prop["value"] in alert_ids
         for prop in properties or ()
     )
 
