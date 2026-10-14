@@ -43,6 +43,10 @@ The header permits the fixed compiler and module CDNs, but blocks external image
 Use a built canvas with declared network origins for external images.
 Changes to this server policy and its tests require security review.
 
+Task HTML previews use the same artifact origin. The task API checks read access before issuing a short-lived URL for one artifact version. The artifact host reads that version and responds with an HTML-specific CSP that allows inline JavaScript in an opaque-origin sandbox. It blocks network APIs and external resources. Task preview responses use `Cache-Control: no-store`, including when the CDN handles `/canvas-artifacts/`.
+
+The browser cannot guarantee that artifact content stays offline: a script can navigate its own frame to another URL. The task preview holds no PostHog credentials and has no API bridge. Do not put secrets in an HTML artifact that runs code. Self-hosted deployments need `CANVAS_ARTIFACT_ORIGIN` for the web preview in production; the app origin is used only in development and tests.
+
 ## Cache policy
 
 Shared caching is off by default:

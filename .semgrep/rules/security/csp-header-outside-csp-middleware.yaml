@@ -30,6 +30,7 @@ rules:
           - pattern-not: $RESPONSE["Content-Security-Policy"] = artifact_csp(...)
           # The draft canvas policy is server-defined and requires team-security review.
           - pattern-not: $RESPONSE["Content-Security-Policy"] = _canvas_sandbox_document_csp(...)
+          - pattern-not: $RESPONSE["Content-Security-Policy"] = _task_html_artifact_preview_csp(...)
           - pattern-not: $RESPONSE["Content-Security-Policy"] = _public_survey_csp(...)
           - pattern-not: >-
                 $RESPONSE["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src https:

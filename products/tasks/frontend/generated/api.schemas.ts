@@ -3499,6 +3499,11 @@ export interface TaskRunArtifactsUploadResponseApi {
     artifacts: TaskRunArtifactResponseApi[]
 }
 
+export interface TaskRunArtifactPreviewResponseApi {
+    /** Short-lived URL for the isolated HTML preview */
+    url: string
+}
+
 export interface TaskRunArtifactsDismissRequestApi {
     /**
      * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
@@ -5592,6 +5597,13 @@ export type TasksRunsListParams = {
      * @minimum 0
      */
     offset?: number
+}
+
+export type TasksRunsArtifactsPreviewRetrieveParams = {
+    /**
+     * Living artifact version
+     */
+    version?: number
 }
 
 export type TasksRunsSessionLogsRetrieveParams = {
