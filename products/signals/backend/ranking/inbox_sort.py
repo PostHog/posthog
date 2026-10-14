@@ -39,6 +39,8 @@ _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
 
 
 def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
+    if not user.distinct_id:
+        return "priority"
     try:
         variant = posthoganalytics.get_feature_flag(
             RECOMMENDED_INBOX_SORT_FLAG,
