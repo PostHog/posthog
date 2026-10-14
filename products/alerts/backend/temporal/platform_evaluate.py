@@ -44,15 +44,22 @@ CHECK_QUEUE_TOLERANCE = dt.timedelta(minutes=1)
 CHECK_SCHEDULE_TO_CLOSE = CHECK_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
+# The pool admits once per round, so a batch that admits only once evaluates at most one pool of
+# checks per tick. Rounds refill the slots that finished checks free, the way production's
+# scheduler does, until this budget ends. It stays under the one-minute tick.
+ADMISSION_RUN_BUDGET = dt.timedelta(seconds=50)
+ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # What the source needs from its binding's `evaluation_timeout`. The checks run side by side, so
-# the batch costs one check's budget, not one per check.
-EVALUATION_BUDGET = PLAN_SCHEDULE_TO_CLOSE + CHECK_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
+# the batch costs the admission rounds plus one check's budget, not one per check.
+EVALUATION_BUDGET = PLAN_SCHEDULE_TO_CLOSE + ADMISSION_RUN_BUDGET + CHECK_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
+_PATCH_READMISSION = "platform-insight-readmission-2026-10"
 
 
 @frozen
 class InsightBatchPlanInputs:
     evaluation: SourceEvaluationInputs
     expires_at: float
+    exclude: tuple[str, ...] = ()
 
 
 @frozen
@@ -107,31 +114,17 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
-        admitted = await workflow.execute_activity(
-            plan_platform_insight_batch_activity,
-            InsightBatchPlanInputs(evaluation=inputs, expires_at=expires_at),
-            start_to_close_timeout=PLAN_START_TO_CLOSE,
-            schedule_to_close_timeout=PLAN_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if not admitted:
+        if workflow.patched(_PATCH_READMISSION):
+            settled = await self._evaluate_in_rounds(inputs, expires_at)
+        else:
+            admitted = await self._plan(inputs, expires_at, exclude=())
+            settled = await asyncio.gather(
+                *(self._check(inputs, configuration_id, expires_at) for configuration_id in admitted),
+                return_exceptions=True,
+            )
+        if not settled:
             return 0
 
-        # One attempt each. A check that does not finish leaves no outcome, so it keeps its due time
-        # and a later tick evaluates it again, the way a cohort the logs budget left out behaves.
-        settled = await asyncio.gather(
-            *(
-                workflow.execute_activity(
-                    evaluate_platform_insight_check_activity,
-                    InsightCheckInputs(evaluation=inputs, configuration_id=configuration_id, held_until=expires_at),
-                    start_to_close_timeout=CHECK_START_TO_CLOSE,
-                    schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-                for configuration_id in admitted
-            ),
-            return_exceptions=True,
-        )
         for result in settled:
             # Only a check's own failure is a missing outcome. A cancellation or a bug in this
             # workflow would otherwise be recorded as a partial batch.
@@ -158,6 +151,54 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # Started only after the record, because a delivery reads the history row the record writes.
         await start_deliveries(deliveries)
         return len(outcomes)
+
+    async def _plan(self, inputs: SourceEvaluationInputs, expires_at: float, *, exclude: tuple[str, ...]) -> list[str]:
+        return await workflow.execute_activity(
+            plan_platform_insight_batch_activity,
+            InsightBatchPlanInputs(evaluation=inputs, expires_at=expires_at, exclude=exclude),
+            start_to_close_timeout=PLAN_START_TO_CLOSE,
+            schedule_to_close_timeout=PLAN_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _check(
+        self, inputs: SourceEvaluationInputs, configuration_id: str, expires_at: float
+    ) -> SourceBatchEvaluation | None:
+        # One attempt each. A check that does not finish leaves no outcome, so it keeps its due time
+        # and a later tick evaluates it again, the way a cohort the logs budget left out behaves.
+        return await workflow.execute_activity(
+            evaluate_platform_insight_check_activity,
+            InsightCheckInputs(evaluation=inputs, configuration_id=configuration_id, held_until=expires_at),
+            start_to_close_timeout=CHECK_START_TO_CLOSE,
+            schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    async def _evaluate_in_rounds(
+        self, inputs: SourceEvaluationInputs, expires_at: float
+    ) -> list[SourceBatchEvaluation | None | BaseException]:
+        """Admits and starts checks in rounds until a round adds nothing and none of this batch's
+        checks still run, or until the admission budget ends."""
+        started: dict[str, asyncio.Task[SourceBatchEvaluation | None]] = {}
+        deadline = workflow.now() + ADMISSION_RUN_BUDGET
+        while True:
+            admitted = await self._plan(inputs, expires_at, exclude=tuple(started))
+            for configuration_id in admitted:
+                if configuration_id not in started:
+                    started[configuration_id] = asyncio.create_task(self._check(inputs, configuration_id, expires_at))
+            running = [task for task in started.values() if not task.done()]
+            if not running and not admitted:
+                break
+            if workflow.now() >= deadline:
+                break
+            # A finished check frees its slot, so the next round can admit another.
+            try:
+                await workflow.wait_condition(
+                    lambda running=running: any(task.done() for task in running), timeout=ADMISSION_POLL_INTERVAL
+                )
+            except TimeoutError:
+                pass
+        return await asyncio.gather(*started.values(), return_exceptions=True)
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]

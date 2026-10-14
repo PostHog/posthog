@@ -108,5 +108,61 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     assert child.task_queue == settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE
 
 
+async def test_a_batch_refills_the_slots_its_finished_checks_free(environment: WorkflowEnvironment) -> None:
+    due = [f"00000000-0000-0000-0000-00000000000{n}" for n in range(1, 4)]
+    plans: list[tuple[str, ...]] = []
+    evaluated: list[str] = []
+    recorded: list[SourceOutcomeInputs] = []
+
+    # A pool of one slot: each round admits the first due check that this batch did not start.
+    @activity.defn(name="plan_platform_insight_batch_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
+        plans.append(inputs.exclude)
+        if len(evaluated) < len(inputs.exclude):
+            return []
+        return [configuration_id for configuration_id in due if configuration_id not in inputs.exclude][:1]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        evaluated.append(inputs.configuration_id)
+        outcome = PlatformAlertOutcome(
+            configuration_id=uuid.UUID(inputs.configuration_id),
+            evaluation_key="slot:2026-09-16T10:00:00+00:00",
+            kind=AlertEventKind.CHECK,
+            new_state="not_firing",
+            notified=False,
+            consecutive_failures=0,
+        )
+        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=())
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        recorded.append(inputs)
+        return len(inputs.outcomes)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await environment.client.execute_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+
+    assert result == 3
+    assert sorted(evaluated) == due
+    assert [sorted(str(o.configuration_id) for o in batch.outcomes) for batch in recorded] == [due]
+    assert plans[-1] == tuple(due)
+
+
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET

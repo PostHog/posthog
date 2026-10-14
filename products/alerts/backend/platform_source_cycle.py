@@ -16,6 +16,7 @@ same set of checks.
 """
 
 import time
+from collections.abc import Collection
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Final
@@ -115,14 +116,21 @@ def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
     return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
 
 
-def plan_insight_batch(team_id: int, slot: str, cutoff: datetime, *, expires_at: float) -> tuple[str, ...]:
+def plan_insight_batch(
+    team_id: int, slot: str, cutoff: datetime, *, expires_at: float, exclude: Collection[str] = ()
+) -> tuple[str, ...]:
     """Admits the batch's checks into the pool, in id order, while it has room, and returns the
     ids it admitted.
 
     The checks left out keep their due time, so a later tick finds them again. `expires_at` comes
     from the workflow rather than the clock, so a retried attempt gets back the same admitted ids.
+
+    `exclude` names the checks the workflow already started. A finished check stays due until the
+    workflow records its outcome, so without it a later round would admit the same check again.
     """
-    checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff)
+    checks = [
+        check for check in due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff) if str(check.id) not in exclude
+    ]
     if not checks:
         return ()
     admitted = admit_evaluation_slots(
