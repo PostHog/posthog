@@ -7,7 +7,7 @@ from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable, detect
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -469,7 +469,8 @@ class PostgresSource(
     # Neon and Supabase are hosted Postgres, and a project on either still
     # names its connection with the generic signals below. Two sources over
     # one database import the same tables twice.
-    codebase_detection = detect(
+    # Declared with the base type so the Postgres-compatible sources that subclass this one can set NOT_DETECTABLE.
+    codebase_detection: Detection | NotDetectable | None = detect(
         env=(
             "^POSTGRES_",
             "^PG(HOST|DATABASE|USER|PORT)$",
