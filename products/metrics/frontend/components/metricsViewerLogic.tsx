@@ -1525,6 +1525,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             points: series.points,
                             metric_name: series.metricName ?? null,
                             clause: series.clause ?? null,
+                            unit: series.unit ?? null,
                         }))
                     }
                     const queryPayload = values.queryPayload
@@ -1913,7 +1914,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         // All series rendered as chart lines (a group-by query returns one series per label combination).
-        // `MetricsSeriesChart` owns naming and colors; this only bridges the API's snake_case fields.
+        // `MetricsPanel` owns naming, colors and unit resolution; this only bridges the API's snake_case fields.
         chartSeries: [
             (s) => [s.queryResults],
             (results: MetricsViewerSeries[]): MetricsChartSeries[] =>
@@ -1922,6 +1923,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     points: series.points,
                     metricName: series.metric_name,
                     clause: series.clause,
+                    unit: series.unit,
                 })),
         ],
         // Whether the chart has anything to draw. A query can return series with no points
