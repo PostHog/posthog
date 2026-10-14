@@ -290,7 +290,9 @@ The final terminal line is the unlabeled absolute path, with no output after it,
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
-Raw per-case agent logs land on local disk (`<case>.jsonl`, `<case>.artifacts.json`, `<case>.summary.txt`), which is usually the fastest way to see what the agent actually did.
+Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+The summary includes the trial ID, the agent trace ID when available, and the scores for that trial.
+Case names and `--eval` filters stay the same.
 
 `SandboxedPublicEval` sets `no_send_logs=False` and reports results to both Braintrust and PostHog.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.

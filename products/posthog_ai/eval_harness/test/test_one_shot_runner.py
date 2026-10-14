@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import asyncio
 from collections.abc import Sequence
 from functools import partial
@@ -272,3 +273,46 @@ def test_run_routes_through_the_engine(
         assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
+
+
+def test_concurrent_trials_keep_their_own_logs_and_scores(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
+    monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
+    monkeypatch.chdir(tmp_path)
+    started = 0
+    all_started = asyncio.Event()
+
+    async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
+        nonlocal started
+        value = started / 2
+        started += 1
+        if started == 3:
+            all_started.set()
+        await all_started.wait()
+        return {"answer": value, "last_message": str(value)}
+
+    def score(output: dict[str, Any], **kwargs: Any) -> float:
+        return output["answer"]
+
+    ctx = _build_ctx(one_shot_slots=3, case_filter="c1")
+    ctx.trials = 3
+    run = _build_run(tmp_path, monkeypatch, ctx, task)
+    run.active_scorers = [score]
+    result = asyncio.run(run.run())
+
+    assert len(result.results) == 3
+    assert len(list(tmp_path.glob("*.summary.txt"))) == 3
+    assert len({row.metadata["trial_id"] for row in result.results}) == 3
+    assert {row.input["name"] for row in result.results} == {"c1"}
+    exports = [json.loads(line) for line in (tmp_path / "case_results.jsonl").read_text().splitlines()]
+    for row in result.results:
+        trial_id = row.metadata["trial_id"]
+        prefix = tmp_path / f"c1.trial-{trial_id}"
+        assert json.loads(prefix.with_name(prefix.name + ".jsonl").read_text()) == row.output
+        assert prefix.with_name(prefix.name + ".artifacts.json").exists()
+        summary = prefix.with_name(prefix.name + ".summary.txt").read_text()
+        assert f"trial_id: {trial_id}" in summary
+        assert json.loads(summary.split("=== scores ===\n")[1]) == row.scores
+        exported = next(item for item in exports if item["trial_id"] == trial_id)
+        assert exported["trial_index"] == row.metadata["trial_index"]
+        assert exported["scores"] == row.scores
