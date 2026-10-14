@@ -25,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.middleware import organization_block_page
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -237,7 +238,11 @@ class AuthorizeConfirmView(APIView):
             # team level too, or an org member excluded from a private project could
             # approve a code scoped to it.
             in_org = user.organization_memberships.filter(organization_id=team.organization_id).exists()
-            if not in_org or not user_can_access_team(user, team):
+            if (
+                not in_org
+                or not user_can_access_team(user, team)
+                or organization_block_page(team.organization) is not None
+            ):
                 capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
                 return Response({"error": "team_not_accessible"}, status=403)
 

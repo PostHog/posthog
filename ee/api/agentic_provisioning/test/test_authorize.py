@@ -499,17 +499,26 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert res.status_code == 403
         assert res.json()["error"] == "email_mismatch"
 
-    @parameterized.expand(["other_org", "restricted_in_own_org"])
-    def test_confirm_rejects_inaccessible_team(self, case):
+    @parameterized.expand(
+        [
+            ("other_org", {}),
+            ("restricted_in_own_org", {}),
+            ("deactivated_org", {"is_active": False}),
+            ("pending_deletion_org", {"is_pending_deletion": True}),
+        ]
+    )
+    def test_confirm_rejects_inaccessible_team(self, case: str, organization_changes: dict[str, bool]) -> None:
         self._set_pending_auth("state_no_access", self.user.email)
+        target = self.team
         if case == "other_org":
             other_org = Organization.objects.create(name="Other Org")
             target = Team.objects.create(organization=other_org, name="Other Project", api_token="token_other")
-        else:
+        elif case == "restricted_in_own_org":
             target = Team.objects.create_with_data(
                 initiating_user=self.user, organization=self.organization, name="Restricted project"
             )
             self._restrict_team_access(target)
+        Organization.objects.filter(id=target.organization_id).update(**organization_changes)
 
         res = self._confirm("state_no_access", target.id)
         assert res.status_code == 403
