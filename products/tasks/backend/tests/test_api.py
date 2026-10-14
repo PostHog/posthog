@@ -10273,7 +10273,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertTrue(static.json()["scripts_available"])
         static_preview = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")
         static_csp = static_preview["Content-Security-Policy"]
-        self.assertIn('<iframe sandbox="" ', b"".join(static_preview.streaming_content).decode())
+        self.assertIn('<iframe sandbox="" ', static_preview.getvalue().decode())
         self.assertIn("sandbox;", static_csp)
         self.assertIn("script-src 'none'", static_csp)
         self.assertNotIn("allow-scripts", static_csp)
@@ -10288,7 +10288,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
 
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        served_page = b"".join(preview.streaming_content).decode()
+        served_page = preview.getvalue().decode()
         self.assertIn(
             f'<iframe sandbox="allow-scripts" title="Artifact" srcdoc="{escape(mock_read_bytes.return_value.decode())}">',
             served_page,
@@ -10384,7 +10384,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             minted = self.client.get(api_path)
             self.assertEqual(minted.status_code, status.HTTP_200_OK)
             served = self.client.get(urlsplit(minted.json()["url"]).path, HTTP_HOST="usercontent.example")
-            self.assertIn(escape(mock_read_bytes.return_value.decode()), b"".join(served.streaming_content).decode())
+            self.assertIn(escape(mock_read_bytes.return_value.decode()), served.getvalue().decode())
             return served["Content-Security-Policy"]
 
         self.assertIn("sandbox allow-scripts", served_csp())
@@ -10399,6 +10399,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("desktop_edit_of_a_restricted_file", "upload_edit_without_base", None, False),
             ("inline_upload_over_an_open_file", "inline_upload", "match", True),
             ("inline_upload_over_a_restricted_file", "inline_upload", None, False),
+            ("inline_upload_over_an_open_file_replaced_after_save", "inline_upload", "stale", False),
+            ("edit_of_an_open_file_replaced_after_save", "upload_edit", "stale", False),
             ("living_copy_of_an_open_file", "living_copy", "match", True),
             ("living_copy_of_a_restricted_file", "living_copy", None, False),
             ("living_copy_of_an_open_file_replaced_after_save", "living_copy", "stale", False),
@@ -10533,7 +10535,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview_path = urlsplit(minted.json()["url"]).path
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        self.assertIn(escape(versions[1]["content"]), b"".join(preview.streaming_content).decode())
+        self.assertIn(escape(versions[1]["content"]), preview.getvalue().decode())
         self.assertEqual(self.client.get(f"{api_path}?version=1").status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(self.client.get(f"{api_path}?version={'9' * 21}").status_code, status.HTTP_400_BAD_REQUEST)
 

@@ -4153,6 +4153,21 @@ def _earlier_versions_run_scripts(manifest: list[dict], name: str) -> bool:
     return all(isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str) for e in manifest if e.get("name") == name)
 
 
+def _latest_version(manifest: list[dict], name: str) -> dict | None:
+    return next((e for e in reversed(manifest) if e.get("name") == name), None)
+
+
+def _stored_bytes_match_script_record(entry: dict) -> bool:
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    digest = entry.get(ARTIFACT_SCRIPT_SHA256_KEY)
+    storage_path = entry.get("storage_path")
+    if not isinstance(digest, str) or not isinstance(storage_path, str):
+        return False
+    stored = object_storage.read_bytes(storage_path, missing_ok=True)
+    return stored is not None and hashlib.sha256(stored).hexdigest() == digest
+
+
 def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
     run.artifacts = manifest
     run.save(update_fields=["artifacts", "updated_at"])
@@ -4196,6 +4211,12 @@ def upload_task_run_artifacts(
         if content_type:
             extras["ContentType"] = content_type
 
+        script_sha256 = hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None
+        if script_sha256 is not None and is_html_artifact(safe_name, content_type or ""):
+            previous = _latest_version([*(run.artifacts or []), *uploaded], safe_name)
+            if previous is not None and not _stored_bytes_match_script_record(previous):
+                script_sha256 = None
+
         object_storage.write(storage_path, content_bytes, extras or None)
         _tag_artifact_object(run, storage_path)
 
@@ -4209,7 +4230,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
-                script_sha256=hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None,
+                script_sha256=script_sha256,
                 metadata=artifact.get("metadata"),
             )
         )
@@ -4472,6 +4493,9 @@ def finalize_task_run_artifact_uploads(
             and _earlier_versions_run_scripts(manifest, safe_name)
         )
         if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
+            previous = base_entry or _latest_version(manifest, safe_name)
+            base_runs_scripts = previous is None or _stored_bytes_match_script_record(previous)
+        if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
             uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
             script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
 
@@ -4503,7 +4527,10 @@ def finalize_task_run_artifact_uploads(
             locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
             new_ids = {entry["id"] for entry in new_entries}
             merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
-            merged.extend(new_entries)
+            for entry in new_entries:
+                if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(merged, entry["name"]):
+                    del entry[ARTIFACT_SCRIPT_SHA256_KEY]
+                merged.append(entry)
             _save_artifact_manifest(locked_run, merged)
         # Count versions from the locked merge, or a concurrent same-named finalize is missed.
         manifest = merged

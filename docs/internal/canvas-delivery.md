@@ -69,6 +69,7 @@ A person, through a session, a personal API key, or a PostHog Desktop grant, get
 Any other OAuth application gets no access.
 An edit records full access only when its base version has it.
 An upload checks every earlier file with the same name in the run, and a finalized upload also checks the version it names in `base_artifact_id`. So a client that does not send `base_artifact_id` still cannot unlock scripts.
+The stored bytes of the base, or of the latest file with that name, must also still match its hash, so an edit of replaced bytes stays static.
 A living artifact edit checks the current version.
 A living artifact copied from a run file checks that file, and the copied bytes must still match its hash.
 A file from a Slack thread, a file written before this record existed, or a file from any other write path has no record and stays static.
