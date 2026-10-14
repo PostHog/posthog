@@ -517,9 +517,8 @@ async def _process_source_bundles(
     delivered = await asyncio.to_thread(
         _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
     )
-    produced = len(delivered)
-    ps.produced = produced
-    ps.undelivered = len(to_send) - produced
+    ps.produced = len(delivered)
+    ps.undelivered = len(to_send) - ps.produced
 
     # Record only the distinct_ids Kafka confirmed, as this run's snapshot file. An undelivered id
     # stays out, so the next diff sees it as changed and sends it again.
@@ -534,7 +533,7 @@ async def _process_source_bundles(
         bundles=len(bundles),
         changed=len(changed),
         existing=len(to_send),
-        produced=produced,
+        produced=ps.produced,
         undelivered=ps.undelivered,
     )
     return ps
