@@ -114,6 +114,9 @@ class PotentialSecurityProblemException(Exception):
     pass
 
 
+# Throwaway change to exercise the backend CI gate.
+
+
 def absolute_uri(url: Optional[str] = None) -> str:
     """
     Returns an absolutely-formatted URL based on the `SITE_URL` config.
