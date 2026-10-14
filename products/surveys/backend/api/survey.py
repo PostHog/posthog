@@ -133,6 +133,7 @@ SURVEY_APPEARANCE_HTML_FIELDS = (
     "introScreenDescription",
     "introScreenButtonText",
 )
+SURVEY_TRANSLATABLE_APPEARANCE_FIELDS = (*SURVEY_APPEARANCE_HTML_FIELDS, "backButtonText")
 SURVEY_QUESTION_HTML_FIELDS = (
     "question",
     "description",
@@ -230,7 +231,7 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
     [
         "name",
-        *SURVEY_APPEARANCE_HTML_FIELDS,
+        *SURVEY_TRANSLATABLE_APPEARANCE_FIELDS,
     ]
 )
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -1351,7 +1352,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
             cleaned_translation: dict[str, str] = {}
-            for field in ["name", "description", *SURVEY_APPEARANCE_HTML_FIELDS]:
+            for field in ["name", "description", *SURVEY_TRANSLATABLE_APPEARANCE_FIELDS]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(

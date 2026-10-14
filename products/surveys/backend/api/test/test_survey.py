@@ -674,16 +674,19 @@ class TestSurvey(APIBaseTest):
         assert "default" not in result
         assert "en" not in result
 
-    def test_sdk_payload_keeps_intro_screen_translation_fields(self) -> None:
-        intro_fields = {
+    def test_sdk_payload_keeps_appearance_translation_fields(self) -> None:
+        appearance_fields = {
             "introScreenHeader": "Bienvenido",
             "introScreenDescription": "Dos preguntas rápidas",
             "introScreenButtonText": "Comenzar",
+            "backButtonText": "Atrás",
         }
 
-        result = get_survey_api_translations({"es": {**intro_fields, "unknownField": "dropped"}}, base_language="en")
+        result = get_survey_api_translations(
+            {"es": {**appearance_fields, "unknownField": "dropped"}}, base_language="en"
+        )
 
-        assert result == {"es": intro_fields}
+        assert result == {"es": appearance_fields}
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
@@ -935,8 +938,10 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
         assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
 
-    @parameterized.expand([("introScreenHeader",), ("introScreenDescription",), ("introScreenButtonText",)])
-    def test_intro_screen_translations_are_persisted_and_sanitized(self, field: str):
+    @parameterized.expand(
+        [("introScreenHeader",), ("introScreenDescription",), ("introScreenButtonText",), ("backButtonText",)]
+    )
+    def test_appearance_translations_are_persisted_and_sanitized(self, field: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
