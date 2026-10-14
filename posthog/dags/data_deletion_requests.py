@@ -49,13 +49,12 @@ from posthog.models.data_deletion_request import (
     RequestType,
     auto_approve_pending_requests,
     compile_hogql_predicate,
-    copy_check_windows,
     event_match_sql_fragment,
     event_removal_where,
     jsonhas_expr,
     portable_event_removal_where,
     reaches_target_through_event_uuids,
-    rows_without_events_copy_where,
+    rows_without_events_copy_criteria,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
@@ -667,13 +666,12 @@ def _event_removal_placements(
     # The copy check reads the uuid of every matching event, so it runs only on tables that hold rows
     # in the request's window.
     for target in [t for t in reachable if count_surviving_rows(cluster, t, *criteria)]:
-        predicate, params = rows_without_events_copy_where(deletion_request, target)
-        for window in copy_check_windows(deletion_request, target):
+        for window_criteria in rows_without_events_copy_criteria(deletion_request, target):
             _refuse_unsweepable(
                 cluster,
                 [target],
                 deletion_request,
-                _same_criteria((predicate, {**params, **window})),
+                _same_criteria(window_criteria),
                 reason=_HOGQL_NO_EVENTS_COPY_REASON,
             )
     return [p for p in placements if p.target.accepts_hogql_predicate]

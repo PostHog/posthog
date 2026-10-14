@@ -118,8 +118,7 @@ class DeletionTarget:
     # The events storage table that holds a copy of each row here, with the same uuid, while ingestion
     # still writes the event there. None where rows have no such copy. The copy must sit on the same
     # shard as the row, because the check for rows without a copy reads both tables shard-locally.
-    # A deferred event removal with a HogQL predicate queues the uuids of the events it matches. The
-    # drain deletes the rows here with those uuids, so only rows without a copy block the request.
+    # A deferred event removal with a HogQL predicate deletes rows here through the uuids of their copies.
     copied_from: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.

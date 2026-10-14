@@ -2053,6 +2053,7 @@ def _request_context(request: DataDeletionRequest) -> DeletionRequestContext:
         properties=request.properties,
         person_properties=list(request.person_properties or []),
         delete_all_events=request.delete_all_events,
+        execution_mode=request.execution_mode,
         hogql_predicate=request.hogql_predicate or "",
         inserted_at_marker=request.property_removal_marker,
     )
@@ -2570,18 +2571,7 @@ def _deferred_hogql_flag_request(name: str) -> tuple[DataDeletionRequest, Deleti
         status=RequestStatus.QUEUED,
         execution_mode=ExecutionMode.DEFERRED.value,
     )
-    assert request.start_time is not None and request.end_time is not None
-    ctx = DeletionRequestContext(
-        request_id=str(request.pk),
-        team_id=team.id,
-        start_time=request.start_time,
-        end_time=request.end_time,
-        events=[],
-        delete_all_events=True,
-        execution_mode=ExecutionMode.DEFERRED.value,
-        hogql_predicate=request.hogql_predicate,
-    )
-    return request, ctx
+    return request, _request_context(request)
 
 
 @pytest.mark.django_db

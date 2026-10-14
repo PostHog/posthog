@@ -691,16 +691,19 @@ def test_query_backed_deletion_stats_are_rejected():
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 @pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0)])
 def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days_ago: int) -> None:
-    assert FLAG_EVALUATIONS.ttl_days is not None
     now = timezone.now()
-    horizon = now - timedelta(days=FLAG_EVALUATIONS.ttl_days + ddr._COPY_HORIZON_SLACK_DAYS)
+    horizon = ddr._copy_horizon(FLAG_EVALUATIONS)
+    assert horizon is not None
     request = DataDeletionRequest(
         team_id=TEAM_ID,
         start_time=now - timedelta(days=start_days_ago),
         end_time=now - timedelta(days=end_days_ago),
     )
 
-    windows = [(w["start_time"], w["end_time"]) for w in ddr.copy_check_windows(request, FLAG_EVALUATIONS)]
+    windows = [
+        (params["start_time"], params["end_time"])
+        for _, params in ddr.rows_without_events_copy_criteria(request, FLAG_EVALUATIONS)
+    ]
 
     assert windows[0][0] == request.start_time
     assert windows[-1][1] == request.end_time
