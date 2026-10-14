@@ -7,6 +7,7 @@ import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSe
 
 import { DEFAULT_REVIEW_MODE_OPTIONS, myDefaultNotice } from './repositoryChoices'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
+import { withYouIcons } from './withYouIcons'
 import { YouMark } from './YouMark'
 
 export function MyDefaultCell({ className }: { className?: string }): JSX.Element {
@@ -30,12 +31,11 @@ export function MyDefaultCell({ className }: { className?: string }): JSX.Elemen
                     size="small"
                     aria-label="My default for automatic reviews"
                     value={value}
-                    options={DEFAULT_REVIEW_MODE_OPTIONS}
+                    options={withYouIcons(DEFAULT_REVIEW_MODE_OPTIONS)}
                     onChange={(mode) => mode !== value && setMyDefault(mode)}
                     disabledReason={disabledReason}
                     data-attr="review-hog-default-review-mode"
                 />
-                <YouMark shown={value !== 'follow'} />
             </div>
             <div className="flex flex-col gap-0.5">
                 <div className="flex flex-wrap items-center gap-2">

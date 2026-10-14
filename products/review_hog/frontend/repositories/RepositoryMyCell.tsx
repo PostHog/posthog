@@ -8,7 +8,7 @@ import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/front
 
 import { MyChoiceValue, myChoiceNote, myChoiceOptions, myChoiceValue, projectName } from './repositoryChoices'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
-import { YouMark } from './YouMark'
+import { withYouIcons } from './withYouIcons'
 
 /** The viewer's side of one repository: what their own pull requests get there, and their choice. */
 export function RepositoryMyCell({
@@ -46,18 +46,15 @@ export function RepositoryMyCell({
         const note = myChoiceNote(entry)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
-                <div className="flex max-w-full min-w-0 items-center gap-2">
-                    <LemonSelect<MyChoiceValue>
-                        size="small"
-                        aria-label={`My choice for ${name}`}
-                        value={value}
-                        options={myChoiceOptions(entry)}
-                        onChange={(picked) => setMyChoice(entry, picked)}
-                        disabledReason={busyReason}
-                        data-attr="review-hog-my-choice"
-                    />
-                    <YouMark shown={hasChoice} />
-                </div>
+                <LemonSelect<MyChoiceValue>
+                    size="small"
+                    aria-label={`My choice for ${name}`}
+                    value={value}
+                    options={withYouIcons(myChoiceOptions(entry))}
+                    onChange={(picked) => setMyChoice(entry, picked)}
+                    disabledReason={busyReason}
+                    data-attr="review-hog-my-choice"
+                />
                 {note && <span className="text-xs text-secondary">{note}</span>}
             </div>
         )

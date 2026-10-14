@@ -79,7 +79,7 @@ export function RepositoriesPanes(): JSX.Element {
                 <div className={`flex flex-col gap-0.5 px-4 py-3 ${PANE_LEFT}`}>
                     <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                         This project
-                        <LemonTag type="success" size="small">
+                        <LemonTag type="muted" size="small">
                             {canEdit ? 'Admin' : 'Admin access required'}
                         </LemonTag>
                     </span>

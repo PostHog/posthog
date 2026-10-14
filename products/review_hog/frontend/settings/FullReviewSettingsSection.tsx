@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import type { UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import { ChoiceOption } from 'products/review_hog/frontend/repositories/repositoryChoices'
 import { reviewHogProjectSettingsLogic } from 'products/review_hog/frontend/repositories/reviewHogProjectSettingsLogic'
+import { withYouIcons } from 'products/review_hog/frontend/repositories/withYouIcons'
 import { YouMark } from 'products/review_hog/frontend/repositories/YouMark'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
@@ -36,11 +38,13 @@ function mineOptions<T extends string>(
     options: { value: T; label: string }[],
     projectValue: T,
     ownValue: T | undefined
-): { value: T | 'project'; label: string }[] {
+): ChoiceOption<T | 'project'>[] {
     const projectLabel = options.find((option) => option.value === projectValue)?.label ?? projectValue
     return [
         { value: 'project', label: `Same as project (${projectLabel})` },
-        ...options.filter((option) => option.value !== projectValue || option.value === ownValue),
+        ...options
+            .filter((option) => option.value !== projectValue || option.value === ownValue)
+            .map((option) => ({ ...option, mine: true })),
     ]
 }
 
@@ -106,7 +110,7 @@ export function FullReviewSettingsSection(): JSX.Element {
                             truncateText={{ maxWidthClass: 'max-w-full' }}
                             aria-label="Mine: Findings to post on GitHub"
                             value={ownThreshold ?? 'project'}
-                            options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
+                            options={withYouIcons(mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold))}
                             onChange={(value) =>
                                 value === 'project'
                                     ? followProjectDefault('urgency_threshold')
@@ -115,7 +119,6 @@ export function FullReviewSettingsSection(): JSX.Element {
                             disabledReason={mineDisabledReason}
                             data-attr="review-hog-urgency-threshold"
                         />
-                        <YouMark shown={ownThreshold !== undefined} />
                     </>
                 }
             />
@@ -141,7 +144,7 @@ export function FullReviewSettingsSection(): JSX.Element {
                             truncateText={{ maxWidthClass: 'max-w-full' }}
                             aria-label="Mine: Celebrate clean reviews"
                             value={ownCelebrate ?? 'project'}
-                            options={mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate)}
+                            options={withYouIcons(mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate))}
                             onChange={(value) =>
                                 value === 'project'
                                     ? followProjectDefault('celebrate_clean_reviews')
@@ -150,7 +153,6 @@ export function FullReviewSettingsSection(): JSX.Element {
                             disabledReason={mineDisabledReason}
                             data-attr="review-hog-celebrate-clean-reviews"
                         />
-                        <YouMark shown={ownCelebrate !== undefined} />
                     </>
                 }
             />

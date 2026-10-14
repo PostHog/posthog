@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { canTakeFromOtherProject, flashForLabel, projectName } from './repositoryChoices'
+import { canTakeFromOtherProject, projectName } from './repositoryChoices'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 import { RuleControls } from './RuleControls'
@@ -18,7 +18,7 @@ export function RepositoryProjectCell({
     entry: ReviewRepositoryOverviewEntryApi
     className?: string
 }): JSX.Element {
-    const { projectSettings, canEdit } = useValues(reviewHogProjectSettingsLogic)
+    const { canEdit } = useValues(reviewHogProjectSettingsLogic)
     const { installation, busyRepositories } = useValues(reviewHogRepositoriesLogic)
     const {
         includeRepository,
@@ -53,34 +53,31 @@ export function RepositoryProjectCell({
         })
     }
 
-    let status: JSX.Element
+    let status: JSX.Element | null
+    let addExceptionButton: JSX.Element | null = null
     if (entry.owner === 'other_project') {
         status = <span className="text-xs text-secondary">Reviewed in {projectName(entry.owner_project)}</span>
     } else if (!entry.in_project) {
         status = <span className="text-xs text-secondary">Not part of this project</span>
     } else if (entry.exception === null) {
-        status = (
-            <>
-                <span className="text-xs text-secondary">
-                    Project rule · {flashForLabel(projectSettings?.flash_for ?? 'off')}
-                </span>
-                {canEdit && (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconPlus />}
-                        tooltip="Add an exception, starting from the project settings"
-                        aria-label={`Add exception for ${name}`}
-                        onClick={() => addException(entry)}
-                        disabledReason={savingReason}
-                        data-attr="review-hog-repository-add-exception"
-                    >
-                        Exception
-                    </LemonButton>
-                )}
-            </>
-        )
+        // A row on the project rule carries no text: the project settings above already say it once.
+        status = null
+        addExceptionButton = canEdit ? (
+            <LemonButton
+                size="xsmall"
+                type="secondary"
+                icon={<IconPlus />}
+                tooltip="Add an exception, starting from the project settings"
+                aria-label={`Add exception for ${name}`}
+                onClick={() => addException(entry)}
+                disabledReason={savingReason}
+                data-attr="review-hog-repository-add-exception"
+            >
+                Exception
+            </LemonButton>
+        ) : null
     } else {
+        // Removing sits next to the tag it removes, away from "Remove from project" at the right edge.
         status = (
             <>
                 <LemonTag type="warning" size="small">
@@ -90,14 +87,13 @@ export function RepositoryProjectCell({
                     <LemonButton
                         size="xsmall"
                         type="tertiary"
-                        icon={<IconX />}
-                        tooltip="Clear the exception and follow the project settings again"
-                        aria-label={`Clear exception for ${name}`}
+                        tooltip="Follow the project settings again"
+                        aria-label={`Remove exception for ${name}`}
                         onClick={() => clearException(entry)}
                         disabledReason={savingReason}
                         data-attr="review-hog-repository-clear-exception"
                     >
-                        clear
+                        Remove exception
                     </LemonButton>
                 )}
             </>
@@ -114,9 +110,10 @@ export function RepositoryProjectCell({
                     {name}
                 </span>
                 {status}
-                {(canInclude || canRemove) && (
-                    // Membership sits apart from the exception controls, so adding a repository never reads as clearing one.
-                    <span className="ml-auto">
+                {(addExceptionButton || canInclude || canRemove) && (
+                    // Row actions share one slot at the right edge, so "+ Exception" lines up from row to row.
+                    <span className="ml-auto flex items-center gap-1">
+                        {addExceptionButton}
                         {canInclude ? (
                             <LemonButton
                                 size="xsmall"
@@ -128,7 +125,7 @@ export function RepositoryProjectCell({
                             >
                                 Include in project
                             </LemonButton>
-                        ) : (
+                        ) : canRemove ? (
                             <LemonButton
                                 size="xsmall"
                                 type="tertiary"
@@ -139,7 +136,7 @@ export function RepositoryProjectCell({
                             >
                                 Remove from project
                             </LemonButton>
-                        )}
+                        ) : null}
                     </span>
                 )}
             </div>
