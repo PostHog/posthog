@@ -19,6 +19,7 @@ from posthog.models.person.util import (
     get_person_tombstones,
     list_person_tombstone_queue,
     publish_person_tombstone,
+    raise_tombstones_above_clickhouse,
 )
 
 METRICS_JOB = "person_tombstone_queue"
@@ -39,6 +40,7 @@ class QueueResolution:
     dropped: int = 0
     confirmed: int = 0
     republished: int = 0
+    raised: int = 0
     # Teams whose queue could not be resolved after TEAM_ATTEMPTS. Their rows stay queued and count
     # as remaining.
     failed_teams: int = 0
@@ -49,6 +51,7 @@ class QueueResolution:
 class _TeamPass:
     dropped: int
     confirmed: int
+    raised: int
     pending: dict[UUID, PersonTombstone]
 
 
@@ -82,10 +85,15 @@ def _is_shown(row: tuple[int, int] | None, version: int) -> bool:
     if row is None:
         return False
     is_deleted, max_version = row
-    # Only the newest row counts. The persons DB still holds this tombstone, so a newer live row means
-    # ClickHouse is ahead of Postgres. The sweep never deletes that row, so acking it would hide the
-    # divergence for good; keeping it queued reports it as unresolved.
-    return bool(is_deleted) and max_version >= version
+    return max_version > version or (bool(is_deleted) and max_version >= version)
+
+
+def _person_is_shown(row: tuple[int, int] | None, version: int) -> bool:
+    # Stricter than _is_shown: the persons DB still holds this tombstone, so a newer live person row
+    # means ClickHouse is ahead of Postgres and the person is still visible. The sweep never deletes
+    # it. Distinct ids keep the looser rule, because the sweep removes the mappings of every person
+    # it deletes.
+    return row is not None and bool(row[0]) and row[1] >= version
 
 
 def clickhouse_confirmed(team_id: int, tombstones: Sequence[PersonTombstone]) -> set[UUID]:
@@ -123,7 +131,7 @@ def clickhouse_confirmed(team_id: int, tombstones: Sequence[PersonTombstone]) ->
     return {
         t.uuid
         for t in tombstones
-        if _is_shown(persons.get(str(t.uuid)), t.version)
+        if _person_is_shown(persons.get(str(t.uuid)), t.version)
         and all(_is_shown(mappings.get(d.id), d.version) for d in t.distinct_ids)
     }
 
@@ -149,7 +157,7 @@ def _resolve_team(team_id: int, team_rows: Sequence[QueuedPersonTombstone], *, d
     Acks as it goes, so a retry after a failed chunk re-confirms the acked rows without harm: the
     ack is idempotent, and the counts come from this pass alone.
     """
-    dropped = confirmed_count = 0
+    dropped = confirmed_count = raised_count = 0
     pending: dict[UUID, PersonTombstone] = {}
     for i in range(0, len(team_rows), CHUNK_SIZE):
         chunk = team_rows[i : i + CHUNK_SIZE]
@@ -160,10 +168,15 @@ def _resolve_team(team_id: int, team_rows: Sequence[QueuedPersonTombstone], *, d
         confirmed_count += len(confirmed)
         if not dry_run:
             ack_person_tombstones(team_id, gone + [(uuid, stored[uuid].version) for uuid in confirmed])
-        for uuid, tombstone in stored.items():
-            if uuid not in confirmed:
-                pending[uuid] = tombstone
-    return _TeamPass(dropped=dropped, confirmed=confirmed_count, pending=pending)
+        unconfirmed = [tombstone for uuid, tombstone in stored.items() if uuid not in confirmed]
+        if not dry_run:
+            # A republish at the stored version cannot win against a newer live ClickHouse row.
+            raised = raise_tombstones_above_clickhouse(team_id, unconfirmed)
+            raised_count += sum(new.version != old.version for old, new in zip(unconfirmed, raised))
+            unconfirmed = raised
+        for tombstone in unconfirmed:
+            pending[tombstone.uuid] = tombstone
+    return _TeamPass(dropped=dropped, confirmed=confirmed_count, raised=raised_count, pending=pending)
 
 
 def resolve_person_tombstone_queue(
@@ -202,6 +215,7 @@ def resolve_person_tombstone_queue(
             continue
         result.dropped += team_pass.dropped
         result.confirmed += team_pass.confirmed
+        result.raised += team_pass.raised
         if team_pass.pending:
             pending[team_id] = team_pass.pending
 
@@ -270,6 +284,11 @@ def publish_queue_gauges(result: QueueResolution, completed_at: float) -> None:
             "Queued persons whose tombstone the weekly repair produced again at the stored versions, in team passes that completed; confirmed_rows says how many then showed in ClickHouse",
             registry=registry,
         ).set(result.republished)
+        Gauge(
+            "posthog_person_tombstone_queue_raised_rows",
+            "Queued persons whose Postgres tombstone was raised above a newer live ClickHouse row before the republish, in team passes that completed",
+            registry=registry,
+        ).set(result.raised)
         Gauge(
             "posthog_person_tombstone_queue_unresolved_rows",
             "Queued persons the weekly repair could not confirm in ClickHouse: deleted in Postgres, possibly live in ClickHouse",

@@ -92,11 +92,11 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         [
             ("newer_tombstone", 1, True, None, True),
             ("newer_live_person", 1, False, None, False),
-            ("newer_live_distinct_id", 0, True, False, False),
+            ("newer_live_distinct_id", 0, True, False, True),
             ("newer_deleted_distinct_id", 0, True, True, True),
         ]
     )
-    def test_confirms_only_when_the_newest_clickhouse_row_is_a_tombstone(
+    def test_confirms_a_person_only_when_its_newest_clickhouse_row_is_a_tombstone(
         self,
         _name: str,
         person_version_offset: int,
@@ -124,6 +124,30 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
             )
 
         assert (clickhouse_confirmed(self.team.pk, [tombstone]) == {person.uuid}) == expected_confirmed
+
+    def test_a_person_behind_a_newer_live_clickhouse_row_is_raised_republished_and_acked(self) -> None:
+        person = create_person(team_id=self.team.pk, distinct_ids=["queue-ghost"])
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        create_person_in_ch(uuid=str(person.uuid), team_id=self.team.pk, version=tombstone.version + 6)
+
+        result = self._resolve()
+
+        assert (result.confirmed, result.republished, result.raised, result.remaining) == (1, 1, 1, [])
+        assert self._queued() == set()
+        assert self._ch_person_deleted(person.uuid)
+        stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
+        assert stored is not None and stored.is_deleted and stored.version == tombstone.version + 7
+
+    def test_dry_run_does_not_raise_a_tombstone(self) -> None:
+        person = create_person(team_id=self.team.pk, distinct_ids=["queue-ghost-dry"])
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        create_person_in_ch(uuid=str(person.uuid), team_id=self.team.pk, version=tombstone.version + 6)
+
+        result = self._resolve(dry_run=True)
+
+        assert result.raised == 0
+        assert [row.person_uuid for row in result.remaining] == [person.uuid]
+        get_active_fake().assert_not_called("ensure_person_version_floors")
 
     def test_dry_run_acks_and_publishes_nothing(self) -> None:
         confirmed = self._tombstoned("queue-dry-confirmed", published=True)
@@ -288,7 +312,13 @@ def test_publishes_the_gauges_the_alert_reads(
     with patch("posthog.dags.person_tombstone_queue.pushed_metrics_registry", capture):
         publish_queue_gauges(
             QueueResolution(
-                listed=7, dropped=1, confirmed=4, republished=2, remaining=remaining, failed_teams=failed_teams
+                listed=7,
+                dropped=1,
+                confirmed=4,
+                republished=2,
+                raised=3,
+                remaining=remaining,
+                failed_teams=failed_teams,
             ),
             completed_at=1_000.0,
         )
@@ -297,6 +327,7 @@ def test_publishes_the_gauges_the_alert_reads(
     assert registry.get_sample_value("posthog_person_tombstone_queue_dropped_rows") == 1
     assert registry.get_sample_value("posthog_person_tombstone_queue_confirmed_rows") == 4
     assert registry.get_sample_value("posthog_person_tombstone_queue_republished_rows") == 2
+    assert registry.get_sample_value("posthog_person_tombstone_queue_raised_rows") == 3
     assert registry.get_sample_value("posthog_person_tombstone_queue_unresolved_rows") == expected_unresolved
     assert registry.get_sample_value("posthog_person_tombstone_queue_failed_teams") == failed_teams
     assert registry.get_sample_value("posthog_person_tombstone_queue_oldest_unresolved_seconds") == expected_oldest_age

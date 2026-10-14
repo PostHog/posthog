@@ -1022,6 +1022,47 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
     return personhog_call("ensure_person_version_floors", personhog_fn)
 
 
+def raise_tombstones_above_clickhouse(team_id: int, tombstones: Sequence[PersonTombstone]) -> list[PersonTombstone]:
+    """Return the tombstones, each raised above a live ClickHouse row of its person at the same or a higher version.
+
+    A person re-created under the same uuid starts again near version 0 in Postgres, while ClickHouse can keep live
+    rows of its earlier lifetime at higher versions. A tombstone published at the Postgres version loses to those rows,
+    so the deleted person stays visible and the sweep never removes it. Raising the Postgres tombstone to one above
+    ClickHouse first makes the published tombstone win. A person revived since its tombstone keeps the tombstone as it
+    was, because publishing an older tombstone changes nothing.
+    """
+    if not tombstones:
+        return []
+    newest = {
+        str(person_id): (int(max_version), bool(is_deleted))
+        for person_id, max_version, is_deleted in sync_execute(
+            """
+            SELECT id, max(version), argMax(is_deleted, version)
+            FROM person
+            WHERE team_id = %(team_id)s AND id IN %(ids)s
+            GROUP BY id
+            """,
+            {"team_id": team_id, "ids": [str(t.uuid) for t in tombstones]},
+        )
+    }
+    floors = []
+    for tombstone in tombstones:
+        max_version, is_deleted = newest.get(str(tombstone.uuid), (-1, True))
+        if not is_deleted and max_version >= tombstone.version:
+            floors.append(PersonVersionFloor(uuid=tombstone.uuid, min_version=max_version + 1))
+    if not floors:
+        return list(tombstones)
+    raised = {
+        result.uuid: result.version
+        for result in ensure_person_version_floors(team_id, floors)
+        if result.outcome != VersionFloorOutcome.LIVE
+    }
+    return [
+        PersonTombstone(uuid=t.uuid, version=raised.get(t.uuid, t.version), distinct_ids=t.distinct_ids)
+        for t in tombstones
+    ]
+
+
 def set_distinct_id_version_floor(team_id: int, distinct_id: str, min_version: int) -> None:
     """Raise the Postgres version of the distinct id's row to at least ``min_version``, live or tombstoned.
 

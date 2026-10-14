@@ -12,6 +12,7 @@ from posthog.models.person.util import (
     create_person as create_person_in_ch,
     create_person_distinct_id,
     get_person_tombstones,
+    raise_tombstones_above_clickhouse,
     tombstone_persons_in_postgres,
 )
 from posthog.personhog_client.fake_client import get_active_fake
@@ -236,3 +237,39 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
 
         assert self._stored(uuid) == ((True, 6) if expect_repair else None)
         assert self._ch_person_state(uuid) == ((1, 6) if expect_repair else (0, 5))
+
+
+class TestRaiseTombstonesAboveClickhouse(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("no_clickhouse_row", [], False, 0),
+            ("clickhouse_behind", [(-1, False)], False, 0),
+            ("newer_clickhouse_tombstone", [(5, True)], False, 0),
+            ("live_row_at_the_same_version", [(0, False)], False, 1),
+            ("newer_live_row", [(-1, False), (7, False)], False, 8),
+            ("revived_since_the_tombstone", [(7, False)], True, 0),
+        ]
+    )
+    def test_raises_only_above_a_live_clickhouse_row_at_or_above_the_tombstone(
+        self, _name: str, ch_rows: list[tuple[int, bool]], revived: bool, expected_offset: int
+    ):
+        person = create_person(team_id=self.team.pk, distinct_ids=["raise-did"])
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        for offset, is_deleted in ch_rows:
+            create_person_in_ch(
+                uuid=str(person.uuid),
+                team_id=self.team.pk,
+                version=tombstone.version + offset,
+                is_deleted=is_deleted,
+            )
+        if revived:
+            stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
+            assert stored is not None
+            stored.is_deleted = False
+
+        [result] = raise_tombstones_above_clickhouse(self.team.pk, [tombstone])
+
+        assert result.version == tombstone.version + expected_offset
+        assert result.distinct_ids == tombstone.distinct_ids
+        stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
+        assert stored is not None and stored.version == result.version
