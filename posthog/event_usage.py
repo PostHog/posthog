@@ -232,7 +232,6 @@ def report_team_member_invited(
     current_member_count: int,
     is_bulk: bool,
     email_available: bool,
-    email_suppressed: bool = False,
     current_url: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> None:
@@ -246,7 +245,6 @@ def report_team_member_invited(
         "current_invite_count": current_invite_count,  # number of invites including this one
         "current_member_count": current_member_count,
         "email_available": email_available,
-        "email_suppressed": email_suppressed,
         "is_bulk": is_bulk,
     }
 

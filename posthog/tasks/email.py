@@ -24,11 +24,17 @@ from posthog.email import (
     EmailMessage,
     get_email_team_and_org_context,
     is_email_available,
+    is_http_email_service_available,
     single_line,
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from posthog.helpers.email_utils import (
+    ESPSuppressionReason,
+    check_esp_suppression,
+    sanitize_display_name,
+    sanitize_message_body,
+)
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
@@ -538,6 +544,25 @@ def send_invite(invite_id: str) -> None:
     else:
         message.send()
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def check_invite_email_suppression(invite_id: str) -> None:
+    invite = OrganizationInvite.objects.select_related("created_by").filter(id=invite_id).first()
+    if invite is None or not invite.target_email or not is_http_email_service_available():
+        return
+    # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
+    if check_esp_suppression(invite.target_email).reason != ESPSuppressionReason.SUPPRESSED:
+        return
+    OrganizationInvite.objects.filter(id=invite_id).update(email_suppressed=True)
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
+            event="invite email suppressed",
+            properties={"invite_id": invite_id, "is_setup_delegation": invite.is_setup_delegation},
+            groups={"organization": str(invite.organization_id)},
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

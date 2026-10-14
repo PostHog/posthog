@@ -16,12 +16,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
-from posthog.email import is_email_available, is_http_email_service_available
+from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import (
     EmailNormalizer,
-    ESPSuppressionReason,
-    check_esp_suppression,
     reject_plus_addressed_email,
     validate_display_name,
     validate_message_body,
@@ -46,7 +44,7 @@ from posthog.rate_limit import (
     OrganizationInviteBurstThrottle,
     OrganizationInviteSustainedThrottle,
 )
-from posthog.tasks.email import send_invite
+from posthog.tasks.email import check_invite_email_suppression, send_invite
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
@@ -140,13 +138,6 @@ class OrganizationInviteManager:
         OrganizationInviteManager._get_invites_for_user_org(
             organization_id=organization_id, target_email=target_email, include_expired=True
         ).delete()
-
-
-def is_invite_email_suppressed(email: str | None) -> bool:
-    # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
-    if not email or not is_http_email_service_available():
-        return False
-    return check_esp_suppression(email).reason == ESPSuppressionReason.SUPPRESSED
 
 
 def first_bulk_invite_error(errors: list[Any]) -> exceptions.ValidationError:
@@ -335,9 +326,10 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
-            invite.email_suppressed = is_invite_email_suppressed(invite.target_email)
             send_invite(invite_id=invite.id)
             invite.save()
+            # Runs after the save so the save cannot overwrite the result. The lookup can take seconds, so it stays off the request path.
+            check_invite_email_suppression.delay(str(invite.id))
 
         report_team_member_invited(
             self.context["request"].user,
@@ -349,7 +341,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             ).count(),
             is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
-            email_suppressed=invite.email_suppressed,
             current_url=self.context.get("current_url"),
             session_id=self.context.get("session_id"),
         )
