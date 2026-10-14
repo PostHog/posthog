@@ -24,9 +24,12 @@
     - "add claude-fable-5 to our model picker" (a code change that names a model).
     - "move the summary agents over to sonnet" (a code change that switches something else onto a model, not this task).
     - "why is gpt-5 slower than opus in our evals?" (a question about models).
+    - "how long does a scout take on sol 6.1, compared with terra?" (a request for data about models: the models are what gets measured, not what runs this task).
     - "the opus rollout broke the dashboard" (a topic).
     - "reasoning about this is hard" (the word, not a setting).
     - "we tried sonnet on this last week and it kept timing out" (an account of a run that already happened, not an instruction for this one — past tense is the tell).
+  
+  A question or a data request about a model — its cost, speed, token use, error rate, or how it compares with other models — is subject matter. This stays true when the model name comes after "for", "via", "on", or "with". To change the run, the message must also tell you to run this task on that model.
   
   Rules for the fields:
     - model: an id from the list above, or null if the author named no model (or named one that isn't listed).
