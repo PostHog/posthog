@@ -123,6 +123,19 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
     })
 
+    it('does not list a shortcut twice when starring returns one that already exists', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
+        logic.actions.loadShortcutsSuccess([existing])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue(existing)
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
+    })
+
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
         const projectTree = projectTreeLogic({ key: 'navbar-files', root: 'project://' })
         projectTree.mount()
@@ -161,6 +174,18 @@ describe('projectTreeDataLogic', () => {
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
         expect(paths).toEqual(['Session replay'])
+    })
+
+    it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: false })
+
+        const dataRootWithoutFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithoutFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(false)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true })
+
+        const dataRootWithFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(true)
     })
 
     it('handles null unfiled item responses', async () => {

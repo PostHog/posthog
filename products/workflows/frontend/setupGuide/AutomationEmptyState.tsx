@@ -1,20 +1,15 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconBolt } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { onboardingWizardUrl } from './wizard/onboardingWizardSteps'
 import { workflowsSetupGuideLogic } from './workflowsSetupGuideLogic'
 
 /** The Automations list tab with no automations: a way back into the guided automation setup. */
 export function AutomationEmptyState(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { browseTemplates } = useActions(workflowsSetupGuideLogic)
-    const wizardEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ONBOARDING_WIZARD]
 
     // pinned: analytics event name - renaming breaks dashboards
     const capture = (action: 'guided-setup' | 'browse-templates'): void => {
@@ -33,18 +28,16 @@ export function AutomationEmptyState(): JSX.Element {
                 </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2">
-                {wizardEnabled && (
-                    <LemonButton
-                        type="primary"
-                        to={onboardingWizardUrl('automation')}
-                        onClick={() => capture('guided-setup')}
-                        data-attr="workflows-automation-empty-state-guided-setup"
-                    >
-                        Guided setup
-                    </LemonButton>
-                )}
                 <LemonButton
-                    type={wizardEnabled ? 'secondary' : 'primary'}
+                    type="primary"
+                    to={onboardingWizardUrl('automation')}
+                    onClick={() => capture('guided-setup')}
+                    data-attr="workflows-automation-empty-state-guided-setup"
+                >
+                    Guided setup
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
                     onClick={() => {
                         capture('browse-templates')
                         browseTemplates('automation')

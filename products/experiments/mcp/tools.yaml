@@ -554,7 +554,9 @@ tools:
             ended, running_time_calculation (minimum detectable effect, recommended running time and sample size),
             stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no
             custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure;
-            use it in SQL instead of hardcoding either name).
+            use it in SQL instead of hardcoding either name. When it is $feature_flag_called, also read
+            $experiment_exposure (event IN ('$feature_flag_called', '$experiment_exposure')), and count persons, not
+            rows).
         param_overrides:
             id:
                 cast: string-int

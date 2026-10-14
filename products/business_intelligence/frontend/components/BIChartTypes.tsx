@@ -26,7 +26,7 @@ export function BIChartTypes({ docked }: { docked: boolean }): JSX.Element {
     return (
         <div className={cn('flex flex-col', docked ? 'w-full' : 'w-44')}>
             <div className="flex min-h-7 items-center justify-between px-2 pt-2">
-                <span className="text-sm font-semibold">Chart types</span>
+                <span className="text-sm font-semibold">Show me</span>
                 {docked ? (
                     <LemonButton
                         icon={<IconX />}

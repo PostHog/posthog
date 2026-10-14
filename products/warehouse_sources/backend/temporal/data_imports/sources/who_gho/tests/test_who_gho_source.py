@@ -1,47 +1,20 @@
 import datetime
-from collections.abc import Iterable
-from typing import Any, cast
 
-import pytest
-from unittest.mock import MagicMock, patch
-
-import structlog
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whogho import WhoGhoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source import WhoGhoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
-    MAX_INDICATOR_CODES,
-    who_gho_source,
-)
-
-
-def _make_inputs(
-    schema_name: str = "indicators",
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-id",
-        source_id="source-id",
-        team_id=123,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-        db_incremental_field_earliest_value=None,
-        incremental_field="Date" if should_use_incremental_field else None,
-        incremental_field_type=None,
-        job_id="job-id",
-        logger=structlog.get_logger(),
-        reset_pipeline=False,
-    )
+from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import MAX_INDICATOR_CODES
 
 
 class TestWhoGhoSource:
@@ -66,49 +39,32 @@ class TestWhoGhoSource:
         assert PRIMARY_KEYS["dimension_values"] == ["Code"]
 
     def test_non_retryable_error_matches_an_out_of_bounds_code_list(self) -> None:
-        with pytest.raises(ValueError) as excinfo:
-            list(
-                who_gho_source(
-                    endpoint="indicator_data",
-                    indicator_codes=[f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)],
-                    team_id=123,
-                    job_id="job-id",
-                    resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-                )
-            )
+        config = WhoGhoSourceConfig(
+            indicator_codes="\n".join(f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1))
+        )
 
-        assert error_message_matches(str(excinfo.value), self.source.get_non_retryable_errors().keys())
+        result = SourceDriver(self.source, config).run("indicator_data", [])
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), self.source.get_non_retryable_errors().keys())
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_for_pipeline_plumbs_the_endpoint_through(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(endpoint, always(ScriptedResponse(json={"value": []})))
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source.who_gho_source"
-        ) as mock_source:
-            mock_source.return_value = iter([])
-            response = self.source.source_for_pipeline(self.config, manager, _make_inputs(endpoint))
-            list(cast(Iterable[Any], response.items()))
-
-        assert response.name == endpoint
-        assert response.primary_keys == PRIMARY_KEYS[endpoint]
-        assert mock_source.call_args.kwargs["endpoint"] == endpoint
-        assert mock_source.call_args.kwargs["indicator_codes"] == ["WHOSIS_000001", "WHOSIS_000002"]
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == PRIMARY_KEYS[endpoint]
+        assert result.requests
+        if endpoint == "indicator_data":
+            assert result.paths == ["/api/WHOSIS_000001", "/api/WHOSIS_000002"]
 
     def test_source_for_pipeline_formats_the_incremental_watermark_as_a_plain_date(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs(
+        result = SourceDriver(self.source, self.config).run(
             "indicator_data",
-            should_use_incremental_field=True,
+            always(ScriptedResponse(json={"value": []})),
+            incremental_field="Date",
             db_incremental_field_last_value=datetime.datetime(2024, 8, 2, 9, 43, 39),
         )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source.who_gho_source"
-        ) as mock_source:
-            mock_source.return_value = iter([])
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-            list(cast(Iterable[Any], response.items()))
-
-        assert mock_source.call_args.kwargs["since"] == "2024-08-02"
-        assert mock_source.call_args.kwargs["should_use_incremental_field"] is True
+        assert set(result.params("$filter")) == {"date(Date) gt 2024-08-02"}

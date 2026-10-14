@@ -1,8 +1,11 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source import BloomerangSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
     BloomerangSourceConfig,
 )
@@ -18,25 +21,23 @@ class TestBloomerangSource:
         self.config = BloomerangSourceConfig(api_key="key")
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "answer, expected_valid, expected_message",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Bloomerang API key"),
-            ((False, 403), False, "Could not connect to Bloomerang with the provided API key"),
-            ((False, None), False, "Could not connect to Bloomerang with the provided API key"),
+            (ScriptedResponse(status=200), True, None),
+            (ScriptedResponse(status=401), False, "Invalid Bloomerang API key"),
+            (ScriptedResponse(status=403), False, "Could not connect to Bloomerang with the provided API key"),
+            (ConnectionResetError("reset"), False, "Could not connect to Bloomerang with the provided API key"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source.validate_bloomerang_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(
+        self, answer: ScriptedResponse | BaseException, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        with scripted_network([answer]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("key")
+        assert network.requests_log[0].headers["x-api-key"] == "key"
 
     def test_request_layer_stays_on_the_v2_wire(self):
         # No per-version dispatch: `/v2` is a fixed path segment, so a legacy v1 pin rides the same

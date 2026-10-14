@@ -46,8 +46,6 @@ customerJourneys projects/{}/customer_journeys
 customerJourneysDetail projects/{}/customer_journeys/{}
 customerProfileConfigs projects/{}/customer_profile_configs
 customerProfileConfigsDetail projects/{}/customer_profile_configs/{}
-dashboardCollaborators projects/{}/dashboards/{}/collaborators
-dashboardCollaboratorsDetail projects/{}/dashboards/{}/collaborators/{}
 dashboardSharing projects/{}/dashboards/{}/sharing
 dashboardSharingPassword projects/{}/dashboards/{}/sharing/passwords/{}
 dashboardSharingPasswords projects/{}/dashboards/{}/sharing/passwords

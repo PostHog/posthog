@@ -69,12 +69,11 @@ async def test_postgres_export_workflow(
     ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     config = postgres_batch_export.destination.config
 
@@ -84,7 +83,6 @@ async def test_postgres_export_workflow(
         batch_export_id=str(postgres_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **config,
     )
@@ -262,12 +260,11 @@ async def test_postgres_export_workflow_without_events(
     ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
@@ -275,7 +272,6 @@ async def test_postgres_export_workflow_without_events(
         batch_export_id=str(postgres_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **postgres_batch_export.destination.config,
     )

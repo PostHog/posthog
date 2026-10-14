@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
     _FIREWALL_BLOCKED_ERROR,
+    _GENERIC_CONNECTION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -672,6 +673,26 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
+
+    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real DB-Lib 20017/20002 pair: the server closed the connection mid-handshake, which
+        # FreeTDS reports as both an EOF and a generic "connection failed".
+        dropped_connection_error = pymssql.OperationalError(
+            20017,
+            b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server (127.0.0.1)\n"
+            b"DB-Lib error message 20002, severity 9:\nAdaptive Server connection failed (127.0.0.1)\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=dropped_connection_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _GENERIC_CONNECTION_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(

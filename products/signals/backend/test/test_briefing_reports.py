@@ -15,6 +15,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.request import Request
 
+from posthog.models import Team
+
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
     BriefingReportRelation,
@@ -126,6 +128,15 @@ class TestReportsForBriefing(BaseTest):
         viewer = ReportMetricAccessPolicy(
             request=cast(Request, SimpleNamespace(user=self.user, successful_authenticator=None)), team=self.team
         )
+        # A newer judgment stored under another team must not leak into this team's details.
+        cross_team = SignalReportArtefact.objects.create(
+            team=Team.objects.create(organization=self.organization),
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": "P4"}),
+        )
+        SignalReportArtefact.objects.filter(pk=cross_team.pk).update(created_at=timezone.now() + timedelta(hours=1))
+
         [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)], metric_access=viewer)
         # Without a viewer the policy reads nothing, so the briefing must hide every metric, as the Inbox does.
         [unreadable] = report_details(

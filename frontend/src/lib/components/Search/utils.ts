@@ -15,6 +15,7 @@ interface FuseSearchable {
     matchedSearchKeyword?: string | null
 }
 
+export const SEARCH_TAB_CATEGORY = 'tabs'
 const SEARCH_KEYWORDS_KEY = 'searchKeywords'
 const NAME_KEYS = new Set(['name', 'displayName'])
 
@@ -22,7 +23,11 @@ const FUSE_OPTIONS = {
     keys: [
         { name: 'name', weight: 2 },
         { name: 'displayName', weight: 2 },
-        { name: 'category', weight: 0.5 },
+        {
+            name: 'category',
+            weight: 0.5,
+            getFn: (item: FuseSearchable): string => (item.category === SEARCH_TAB_CATEGORY ? '' : item.category),
+        },
         { name: SEARCH_KEYWORDS_KEY, weight: 1.5 },
         { name: 'hiddenSearchText', weight: 1 },
     ],
@@ -112,6 +117,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'create-new': 'Create new',
         tools: 'Products',
         'data-management': 'Data management',
+        [SEARCH_TAB_CATEGORY]: 'Tabs',
         settings: 'Settings',
         early_access_feature: 'Early access features',
         suggested: 'Suggested',
@@ -128,6 +134,8 @@ export const getCategoryDisplayName = (category: string): string => {
         askAI: 'Posthog AI',
         insight: 'Insights',
         dashboard: 'Dashboards',
+        data_warehouse_view: 'Views',
+        endpoint: 'Endpoints',
         feature_flag: 'Feature flags',
         experiment: 'Experiments',
         survey: 'Surveys',

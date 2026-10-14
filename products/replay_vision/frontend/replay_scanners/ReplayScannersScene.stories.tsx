@@ -83,6 +83,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         estimated_at: null,
         user_access_level: 'editor',
         sweep_throttle_factor: 1,
+        dashboard_id: null,
+        dashboard_suggested: false,
         ...overrides,
     }) as ReplayScannerApi
 
@@ -780,12 +782,14 @@ const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}):
                     theme: 'first-try-payment',
                     statement: 'Most people complete payment on the first try.',
                     count: 21,
+                    read: null,
                     example_observation_ids: ['00000000-0000-0000-0000-0000000000c1'],
                 },
                 {
                     theme: 'summary-rereads',
                     statement: 'Some people scroll the order summary twice before they pay.',
                     count: 8,
+                    read: null,
                     example_observation_ids: [],
                 },
             ],
@@ -818,12 +822,14 @@ const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}):
                     theme: 'payment-method-pause',
                     statement: 'Many people pause at the payment method step before they select an option.',
                     count: 11,
+                    read: null,
                     example_observation_ids: ['00000000-0000-0000-0000-0000000000t1'],
                 },
                 {
                     theme: 'promo-field',
                     statement: 'Several people open and close the promo code field without entering a code.',
                     count: 7,
+                    read: null,
                     example_observation_ids: [],
                 },
             ],
@@ -843,11 +849,13 @@ const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}):
             theme: 'payment-method-pause',
             statement: 'Pauses at the payment method step appear far more often in test.',
             counts: { test: 11, control: 2 },
+            read: {},
         },
         {
             theme: 'promo-field',
             statement: 'Promo code interactions appear only in test.',
             counts: { test: 7, control: 0 },
+            read: {},
         },
     ],
     unattributed_count: 6,
@@ -1231,6 +1239,15 @@ export const MonitorOverview: StoryObj = {
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [overviewDecorator({ ...summarizerScanner, sweep_throttle_factor: 12 }, summarizerStats)],
+}
+
+// Once a scanner has enough observations, the overview offers a dashboard for it.
+export const MonitorOverviewDashboardOffer: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(monitorOverviewScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_SCANNER_DASHBOARD]: true },
+    },
+    decorators: [overviewDecorator({ ...monitorOverviewScanner, dashboard_suggested: true }, monitorOverviewStats)],
 }
 
 export const ClassifierOverview: StoryObj = {
