@@ -1,5 +1,6 @@
 import os
 import datetime as dt
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
 from uuid import UUID
@@ -22,8 +23,10 @@ from posthog.schema import LogsAlertFilters
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions import as_drf_validation_error
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
@@ -42,13 +45,14 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import reset_broken, runtime_by_legacy_id
+from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     PagerDutyRegion,
     PagerDutySeverity,
+    PlatformAlertHistory,
     PlatformAlertRuntime,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
@@ -208,6 +212,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
 
 
 _PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
+_PLATFORM_HISTORY_CONTEXT_KEY: Final = "platform_history"
 
 
 def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, PlatformAlertRuntime]:
@@ -217,12 +222,46 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
 
 
+def _platform_history_of(
+    alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
+) -> dict[UUID, PlatformAlertHistory] | None:
+    """None when ClickHouse fails. The logs row then stands in, because a stale timeline is a
+    better answer than a failed list."""
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    try:
+        return history_by_legacy_id(
+            team_id=owned[0].team_id,
+            legacy_configuration_ids=[alert.id for alert in owned],
+            since=window[0],
+            until=window[1],
+        )
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> list[dict[str, Any]]:
         alerts = list(data.all() if isinstance(data, Manager) else data)
-        # One platform read for the page, which the child serializer finds in the shared context.
+        # One platform read of each kind for the page, which the child serializer finds in the
+        # shared context.
         self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
+        self.context[_PLATFORM_HISTORY_CONTEXT_KEY] = _platform_history_of(
+            alerts, self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        )
         return super().to_representation(alerts)
+
+
+@frozen
+class _TimelineEvent:
+    """A platform state change or a logs toggle, in the shape the timeline walk reads."""
+
+    kind: str
+    created_at: datetime
+    state_before: str
+    state_after: str
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -324,7 +363,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
             "most recent check was successful. Sourced from LogsAlertEvent without "
-            "denormalization so retention-aware cleanup rules stay the only source of truth."
+            "denormalization so retention-aware cleanup rules stay the only source of truth. "
+            "For an alert the alerts platform evaluates, sourced from the platform's check history."
         ),
     )
     created_at = serializers.DateTimeField(
@@ -342,7 +382,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             f"Continuous state intervals over the last {STATE_TIMELINE_LOOKBACK_HOURS}h, ordered oldest-first. "
             "Each interval covers a span during which (state, enabled) was constant. Derived from "
             "LogsAlertEvent rows walked in chronological order; consecutive identical intervals are "
-            "collapsed. Drives the 'Last 24h' status bar on the alert list."
+            "collapsed. For an alert the alerts platform evaluates, state changes come from the "
+            "platform's check history instead. Drives the 'Last 24h' status bar on the alert list."
         ),
     )
     destination_types = serializers.SerializerMethodField(
@@ -356,8 +397,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
-        window_start, window_end = window
+        return self._state_intervals(obj, self._timeline_events(obj, window[0]), obj.state, window)
 
+    def _timeline_events(self, obj: LogsAlertConfiguration, window_start: datetime) -> list[LogsAlertEvent]:
         # Events are prefetched as `_state_timeline_events` on the list endpoint; fall
         # back to a direct query for callers that build this serializer outside the viewset
         # (admin, tests).
@@ -368,11 +410,68 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 .order_by("created_at")
                 .only("kind", "created_at", "state_before", "state_after")
             )
+        return events
+
+    def _platform_state_timeline(
+        self,
+        obj: LogsAlertConfiguration,
+        history: PlatformAlertHistory | None,
+        current_state: str,
+        window: tuple[datetime, datetime],
+    ) -> list[StateInterval]:
+        """The timeline of an alert the platform owns.
+
+        The platform's history holds the state changes. The logs API still writes the enable and
+        disable toggles, so they come from LogsAlertEvent. Logs check rows are left out, because
+        the logs stack only shadows an alert the platform owns. A toggle carries the state the
+        platform had at that moment, because the logs row's state stops moving after the shadow.
+        """
+        changes = history.state_changes if history is not None else ()
+        merged: list[LogsAlertEvent | _TimelineEvent] = [
+            _TimelineEvent(
+                kind=LogsAlertEvent.Kind.CHECK,
+                created_at=change.occurred_at,
+                state_before=logs_state_of_platform(
+                    change.previous_state, logs_state=obj.state, snooze_until=obj.snooze_until, at=change.occurred_at
+                ).value,
+                state_after=logs_state_of_platform(
+                    change.state, logs_state=obj.state, snooze_until=obj.snooze_until, at=change.occurred_at
+                ).value,
+            )
+            for change in changes
+        ]
+        merged.extend(
+            event
+            for event in self._timeline_events(obj, window[0])
+            if event.kind in (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE)
+        )
+        merged.sort(key=lambda event: event.created_at)
+
+        state = next((event.state_before for event in merged if event.kind == LogsAlertEvent.Kind.CHECK), current_state)
+        events: list[LogsAlertEvent | _TimelineEvent] = []
+        for event in merged:
+            if event.kind == LogsAlertEvent.Kind.CHECK:
+                state = event.state_after
+                events.append(event)
+            else:
+                events.append(
+                    _TimelineEvent(kind=event.kind, created_at=event.created_at, state_before=state, state_after=state)
+                )
+        return self._state_intervals(obj, events, current_state, window)
+
+    def _state_intervals(
+        self,
+        obj: LogsAlertConfiguration,
+        events: Sequence[LogsAlertEvent | _TimelineEvent],
+        fallback_state: str,
+        window: tuple[datetime, datetime],
+    ) -> list[StateInterval]:
+        window_start, window_end = window
 
         # Seed state at window_start: the first in-window event tells us what state was
         # active just before it fired. Fallback to the alert's current state when there are
         # no events at all in the window.
-        seed_state = events[0].state_before if events else obj.state
+        seed_state = events[0].state_before if events else fallback_state
 
         # Seed enabled at window_start: prefer the latest ENABLE/DISABLE at-or-before
         # window_start (annotated on the queryset), then infer from the first in-window
@@ -491,6 +590,19 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         data["consecutive_failures"] = runtime.consecutive_failures
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
+
+        histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY, _NOT_ANNOTATED)
+        window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        if histories is _NOT_ANNOTATED:
+            histories = _platform_history_of([instance], window)
+        if histories is None:
+            return data
+        history = cast(dict[UUID, PlatformAlertHistory], histories).get(instance.id)
+        data["state_timeline"] = self._platform_state_timeline(instance, history, data["state"], window)
+        # With no platform check in the window, the logs row is the newest check anyone made.
+        if history is not None:
+            data["last_checked_at"] = self.fields["last_checked_at"].to_representation(history.last_checked_at)
+            data["last_error_message"] = history.last_error_message
         return data
 
     class Meta:

@@ -29,8 +29,11 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    PlatformAlertHistory,
+    PlatformStateChange,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
@@ -226,3 +229,69 @@ def _snapshot(raw: str) -> dict[str, Any]:
     except ValueError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+# The inner read deduplicates on the pair the writer names, as `announcement` does. The outer one
+# keeps the checks that moved the alert and the newest check, so a page of alerts that check every
+# minute returns a few rows each rather than a day of them.
+_HISTORY_SQL = f"""
+SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest
+FROM (
+    SELECT configuration_id, occurred_at, previous_state, state, error_message,
+           occurred_at = max(occurred_at) OVER (PARTITION BY configuration_id) AS is_latest
+    FROM (
+        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message
+        FROM {PLATFORM_ALERT_EVENTS_TABLE}
+        WHERE team_id = %(team_id)s
+          AND configuration_id IN %(configuration_ids)s
+          AND grouping_key = ''
+          AND occurred_at >= %(since)s
+          AND occurred_at < %(until)s
+        ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+        LIMIT 1 BY alert_id, evaluation_key
+    )
+)
+WHERE previous_state != state OR is_latest
+ORDER BY configuration_id, occurred_at
+"""
+
+
+def history(
+    team_id: int, configuration_ids: Collection[UUID], *, since: datetime, until: datetime
+) -> dict[UUID, PlatformAlertHistory]:
+    """Each configuration's state changes and last check in `[since, until)`, in one query.
+
+    Only the ungrouped instance is read, because a source that shows one state per alert has no
+    groups. A configuration with no check in the window is left out.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = sync_execute(
+        _HISTORY_SQL,
+        {"team_id": team_id, "configuration_ids": list(configuration_ids), "since": since, "until": until},
+        team_id=team_id,
+    )
+    changes: dict[UUID, list[PlatformStateChange]] = {}
+    latest: dict[UUID, tuple[datetime, str]] = {}
+    for configuration_id, occurred_at, previous_state, state, error_message, is_latest in rows:
+        if previous_state != state:
+            changes.setdefault(configuration_id, []).append(
+                PlatformStateChange(
+                    occurred_at=occurred_at,
+                    previous_state=PlatformAlertState(previous_state),
+                    state=PlatformAlertState(state),
+                )
+            )
+        if is_latest:
+            latest[configuration_id] = (occurred_at, error_message)
+    return {
+        configuration_id: PlatformAlertHistory(
+            state_changes=tuple(changes.get(configuration_id, ())),
+            last_checked_at=last_checked_at,
+            last_error_message=error_message or None,
+        )
+        for configuration_id, (last_checked_at, error_message) in latest.items()
+    }
