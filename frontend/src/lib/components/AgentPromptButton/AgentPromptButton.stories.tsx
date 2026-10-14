@@ -42,14 +42,12 @@ const ERROR_ACTIONS = [
 export const Default: Story = {
     args: {
         actions: ERROR_ACTIONS,
-        storageKey: 'story-agent-prompt-button',
     },
 }
 
 export const OpenDropdown: Story = {
     args: {
         actions: ERROR_ACTIONS,
-        storageKey: 'story-agent-open-dropdown',
         defaultOpen: true,
     },
     parameters: {
@@ -69,7 +67,6 @@ export const SingleAction: Story = {
                 buildPrompt: () => 'Fix this error.',
             },
         ],
-        storageKey: 'story-agent-single',
     },
 }
 
@@ -78,12 +75,7 @@ export const SizeVariants: Story = {
     render: (): JSX.Element => (
         <div className="flex flex-col items-start gap-2">
             {(['xs', 'sm', 'default', 'lg'] as const).map((size) => (
-                <AgentPromptButton
-                    key={size}
-                    actions={ERROR_ACTIONS}
-                    storageKey={`story-agent-size-${size}`}
-                    size={size}
-                />
+                <AgentPromptButton key={size} actions={ERROR_ACTIONS} size={size} />
             ))}
         </div>
     ),
@@ -94,12 +86,7 @@ export const IntentVariants: Story = {
     render: (): JSX.Element => (
         <div className="flex flex-col items-start gap-2">
             {(['default', 'primary', 'outline', 'destructive', 'link-muted'] as const).map((variant) => (
-                <AgentPromptButton
-                    key={variant}
-                    actions={ERROR_ACTIONS}
-                    storageKey={`story-agent-variant-${variant}`}
-                    variant={variant}
-                />
+                <AgentPromptButton key={variant} actions={ERROR_ACTIONS} variant={variant} />
             ))}
         </div>
     ),

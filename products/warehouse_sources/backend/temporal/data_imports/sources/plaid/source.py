@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
+    codebase_detection = detect(
+        env=("^PLAID_", "^VITE_PLAID_ENV$"),
+        script_hosts=("cdn.plaid.com",),
+        npm=(
+            "plaid",
+            "react-plaid-link",
+            "react-native-plaid-link-sdk",
+            "@types/plaid-link",
+            "ngx-plaid-link",
+            "@jcss/vue-plaid-link",
+            "plaid-fetch",
+        ),
+        pypi=("plaid-python",),
+        cargo=("plaid",),
+        cocoapods=("Plaid",),
+        composer=("tomorrow-ideas/plaid-sdk-php",),
+        go=("github.com/plaid/plaid-go",),
+        hex=("plaid_elixir",),
+        maven=("com.plaid:plaid-java", "com.plaid.link:sdk-core"),
+        pub=("plaid_link_flutter", "plaid_flutter"),
+        rubygems=("plaid",),
+        swiftpm=("github.com/plaid/plaid-link-ios-spm", "github.com/plaid/plaid-link-ios"),
+    )
+
     api_docs_url = "https://plaid.com/docs/api/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

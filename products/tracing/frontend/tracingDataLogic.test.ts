@@ -197,7 +197,32 @@ describe('tracingDataLogic', () => {
             },
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
-            expect(captureSpy).toHaveBeenCalledWith(event, properties)
+            expect(captureSpy).toHaveBeenCalledWith(event, ...(properties ? [properties] : []))
+        })
+
+        it('records that a service name filter scoped the trace lookup', () => {
+            logic.actions.setServiceNames(['checkout-api'])
+            logic.actions.loadTraceSpans({ traceId: 'trace-x' })
+            expect(logic.values.traceLoadFiltersActive).toBe(true)
+        })
+
+        // Filters changing mid-flight must not rescope or relabel a request made under the old filters.
+        it('keeps the filters active at request time through the widened lookup', async () => {
+            type TraceResponse = Awaited<ReturnType<typeof api.tracing.getTrace>>
+            const empty: TraceResponse = { results: [], hasMore: false, nextOffset: null }
+            let releaseBoundedLookup: (response: TraceResponse) => void = () => {}
+            const getTraceSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((resolve) => (releaseBoundedLookup = resolve)))
+                .mockResolvedValueOnce(empty)
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-x', ts: '2024-01-01T00:00:00Z' })
+            logic.actions.setServiceNames(['checkout-api'])
+            releaseBoundedLookup(empty)
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            expect(getTraceSpy.mock.calls.map(([, params]) => params?.serviceNames)).toEqual([undefined, undefined])
+            expect(logic.values.traceLoadFiltersActive).toBe(false)
         })
     })
 
@@ -471,6 +496,45 @@ describe('tracingDataLogic', () => {
             logic.actions.fetchSpans()
 
             expect(logic.values.spansError).toBeNull()
+        })
+
+        it('flags a failed trace load and clears the flag once the next trace load starts', () => {
+            logic = mountWithSpans([])
+            logic.actions.loadTraceSpansFailure('boom')
+            expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+            // Reopening a trace (even a different one) must not inherit the previous failure.
+            logic.actions.loadTraceSpans({ traceId: 'trace-1' })
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+        })
+
+        it('does not flag a failure when a superseded trace load rejects after the newer one resolved', async () => {
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+            let rejectA: (error: Error) => void = () => {}
+            let resolveB: (value: { results: Span[]; hasMore: boolean; nextOffset: number | null }) => void = () => {}
+            const apiSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectA = reject)))
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)))
+            logic = mountWithSpans([])
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-a' })
+            logic.actions.loadTraceSpans({ traceId: 'trace-b' })
+
+            const bSpans = [createMockSpan('span-b', '2024-01-01T04:00:00Z')]
+            resolveB({ results: bSpans, hasMore: false, nextOffset: null })
+            await flushPromises()
+
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+
+            // trace A's late rejection must not mark trace B's spans as failed.
+            rejectA(new Error('boom'))
+            await flushPromises()
+
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            apiSpy.mockRestore()
         })
     })
 

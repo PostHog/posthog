@@ -94,6 +94,14 @@ describe('watchFeedLogic', () => {
         expect(params.get('tags')).toBe('checkout')
 
         await expectLogic(logic, () => {
+            logic.actions.setCreatedByFilter(['7', '12'])
+        })
+            .toDispatchActions(['loadFeedSuccess'])
+            .toFinishAllListeners()
+        params = new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams
+        expect(params.get('created_by')).toBe('7,12')
+
+        await expectLogic(logic, () => {
             logic.actions.setSearch('  coupon  ')
         })
             .toDispatchActions(['loadFeedSuccess'])
@@ -113,12 +121,13 @@ describe('watchFeedLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setScannerIdsFilter(['scanner-a'])
+            logic.actions.setCreatedByFilter(['7'])
         })
             .toDispatchActions(['loadFeedSuccess'])
             .toFinishAllListeners()
 
-        // A link that names only tags is a full snapshot: tags apply and the remembered scanner clears,
-        // in a single load, so the same link shows the same feed to every recipient.
+        // A link that names only tags is a full snapshot: tags apply and the remembered scanner and creator
+        // clear, in a single load, so the same link shows the same feed to every recipient.
         await expectLogic(logic, () => {
             router.actions.push('/replay-vision?feed_tags=checkout')
         })
@@ -126,19 +135,28 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         expect(logic.values.tagsFilter).toEqual(['checkout'])
         expect(logic.values.scannerIdsFilter).toEqual([])
+        expect(logic.values.createdByFilter).toEqual([])
         const params = new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams
         expect(params.get('tags')).toBe('checkout')
         expect(params.get('scanner_ids')).toBeNull()
+        expect(params.get('created_by')).toBeNull()
     })
 
     it('clears every filter at once', async () => {
         logic.mount()
         logic.actions.setScannerIdsFilter(['scanner-a'])
         logic.actions.setTagsFilter(['checkout'])
+        logic.actions.setCreatedByFilter(['7'])
         await expectLogic(logic, () => {
             logic.actions.clearFeedFilters()
         })
-            .toMatchValues({ scannerIdsFilter: [], tagsFilter: [], search: '', hasFeedFilters: false })
+            .toMatchValues({
+                scannerIdsFilter: [],
+                tagsFilter: [],
+                createdByFilter: [],
+                search: '',
+                hasFeedFilters: false,
+            })
             .toFinishAllListeners()
     })
 

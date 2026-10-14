@@ -27,3 +27,8 @@ def test_infrastructure_retry_budget(argv: list[str], expected: int | None) -> N
         assert error.value.code == 2
     else:
         assert parse_args(argv).infrastructure_retries == expected
+
+
+@pytest.mark.parametrize("argv,verbose", [([], False), (["--verbose"], True)])
+def test_console_output_detail(argv: list[str], verbose: bool) -> None:
+    assert parse_args(argv).verbose is verbose

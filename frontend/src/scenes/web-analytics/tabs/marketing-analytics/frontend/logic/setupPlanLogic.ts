@@ -100,6 +100,7 @@ export interface setupPlanLogicValues {
     safeBatch: Suggestion[]
     scanClock: number
     setupPlan: SetupPlanResponse | null
+    setupPlanFailed: boolean
     setupPlanLoading: boolean
     showDismissed: boolean
     sourceScanDisabledReason: string | null
@@ -308,6 +309,14 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
         ],
     })),
     reducers({
+        setupPlanFailed: [
+            false,
+            {
+                loadSetupPlan: () => false,
+                loadSetupPlanSuccess: () => false,
+                loadSetupPlanFailure: () => true,
+            },
+        ],
         scanClock: [Date.now(), { setScanClock: (_, { now }) => now }],
         sourceScanTimes: [
             {} as Record<number, number>,
@@ -451,7 +460,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
         rescanSources: () => {
             actions.setScanClock(Date.now())
             if (!values.setupPlanLoading && !values.sourceScanDisabledReason) {
-                actions.loadSetupPlan({ refresh: !!values.setupPlan })
+                actions.loadSetupPlan({ refresh: true })
             }
         },
         loadSetupPlanSuccess: ({ setupPlan }) => {

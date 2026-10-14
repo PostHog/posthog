@@ -169,7 +169,7 @@ class SandboxedEvalHarness:
             flags = ", ".join(self.options.sandbox_flags_set)
             raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
-        reporter = ProgressReporter(total_suites=len(suites))
+        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose)
         reporter.print_run_header(
             provider=self.options.provider,
             agent_runtime=self.options.agent_runtime,
@@ -183,6 +183,7 @@ class SandboxedEvalHarness:
         results: list[SuiteRunResult] | None = None
         interrupted = False
         try:
+            reporter.setup_started("check configuration")
             validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
             if Infra.SANDBOX in required:
                 self.provider = build_provider(
@@ -193,7 +194,9 @@ class SandboxedEvalHarness:
                 self._validate_agent_options()
                 self.provider.preflight()
             if Infra.PERSONHOG in required:
+                reporter.setup_started("build personhog")
                 ensure_personhog_binaries()
+            reporter.setup_started("start shared services and prepare demo data")
             self._bootstrap(required)
             results = asyncio.run(self._run_suites(suites, required, reporter))
         except KeyboardInterrupt:
@@ -394,7 +397,8 @@ class SandboxedEvalHarness:
                 )
             else:
                 logger.info("Running %d suite(s) without sandbox infrastructure", len(suites))
-            results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
+            async with reporter.live_updates():
+                results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
         return results
 
     async def _sweep_notebook_kernels(self) -> None:

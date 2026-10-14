@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Spinner, Link } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -661,6 +662,7 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const setupEnabled =
         !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ||
@@ -687,7 +689,7 @@ export function MarketingAnalyticsScene(): JSX.Element {
                                         type="secondary"
                                         size="small"
                                         icon={<IconComment />}
-                                        id="marketing-analytics-feedback-button"
+                                        onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
                                     >
                                         Send feedback
                                     </LemonButton>

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,25 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SuperwallSource(ResumableSource[SuperwallSourceConfig, SuperwallResumeConfig]):
+    codebase_detection = detect(
+        env=("^SUPERWALL_", "^EXPO_PUBLIC_SUPERWALL_"),
+        npm=(
+            "expo-superwall",
+            "@superwall/react-native-superwall",
+            "@superwall/paywalls-js",
+            "@superwall/paywalls-react",
+            "@superwall/server",
+            "@superwall/cli",
+            "superwall",
+            "superwall-api",
+            "@capawesome/capacitor-superwall",
+        ),
+        cocoapods=("SuperwallKit",),
+        maven=("com.superwall.sdk:superwall-android", "com.superwall.sdk:superwall-compose"),
+        pub=("superwallkit_flutter",),
+        swiftpm=("github.com/superwall/superwall-ios", "github.com/superwall-me/superwall-ios"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

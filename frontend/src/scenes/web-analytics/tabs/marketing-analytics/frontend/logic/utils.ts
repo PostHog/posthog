@@ -1,4 +1,8 @@
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import { objectClean } from 'lib/utils/objects'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
+import { SeriesNode, isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     AttributionMode,
@@ -14,6 +18,12 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
+import {
+    DISTINCT_ID_FIELD_SCHEMA_FIELD,
+    TIMESTAMP_FIELD_SCHEMA_FIELD,
+    UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+    UTM_SOURCE_NAME_SCHEMA_FIELD,
+} from '~/taxonomy/marketingAnalytics'
 import { ExternalDataSource, HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -250,6 +260,82 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
         column === draftConversionGoal.conversion_goal_name ||
         column === `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`
     )
+}
+
+type ConversionGoalFields = Pick<
+    ConversionGoalFilter,
+    'conversion_goal_id' | 'conversion_goal_name' | 'schema_map' | 'counts_as_customer' | 'counts_as_revenue'
+>
+
+function splitConversionGoal(goal: ConversionGoalFilter): { fields: ConversionGoalFields; node: SeriesNode } {
+    const { conversion_goal_id, conversion_goal_name, schema_map, counts_as_customer, counts_as_revenue, ...node } =
+        goal
+    return {
+        fields: objectClean({
+            conversion_goal_id,
+            conversion_goal_name,
+            schema_map,
+            counts_as_customer,
+            counts_as_revenue,
+        }),
+        node,
+    }
+}
+
+export function conversionGoalToSeries(goal: ConversionGoalFilter): SeriesNode[] {
+    const { node } = splitConversionGoal(goal)
+    // An older goal shape marks a warehouse table with a `type` field on an events node.
+    if ('type' in node && node.type === 'data_warehouse') {
+        const { type, event, ...warehouse } = node as SeriesNode & { type: string; event?: string | null }
+        const tableName = (warehouse as Partial<DataWarehouseNode>).table_name ?? ''
+        return [{ ...warehouse, kind: NodeKind.DataWarehouseNode, table_name: tableName, id: tableName } as SeriesNode]
+    }
+    return [node]
+}
+
+/**
+ * Writes the series a conversion goal picker emits back onto the goal, or returns null when the
+ * picker emits none. Node fields come only from the series, so a field the picker drops on an
+ * entity switch, such as a table column or a stale `math_property`, does not come back from the
+ * previous goal.
+ */
+export function seriesToConversionGoal(goal: ConversionGoalFilter, series: SeriesNode[]): ConversionGoalFilter | null {
+    const [node] = cleanSeriesNodes(series, MathAvailability.All)
+    if (!node) {
+        return null
+    }
+    const { fields } = splitConversionGoal(goal)
+
+    if (!isWarehouseSeriesNode(node)) {
+        // Stored goals always carry a properties list, even an empty one.
+        return { ...fields, ...node, properties: node.properties ?? [] } as ConversionGoalFilter
+    }
+
+    // The warehouse picker puts the UTM columns on the node, but the goal schema keeps them in
+    // `schema_map` only and rejects them on the node.
+    const {
+        [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: utmCampaignName,
+        [UTM_SOURCE_NAME_SCHEMA_FIELD]: utmSourceName,
+        ...warehouse
+    } = node as DataWarehouseNode & Partial<Record<string, string>>
+    const tableName = warehouse.table_name || ''
+    return {
+        ...fields,
+        ...warehouse,
+        kind: NodeKind.DataWarehouseNode,
+        id: tableName,
+        table_name: tableName,
+        id_field: warehouse.id_field || warehouse.distinct_id_field || 'id',
+        distinct_id_field: warehouse.distinct_id_field || 'distinct_id',
+        timestamp_field: warehouse.timestamp_field || 'timestamp',
+        properties: warehouse.properties ?? [],
+        schema_map: {
+            [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: utmCampaignName,
+            [UTM_SOURCE_NAME_SCHEMA_FIELD]: utmSourceName,
+            [TIMESTAMP_FIELD_SCHEMA_FIELD]: warehouse.timestamp_field,
+            [DISTINCT_ID_FIELD_SCHEMA_FIELD]: warehouse.distinct_id_field,
+        },
+    }
 }
 
 /**
@@ -767,7 +853,9 @@ export const columnTileConfig: {
 ) as any
 
 function buildNativeCostExpr(mappings: SourceColumnMappings): string {
-    return mappings.costNeedsDivision ? `toFloat(${mappings.cost} / 1000000)` : `toFloat(${mappings.cost})`
+    // Some sources sync their cost column as a string, so cast before the division
+    const costExpr = safeFloat(mappings.cost)
+    return mappings.costNeedsDivision ? `${costExpr} / 1000000` : costExpr
 }
 
 function buildNativeTileNode(

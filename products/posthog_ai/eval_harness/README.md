@@ -76,6 +76,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                         |
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
+| `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
@@ -100,8 +101,18 @@ Case metadata records `setup_attempts` and `setup_retry_errors`.
 The runner retries neither agent work nor low scores, case timeouts, authentication errors, setup code errors, or services that exit during startup.
 Existing sandbox-creation and storage-read retries still apply.
 
+The case budget starts after team setup. Polling uses one monotonic deadline across all turns.
+The harness reserves up to 120 seconds, capped at one quarter of the case budget, for log recovery and cleanup.
+The outer case timeout remains the final guard. Slow setup or storage reads cannot give a follow-up a fresh case budget.
+Poll timeouts keep their diagnostic stage and log counts in case metadata and the local artifacts file. They remain scored timeouts.
+A timeout summary contains the failure reason. Its raw log file can be empty; the full run transcript retains streamed agent output.
+
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
+Normal console output shows runner progress, summaries, and short error messages.
+Dependency warnings, SDK progress bars, and direct setup prints stay in the transcript.
+`--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
+Native subprocess output always goes to the transcript.
 
 ### Comparing skill delivery
 
@@ -113,14 +124,43 @@ hogli evals eval_skill_distribution --skill-delivery bundled --agent-runtime cla
 hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
 ```
 
-Both runs use the same six prompts and Braintrust history key.
+Both runs use the same prompts and Braintrust history key.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`, so compare cross-run scores within one runtime and delivery mode.
+Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
+
+### Claude and Codex smoke comparison
+
+Start with one fixed MCP case. It checks skill discovery and tool use for a historical traffic query.
+Both commands below use the same case, provider, skill delivery, concurrency, and scorers.
+Run them in order from the same checkout. Separate harness processes share service ports, so do not run them together.
+
+Prepare the normal [provider prerequisites](#providers) and both model credentials before starting.
+Claude requires `LLM_GATEWAY_ANTHROPIC_API_KEY`; Codex also requires `LLM_GATEWAY_OPENAI_API_KEY`.
+
+```bash
+eval_comparison_args=(
+    cli_mcp/eval_skill_distribution::eval_skill_distribution
+    --eval historical_traffic_share_by_type
+    --provider modal
+    --max-sandboxes 1
+    --skill-delivery exec
+    --trials 1
+)
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-5.5
+```
+
+Compare the named scorer results, completed cases, timeouts, infrastructure errors, and total duration in both final summaries.
+Keep both transcript paths and both agent-log directories. Each directory contains `case_results.jsonl` with scores and trial IDs.
+Check the recorded `git_sha` and `git_dirty` values before comparing runs.
+Treat missing or errored trials as incomplete coverage, rather than a model score.
+This is a smoke comparison, not a broad model ranking. Set `--trials 3` in the shared arguments to check repeatability after the first pair completes.
+Remove `--eval historical_traffic_share_by_type` to compare the full skill-distribution suite.
 
 ## Providers
 
@@ -273,11 +313,20 @@ python -m products.posthog_ai.eval_harness.harness --list | grep my_thing
 
 ## Output
 
-Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
+Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
 Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
+The console shows case starts and phase changes for each trial.
+A status line every 30 seconds shows execution totals, phase counts, elapsed time, and the oldest active trial.
+`CASE READY` means execution completed; scoring and result collection are still pending.
+`CASE DONE` and `EXPERIMENT DONE` mean the scores are ready.
+The `scoring` phase includes time waiting for all results in that experiment, so it is not an isolated scorer duration.
+Use `--verbose` to show detailed service and agent logs in the console. The transcript retains these logs in both modes.
+Warnings and errors use short console messages. Open the transcript for full tracebacks.
+
 The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
 Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.
-A crashed suite is labeled `CRASH`, includes its traceback in the summary, and makes the run exit nonzero without taking down the other suites.
+A crashed suite is labeled `CRASH` and makes the run exit nonzero without taking down the other suites.
+Its full traceback stays in the transcript. `--verbose` also shows the traceback in the final summary.
 
 Every real eval invocation mirrors its complete stdout and stderr to:
 
@@ -290,7 +339,10 @@ The final terminal line is the unlabeled absolute path, with no output after it,
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
-Raw per-case agent logs land on local disk (`<case>.jsonl`, `<case>.artifacts.json`, `<case>.summary.txt`), which is usually the fastest way to see what the agent actually did.
+Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
+The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
+Case names and `--eval` filters stay the same.
 
 `SandboxedPublicEval` sets `no_send_logs=False` and reports results to both Braintrust and PostHog.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
