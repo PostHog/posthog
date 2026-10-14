@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0173_signalreportslackthread_kind_target_reply_ts"),
-    ]
+    dependencies = [("signals", "0174_signalreport_search_trgm_indexes")]
 
     operations = [
         migrations.AddField(
