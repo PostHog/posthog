@@ -138,6 +138,10 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     '$geoip_continent_code',
     '$geoip_postal_code',
     '$geoip_time_zone',
+    '$geoip_subdivision_1_code',
+    '$geoip_subdivision_1_name',
+    '$geoip_subdivision_2_code',
+    '$geoip_subdivision_2_name',
     // Person and group identifiers
     '$group_key',
     'distinct_id',
