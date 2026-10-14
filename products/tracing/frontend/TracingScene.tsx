@@ -22,7 +22,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
-import { FacetRail } from './components/FacetRail/FacetRail'
+import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { TracingSqlEditor } from './components/TracingSqlEditor/TracingSqlEditor'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
@@ -284,7 +284,7 @@ function TracingSceneContents(): JSX.Element {
                     }
                 />
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
+                    {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
                         {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
