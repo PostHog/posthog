@@ -733,8 +733,8 @@ export interface WizardCatalogToolApi {
      * * `in-cli` - In the terminal
      * * `deep-link` - In the app */
     wizard_setup_mode: WizardSetupModeEnumApi | null
-    /** PostHog products this tool competes with. */
-    competes_with: string[]
+    /** PostHog products this tool is an alternative to. */
+    alternative_to: string[]
     /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
     superseded_by: string[]
     /** How the wizard detects the tool in a codebase. */

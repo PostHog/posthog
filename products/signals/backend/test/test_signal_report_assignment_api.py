@@ -645,12 +645,28 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
-    def test_resolved_report_cannot_be_claimed(self):
-        report = self._create_report(report_status=SignalReport.Status.RESOLVED)
+    @parameterized.expand(
+        [
+            ("resolved", SignalReport.Status.RESOLVED, False, "resolved"),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, "monitoring"),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, "resolved"),
+            ("monitoring_unavailable", SignalReport.Status.MONITORING, RuntimeError("flag unavailable"), "resolved"),
+        ]
+    )
+    def test_resolved_report_cannot_be_claimed(
+        self, _name: str, report_status: str, flag_result: bool | Exception, expected_status: str
+    ) -> None:
+        report = self._create_report(report_status=report_status)
 
-        response = self.client.post(self._claim_url(report), data={}, format="json")
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            response = self.client.post(self._claim_url(report), data={}, format="json")
 
         assert response.status_code == status.HTTP_409_CONFLICT
+        assert f"status '{expected_status}'" in response.json()["detail"]
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
     def test_suppressed_report_cannot_be_claimed(self):

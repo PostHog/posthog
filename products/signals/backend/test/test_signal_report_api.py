@@ -1115,17 +1115,17 @@ class TestSignalReportListAPI(APIBaseTest):
 
             ordered = self.client.get(self._list_url(ordering="status,-total_weight"))
             assert ordered.status_code == status.HTTP_200_OK
-            expected_order = [str(ready.id), *([] if enabled else [str(monitoring.id)]), str(resolved.id)]
+            expected_order = [str(ready.id), str(monitoring.id), str(resolved.id)]
             assert [row["id"] for row in ordered.json()["results"]] == expected_order
 
             detail = self.client.get(f"{self._list_url()}{monitoring.id}/")
-            assert detail.status_code == (status.HTTP_404_NOT_FOUND if enabled else status.HTTP_200_OK)
+            assert detail.status_code == status.HTTP_200_OK
             if not enabled:
                 assert detail.json()["status"] == "resolved"
                 assert detail.json()["work_state"] == "done"
                 assert "monitoring_started_at" not in detail.json()
             evidence = self.client.get(f"{self._list_url()}{monitoring.id}/signals/")
-            assert evidence.status_code == (status.HTTP_404_NOT_FOUND if enabled else status.HTTP_200_OK)
+            assert evidence.status_code == status.HTTP_200_OK
             if not enabled:
                 assert evidence.json()["report"]["status"] == "resolved"
                 assert evidence.json()["report"]["work_state"] == "done"
@@ -1179,7 +1179,7 @@ class TestSignalReportListAPI(APIBaseTest):
         other_organization.members.add(self.user)
         other_team = Team.objects.create(organization=other_organization)
         monitoring = self._create_report(status=SignalReport.Status.MONITORING)
-        self._create_report(team=other_team, status=SignalReport.Status.MONITORING)
+        other_monitoring = self._create_report(team=other_team, status=SignalReport.Status.MONITORING)
 
         def evaluate(flag: str, distinct_id: str, **kwargs: object) -> bool:
             return distinct_id == str(other_organization.id)
@@ -1187,10 +1187,12 @@ class TestSignalReportListAPI(APIBaseTest):
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", side_effect=evaluate):
             disabled = self.client.get(self._list_url(status="resolved"))
             enabled = self.client.get(f"/api/projects/{other_team.id}/signals/reports/?status=resolved")
+            enabled_detail = self.client.get(f"/api/projects/{other_team.id}/signals/reports/{other_monitoring.id}/")
 
         assert disabled.status_code == enabled.status_code == status.HTTP_200_OK
         assert [row["id"] for row in disabled.json()["results"]] == [str(monitoring.id)]
         assert enabled.json()["results"] == []
+        assert enabled_detail.json()["status"] == "monitoring"
 
     @parameterized.expand(
         [
@@ -2779,6 +2781,43 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
+    @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
+    def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        report = self._create_report()
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
+            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+            report.save(
+                update_fields=report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
+            )
+        report.refresh_from_db()
+        original_start = report.monitoring_started_at
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
+            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+            repeated = self.client.post(self._state_url(str(report.id)), {"state": "resolved"})
+            assert repeated.status_code == status.HTTP_200_OK
+            assert repeated.json()["status"] == "resolved"
+            assert repeated.json()["work_state"] == "done"
+            assert "monitoring_started_at" not in repeated.json()
+            for target, expected in [
+                ("suppressed", "suppressed"),
+                ("potential", "resolved"),
+                ("potential", "potential"),
+            ]:
+                response = self.client.post(self._state_url(str(report.id)), {"state": target})
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["status"] == expected
+            report.refresh_from_db()
+            assert report.monitoring_started_at is None
+        assert original_start is not None
+
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
 
@@ -3230,6 +3269,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                     "reset_weight": True,
                     "error": "injected",
                     "signals_at_run_increment": 999,
+                    "monitoring_started_at": "2000-01-01T00:00:00Z",
                 }
             ),
             content_type="application/json",
@@ -3241,6 +3281,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.total_weight == 9.0
         assert report.error is None
         assert report.signals_at_run == 0
+        assert report.monitoring_started_at is None
 
     def test_can_reopen_suppressed_report(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
@@ -3607,6 +3648,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
             # somewhere the pipeline never looks again while the sources archive for good. A
             # suppressed one is not visible to this action at all.
             ("resolved", SignalReport.Status.RESOLVED, status.HTTP_409_CONFLICT),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, status.HTTP_409_CONFLICT),
             ("suppressed", SignalReport.Status.SUPPRESSED, status.HTTP_404_NOT_FOUND),
         ]
     )
@@ -3614,7 +3656,11 @@ class TestSignalReportMergeAPI(APIBaseTest):
         survivor = self._report(report_status=survivor_status, signal_count=3)
         source = self._report(signal_count=2)
 
-        assert self._merge(survivor, source).status_code == expected_code
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            response = self._merge(survivor, source)
+        assert response.status_code == expected_code
+        if survivor_status == SignalReport.Status.MONITORING:
+            assert "is resolved" in response.json()["error"]
 
         source.refresh_from_db()
         survivor.refresh_from_db()
@@ -3625,6 +3671,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
         [
             ("self_merge", "self", "cannot be merged into itself"),
             ("resolved_source", SignalReport.Status.RESOLVED, "cannot be merged"),
+            ("monitoring_disabled_source", SignalReport.Status.MONITORING, "is resolved"),
             ("suppressed_source", SignalReport.Status.SUPPRESSED, "cannot be merged"),
             # A research run is writing to an in-progress report, and `SUPPRESSED -> READY` is
             # legal, so the run would resurrect it after the merge moved its work away.
@@ -3645,7 +3692,8 @@ class TestSignalReportMergeAPI(APIBaseTest):
         else:
             source = self._report(report_status=source_spec)
 
-        response = self._merge(survivor, source)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            response = self._merge(survivor, source)
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         assert expected_error in response.json()["error"]
@@ -3974,6 +4022,7 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
                 {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "suppressed", "dismissal_reason": "made_up"},
             ),
             ("invalid_state", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "ready"}),
+            ("monitoring_not_available", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "monitoring"}),
             ("non_uuid_id", {"ids": ["not-a-uuid"], "state": "suppressed"}),
         ]
     )
@@ -4717,7 +4766,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             for visibility, report_status, flag_enabled, expected_status in [
                 ("suppressed", SignalReport.Status.SUPPRESSED, False, status.HTTP_200_OK),
                 ("monitoring_disabled", SignalReport.Status.MONITORING, False, status.HTTP_200_OK),
-                ("monitoring_enabled", SignalReport.Status.MONITORING, True, status.HTTP_404_NOT_FOUND),
+                ("monitoring_enabled", SignalReport.Status.MONITORING, True, status.HTTP_200_OK),
             ]
         ]
     )

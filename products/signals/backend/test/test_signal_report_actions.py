@@ -185,7 +185,7 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
         [
             ("suppressed", SignalReport.Status.SUPPRESSED, False, True),
             ("monitoring_disabled", SignalReport.Status.MONITORING, False, True),
-            ("monitoring_enabled", SignalReport.Status.MONITORING, True, False),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, True),
         ]
     )
     def test_visible_reports_record_their_views(

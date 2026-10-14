@@ -116,7 +116,7 @@ class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
             "github.com/splitio/ios-rum",
             "github.com/splitio/split-openfeature-provider-swift",
         ),
-        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -100,7 +100,7 @@ class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConf
             "github.com/flagsmith/flagsmith-ios-client",
             "github.com/flagsmith/flagsmith-openfeature-swift-provider",
         ),
-        competes_with=(ProductKey.FEATURE_FLAGS,),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
