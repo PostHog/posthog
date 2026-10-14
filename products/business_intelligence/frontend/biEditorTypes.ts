@@ -1446,7 +1446,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         : dimensions.map(({ field, alias }) =>
               hasSeriesBreakdown || comparing || hasBIAnalysis(config)
                   ? `${fieldExpression(field)} AS ${alias}`
-                  : fieldExpression(field)
+                  : `${fieldExpression(field)} AS ${escapeRawPropertyAsHogQLIdentifier(fieldExpression(field))}`
           )
     const valueExpressions =
         configuredValues.length > 0

@@ -304,7 +304,7 @@ describe('BI editor query generation', () => {
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
             'SELECT',
-            '    event,',
+            '    event AS event,',
             '    sum(properties.revenue) AS sum_revenue',
             'FROM events',
             'WHERE',
@@ -519,7 +519,7 @@ describe('BI editor query generation', () => {
         expect(result?.query).toEqual(
             [
                 'SELECT',
-                '    event,',
+                '    event AS event,',
                 '    count(*) AS count',
                 'FROM events',
                 'WHERE',
@@ -678,6 +678,7 @@ describe('BI editor query generation', () => {
         })
 
         expect(result?.query).toContain(`${dateBucketFunction}(timestamp)`)
+        expect(result?.query).toContain(`${dateBucketFunction}(timestamp) AS "${dateBucketFunction}(timestamp)"`)
     })
 
     test.each([
