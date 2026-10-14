@@ -81,6 +81,5 @@ export function urlForRecurringReport(report: MCPRecurringReport): string {
         prompt: report.prompt,
         title: report.title,
         frequency: report.frequency,
-        target_type: 'slack',
     }).url
 }
