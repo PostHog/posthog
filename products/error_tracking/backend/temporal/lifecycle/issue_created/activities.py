@@ -31,6 +31,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
+from products.error_tracking.backend.temporal.grouping_judge.inline import MAX_DOCUMENT_CHARS
 from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
@@ -152,6 +153,7 @@ def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> Issu
                 source_issue_id=inputs.issue_id,
                 event_uuid=inputs.event_uuid,
                 event_timestamp=inputs.event_timestamp,
+                content=content[:MAX_DOCUMENT_CHARS],
             ),
             content=content,
         ),
