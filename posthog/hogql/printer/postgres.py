@@ -116,7 +116,9 @@ class PostgresPrinter(BasePrinter):
         return node.name.upper()
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() == "sha1":
+        if node.name.lower() == "sha1" and (
+            self.DIALECT_NAME != "postgres" or "sha1" not in self._connection_supported_functions
+        ):
             validate_function_args(node.args, 1, 1, node.name)
 
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:

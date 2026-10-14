@@ -6468,6 +6468,32 @@ class TestGetSslmode:
 
 
 class TestPostgresConnectionMetadata:
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("table_functions", [False, True])
+    def test_failed_function_probe_does_not_block_extension_discovery(self, autocommit_pg_connection, table_functions):
+        connection = autocommit_pg_connection
+        connection.autocommit = False
+        execute = psycopg.Cursor.execute
+
+        def execute_with_failed_probe(cursor, query, *args, **kwargs):
+            if "FROM pg_proc" in query and ("proretset" in query) == table_functions:
+                return execute(cursor, "SELECT 1 / 0")
+            return execute(cursor, query, *args, **kwargs)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.pg_connection") as connect,
+            patch(f"{module}.capture_exception"),
+            patch.object(psycopg.Cursor, "execute", execute_with_failed_probe),
+        ):
+            connect.return_value.__enter__.return_value = connection
+            metadata = get_connection_metadata(
+                host="db.example.com", port=5432, database="analytics", user="reader", password="test"
+            )
+
+        assert "pgcrypto_schema" in metadata
+        assert metadata["available_table_functions" if table_functions else "available_functions"] == []
+
     @pytest.mark.parametrize(
         "version,extension,expected",
         [

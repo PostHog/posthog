@@ -440,6 +440,12 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "sha1('abc')",
                 "encode(crypto.digest(convert_to(%(hogql_val_0)s, 'UTF8'), 'sha1'), 'hex')",
             ),
+            (
+                "visible_sha1_overload",
+                {"available_functions": ["sha1"]},
+                "sha1('abc', 'hex')",
+                "sha1(%(hogql_val_0)s, %(hogql_val_1)s)",
+            ),
         ]
     )
     def test_generate_sql_for_direct_postgres_connection_metadata_function(self, _name, metadata, expression, expected):
