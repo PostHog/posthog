@@ -5,6 +5,8 @@ from collections.abc import Callable
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
@@ -13,7 +15,7 @@ from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, res
 from posthog.constants import AvailableFeature
 
 
-class TestRateLimit(BaseTest):
+class TestRateLimit(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.limit = RateLimit(
@@ -24,6 +26,7 @@ class TestRateLimit(BaseTest):
             get_task_key=lambda *args, **kwargs: f"limit:rate-limit-test-task:{kwargs.get('team_id') or args[1]}",
             get_task_id=lambda *args, **kwargs: f"{kwargs.get('task_id') or args[2]}",
             ttl=10,
+            allow_team_bypass=False,
         )
         self.cancels: list[ConcurrencySlot | None] = []
 
@@ -199,6 +202,7 @@ class TestRateLimit(BaseTest):
             ttl=10,
             retry=0.1,  # 100ms initial retry
             retry_timeout=0.5,  # 500ms total timeout
+            allow_team_bypass=False,
         )
 
         time_helper = TimeHelper()
@@ -237,6 +241,7 @@ class TestRateLimit(BaseTest):
             ttl=10,
             retry=0.1,  # 100ms initial retry
             retry_timeout=0.5,  # 500ms total timeout
+            allow_team_bypass=False,
         )
 
         slot = retry_limit.use(task_id=1)  # consumes the slot
