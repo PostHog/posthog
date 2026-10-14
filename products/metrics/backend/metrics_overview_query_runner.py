@@ -7,6 +7,7 @@ overview also reads the newest sample time from `metric_samples` and keeps the l
 
 import datetime as dt
 import contextvars
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 from opentelemetry import trace
@@ -17,7 +18,7 @@ from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -52,6 +53,16 @@ class _ServicesRollup:
     services: tuple[_ServiceRollup, ...]
     series: int
     last_seen: dt.datetime | None
+
+
+@frozen
+class _NewestSamples:
+    overall: dt.datetime | None
+    by_service: Mapping[str, dt.datetime]
+
+
+def _start_of_hour(timestamp: dt.datetime) -> dt.datetime:
+    return timestamp.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
 
 
 def _newest(series_last_seen: dt.datetime | None, newest_sample: dt.datetime | None) -> dt.datetime | None:
@@ -103,31 +114,62 @@ class MetricsOverviewQueryRunner:
                 return None
             return response.results[0][0]
 
-    def _run_newest_samples(self, since: dt.datetime) -> dict[str, dt.datetime]:
-        """The newest sample time per service, for samples at or after `since`.
+    def _run_newest_samples(
+        self, overall_since: dt.datetime, service_since: Mapping[str, dt.datetime]
+    ) -> _NewestSamples:
+        """The newest sample time of the team, and of each service in `service_since`.
 
-        Every sample of a series is at or after its labelled samples, so a read that starts at the series
-        `last_seen` finds the newest sample and reads only the hours after the last labelled sample.
+        Every sample of a series is at or after its labelled samples. So the read for a listed service starts
+        at the hour of that service's series `last_seen`, and the read for all other services starts at the hour
+        of the overall series `last_seen`. A listed service with old labelled samples does not make the query
+        read old hours of the other services.
         """
-        bucket_from = since.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
+        overall_bucket = ast.Constant(value=_start_of_hour(overall_since))
+        names = sorted(service_since)
+        if names:
+            names_tuple = ast.Tuple(exprs=[ast.Constant(value=name) for name in names])
+            listed_service = parse_expr(
+                "if(service_name IN {names}, service_name, NULL)", placeholders={"names": names_tuple}
+            )
+            bucket_from = parse_expr(
+                "transform(service_name, {names}, {buckets}, {overall_bucket})",
+                placeholders={
+                    "names": ast.Array(exprs=list(names_tuple.exprs)),
+                    "buckets": ast.Array(
+                        exprs=[ast.Constant(value=_start_of_hour(service_since[name])) for name in names]
+                    ),
+                    "overall_bucket": overall_bucket,
+                },
+            )
+        else:
+            listed_service = ast.Constant(value=None)
+            bucket_from = overall_bucket
+        earliest_since = min([overall_since, *service_since.values()])
+
         with tracer.start_as_current_span("metrics.overview.newest_sample") as span:
             span.set_attribute("team_id", self.team.pk)
+            # The constant bounds let the time_bucket and timestamp_max minmax indexes skip granules.
+            # The per-service bound only filters rows, so it keeps the timestamp array reads to the hours after
+            # each service's last labelled sample.
             query = parse_select(
                 """
                     SELECT
-                        service_name,
+                        {listed_service} AS listed_service,
                         toTimeZone(max(timestamp_max), 'UTC') AS newest_sample_at
                     FROM posthog.metric_samples
-                    WHERE time_bucket >= {bucket_from}
-                      AND timestamp_max >= {since}
-                    GROUP BY service_name
-                    ORDER BY newest_sample_at DESC
+                    WHERE time_bucket >= {earliest_bucket}
+                      AND timestamp_max >= {earliest_since}
+                      AND time_bucket >= {bucket_from}
+                    GROUP BY listed_service
                     LIMIT {limit}
                 """,
                 placeholders={
-                    "bucket_from": ast.Constant(value=bucket_from),
-                    "since": ast.Constant(value=since),
-                    "limit": ast.Constant(value=MAX_SERVICES),
+                    "listed_service": listed_service,
+                    "earliest_bucket": ast.Constant(value=_start_of_hour(earliest_since)),
+                    "earliest_since": ast.Constant(value=earliest_since),
+                    "bucket_from": bucket_from,
+                    # One row for each listed service and one row for all other services.
+                    "limit": ast.Constant(value=len(names) + 1),
                 },
             )
             assert isinstance(query, ast.SelectQuery)
@@ -141,7 +183,10 @@ class MetricsOverviewQueryRunner:
                 modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
             )
             _set_query_timing_attributes(span, response)
-            return dict(response.results)
+            return _NewestSamples(
+                overall=max((row[1] for row in response.results), default=None),
+                by_service={row[0]: row[1] for row in response.results if row[0] is not None},
+            )
 
     def _run_metric_names_count(self) -> int:
         with tracer.start_as_current_span("metrics.overview.metric_names") as span:
@@ -235,8 +280,14 @@ class MetricsOverviewQueryRunner:
                     metric_names = metric_names_future.result()
 
             series_last_seen = rollup.last_seen if rollup.services else self._run_freshness_fallback()
-            newest_samples = self._run_newest_samples(series_last_seen) if series_last_seen is not None else {}
-            last_seen = _newest(series_last_seen, max(newest_samples.values(), default=None))
+            newest_samples = (
+                self._run_newest_samples(
+                    series_last_seen, {service.service_name: service.last_seen for service in rollup.services}
+                )
+                if series_last_seen is not None
+                else _NewestSamples(overall=None, by_service={})
+            )
+            last_seen = _newest(series_last_seen, newest_samples.overall)
 
             return MetricsOverview(
                 last_seen=last_seen.isoformat() if last_seen is not None else None,
@@ -249,7 +300,7 @@ class MetricsOverviewQueryRunner:
                         metric_names=service.metric_names,
                         series=service.series,
                         last_seen=max(
-                            service.last_seen, newest_samples.get(service.service_name, service.last_seen)
+                            service.last_seen, newest_samples.by_service.get(service.service_name, service.last_seen)
                         ).isoformat(),
                     )
                     for service in rollup.services

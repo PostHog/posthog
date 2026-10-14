@@ -102,6 +102,60 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", newest)]
         )
 
+    @parameterized.expand(
+        [
+            (
+                "each_service_starts_from_its_own_series_last_seen",
+                500,
+                [
+                    ("api", {}, 0, True),
+                    ("worker", {}, 25, True),
+                    ("worker", {}, 5, False),
+                ],
+                [("api", 0), ("worker", 5)],
+            ),
+            (
+                "listed_services_are_picked_by_series_count_not_recency",
+                1,
+                [
+                    ("api", {"route": "/a"}, 30, True),
+                    ("api", {"route": "/b"}, 30, True),
+                    ("api", {"route": "/a"}, 10, False),
+                    ("worker", {}, 20, True),
+                    ("worker", {}, 0, False),
+                ],
+                [("api", 10)],
+            ),
+        ]
+    )
+    def test_each_listed_service_reads_its_own_newest_sample(
+        self,
+        _name: str,
+        max_services: int,
+        seeds: list[tuple[str, dict[str, str], int, bool]],
+        expected_services: list[tuple[str, int]],
+    ):
+        newest = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for service_name, labels, minutes_before_newest, has_labels in seeds:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http.duration",
+                points=[(newest - dt.timedelta(minutes=minutes_before_newest), 1.0)],
+                labels=labels,
+                service_name=service_name,
+                has_labels=has_labels,
+            )
+
+        with patch.object(metrics_overview_query_runner, "MAX_SERVICES", max_services):
+            overview = MetricsOverviewQueryRunner(team=self.team).run()
+
+        assert overview.last_seen is not None
+        self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), newest)
+        self.assertEqual(
+            [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services],
+            [(name, newest - dt.timedelta(minutes=minutes)) for name, minutes in expected_services],
+        )
+
     def test_services_query_reads_the_hourly_projection(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
