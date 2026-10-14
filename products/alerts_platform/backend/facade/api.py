@@ -46,7 +46,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
 
 def take_ownership(handover: PlatformOwnershipHandover) -> None:
-    """Makes the platform the owner of a copied alert. The caller writes the source's owner in the same transaction."""
+    """Makes the platform the owner of a copied alert, carrying on from the source's state."""
     platform_lifecycle.take_ownership(handover)
 
 

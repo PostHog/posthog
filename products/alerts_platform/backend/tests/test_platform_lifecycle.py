@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
@@ -92,7 +93,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             PlatformOwnershipHandover(
                 legacy_configuration_id=legacy_id,
                 team_id=self.team.id,
-                state="not_firing",
+                state=PlatformAlertState.NOT_FIRING,
                 last_notified_at=None,
                 consecutive_failures=0,
                 next_check_at=self.cutoff + timedelta(minutes=2),

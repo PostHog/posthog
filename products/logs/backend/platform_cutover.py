@@ -6,7 +6,6 @@ skipped with a reason, and a later run picks it up. The command is safe to run a
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -18,20 +17,13 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import PlatformOwnershipHandover
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.logs.backend.alert_state_machine import FIRING_STATES
+from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_alert_backfill import platform_upsert_of
+from products.logs.backend.platform_alert_backfill import PLATFORM_HANDOVER_STATE, platform_upsert_of
 
 State = LogsAlertConfiguration.State
-
-# A muted logs alert is a state of its own. On the platform a mute only silences notifications,
-# so the copy keeps checking with the snooze carried on `snooze_until`.
-_PLATFORM_STATE: dict[str, PlatformAlertState] = {
-    State.NOT_FIRING: PlatformAlertState.NOT_FIRING,
-    State.SNOOZED: PlatformAlertState.NOT_FIRING,
-    State.ERRORED: PlatformAlertState.ERRORED,
-    State.BROKEN: PlatformAlertState.BROKEN,
-}
 
 
 class CutoverSkip(StrEnum):
@@ -40,7 +32,8 @@ class CutoverSkip(StrEnum):
     ALREADY_MOVED = "already_moved"
     # The two stacks key incidents differently, so a firing moves only after it resolves.
     FIRING = "firing"
-    # A logs check may be running, and it could notify after the move.
+    # The logs scheduler owes this alert a check, which may already be running and could notify
+    # after the move.
     CHECK_DUE = "check_due"
 
 
@@ -53,7 +46,7 @@ class AlertCutover:
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
     """Hands every logs alert of one team to the platform, or says why one stays."""
     at = now or timezone.now()
-    alert_ids: Sequence[UUID] = list(
+    alert_ids = list(
         LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id").values_list("id", flat=True)
     )
     return tuple(AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, at)) for alert_id in alert_ids)
@@ -64,12 +57,15 @@ def _cut_over_alert(alert_id: UUID, at: datetime) -> CutoverSkip | None:
         alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
         if alert.platform_owned:
             return CutoverSkip.ALREADY_MOVED
-        platform_state = _PLATFORM_STATE.get(alert.state)
-        if platform_state is None:
+        if alert.state in FIRING_STATES:
             return CutoverSkip.FIRING
-        # A logs check advances `next_check_at` when it saves, so a later one under this lock means
-        # no logs check is between reading the alert and notifying for it.
-        if alert.enabled and (alert.next_check_at is None or alert.next_check_at <= at):
+        # A logs check advances `next_check_at` when it saves, so an alert the scheduler does not
+        # owe a check under this lock has no logs check between reading it and notifying for it.
+        if (
+            LogsAlertConfiguration.objects.filter(id=alert.id)
+            .filter(due_alerts_q(at, broken_state=State.BROKEN, snoozed_state=State.SNOOZED))
+            .exists()
+        ):
             return CutoverSkip.CHECK_DUE
 
         upsert_configuration(platform_upsert_of(alert))
@@ -77,7 +73,7 @@ def _cut_over_alert(alert_id: UUID, at: datetime) -> CutoverSkip | None:
             PlatformOwnershipHandover(
                 legacy_configuration_id=alert.id,
                 team_id=alert.team_id,
-                state=platform_state,
+                state=PLATFORM_HANDOVER_STATE[alert.state],
                 last_notified_at=alert.last_notified_at,
                 consecutive_failures=alert.consecutive_failures,
                 next_check_at=alert.next_check_at if alert.enabled else None,

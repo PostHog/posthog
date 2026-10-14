@@ -17,6 +17,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
+
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
@@ -160,15 +162,11 @@ class PlatformAlertUpsert:
 
 @frozen
 class PlatformOwnershipHandover:
-    """A source alert handed to the platform, with the runtime state the platform carries on from.
-
-    `next_check_at` must be later than the moment of the handover. A platform check that started
-    before the handover records only rows still due, so it records nothing for this one.
-    """
+    """A source alert handed to the platform, with the runtime state the platform carries on from."""
 
     legacy_configuration_id: UUID
     team_id: int
-    state: str
+    state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None

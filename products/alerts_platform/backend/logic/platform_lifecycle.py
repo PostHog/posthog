@@ -5,7 +5,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 
 from django.db import transaction
@@ -346,6 +346,13 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return created
 
 
+# Firing episodes are keyed per stack, so a firing alert stays with its source until it resolves.
+_HANDOVER_STATES: Final = frozenset(
+    {PlatformAlertState.NOT_FIRING, PlatformAlertState.ERRORED, PlatformAlertState.BROKEN}
+)
+_HANDOVER_FENCE: Final = timedelta(minutes=1)
+
+
 def take_ownership(handover: PlatformOwnershipHandover) -> None:
     """Makes the platform the owner of a copied alert, carrying on from the source's state.
 
@@ -353,10 +360,8 @@ def take_ownership(handover: PlatformOwnershipHandover) -> None:
     row lock and writes the source's owner in the same transaction, so both rows change together.
     Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
     """
-    if handover.state == PlatformAlertState.FIRING:
-        raise ValueError("a firing alert stays with its source until it resolves")
-    if handover.next_check_at is not None and handover.next_check_at <= handover.at:
-        raise ValueError("next_check_at must be later than the handover, or a running check could record over it")
+    if handover.state not in _HANDOVER_STATES:
+        raise ValueError(f"an alert in state {handover.state} stays with its source until it resolves")
     with transaction.atomic():
         configuration = (
             PlatformAlertConfiguration.objects.for_team(handover.team_id)
@@ -368,7 +373,9 @@ def take_ownership(handover: PlatformOwnershipHandover) -> None:
         configuration.consecutive_failures = handover.consecutive_failures
         update_fields = ["owner", "owner_changed_at", "consecutive_failures"]
         if handover.next_check_at is not None:
-            configuration.next_check_at = handover.next_check_at
+            # A platform check that started before the handover records only rows still due, so a
+            # schedule after the handover keeps it from recording over the carried state.
+            configuration.next_check_at = max(handover.next_check_at, handover.at + _HANDOVER_FENCE)
             update_fields.append("next_check_at")
         configuration.save(update_fields=update_fields)
 
