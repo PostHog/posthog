@@ -1,5 +1,6 @@
 import {
     formatAxisDate,
+    formatChange,
     formatTooltipDate,
     nearestIndex,
     snapToValue,
@@ -62,11 +63,28 @@ describe('chartMath', () => {
     test.each<[ChartInterval, string, string]>([
         ['hour', '09:05', 'Tue, Oct 13, 09:05'],
         ['day', 'Oct 13', 'Tue, Oct 13, 2026'],
-        ['week', 'Oct 13', 'Oct 13, 2026'],
+        ['week', 'Oct 13', 'Oct 13 – 19, 2026'],
         ['month', 'Oct 2026', 'Oct 2026'],
     ])('formats %s dates for the axis and the tooltip', (interval, axis, tooltip) => {
         const at = new Date(2026, 9, 13, 9, 5).getTime()
         expect(formatAxisDate(at, interval)).toBe(axis)
         expect(formatTooltipDate(at, interval)).toBe(tooltip)
+    })
+
+    test.each<[string, Date, boolean, string]>([
+        ['a week across months names both', new Date(2026, 8, 29), false, 'Sep 29 – Oct 5, 2026'],
+        ['a week across years names both years', new Date(2026, 11, 28), false, 'Dec 28, 2026 – Jan 3, 2027'],
+        ['a compact week drops the year', new Date(2026, 9, 6), true, 'Oct 6 – 12'],
+    ])('formatTooltipDate: %s', (_, date, compact, expected) => {
+        expect(formatTooltipDate(date.getTime(), 'week', compact)).toBe(expected)
+    })
+
+    test.each<[string, number, number, string]>([
+        ['an increase', 1204, 1071, '+133 (+12.4%)'],
+        ['a decrease uses a minus sign', 1071, 1204, '−133 (−11.0%)'],
+        ['no change', 5, 5, 'No change'],
+        ['a zero previous value has no percent', 7, 0, '+7'],
+    ])('formatChange: %s', (_, value, previous, expected) => {
+        expect(formatChange(value, previous, (v) => v.toLocaleString('en-US'))).toBe(expected)
     })
 })

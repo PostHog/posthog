@@ -179,16 +179,62 @@ export function formatAxisDate(at: number, interval: ChartInterval): string {
     }
 }
 
-export function formatTooltipDate(at: number, interval: ChartInterval): string {
+const MINUS = '−'
+
+function weekEnd(start: Date): Date {
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    return end
+}
+
+// "Oct 6 – 12", "Sep 29 – Oct 5", or with both years when the week crosses one. The en dash is the web's date range
+// separator (frontend/src/lib/utils/datetime.ts).
+function weekSpan(start: Date, withYear: boolean): string {
+    const end = weekEnd(start)
+    if (start.getFullYear() !== end.getFullYear()) {
+        return `${formatMonthDay(start)}, ${start.getFullYear()} – ${formatMonthDay(end)}, ${end.getFullYear()}`
+    }
+    const year = withYear ? `, ${end.getFullYear()}` : ''
+    if (start.getMonth() === end.getMonth()) {
+        return `${formatMonthDay(start)} – ${end.getDate()}${year}`
+    }
+    return `${formatMonthDay(start)} – ${formatMonthDay(end)}${year}`
+}
+
+/** The tooltip's bucket header. `compact` drops the year, for the small charts in a pin. */
+export function formatTooltipDate(at: number, interval: ChartInterval, compact = false): string {
     const date = new Date(at)
     switch (interval) {
         case 'hour':
-            return `${weekdayName(date)}, ${formatMonthDay(date)}, ${clock24(date)}`
+            return compact ? clock24(date) : `${weekdayName(date)}, ${formatMonthDay(date)}, ${clock24(date)}`
         case 'day':
-            return `${weekdayName(date)}, ${formatMonthDay(date)}, ${date.getFullYear()}`
+            return compact
+                ? `${weekdayName(date)}, ${formatMonthDay(date)}`
+                : `${weekdayName(date)}, ${formatMonthDay(date)}, ${date.getFullYear()}`
         case 'week':
-            return `${formatMonthDay(date)}, ${date.getFullYear()}`
+            return weekSpan(date, !compact)
         case 'month':
             return monthYear(date)
     }
+}
+
+export function formatClockTime(at: number): string {
+    return clock24(new Date(at))
+}
+
+/**
+ * "+133 (+12.4%)", "−133 (−12.4%)" or "No change". The percent is left out when the previous value is 0. The sign
+ * carries the direction, because the app does not know whether up is good for a metric.
+ */
+export function formatChange(value: number, previous: number, formatValue: (value: number) => string): string {
+    const diff = value - previous
+    if (diff === 0 || !Number.isFinite(diff)) {
+        return 'No change'
+    }
+    const sign = diff > 0 ? '+' : MINUS
+    const absolute = `${sign}${formatValue(Math.abs(diff))}`
+    if (previous === 0) {
+        return absolute
+    }
+    return `${absolute} (${sign}${Math.abs((diff / previous) * 100).toFixed(1)}%)`
 }

@@ -1,198 +1,225 @@
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
-import type { Scale } from 'victory-native'
+import type { PointsArray } from 'victory-native'
 
-import { accentColor, colors, fonts, lineHeight } from '@/ui/tokens'
+import { accentColor, colors, fonts } from '@/ui/tokens'
 
-import { ChartTooltip } from './ChartTooltip'
+import { useChartAccessibility } from './accessibility/useChartAccessibility'
+import { ChartOverlay } from './ChartOverlay'
+import { chartGeometry, TICK_LINE_HEIGHT, X_LABEL_OFFSET, yPosition } from './chartGeometry'
+import { samePoints, TICK_FONT_SIZE } from './chartMath'
 import {
-    CHART_DEFAULT_HEIGHT,
-    formatAxisDate,
-    formatTooltipDate,
-    monoTextWidth,
-    samePoints,
-    TICK_FONT_SIZE,
-    TICK_GAP,
-    tooltipLeft,
-    xTickIndices,
-    yAxisTicks,
-} from './chartMath'
+    bucketCount,
+    bucketDates,
+    chartSeriesOf,
+    isCompareSeries,
+    selectableMask,
+    seriesStroke,
+    visibleSeries,
+} from './chartSeries'
 import { useChartGestures } from './gestures/useChartGestures'
-import { type Datum, MetricChartRenderer } from './MetricChartRenderer'
+import { MetricChartRenderer, type PlottedSeries } from './MetricChartRenderer'
 import { useChartSelection } from './selection/useChartSelection'
-import type { ChartPoint, MetricChartProps } from './types'
+import type { ChartPoint, ChartSeries, MetricChartProps } from './types'
+import { chartHeight } from './variant'
 
-interface Scales {
-    x: Scale
-    y: Scale
+const NO_HIDDEN: readonly string[] = []
+
+function sameSeries(a: readonly ChartSeries[], b: readonly ChartSeries[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every((s, index) => {
+            const other = b[index]
+            return (
+                other !== undefined &&
+                s.key === other.key &&
+                s.label === other.label &&
+                s.color === other.color &&
+                s.style === other.style &&
+                s.compareOf === other.compareOf &&
+                s.incompleteFrom === other.incompleteFrom &&
+                samePoints(s.points, other.points)
+            )
+        })
+    )
 }
 
-const TICK_LINE_HEIGHT = lineHeight(TICK_FONT_SIZE)
-const PLOT_TOP = Math.ceil(TICK_LINE_HEIGHT / 2)
-const X_LABEL_OFFSET = 6
-const PLOT_BOTTOM = Math.ceil(TICK_LINE_HEIGHT) + X_LABEL_OFFSET
-const X_LABEL_SLACK = 8
-const TOOLTIP_GAP = 12
-
-/** Keeps the previous array when a parent passes an equal one, so re-renders do not clear the selection. */
-function useStablePoints(points: ChartPoint[]): ChartPoint[] {
-    const stable = useRef(points)
-    if (!samePoints(stable.current, points)) {
-        stable.current = points
+/** Keeps the previous series when a parent passes equal ones, so re-renders do not clear the selection. */
+function useStableSeries(series: ChartSeries[]): ChartSeries[] {
+    const stable = useRef(series)
+    if (!sameSeries(stable.current, series)) {
+        stable.current = series
     }
     return stable.current
 }
 
-export function MetricChartCanvas({
-    points: rawPoints,
-    kind,
-    interval,
-    accent,
-    label,
-    formatValue,
-    height = CHART_DEFAULT_HEIGHT,
-    onSelect,
-    testID,
-}: MetricChartProps): ReactElement {
-    const points = useStablePoints(rawPoints)
-    const color = accentColor[accent]
+export function MetricChartCanvas(props: MetricChartProps): ReactElement {
+    const {
+        kind,
+        interval,
+        label,
+        formatValue,
+        variant = 'inline',
+        hiddenKeys = NO_HIDDEN,
+        dataUntil,
+        onSelect,
+        onPressTooltip,
+        selectionId,
+        trackingContext,
+        accessibilitySummary,
+        accessibilityActions,
+        testID,
+    } = props
+    const height = chartHeight(variant, props.height)
+    const series = useStableSeries(chartSeriesOf(props))
+    const accent = props.accent ? accentColor[props.accent] : (series[0]?.color ?? colors.blue)
     const [width, setWidth] = useState(0)
-    const [scales, setScales] = useState<Scales | null>(null)
-    const [tooltipWidth, setTooltipWidth] = useState(0)
+    const viewRef = useRef<View>(null)
 
-    const data = useMemo<Datum[]>(
-        () => points.map((point, index) => ({ index, value: Number.isFinite(point.value) ? point.value : null })),
-        [points]
-    )
-    const values = useMemo(() => points.map((point) => point.value), [points])
-    const yAxis = useMemo(() => {
-        const { domain, ticks } = yAxisTicks(values, kind)
-        return { domain, ticks: ticks.map((tick) => ({ tick, text: formatValue(tick) })) }
-    }, [values, kind, formatValue])
+    const visible = useMemo(() => visibleSeries(series, hiddenKeys), [series, hiddenKeys])
+    const count = bucketCount(series)
+    const dates = useMemo(() => bucketDates(series), [series])
+    const mask = useMemo(() => selectableMask(visible, count), [visible, count])
 
-    const yLabelWidth = Math.max(0, ...yAxis.ticks.map(({ text }) => monoTextWidth(text)))
-    const plotWidth = Math.max(0, width - yLabelWidth - TICK_GAP)
-    // victory-native recomputes its layout when these props change identity, so they are memoized.
-    const padding = useMemo(
-        () => ({ left: yLabelWidth + TICK_GAP, right: 0, top: PLOT_TOP, bottom: PLOT_BOTTOM }),
-        [yLabelWidth]
-    )
-    const domain = useMemo(() => {
-        // Bars sit in the middle of equal slots; a line runs from edge to edge.
-        const x: [number, number] =
-            kind === 'bar' ? [-0.5, Math.max(0.5, points.length - 0.5)] : [0, Math.max(1, points.length - 1)]
-        return { x, y: yAxis.domain }
-    }, [kind, points.length, yAxis.domain])
-    const gridlines = useMemo(
-        () => [
-            {
-                tickValues: yAxis.ticks.map(({ tick }) => tick),
-                tickCount: yAxis.ticks.length,
-                domain: yAxis.domain,
-                lineColor: colors.hairline,
-                lineWidth: 1,
-                font: null,
-            },
-        ],
-        [yAxis]
-    )
+    const geometry = useMemo(() => {
+        const values = visible.flatMap((s) =>
+            kind === 'bar' && isCompareSeries(s) ? [] : s.points.map((p) => p.value)
+        )
+        return chartGeometry({ width, height, kind, variant, count, values, dates, interval, formatValue })
+    }, [width, height, kind, variant, count, visible, dates, interval, formatValue])
 
-    const xLabels = useMemo(() => {
-        const texts = points.map((point) => formatAxisDate(point.at, interval))
-        const labelWidth = Math.max(0, ...texts.map((text) => monoTextWidth(text)))
-        return xTickIndices(points.length, plotWidth, labelWidth).map((index) => ({ index, text: texts[index] ?? '' }))
-    }, [points, interval, plotWidth])
-
-    const xs = useMemo(() => (scales ? data.map((datum) => scales.x(datum.index)) : []), [scales, data])
-    const ys = useMemo(
-        () => (scales ? data.map((datum) => (datum.value === null ? Number.NaN : scales.y(datum.value))) : []),
-        [scales, data]
+    const plotted = useMemo<PlottedSeries[]>(
+        () =>
+            visible.map((s) => {
+                const ys = s.points.map((point) =>
+                    Number.isFinite(point.value) ? yPosition(point.value, geometry.yDomain, geometry.plot) : Number.NaN
+                )
+                const points: PointsArray = s.points.map((point, index) => ({
+                    x: geometry.xs[index] ?? 0,
+                    xValue: index,
+                    y: Number.isFinite(ys[index]) ? (ys[index] as number) : null,
+                    yValue: Number.isFinite(point.value) ? point.value : null,
+                }))
+                const stroke = seriesStroke(s)
+                return {
+                    key: s.key,
+                    color: stroke.color,
+                    dotted: stroke.dotted,
+                    compare: isCompareSeries(s),
+                    points,
+                    ys,
+                    incompleteFrom: s.incompleteFrom,
+                }
+            }),
+        [visible, geometry]
     )
 
-    const selection = useChartSelection(points, values, onSelect)
-    const gestures = useChartGestures(xs, selection.selectByTap)
+    const pointAt = useCallback(
+        (index: number): ChartPoint | null => {
+            const primary = visible.find((s) => !isCompareSeries(s))
+            const point = primary?.points[index]
+            return point && Number.isFinite(point.value) ? point : null
+        },
+        [visible]
+    )
+
+    const selection = useChartSelection({
+        selectionId,
+        viewRef,
+        dataKey: series,
+        pointAt,
+        onSelect,
+        trackingContext,
+        kind,
+        seriesCount: visible.filter((s) => !isCompareSeries(s)).length,
+    })
+    const gestures = useChartGestures({
+        variant,
+        xs: geometry.xs,
+        mask,
+        values: selection.values,
+        events: selection.events,
+        listMovedAt: selection.listMovedAt,
+    })
+    const a11y = useChartAccessibility({
+        label,
+        kind,
+        summary: accessibilitySummary,
+        series,
+        hiddenKeys,
+        interval,
+        formatValue,
+        dataUntil,
+        mask,
+        selection,
+        onPressTooltip,
+        actions: accessibilityActions,
+    })
 
     const onLayout = useCallback((event: LayoutChangeEvent): void => {
         setWidth(Math.round(event.nativeEvent.layout.width))
     }, [])
-    const onScaleChange = useCallback((x: Scale, y: Scale): void => setScales({ x, y }), [])
-
-    const selectedPoint = points[selection.selectedIndex]
-    const anchorX = xs[selection.selectedIndex]
-    const latest = [...points].reverse().find((point) => Number.isFinite(point.value))
 
     return (
         <View
+            ref={viewRef}
             style={[styles.container, { height }]}
             onLayout={onLayout}
+            onTouchStart={selection.onTouchStart}
             testID={testID}
-            accessibilityRole="image"
-            accessibilityLabel={latest ? `${label} chart, latest ${formatValue(latest.value)}` : `${label} chart`}
+            {...a11y}
         >
             {width > 0 ? (
-                <MetricChartRenderer
-                    data={data}
-                    kind={kind}
-                    color={color}
-                    width={width}
-                    height={height}
-                    padding={padding}
-                    domain={domain}
-                    gridlines={gridlines}
-                    pressState={selection.pressState}
-                    gestures={gestures}
-                    selected={selection.selected}
-                    xs={xs}
-                    ys={ys}
-                    onScaleChange={onScaleChange}
-                />
-            ) : null}
-            {scales
-                ? yAxis.ticks.map(({ tick, text }) => (
-                      <Text
-                          key={`y-${tick}`}
-                          numberOfLines={1}
-                          style={[
-                              styles.tick,
-                              { right: width - yLabelWidth, top: scales.y(tick) - TICK_LINE_HEIGHT / 2 },
-                          ]}
-                      >
-                          {text}
-                      </Text>
-                  ))
-                : null}
-            {scales
-                ? xLabels.map(({ index, text }) => {
-                      // Wider than the text, so a small error in the width estimate cannot wrap or truncate it.
-                      const labelWidth = monoTextWidth(text) + X_LABEL_SLACK
-                      const center = scales.x(index)
-                      const left = Math.min(width - labelWidth, Math.max(0, center - labelWidth / 2))
-                      return (
-                          <Text
-                              key={`x-${index}`}
-                              numberOfLines={1}
-                              style={[
-                                  styles.tick,
-                                  styles.xTick,
-                                  { left, width: labelWidth, top: height - PLOT_BOTTOM + X_LABEL_OFFSET },
-                              ]}
-                          >
-                              {text}
-                          </Text>
-                      )
-                  })
-                : null}
-            {selectedPoint && anchorX !== undefined && Number.isFinite(selectedPoint.value) ? (
-                <ChartTooltip
-                    title={formatTooltipDate(selectedPoint.at, interval)}
-                    label={label}
-                    value={formatValue(selectedPoint.value)}
-                    color={color}
-                    left={tooltipLeft(anchorX, tooltipWidth, width, TOOLTIP_GAP)}
-                    top={0}
-                    onLayout={(event) => setTooltipWidth(event.nativeEvent.layout.width)}
-                    testID={testID ? `${testID}-tooltip` : undefined}
-                />
+                <>
+                    <MetricChartRenderer
+                        geometry={geometry}
+                        kind={kind}
+                        variant={variant}
+                        series={plotted}
+                        accent={accent}
+                        selection={selection.values}
+                        gestures={gestures}
+                    />
+                    {geometry.yTicks.map(({ value, y, text }) =>
+                        text === null ? null : (
+                            <Text
+                                key={`y-${value}`}
+                                numberOfLines={1}
+                                style={[
+                                    styles.tick,
+                                    { right: width - geometry.yLabelWidth, top: y - TICK_LINE_HEIGHT / 2 },
+                                ]}
+                            >
+                                {text}
+                            </Text>
+                        )
+                    )}
+                    {geometry.xLabels.map(({ index, left, width: labelWidth, text }) => (
+                        <Text
+                            key={`x-${index}`}
+                            numberOfLines={1}
+                            style={[
+                                styles.tick,
+                                styles.xTick,
+                                { left, width: labelWidth, top: geometry.plot.bottom + X_LABEL_OFFSET },
+                            ]}
+                        >
+                            {text}
+                        </Text>
+                    ))}
+                    <ChartOverlay
+                        selection={selection.values}
+                        geometry={geometry}
+                        series={series}
+                        hiddenKeys={hiddenKeys}
+                        interval={interval}
+                        variant={variant}
+                        formatValue={formatValue}
+                        dataUntil={dataUntil}
+                        onPressTooltip={onPressTooltip}
+                        testID={testID}
+                    />
+                </>
             ) : null}
         </View>
     )
