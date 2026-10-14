@@ -38,6 +38,8 @@ _SERIES_QUERIES: dict[str, type[TrendsQuery | FunnelsQuery | StickinessQuery | L
 }
 # Event names and dates are in the sort key of the events table, so a filter on them reads no property of any event.
 _SORT_KEY_FIELDS = ("event", "timestamp")
+# A bound on the result of one of these functions is a bound on the timestamp it is given.
+_ORDER_KEEPING = ("toDate", "toDateTime", "toTimeZone", "assumeNotNull")
 # The side of a comparison that is the later value, so a timestamp there is bounded from below.
 _LOWER_BOUND_SIDE = {
     ast.CompareOperationOp.Gt: "left",
@@ -212,13 +214,18 @@ class _AliasInliner(CloningVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
         return clone_expr(node, clear_types=True, clear_locations=True)
 
+    def visit_lambda(self, node: ast.Lambda) -> ast.Expr:
+        # Inside a lambda, an argument hides the select alias of the same name.
+        inliner = _AliasInliner({key: expr for key, expr in self.aliases.items() if key not in node.args})
+        return CloningVisitor.visit_lambda(inliner, node)
+
 
 def _from_date(where: ast.Expr, date_range: QueryDateRange, alias: str | None) -> ast.Expr:
     """`where`, with the start of the chart's date range when it reads events from any date before that."""
     for part in top_level_conjuncts(where):
         if isinstance(part, ast.CompareOperation) and part.op in _LOWER_BOUND_SIDE:
             side = part.left if _LOWER_BOUND_SIDE[part.op] == "left" else part.right
-            if "timestamp" in (_sort_key_fields(side, alias) or ()):
+            if _is_timestamp(side, alias):
                 return where
     start = ast.CompareOperation(
         op=ast.CompareOperationOp.GtEq,
@@ -226,6 +233,13 @@ def _from_date(where: ast.Expr, date_range: QueryDateRange, alias: str | None) -
         right=date_range.date_from_as_hogql(),
     )
     return ast.And(exprs=[where, start])
+
+
+def _is_timestamp(expr: ast.Expr, alias: str | None) -> bool:
+    """Whether `expr` is the timestamp, or a value that keeps the order of timestamps, such as its start of day."""
+    if isinstance(expr, ast.Call) and expr.args and (expr.name.startswith("toStartOf") or expr.name in _ORDER_KEEPING):
+        return _is_timestamp(expr.args[0], alias)
+    return isinstance(expr, ast.Field) and expr.chain in (["timestamp"], [alias or "events", "timestamp"])
 
 
 class _SortKeyReader(TraversingVisitor):

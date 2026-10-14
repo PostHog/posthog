@@ -121,6 +121,35 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
                 3,
             ),
             (
+                "filter_with_a_lambda_argument_named_like_a_select_alias",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            **SERIES,
+                            "properties": [{"type": "hogql", "key": "arrayExists(total -> total > 10, [1, 20])"}],
+                        }
+                    ],
+                },
+                (),
+                2,
+            ),
+            (
+                "first_matching_event_with_a_filter_on_the_day_of_the_month",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            **SERIES,
+                            "math": "first_matching_event_for_user",
+                            "properties": [{"type": "hogql", "key": "toDayOfMonth(timestamp) >= 1"}],
+                        }
+                    ],
+                },
+                (),
+                2,
+            ),
+            (
                 "breakdown_that_reads_its_events_in_a_cte",
                 {"kind": "TrendsQuery", "series": [SERIES], "breakdownFilter": {"breakdown": "$browser"}},
                 ("trends-breakdown-fewer-array-ops",),
