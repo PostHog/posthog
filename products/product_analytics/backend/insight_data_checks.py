@@ -93,7 +93,7 @@ class _EventReader:
     team: Team
     user: User
     modifiers: HogQLQueryModifiers
-    # One database for all the queries, because a project with many data warehouse tables is slow to build one for.
+    # The database the chart's events were read with, so the checks do not build another.
     database: Database
 
     def first_row(self, query: ast.SelectQuery, *, query_type: str) -> list[Any]:
@@ -128,7 +128,7 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
             team=team,
             user=user,
             modifiers=modifiers,
-            database=Database.create_for(team=team, user=user, modifiers=modifiers, trigger="shared"),
+            database=events.database,
         )
         total = _count_events_in_range(events, reader)
         if total == 0:
