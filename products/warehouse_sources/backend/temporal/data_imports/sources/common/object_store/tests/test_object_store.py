@@ -1,4 +1,5 @@
 import io
+import csv
 import gzip
 from datetime import UTC, datetime
 from pathlib import Path
@@ -346,10 +347,13 @@ class TestCsv:
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id", "name"], 0)]
 
     def test_an_oversized_first_row_field_is_a_parse_error(self) -> None:
-        content = b"a," + b"x" * (200 * 1024) + b"\n"
-
-        with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
-            list(iter_csv_tables(io.BytesIO(content), CsvOptions(has_header=False), file_path="big.csv"))
+        # Other code in the process may have raised the csv module's global field limit.
+        previous_limit = csv.field_size_limit(1024)
+        try:
+            with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+                list(iter_csv_tables(io.BytesIO(b"a," + b"x" * 2048 + b"\n"), CsvOptions(has_header=False), "big.csv"))
+        finally:
+            csv.field_size_limit(previous_limit)
 
 
 class TestJsonl:
