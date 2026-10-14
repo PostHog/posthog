@@ -252,6 +252,20 @@ class TestMergeWithJudge:
         judged = run.events["error_tracking_auto_merge_judged"]
         assert (judged["judge_score"], judged["judge_error"]) == (None, error)
 
+    def test_lookup_and_inference_share_the_judge_timeout(self) -> None:
+        with patch(f"{ACTIVITIES}.time.monotonic", side_effect=[100.0, 104.0]):
+            run = self._merge(0.05)
+
+        assert run.fetch.call_args.kwargs == {"timeout_seconds": 10.0}
+        assert run.judge.call_args.args[3] == pytest.approx(6.0)
+
+    def test_exhausted_budget_skips_the_inference(self) -> None:
+        with patch(f"{ACTIVITIES}.time.monotonic", side_effect=[100.0, 111.0]):
+            run = self._merge(0.05)
+
+        run.judge.assert_not_called()
+        assert run.events["error_tracking_auto_merge_judged"]["judge_error"] == "judge_timeout"
+
     def test_cancellation_during_the_document_fetch_is_reraised(self) -> None:
         with pytest.raises(CancelledError):
             self._merge(0.05, neighbour_document=CancelledError("Cancelled"))
@@ -259,11 +273,14 @@ class TestMergeWithJudge:
     def test_document_query_uses_the_model_table_and_search_window(self) -> None:
         with (
             patch(f"{ACTIVITIES}.parse_select") as parse_select,
-            patch(f"{ACTIVITIES}.execute_hogql_query", return_value=MagicMock(results=[("candidate", "Error: b")])),
+            patch(
+                f"{ACTIVITIES}.execute_hogql_query", return_value=MagicMock(results=[("candidate", "Error: b")])
+            ) as execute,
         ):
-            document = _fetch_fingerprint_document(MagicMock(id=2), _inputs(), "candidate")
+            document = _fetch_fingerprint_document(MagicMock(id=2), _inputs(), "candidate", timeout_seconds=2.5)
 
         assert document == "Error: b"
+        assert execute.call_args.kwargs["settings"].max_execution_time == 3
         query = parse_select.call_args.args[0]
         assert "FROM document_embeddings_text_embedding_3_large_3072" in query
         assert "timestamp >= {min_timestamp}" in query

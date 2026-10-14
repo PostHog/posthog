@@ -1,3 +1,4 @@
+import math
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -6,6 +7,7 @@ from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -310,7 +312,9 @@ def _merge_into_candidate(
     return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
 
 
-def _fetch_fingerprint_document(team: Team, inputs: FingerprintEmbeddingResultInputs, fingerprint: str) -> str | None:
+def _fetch_fingerprint_document(
+    team: Team, inputs: FingerprintEmbeddingResultInputs, fingerprint: str, *, timeout_seconds: float
+) -> str | None:
     """The text that was embedded for a fingerprint, within the nearest-neighbour search window."""
     query = parse_select(
         _model_specific_query(FINGERPRINT_DOCUMENT_QUERY_BY_MODEL, inputs.model_name),
@@ -327,6 +331,7 @@ def _fetch_fingerprint_document(team: Team, inputs: FingerprintEmbeddingResultIn
         query_type="ErrorTrackingAutoMergeJudgeDocument",
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=max(1, math.ceil(timeout_seconds))),
     )
     return next((row[1] for row in response.results if row[1]), None)
 
@@ -334,12 +339,16 @@ def _fetch_fingerprint_document(team: Team, inputs: FingerprintEmbeddingResultIn
 def _judge(
     team: Team, inputs: FingerprintEmbeddingResultInputs, candidate: SimilarFingerprintDistance, config: AutoMergeConfig
 ) -> JudgeVerdict:
-    """Judge one pair. Raises JudgeUnavailableError with the reason when it can't."""
+    """Judge one pair within the judge timeout. Raises JudgeUnavailableError with the reason when it can't."""
     # Consent can be withdrawn between embedding and this (possibly retried) activity.
     if not team.organization.is_ai_data_processing_approved:
         raise JudgeUnavailableError("ai_processing_not_approved")
+    # One budget for the lookup and the inference, so a slow ClickHouse can't hold the activity longer.
+    deadline = time.monotonic() + config.judge_timeout_seconds
     try:
-        candidate_document = _fetch_fingerprint_document(team, inputs, candidate.fingerprint)
+        candidate_document = _fetch_fingerprint_document(
+            team, inputs, candidate.fingerprint, timeout_seconds=config.judge_timeout_seconds
+        )
     except Exception as err:
         if is_expected_activity_failure(err):
             raise
@@ -348,7 +357,10 @@ def _judge(
     # The source text arrives with the inputs: ClickHouse may not have ingested it yet.
     if not inputs.content or not candidate_document:
         raise JudgeUnavailableError("missing_document")
-    return ask_judge(team.id, inputs.content, candidate_document, config.judge_timeout_seconds)
+    remaining_seconds = deadline - time.monotonic()
+    if remaining_seconds <= 0:
+        raise JudgeUnavailableError("judge_timeout")
+    return ask_judge(team.id, inputs.content, candidate_document, remaining_seconds)
 
 
 def _judge_candidate(
