@@ -39,8 +39,11 @@ pub fn scrub_canvas_mutation(ctx: &Ctx<'_>, data: &mut Value<'_>) -> bool {
         }
         changed
     } else {
-        ctx.record_scrub_drop(REJECTED_CANVAS_MUTATION);
-        empty_mutation(obj)
+        let changed = empty_mutation(obj);
+        if changed {
+            ctx.record_scrub_drop(REJECTED_CANVAS_MUTATION);
+        }
+        changed
     }
 }
 
@@ -87,7 +90,8 @@ fn is_snapshot_frame(obj: &Object<'_>) -> bool {
             .is_some_and(|args| args.len() == 4 && numbers(args));
     let draw_ok = is_property(draw, "drawImage")
         && draw.get("args").and_then(as_array).is_some_and(|args| {
-            args.len() == 5
+            // posthog-js before 1.391 drew at the origin without a size, so `[bitmap, x, y]`.
+            matches!(args.len(), 3 | 5)
                 && numbers(&args[1..])
                 && as_object(&args[0]).is_some_and(is_frame_bitmap)
         });
@@ -281,10 +285,24 @@ mod tests {
     fn snapshot_frame_image_never_passes_through() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let b64 = png_base64(8, 8, [10, 200, 10, 255]);
-        let (changed, out) = scrub_with(&Ctx::new(&allow), &frame("image/png", &b64));
-        assert!(changed);
-        assert_ne!(blob(&out)["data"][0]["base64"], b64.as_str());
-        assert_eq!(out["commands"][0]["property"], "clearRect");
+        let sized = frame("image/png", &b64);
+        let mut unsized_frame = sized.clone();
+        unsized_frame["commands"][1]["args"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(3);
+        for data in [sized, unsized_frame] {
+            let ctx = Ctx::new(&allow);
+            let (changed, out) = scrub_with(&ctx, &data);
+            assert!(changed);
+            assert_ne!(blob(&out)["data"][0]["base64"], b64.as_str());
+            assert_eq!(out["commands"][0]["property"], "clearRect");
+            let rejected = ctx
+                .take_scrub_drops()
+                .into_iter()
+                .any(|(reason, _)| reason == REJECTED_CANVAS_MUTATION);
+            assert!(!rejected, "a frame is kept: {data}");
+        }
     }
 
     #[test]
@@ -389,8 +407,13 @@ mod tests {
     fn an_emptied_mutation_is_left_alone() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let empty = json!({ "source": 9, "id": 1, "type": 0, "commands": [] });
-        let (changed, out) = scrub_with(&Ctx::new(&allow), &empty);
+        let ctx = Ctx::new(&allow);
+        let (changed, out) = scrub_with(&ctx, &empty);
         assert!(!changed);
         assert_eq!(out, empty);
+        assert!(
+            ctx.take_scrub_drops().is_empty(),
+            "nothing was dropped this time"
+        );
     }
 }

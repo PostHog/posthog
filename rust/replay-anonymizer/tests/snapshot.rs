@@ -871,6 +871,49 @@ fn collect_payload() -> String {
 }
 
 #[test]
+fn an_image_inside_picture_is_counted_once_on_both_engines() {
+    // The byte walk walks a <picture>'s children twice, once as plain children and once as picture
+    // sources, and keeps only the second output, so its counts must not keep the first pass.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let uri = format!("data:image/png;base64,{COLLECT_PNG_B64}");
+    let inner = snapshot_message(json!([{
+        "type": 2,
+        "timestamp": TS0,
+        "data": {
+            "node": {"type": 0, "childNodes": [
+                {"type": 2, "tagName": "picture", "attributes": {}, "childNodes": [
+                    {"type": 2, "tagName": "img", "attributes": {"src": uri}, "childNodes": []}
+                ]}
+            ]},
+            "initialOffset": {"top": 0, "left": 0}
+        }
+    }]));
+    for byte_walk in [true, false] {
+        let mut bytes = payload_of(&inner).into_bytes();
+        let out = anonymize_kafka_payload_opts(
+            &allow,
+            &mut bytes,
+            AnonymizeOpts {
+                byte_walk,
+                ..Default::default()
+            },
+            Some(ImageCollection::new(
+                "42".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
+        )
+        .expect("anonymizes");
+        let counts: Vec<_> = out
+            .meta
+            .image_sources
+            .iter()
+            .map(|c| (c.property, c.count))
+            .collect();
+        assert_eq!(counts, vec![("src", 1)], "walk={byte_walk}");
+    }
+}
+
+#[test]
 fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
     use base64::Engine;
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());

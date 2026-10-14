@@ -383,6 +383,40 @@
     }
   },
   {
+    "name": "canvas snapshot frame keeps its shape and its image never passes through",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 3,
+      "data": {
+        "source": 9,
+        "id": 1,
+        "type": 0,
+        "commands": [
+          { "property": "clearRect", "args": [0, 0, 8, 8] },
+          {
+            "property": "drawImage",
+            "args": [{ "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/webp", "data": [{ "rr_type": "ArrayBuffer", "base64": "AAAA" }] }] }, 0, 0]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "type": 3,
+      "data": {
+        "source": 9,
+        "id": 1,
+        "type": 0,
+        "commands": [
+          { "property": "clearRect", "args": [0, 0, 8, 8] },
+          {
+            "property": "drawImage",
+            "args": [{ "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/png", "data": [{ "rr_type": "ArrayBuffer", "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" }] }] }, 0, 0]
+          }
+        ]
+      }
+    }
+  },
+  {
     "name": "canvas command in flattened single-command form is emptied",
     "allow": { "text": ["hi"], "url": [] },
     "event": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "property": "strokeText", "args": ["Hi secret", 1, 2] } },

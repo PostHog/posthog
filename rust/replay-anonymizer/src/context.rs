@@ -33,6 +33,12 @@ pub(crate) enum ImageSource {
     HtmlAttribute(&'static str),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CountCheckpoint {
+    image_sources: usize,
+    scrub_drops: usize,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ImageSourceCount {
     pub source: &'static str,
@@ -57,8 +63,9 @@ pub struct Ctx<'a> {
     collector: Option<RefCell<ImageCollector>>,
     // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
     url_collector: Option<RefCell<UrlCollector>>,
-    image_source_counts: RefCell<BTreeMap<(ImageSource, &'static str), u32>>,
-    scrub_drops: RefCell<BTreeMap<&'static str, u32>>,
+    // Logs, not tallies, so a walk whose output is thrown away can take its entries back with it.
+    image_source_log: RefCell<Vec<(ImageSource, &'static str)>>,
+    scrub_drop_log: RefCell<Vec<&'static str>>,
     // Whether a well-formed ref already present in the *input* is left alone. Off unless the
     // caller vouches for the input's provenance; see `preserving_image_refs`.
     preserve_image_refs: bool,
@@ -97,8 +104,8 @@ impl<'a> Ctx<'a> {
             images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
             url_collector: None,
-            image_source_counts: RefCell::new(BTreeMap::new()),
-            scrub_drops: RefCell::new(BTreeMap::new()),
+            image_source_log: RefCell::new(Vec::new()),
+            scrub_drop_log: RefCell::new(Vec::new()),
             preserve_image_refs: false,
         }
     }
@@ -220,25 +227,46 @@ impl<'a> Ctx<'a> {
     }
 
     fn record_image_source(&self, source: ImageSource, kind: &'static str) {
-        let mut counts = self.image_source_counts.borrow_mut();
-        let count = counts.entry((source, kind)).or_default();
-        *count = count.saturating_add(1);
+        self.image_source_log.borrow_mut().push((source, kind));
     }
 
     pub(crate) fn record_scrub_drop(&self, reason: &'static str) {
-        let mut drops = self.scrub_drops.borrow_mut();
-        let count = drops.entry(reason).or_default();
-        *count = count.saturating_add(1);
+        self.scrub_drop_log.borrow_mut().push(reason);
+    }
+
+    /// A point to roll the counts back to when a walk's output is discarded and the same content is
+    /// walked again, so each occurrence is counted once.
+    pub(crate) fn count_checkpoint(&self) -> CountCheckpoint {
+        CountCheckpoint {
+            image_sources: self.image_source_log.borrow().len(),
+            scrub_drops: self.scrub_drop_log.borrow().len(),
+        }
+    }
+
+    pub(crate) fn restore_counts(&self, checkpoint: CountCheckpoint) {
+        self.image_source_log
+            .borrow_mut()
+            .truncate(checkpoint.image_sources);
+        self.scrub_drop_log
+            .borrow_mut()
+            .truncate(checkpoint.scrub_drops);
     }
 
     pub fn take_scrub_drops(&self) -> Vec<(&'static str, u32)> {
-        std::mem::take(&mut *self.scrub_drops.borrow_mut())
-            .into_iter()
-            .collect()
+        let mut counts: BTreeMap<&'static str, u32> = BTreeMap::new();
+        for reason in std::mem::take(&mut *self.scrub_drop_log.borrow_mut()) {
+            let count = counts.entry(reason).or_default();
+            *count = count.saturating_add(1);
+        }
+        counts.into_iter().collect()
     }
 
     pub fn take_image_source_counts(&self) -> Vec<ImageSourceCount> {
-        let counts = std::mem::take(&mut *self.image_source_counts.borrow_mut());
+        let mut counts: BTreeMap<(ImageSource, &'static str), u32> = BTreeMap::new();
+        for entry in std::mem::take(&mut *self.image_source_log.borrow_mut()) {
+            let count = counts.entry(entry).or_default();
+            *count = count.saturating_add(1);
+        }
         counts
             .into_iter()
             .map(|((source, kind), count)| {
