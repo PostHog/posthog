@@ -31,6 +31,11 @@ def synchronize_organization(organization_id: UUID) -> None:
     synchronization.synchronize_organization(organization_id)
 
 
+def guest_mode_active(organization_id: UUID) -> bool:
+    """Return whether guest rules apply in the organization. Guests act as members when they do not."""
+    return rollout.organization_variant(organization_id) == "v2"
+
+
 def schedule_organization_sync(organization_id: UUID) -> None:
     """Queue a sync of the organization's authorization graph after the current transaction commits.
 
