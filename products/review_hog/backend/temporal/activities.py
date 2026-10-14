@@ -208,7 +208,12 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     reconcile_chunks,
 )
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import (
+    REQUESTED_TRIGGERS,
+    TRIGGER_AUTOMATIC,
+    TRIGGER_LABEL,
+    TRIGGER_MANUAL,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
 from products.signals.backend.enums import ReportPriority
@@ -2061,6 +2066,7 @@ def _publish(input: PublishInput) -> PublishResult:
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
         draft_notice=draft_notice,
+        answers_request=input.trigger_source in REQUESTED_TRIGGERS,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
