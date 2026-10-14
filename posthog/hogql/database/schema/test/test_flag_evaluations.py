@@ -21,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.flag_evaluations import add_events_list_fields_to_flag_evaluations
+from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -34,6 +35,8 @@ from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import insert_static_cohort
 
 EVENT_PROBE = "from-event-properties"
 
@@ -266,6 +269,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert "flag_evaluation_person_id" not in columns
         assert response.results[0][columns.index("person_id")] == merged_person_id
+        # The fields copied from events exist only so that filters resolve. They must not reach the expansion.
+        assert not [column for column in columns if column.startswith(("$virt_", "elements_chain", "$session_id"))]
 
     @parameterized.expand(
         [
@@ -379,3 +384,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             )
 
         assert len(response.results) == expected_rows
+
+    def test_cohort_filter_resolves_against_the_person_id_expression(self):
+        # A test account filter can exclude a cohort, which compiles to `person_id NOT IN COHORT`. On this table
+        # `person_id` is the override-corrected expression, not a stored column.
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        insert_static_cohort([self.person_id], cohort.pk, team_id=self.team.pk)
+
+        assert self._select("uuid", where=f" AND person_id IN COHORT {cohort.pk}") == [(self.row_uuid,)]
+        assert self._select("uuid", where=f" AND person_id NOT IN COHORT {cohort.pk}") == []
+
+    def test_session_join_reads_only_sessions_near_the_query_date_range(self):
+        # Without the date bound, the sessions subquery aggregates every session the team has.
+        clickhouse = self._execute(
+            "session.$entry_current_url", where=" AND timestamp >= now() - INTERVAL 1 DAY"
+        ).clickhouse
+
+        assert f"toIntervalDay({SESSION_BUFFER_DAYS})" in clickhouse
