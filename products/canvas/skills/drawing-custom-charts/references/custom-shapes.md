@@ -107,7 +107,7 @@ Take colors from `useChartTheme()` so it matches the charts beside it.
 ```tsx
 import { TooltipSwatch, useChartTheme } from '@posthog/quill-charts'
 import * as d3 from 'd3'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 type Node = { name: string; value?: number; children?: Node[] }
 type Hover = { x: number; y: number; name: string; value: number; color: string }
@@ -124,45 +124,50 @@ function Treemap({ data }: { data: Node }) {
     observer.observe(ref.current!)
     return () => observer.disconnect()
   }, [])
-  const root = d3
-    .hierarchy(data)
-    .sum((d) => d.value ?? 0)
-    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-  d3.treemap<Node>().size([size.width, size.height]).paddingInner(2).round(true)(root)
-  const groups = root.children ?? []
+  const leaves = useMemo(() => {
+    const root = d3
+      .hierarchy(data)
+      .sum((d) => d.value ?? 0)
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    d3.treemap<Node>().size([size.width, size.height]).paddingInner(2).round(true)(root)
+    const colorByGroup = new Map(
+      (root.children ?? []).map((group, i) => [group, theme.colors[i % theme.colors.length]])
+    )
+    return root.leaves().map((leaf) => ({
+      leaf,
+      key: leaf
+        .ancestors()
+        .map((n) => n.data.name)
+        .join('/'),
+      color: colorByGroup.get(leaf.ancestors().find((n) => n.depth === 1)!) ?? theme.colors[0],
+    }))
+  }, [data, size, theme])
   return (
     <div ref={ref} className="relative h-full w-full" onMouseLeave={() => setHover(null)}>
       {size.width > 0 && (
         <svg width={size.width} height={size.height} className="block">
-          {root.leaves().map((leaf) => {
-            const group = leaf.ancestors().find((n) => n.depth === 1)
-            const color = theme.colors[groups.indexOf(group!) % theme.colors.length]
-            return (
-              <rect
-                key={leaf
-                  .ancestors()
-                  .map((n) => n.data.name)
-                  .join('/')}
-                x={leaf.x0}
-                y={leaf.y0}
-                width={leaf.x1 - leaf.x0}
-                height={leaf.y1 - leaf.y0}
-                rx={3}
-                fill={color}
-                fillOpacity={hover?.name === leaf.data.name ? 1 : 0.85}
-                onMouseMove={(event) => {
-                  const bounds = ref.current!.getBoundingClientRect()
-                  setHover({
-                    x: event.clientX - bounds.left,
-                    y: event.clientY - bounds.top,
-                    name: leaf.data.name,
-                    value: leaf.value ?? 0,
-                    color,
-                  })
-                }}
-              />
-            )
-          })}
+          {leaves.map(({ leaf, key, color }) => (
+            <rect
+              key={key}
+              x={leaf.x0}
+              y={leaf.y0}
+              width={leaf.x1 - leaf.x0}
+              height={leaf.y1 - leaf.y0}
+              rx={3}
+              fill={color}
+              fillOpacity={hover?.name === leaf.data.name ? 1 : 0.85}
+              onMouseMove={(event) => {
+                const bounds = ref.current!.getBoundingClientRect()
+                setHover({
+                  x: event.clientX - bounds.left,
+                  y: event.clientY - bounds.top,
+                  name: leaf.data.name,
+                  value: leaf.value ?? 0,
+                  color,
+                })
+              }}
+            />
+          ))}
         </svg>
       )}
       {hover && (
@@ -186,6 +191,7 @@ function Treemap({ data }: { data: Node }) {
 ```
 
 - Measure the container with a `ResizeObserver` and render nothing until it has a size. A fixed-height parent (`h-[320px]`) gives it one.
+- Lay out in a `useMemo` keyed on data, size and theme. Hover is state, so without it every mouse move re-runs the layout, and a large hierarchy makes the tooltip stutter.
 - Colors: `theme.colors[i]` for data, `theme.axisColor` and `theme.gridColor` for lines and labels. Never a hardcoded hex, and never a UI token such as `bg-primary` for data.
 - Tooltips: track the hovered item in state and render a div at the cursor, colored with `theme.tooltipBackground` and `theme.tooltipColor` so it matches the stock charts' tooltip. `TooltipSwatch` from `@posthog/quill-charts` draws the color dot. `TooltipSurface` and `DefaultTooltip` read the chart context and throw outside a `Chart`, so they are for pattern 1 only. Do not rely on an SVG `<title>`: it appears after a delay, only while the mouse is still, and in the browser's own style.
 - `d3` is the full build (`d3-hierarchy`, `d3-force`, `d3-geo`, `d3-chord`, `d3-sankey` is not included).
