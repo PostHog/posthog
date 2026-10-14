@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
@@ -6,6 +6,9 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 from products.workflows.backend.facade.enums import WorkflowIdeaSource, WorkflowIdeaStatus
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
@@ -68,9 +71,14 @@ class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
     )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self.hog_flow_id is not None and self.hog_flow.team_id != self.team_id:
+        if self.hog_flow_id is not None and _project_id(self.hog_flow.team) != _project_id(self.team):
             raise ValueError("A workflow idea can only link a workflow from its own project.")
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"WorkflowIdea {self.team_id}/{self.key} ({self.status})"
+
+
+def _project_id(team: "Team") -> int:
+    # The idea's team is rewritten to the parent on save, while the workflow keeps its environment.
+    return team.parent_team_id or team.id
