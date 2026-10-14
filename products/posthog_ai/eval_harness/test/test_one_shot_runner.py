@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import asyncio
 from collections.abc import Sequence
 from functools import partial
@@ -94,11 +95,13 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
     )
 
 
-def _build_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: EvalContext, task_fn: Any) -> _OneShotEvalRun:
+def _build_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctx: EvalContext, task_fn: Any, case_name: str = "c1"
+) -> _OneShotEvalRun:
     monkeypatch.setattr("products.posthog_ai.eval_harness.base.build_case_dir", lambda *_: tmp_path)
     return _OneShotEvalRun(
         experiment_name="one-shot-test",
-        cases=[BaseEvalCase(name="c1", prompt="the prompt"), BaseEvalCase(name="c2", prompt="other")],
+        cases=[BaseEvalCase(name=case_name, prompt="the prompt"), BaseEvalCase(name="c2", prompt="other")],
         scorers=[],
         ctx=ctx,
         is_public=False,
@@ -272,3 +275,60 @@ def test_run_routes_through_the_engine(
         assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
+
+
+@pytest.mark.parametrize("case_name", ["c1", "c1" * 110, "c1" * 200])
+def test_concurrent_trials_keep_their_own_logs_and_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case_name: str
+) -> None:
+    monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
+    monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
+    monkeypatch.chdir(tmp_path)
+    started = 0
+    all_started = asyncio.Event()
+    finished = [asyncio.Event() for _ in range(3)]
+    completion_order: list[int] = []
+
+    async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
+        nonlocal started
+        index = started
+        value = index / 2
+        started += 1
+        if started == 3:
+            all_started.set()
+        await all_started.wait()
+        if index < 2:
+            await finished[index + 1].wait()
+        completion_order.append(index)
+        finished[index].set()
+        return {"answer": value, "last_message": str(value)}
+
+    def score(output: dict[str, Any], **kwargs: Any) -> float:
+        return output["answer"]
+
+    ctx = _build_ctx(one_shot_slots=3, case_filter=case_name)
+    ctx.trials = 3
+    run = _build_run(tmp_path, monkeypatch, ctx, task, case_name=case_name)
+    run.active_scorers = [score]
+    result = asyncio.run(run.run())
+
+    assert len(result.results) == 3
+    assert completion_order == [2, 1, 0]
+    assert {row.metadata["trial_index"] for row in result.results} == {0, 1, 2}
+    assert len(list(tmp_path.glob("*.summary.txt"))) == 3
+    assert len({row.metadata["trial_id"] for row in result.results}) == 3
+    assert {row.input["name"] for row in result.results} == {case_name}
+    exports = [json.loads(line) for line in (tmp_path / "case_results.jsonl").read_text().splitlines()]
+    for row in result.results:
+        trial_id = row.metadata["trial_id"]
+        summary_path = next(tmp_path.glob(f"*.trial-{trial_id}.summary.txt"))
+        prefix = summary_path.with_name(summary_path.name.removesuffix(".summary.txt"))
+        assert json.loads(prefix.with_name(prefix.name + ".jsonl").read_text()) == row.output
+        assert prefix.with_name(prefix.name + ".artifacts.json").exists()
+        summary = summary_path.read_text()
+        assert f"case: {case_name}\n" in summary
+        assert f"trial_id: {trial_id}" in summary
+        assert json.loads(summary.split("=== scores ===\n")[1]) == row.scores
+        exported = next(item for item in exports if item["trial_id"] == trial_id)
+        assert exported["trial_index"] == row.metadata["trial_index"] == row.output["answer"] * 2
+        assert exported["scores"] == row.scores
