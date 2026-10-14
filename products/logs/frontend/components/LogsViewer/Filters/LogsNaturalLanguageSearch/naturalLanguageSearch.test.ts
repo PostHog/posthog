@@ -23,7 +23,17 @@ function response(overrides: Partial<LogsNaturalLanguageQueryResponseApi>): Logs
 
 describe('naturalLanguageSearch', () => {
     test.each([
-        ['one candidate', response({ candidates: [candidate] }), true],
+        ['one unranked candidate', response({ candidates: [candidate] }), false],
+        [
+            'one low-confidence candidate',
+            response({ candidates: [candidate], ranked_by: 'decision_model', confidence: 0.5 }),
+            false,
+        ],
+        [
+            'one candidate at the threshold',
+            response({ candidates: [candidate], ranked_by: 'decision_model', confidence: 0.7 }),
+            true,
+        ],
         ['confident decision model', response({ ranked_by: 'decision_model', confidence: 0.85 }), true],
         ['unsure decision model', response({ ranked_by: 'decision_model', confidence: 0.5 }), false],
         ['several candidates nobody ranked', response({ ranked_by: 'proposal_order', confidence: null }), false],

@@ -7,11 +7,8 @@ export const MIN_NATURAL_LANGUAGE_WORDS = 3
 
 /** Whether the first candidate can be applied without asking the person to choose. */
 export function shouldAutoApply(response: LogsNaturalLanguageQueryResponseApi): boolean {
-    if (response.candidates.length === 1) {
-        return true
-    }
     return (
-        response.candidates.length > 1 &&
+        response.candidates.length > 0 &&
         response.ranked_by === 'decision_model' &&
         (response.confidence ?? 0) >= AUTO_APPLY_CONFIDENCE
     )
