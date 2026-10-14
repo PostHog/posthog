@@ -434,8 +434,7 @@ def _unified_leadfeeder_source(
             partition_size=1,
         )
 
-    # The
-    # range is computed from the incremental watermark (if any) or the configured start date;
+    # The date range is computed from the incremental watermark (if any) or the configured start date;
     # re-reading the floored day is self-healing since merge dedupes on the primary key.
     start = (
         _to_date_str(db_incremental_field_last_value)
