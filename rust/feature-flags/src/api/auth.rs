@@ -8,6 +8,7 @@ use common_database::PostgresReader;
 use metrics::counter;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 
@@ -278,6 +279,11 @@ async fn load_token_from_pg(
 static MIRROR_SHADOW_PERMITS: LazyLock<Arc<Semaphore>> =
     LazyLock::new(|| Arc::new(Semaphore::new(8)));
 
+// The detached task escapes the request timeout, and statement_timeout cannot unblock a
+// client whose socket stopped responding, so a stalled check would retain its pool
+// connection and permit until the socket fails. Bound it client-side.
+const MIRROR_SHADOW_TIMEOUT: Duration = Duration::from_secs(5);
+
 fn spawn_mirror_shadow_check(pg_reader: PostgresReader, hashed_token: String, team_id: i32) {
     let Ok(permit) = MIRROR_SHADOW_PERMITS.clone().try_acquire_owned() else {
         counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => "skipped").increment(1);
@@ -285,11 +291,20 @@ fn spawn_mirror_shadow_check(pg_reader: PostgresReader, hashed_token: String, te
     };
     tokio::spawn(async move {
         let _permit = permit;
-        let result = mirror_shadow_result(pg_reader, &hashed_token, team_id).await;
+        let result = tokio::time::timeout(
+            MIRROR_SHADOW_TIMEOUT,
+            mirror_shadow_result(pg_reader, &hashed_token, team_id),
+        )
+        .await
+        .unwrap_or("timeout");
         match result {
             "match" => {}
             // A failed read says nothing about the row; don't send operators to backfill.
             "error" => warn!(team_id = team_id, "Legacy token mirror shadow query failed"),
+            "timeout" => warn!(
+                team_id = team_id,
+                "Legacy token mirror shadow query timed out"
+            ),
             _ => warn!(
                 team_id = team_id,
                 result = result,
