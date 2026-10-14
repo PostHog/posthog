@@ -12,6 +12,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -38,6 +39,7 @@ BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 CRAWLER_IP = "66.249.84.5"
 LOCAL_HOST = "localhost:8010"
 CHECKS_MODULE = "products.product_analytics.backend.insight_data_checks"
+ROUTE_MODULE = "products.product_analytics.backend.presentation.insight"
 ON_LOCAL_HOST = {"key": "$host", "value": [LOCAL_HOST], "operator": "exact", "type": "event"}
 FROM_A_BOT = {"key": "$raw_user_agent", "value": [BOT_USER_AGENT], "operator": "exact", "type": "event"}
 HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
@@ -446,6 +448,27 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             format="json",
             headers={"authorization": f"Bearer {key}"},
         )
+
+        assert response.status_code == expected, response.content
+
+    @parameterized.expand(
+        [("api_key", True, status.HTTP_429_TOO_MANY_REQUESTS), ("session", False, status.HTTP_200_OK)]
+    )
+    def test_an_api_key_checks_within_the_query_read_budget(self, _name: str, uses_a_key: bool, expected: int) -> None:
+        headers = {}
+        if uses_a_key:
+            headers = {
+                "authorization": f"Bearer {self.create_personal_api_key_with_scopes(['insight:read', 'query:read'])}"
+            }
+            self.client.logout()
+
+        with patch(f"{ROUTE_MODULE}.enforce_api_queries_budget", side_effect=APIQueriesBudgetExceeded(wait=5)):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/data_checks/",
+                {"query": self._query()},
+                format="json",
+                headers=headers,
+            )
 
         assert response.status_code == expected, response.content
 

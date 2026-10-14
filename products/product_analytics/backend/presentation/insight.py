@@ -57,7 +57,7 @@ from posthog.auth import (
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
@@ -79,7 +79,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     resolve_effective_dashboard_filters,
     resolve_filter_layers_by_priority,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_queries_budget
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import User
@@ -2513,6 +2513,10 @@ When set, the specified dashboard's filters and date range override will be appl
         return self._data_checks_response(upgrade(insight.query) if insight.query else {})
 
     def _data_checks_response(self, query: dict[str, Any]) -> Response:
+        # A personal API key reads within the same hourly budget as the query API, and each check query debits it.
+        if get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY:
+            tag_queries(api_queries_budgeted=True)
+            enforce_api_queries_budget(self.team)
         try:
             with query_concurrency_slots(self.team):
                 checks = run_insight_data_checks(query, team=self.team, user=cast(User, self.request.user))
