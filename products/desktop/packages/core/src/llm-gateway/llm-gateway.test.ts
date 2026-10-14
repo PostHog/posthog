@@ -214,6 +214,7 @@ describe("LlmGatewayService.prompt", () => {
       "x-posthog-property-rich": "line one line two  done ",
     });
     expect(init.headers).not.toHaveProperty("x-posthog-property-unused");
+    expect(init.headers).not.toHaveProperty("X-PostHog-Span-Name");
     expect(init.headers).not.toHaveProperty("x-posthog-property-skipped");
   });
 
@@ -579,7 +580,26 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
       ai_product: "posthog_code",
       team_id: 7,
     });
+    expect(init.headers["X-PostHog-Span-Name"]).toBe("title");
+    expect(init.headers).not.toHaveProperty("X-PostHog-Session-Id");
     expect(JSON.parse(init.body).model).toBe("claude-haiku-4-5");
+  });
+
+  it("sends a caller's session id in the session header", async () => {
+    const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: GO_ROUTE,
+      fetch: goFetch,
+    });
+
+    await service.prompt([{ role: "user", content: "hi" }], {
+      model: "claude-haiku-4-5",
+      posthogProperties: { $ai_session_id: "task-9" },
+    });
+
+    expect(goFetch.mock.calls[0][1].headers["X-PostHog-Session-Id"]).toBe(
+      "task-9",
+    );
   });
 
   it("sends a default max_tokens when the caller passes none", async () => {

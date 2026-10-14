@@ -20,6 +20,7 @@ from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
+from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -356,6 +357,24 @@ class _AutostartBaseBranchesField(serializers.DictField):
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    scout_instructions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=AGENT_STEERING_MAX_LENGTH,
+        help_text="Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only.",
+    )
+    research_instructions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=AGENT_STEERING_MAX_LENGTH,
+        help_text="Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.",
+    )
+    implementation_instructions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=AGENT_STEERING_MAX_LENGTH,
+        help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
+    )
     issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.all(),
         required=False,
@@ -442,6 +461,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         )
     )
 
+    def to_representation(self, instance: SignalTeamConfig) -> dict[str, object]:
+        representation = dict(super().to_representation(instance))
+        for field in STEERING_FIELDS.values():
+            representation[field] = representation[field] or ""
+        return representation
+
     def validate_pull_request_label(self, value: str | None) -> str | None:
         # One stored shape for "use the default", so a team that clears the box does not get a
         # label GitHub would refuse.
@@ -478,6 +503,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "scout_instructions",
+            "research_instructions",
+            "implementation_instructions",
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",

@@ -112,7 +112,7 @@ class TestComputationJob(BaseTest):
             assert row_count == 1
 
 
-class TestComputeQueryHash(BaseTest):
+class TestComputeQueryHash(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -1507,7 +1507,7 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
             )
 
 
-class TestParseTtlSchedule(BaseTest):
+class TestParseTtlSchedule(SimpleTestCase):
     def test_int_returns_schedule_with_no_rules(self):
         schedule = parse_ttl_schedule(3600)
         assert schedule.rules == []
@@ -1665,7 +1665,7 @@ class TestParseTtlSchedule(BaseTest):
         assert schedule.get_ttl(django_timezone.now() - timedelta(days=30), jittered=True) == 86400
 
 
-class TestSplitRangesByTtl(BaseTest):
+class TestSplitRangesByTtl(SimpleTestCase):
     def test_single_range_uniform_ttl(self):
         schedule = TtlSchedule.from_seconds(3600)
         ranges = [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))]
@@ -1708,7 +1708,7 @@ class TestSplitRangesByTtl(BaseTest):
         assert result[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC), 3600)
 
 
-class TestWrittenRows(BaseTest):
+class TestWrittenRows(SimpleTestCase):
     """`sync_execute` only swaps an INSERT's result for the `written_rows` counter when that
     counter is nonzero, so the driver's passthrough result is how a zero-row insert shows up."""
 
@@ -1720,7 +1720,7 @@ class TestWrittenRows(BaseTest):
         assert _written_rows(None) == 0
 
 
-class TestComputationExecutor(BaseTest):
+class TestComputationExecutor(SimpleTestCase):
     def test_executor_with_custom_settings(self):
         default_executor = LazyComputationExecutor()
         assert default_executor.wait_timeout_seconds == DEFAULT_WAIT_TIMEOUT_SECONDS
@@ -3716,7 +3716,7 @@ class TestInsertsReportRowsWritten(BaseTest):
         assert abs(expires_in - (60 * 60 if expected == 0 else 7 * 24 * 60 * 60)) < 100
 
 
-class TestMaxWindowDaysCap(BaseTest):
+class TestMaxWindowDaysCap(SimpleTestCase):
     def test_parse_carries_max_window_days(self):
         assert parse_ttl_schedule(3600, max_window_days=2).max_window_days == 2
         assert parse_ttl_schedule({"default": 3600}, "UTC", max_window_days=1).max_window_days == 1

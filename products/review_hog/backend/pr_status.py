@@ -12,8 +12,8 @@ from django.db import models
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import RUN_MODE_FLASH, RUN_MODE_RESOLVE_ONLY
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.requested_reviews import RUN_MODE_FLASH, RUN_MODE_RESOLVE_ONLY
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle

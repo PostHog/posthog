@@ -31,8 +31,14 @@ export function ReportFeedbackFooter({
     align?: 'start' | 'end'
 }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment, feedbackNoteDraft, feedbackNoteSent, feedbackSentNote, feedbackNoteSubmitting } =
-        useValues(logic)
+    const {
+        feedbackSentiment,
+        feedbackNoteDraft,
+        feedbackNoteSent,
+        feedbackSentNote,
+        feedbackNoteSubmitting,
+        feedbackDisabledReason,
+    } = useValues(logic)
     const { rateReport, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
 
     const { celebrate, celebration } = useReportFeedbackCelebration()
@@ -49,17 +55,11 @@ export function ReportFeedbackFooter({
 
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
-    // Re-clicking the chosen thumb is a no-op rather than a second identical feedback event.
     const rate = (sentiment: InboxReportFeedbackSentiment): void => {
-        if (feedbackSentiment === sentiment) {
-            return
-        }
-        rateReport(sentiment)
+        const nextSentiment = feedbackSentiment === sentiment ? null : sentiment
+        rateReport(nextSentiment, 'detail_footer', nextSentiment === 'positive' ? celebrate : undefined)
         setQuestionDismissed(false)
         setAskedHere(true)
-        if (sentiment === 'positive') {
-            celebrate()
-        }
     }
     const askingWhy = !!feedbackSentiment && !feedbackNoteSent && !questionDismissed
 
@@ -89,7 +89,8 @@ export function ReportFeedbackFooter({
                             size="xsmall"
                             type={isPositive ? 'primary' : 'secondary'}
                             icon={isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                            tooltip="Yes, this was useful"
+                            tooltip={isPositive ? 'Remove thumbs up' : 'Yes, this was useful'}
+                            disabledReason={feedbackDisabledReason}
                             aria-label="This report was useful"
                             aria-pressed={isPositive}
                             onClick={() => rate('positive')}
@@ -101,7 +102,8 @@ export function ReportFeedbackFooter({
                         size="xsmall"
                         type={isNegative ? 'primary' : 'secondary'}
                         icon={isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                        tooltip="No, this wasn't useful"
+                        tooltip={isNegative ? 'Remove thumbs down' : "No, this wasn't useful"}
+                        disabledReason={feedbackDisabledReason}
                         aria-label="This report was not useful"
                         aria-pressed={isNegative}
                         onClick={() => rate('negative')}
@@ -133,6 +135,7 @@ export function ReportFeedbackFooter({
                         <div className="min-w-0 flex-1">
                             <LemonTextArea
                                 value={feedbackNoteDraft}
+                                disabled={feedbackNoteSubmitting}
                                 // Capped here rather than with `maxLength`, whose counter footer would
                                 // make the small field a block.
                                 onChange={(value) => setFeedbackNoteDraft(value.slice(0, FEEDBACK_NOTE_MAX_LENGTH))}

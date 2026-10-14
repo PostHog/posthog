@@ -19,8 +19,8 @@ from products.review_hog.backend.reviewer.models.issues_review import (
     LineRange,
     ReportedPriority,
 )
+from products.review_hog.backend.reviewer.tools.prompt_helpers import PROMPT_CACHE_MARKER
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
-    PROMPT_CACHE_MARKER,
     ChangedSinceReview,
     FlashSelection,
     SingleAgentPrompt,

@@ -63,10 +63,11 @@ STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
 
 # The RetryInterceptor set plus RESOURCE_EXHAUSTED and INTERNAL, which an in-process retry must not
 # hammer but a task backoff of minutes is the right answer to. Personhog sheds load with
-# RESOURCE_EXHAUSTED and maps every Postgres query error (deadlock, lock or statement timeout, a
-# read-only primary after a failover) to INTERNAL. UNKNOWN stays in because an HTTP/2 stream reset
-# ("Stream removed") surfaces as UNKNOWN, and that is the outage shape that leaves a static cohort
-# half-synced.
+# RESOURCE_EXHAUSTED. It answers a Postgres lock or statement timeout with DEADLINE_EXCEEDED. It maps
+# every other Postgres query error (deadlock, a read-only primary after a failover) to INTERNAL. The
+# RetryInterceptor does not retry those timeouts, so this set is where they get their retry. UNKNOWN
+# stays in because an HTTP/2 stream reset ("Stream removed") surfaces as UNKNOWN, and that is the
+# outage shape that leaves a static cohort half-synced.
 STATIC_POPULATION_RETRYABLE_RPC_CODES = frozenset(
     {
         grpc.StatusCode.UNAVAILABLE,

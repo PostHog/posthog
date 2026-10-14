@@ -1346,6 +1346,35 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreateBodyQueryMax = 500
+
+export const LogsNaturalLanguageQueryCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(logsNaturalLanguageQueryCreateBodyQueryMax)
+        .describe("The plain-language request, for example 'error logs from checkout in the last 2 hours'."),
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Null means \"now\".'),
+        })
+        .optional()
+        .describe(
+            "The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from."
+        ),
+})
+
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
