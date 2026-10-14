@@ -207,6 +207,21 @@ describe('createParseAndAnonymizeMessageStep', () => {
         expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'anonymize_failed' })
     })
 
+    it.each([
+        ['web', 'posthog-js', PipelineResultType.OK],
+        [null, null, PipelineResultType.OK],
+        ['mobile', 'posthog-ios', PipelineResultType.DROP],
+        ['mobile', null, PipelineResultType.DROP],
+        [null, 'posthog-android', PipelineResultType.DROP],
+    ])('mirrors only web replays (source %p, library %p)', async (snapshotSource, snapshotLibrary, expected) => {
+        addonSuccess({ snapshotSource, snapshotLibrary })
+        const result = await step({ message: kafkaMessage(), headers, team })
+        expect(result.type).toBe(expected)
+        if (expected === PipelineResultType.DROP) {
+            expect(result).toMatchObject({ reason: 'ml_mirror_non_web_replay' })
+        }
+    })
+
     it('drops messages whose timestamps are too far from now', async () => {
         const monthAgo = now - 30 * 24 * 60 * 60 * 1000
         addonSuccess({ startTs: monthAgo, endTs: monthAgo + 1000 })

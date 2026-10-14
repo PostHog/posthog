@@ -240,6 +240,10 @@ export function createParseAndAnonymizeMessageStep<
             return drop('anonymize_failed')
         }
 
+        if (!isWebReplay(meta.snapshotSource, meta.snapshotLibrary)) {
+            return drop('ml_mirror_non_web_replay')
+        }
+
         const startDateTime = DateTime.fromMillis(meta.startTs)
         const endDateTime = DateTime.fromMillis(meta.endTs)
         const startDiff = Math.abs(startDateTime.diffNow('day').days)
@@ -315,6 +319,21 @@ export function createParseAndAnonymizeMessageStep<
 
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
+}
+
+const MOBILE_SNAPSHOT_LIBRARY = /^posthog-(ios|android|react-native|flutter)/i
+
+/**
+ * The anonymizer scrubs the web rrweb shapes only. Mobile SDKs send wireframes and screenshots, which
+ * none of its scrubbers read, so a non-web replay is dropped rather than mirrored. A missing source is
+ * web, as in the main replay lane, because older web SDKs do not send one.
+ */
+export function isWebReplay(
+    snapshotSource: string | null | undefined,
+    snapshotLibrary: string | null | undefined
+): boolean {
+    const webSource = !snapshotSource || snapshotSource === 'web'
+    return webSource && !MOBILE_SNAPSHOT_LIBRARY.test(snapshotLibrary ?? '')
 }
 
 function recordImageSources(meta: AnonymizeMeta): void {
