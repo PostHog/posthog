@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Iterator
+from itertools import groupby
+from operator import itemgetter
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -36,19 +37,17 @@ def held_back_destinations(*, team_id: int | None = None) -> Iterator[HeldBackDe
 
 def unbound_destinations(*, team_id: int | None = None) -> Iterator[tuple[int, UUID]]:
     """Every enabled logs alert function that no alert owns, as (team id, function id), for teams with an enabled alert."""
-    alerts = LogsAlertConfiguration.objects.all()
+    alerts = LogsAlertConfiguration.objects.order_by("team_id")
     if team_id is not None:
         alerts = alerts.filter(team_id=team_id)
-    alert_ids_by_team: dict[int, list[str]] = defaultdict(list)
-    enabled_teams: set[int] = set()
-    for alert_team_id, alert_id, enabled in alerts.values_list("team_id", "id", "enabled"):
-        alert_ids_by_team[alert_team_id].append(str(alert_id))
-        if enabled:
-            enabled_teams.add(alert_team_id)
-    for unbound_team_id in sorted(enabled_teams):
+    rows = alerts.values_list("team_id", "id", "enabled").iterator()
+    for alert_team_id, team_rows in groupby(rows, key=itemgetter(0)):
+        team_alerts = list(team_rows)
+        if not any(enabled for _, _, enabled in team_alerts):
+            continue
         for function_id in unbound_alert_destinations(
-            team_id=unbound_team_id,
-            alert_ids=alert_ids_by_team[unbound_team_id],
+            team_id=alert_team_id,
+            alert_ids=[str(alert_id) for _, alert_id, _ in team_alerts],
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         ):
-            yield unbound_team_id, function_id
+            yield alert_team_id, function_id

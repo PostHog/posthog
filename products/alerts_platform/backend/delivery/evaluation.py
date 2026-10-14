@@ -23,6 +23,7 @@ from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
+from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -53,6 +54,18 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.PAGERDUTY: PagerDutyTransport,
     DestinationType.EMAIL: EmailTransport,
 }
+
+
+def refused_address(destination_type: DestinationType, url: str) -> str | None:
+    """Why native delivery would refuse to send to this URL, or None when it would send."""
+    transport = _TRANSPORTS.get(destination_type)
+    if transport is None or not issubclass(transport, WebhookUrlTransport):
+        return None
+    try:
+        transport().check_url(url)
+    except DeliveryError as error:
+        return str(error)
+    return None
 
 
 @frozen

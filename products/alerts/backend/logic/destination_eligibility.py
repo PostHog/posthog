@@ -18,6 +18,7 @@ from uuid import UUID
 from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, WebhookDestination, input_value
 from products.alerts.backend.logic.destinations import _allowed_event_filter, owned_alert_destinations_qs
+from products.alerts_platform.backend.facade.delivery import refused_address
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -121,6 +122,10 @@ def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | Non
     stored_inputs = {**(function.inputs or {}), **(function.encrypted_inputs or {})}
     if any(_has_template(input_value(stored_inputs, key)) for key in spec.address_input_keys):
         found.append(DestinationHoldBack.TEMPLATED_ADDRESS)
+    else:
+        url = spec.read(stored_inputs).get("webhook_url")
+        if isinstance(url, str) and refused_address(spec.type, url) is not None:
+            found.append(DestinationHoldBack.REFUSED_ADDRESS)
 
     # The first revision holds the config as it stood at the first tracked edit, so an earlier
     # untracked save is already inside it and the snapshot is no stock baseline.
