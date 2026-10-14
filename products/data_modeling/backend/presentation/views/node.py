@@ -474,10 +474,10 @@ class NodeViewSet(
 
         if direction == "upstream":
             node_ids = _get_upstream_nodes(node)
-            if not node.belongs_to_managed_viewset:
-                node_ids -= _managed_view_node_ids(self.team_id, node_ids)
         else:
             node_ids = _get_downstream_nodes(node)
+        managed_view_node_ids = _managed_view_node_ids(self.team_id, node_ids)
+        node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
 
         node_ids.add(str(node.id))
 

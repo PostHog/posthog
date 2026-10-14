@@ -367,20 +367,26 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("table", response.json()["error"].lower())
 
+    @parameterized.expand(
+        [("upstream_from_a_reader", "upstream", False), ("downstream_from_a_managed_view", "downstream", True)]
+    )
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
-    def test_run_upstream_starts_workflow_without_the_managed_views_it_reads(self, mock_sync_connect):
+    def test_a_run_stays_on_the_side_of_a_managed_view_it_started_from(
+        self, _name, direction, start_from_managed_view, mock_sync_connect
+    ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         managed_node = self._create_managed_node()
         Edge.objects.create(team=self.team, dag=self.dag, source=managed_node, target=self.view_node)
+        start = managed_node if start_from_managed_view else self.view_node
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
-            {"direction": "upstream"},
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{start.id}/run/",
+            {"direction": direction},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["node_ids"], [str(self.view_node.id)])
+        self.assertEqual(response.json()["node_ids"], [str(start.id)])
         mock_client.start_workflow.assert_called_once()
 
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
