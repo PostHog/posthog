@@ -28,6 +28,11 @@ describe('dataRetentionBannerLogic', () => {
             response: [200, { ...RETENTION, retention_months: null, retained_from: null }],
             retentionMonths: null,
         },
+        {
+            name: 'treats an empty response as retention not enforced',
+            response: [204],
+            retentionMonths: null,
+        },
     ])('$name', async ({ response, retentionMonths }) => {
         useMocks({ get: { '/api/projects/:team_id/events_retention/': () => response } })
         initKeaTests()
