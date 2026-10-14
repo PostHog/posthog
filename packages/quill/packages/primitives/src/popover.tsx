@@ -8,8 +8,6 @@ function Popover({ ...props }: PopoverPrimitive.Root.Props): React.ReactElement 
     return <PopoverPrimitive.Root data-slot="popover" {...props} />
 }
 
-// React 18 drops a ref passed to a plain function component. When another trigger renders this one
-// through `render`, that ref is the popup anchor, so without forwardRef the popup never positions.
 const PopoverTrigger = React.forwardRef<HTMLButtonElement, PopoverPrimitive.Trigger.Props>(function PopoverTrigger(
     props,
     ref

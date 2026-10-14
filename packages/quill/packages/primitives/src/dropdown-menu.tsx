@@ -19,8 +19,6 @@ function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props): React.Rea
     return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
 }
 
-// React 18 drops a ref passed to a plain function component. When another trigger renders this one
-// through `render`, that ref is the popup anchor, so without forwardRef the popup never positions.
 const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, MenuPrimitive.Trigger.Props>(function DropdownMenuTrigger(
     props,
     ref

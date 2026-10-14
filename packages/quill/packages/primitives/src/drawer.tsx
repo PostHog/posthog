@@ -8,8 +8,6 @@ function Drawer({ ...props }: DrawerPrimitive.Root.Props): React.ReactElement {
     return <DrawerPrimitive.Root data-slot="drawer" {...props} />
 }
 
-// React 18 drops a ref passed to a plain function component. When another trigger renders this one
-// through `render`, that ref is the popup anchor, so without forwardRef the popup never positions.
 const DrawerTrigger = React.forwardRef<HTMLButtonElement, DrawerPrimitive.Trigger.Props>(function DrawerTrigger(
     props,
     ref

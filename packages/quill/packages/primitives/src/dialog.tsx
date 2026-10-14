@@ -14,8 +14,6 @@ function Dialog({ ...props }: DialogPrimitive.Root.Props): React.ReactElement {
     return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-// React 18 drops a ref passed to a plain function component. When another trigger renders this one
-// through `render`, that ref is the popup anchor, so without forwardRef the popup never positions.
 const DialogTrigger = React.forwardRef<HTMLButtonElement, DialogPrimitive.Trigger.Props>(function DialogTrigger(
     props,
     ref
