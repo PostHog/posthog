@@ -892,7 +892,7 @@ class PersonTombstonePublication:
     def publish(
         self, tombstones: Sequence[tuple[PersonTombstone, Optional[datetime.datetime]]], *, ack: bool = True
     ) -> None:
-        """Produce the rows. With ``ack=False`` a delivered person stays queued for the weekly sweep to confirm."""
+        """Produce the rows. With ``ack=False`` a delivered person stays queued for the weekly tombstone repair."""
         for tombstone, created_at in tombstones:
             try:
                 results = publish_person_tombstone(self.team_id, tombstone, created_at=created_at)

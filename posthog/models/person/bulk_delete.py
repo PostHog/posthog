@@ -592,8 +592,7 @@ def _tombstone_persons_at_exact_versions(
         tombstones = [tombstone for tombstone in tombstones if tombstone.uuid in person_by_uuid]
         tombstones, checked = _raise_tombstones_above_clickhouse(team_id, tombstones)
         deleted.extend(person_by_uuid[tombstone.uuid] for tombstone in tombstones)
-        # An unchecked tombstone may lose to a newer live ClickHouse row, so it stays queued for the weekly
-        # repair, which checks again.
+        # An unchecked tombstone may lose to a newer live row, so it stays queued for the weekly repair.
         publication.publish(
             [(tombstone, person_by_uuid[tombstone.uuid].created_at) for tombstone in tombstones], ack=checked
         )
