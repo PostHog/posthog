@@ -477,8 +477,7 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("shared", "/shared/abc123", {}, True),
             ("embedded", "/embedded/abc123", {}, True),
             ("render_query", "/render_query", {}, True),
-            # The image exporter runs JavaScript from strings on this document, and an enforced
-            # policy can refuse them.
+            # A replay export can run an eval in a frame of this document, and an enforced policy refuses it.
             ("exporter_render", "/exporter", {}, False),
             # This route serves the shared page, so it enforces like /shared/.
             ("exporter_with_token", "/exporter/abc123", {}, True),

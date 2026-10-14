@@ -91,9 +91,11 @@ def is_embeddable_document(path: str) -> bool:
 # document, and the app can navigate inside it, so an unrouted subpath gets the enforced policy.
 #
 # The image exporter in `products/exports/backend/tasks/image_exporter.py` loads the bare `/exporter`
-# render document in a headless browser and runs JavaScript there from strings. The app policy has
-# no 'unsafe-eval', so an enforced policy can refuse those strings, and the image or replay export
-# then fails. `/exporter/<token>` serves the shared page, so it enforces like `/shared/`.
+# render document in a headless browser. A replay export can evaluate a string as script in an
+# about:blank frame of that render, and the frame inherits this policy, which has no 'unsafe-eval'.
+# An enforced policy would refuse that `eval`, and the effect on the exported image is unknown, so
+# the document stays report-only until the caller of that `eval` is traced. `/exporter/<token>`
+# serves the shared page, so it enforces like `/shared/`.
 #
 # The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
 # a response that the view did not build. No report shows how such a response behaves under an
