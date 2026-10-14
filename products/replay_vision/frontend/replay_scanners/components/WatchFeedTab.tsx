@@ -76,7 +76,8 @@ export function WatchFeedTab(): JSX.Element {
 
     const items = feedItems ?? []
     // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
-    const narrowedToScanners = scannerIdsFilter.length
+    const narrowedToScanners =
+        scannerIdsFilter.length > 0 && scannerIdsFilter.length < allScanners.length ? scannerIdsFilter.length : 0
     const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
@@ -85,7 +86,7 @@ export function WatchFeedTab(): JSX.Element {
     return (
         <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 flex-1 min-w-[16rem]">
                     <h2 className="text-xl font-semibold m-0">
                         {items.length === 0 ? 'What to watch' : `Top ${pluralize(items.length, 'session')}`}
                     </h2>
