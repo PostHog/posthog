@@ -13,6 +13,9 @@ The rules, in order. The first rule that matches gives the reason:
    rebase). A merge that changes the PR's own lines runs the review.
 4. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
 5. `system_one_below_threshold`: System One rates the new own commits below a threshold.
+6. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
+   ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
+   so a draft decision keeps the System One answer and the push size for calibration.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
@@ -45,6 +48,7 @@ SKIP_REVIEWHOG_COMMITS_ONLY = True
 SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
+SKIP_DRAFT = True
 
 # The JevK5 build PostHog hosts on the ai-gateway. The study calibrated the threshold on TypeSafe's
 # `jev-latest`, so the shadow decisions must confirm it holds for this model before SKIP_SYSTEM_ONE goes on.
@@ -90,7 +94,7 @@ _NON_CODE_FILE = re.compile(
 )
 
 SkipReason = Literal[
-    "no_new_commits", "reviewhog_commits_only", "merge_only", "docs_only", "system_one_below_threshold"
+    "no_new_commits", "reviewhog_commits_only", "merge_only", "docs_only", "system_one_below_threshold", "draft"
 ]
 RunReason = Literal[
     "commits_removed",
@@ -154,6 +158,8 @@ def _rule_enabled(reason: SkipReason) -> bool:
         return SKIP_MERGE_ONLY
     if reason == "docs_only":
         return SKIP_DOCS_ONLY
+    if reason == "draft":
+        return SKIP_DRAFT
     return SKIP_SYSTEM_ONE
 
 
@@ -323,8 +329,7 @@ class PushGate:
             own_code_lines=lines,
         )
 
-    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
-        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`."""
+    def _decide_push(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
         previous = self._pr_diff(base_branch, previous_head_sha)
         current = self._pr_diff(base_branch, head_sha)
         if previous is None or current is None:
@@ -355,3 +360,16 @@ class PushGate:
         if not code_files:
             return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
         return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)
+
+    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str, draft: bool) -> PushGateDecision:
+        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`."""
+        decision = self._decide_push(previous_head_sha=previous_head_sha, head_sha=head_sha, base_branch=base_branch)
+        if not draft or decision.skip:
+            return decision
+        return _matched(
+            "draft",
+            own_commits=decision.own_commits,
+            probability=decision.probability,
+            model=decision.model,
+            own_code_lines=decision.own_code_lines,
+        )

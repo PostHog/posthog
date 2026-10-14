@@ -91,6 +91,7 @@ def publish_persisted_review(
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
     footer: str = "",
+    draft_notice: str = "",
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -104,6 +105,8 @@ def publish_persisted_review(
     the threshold that actually gated each turn, not the user's live setting and not whichever
     threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
     event loop.
+
+    `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if review_already_published(report, head_sha, review_mode):
@@ -127,6 +130,7 @@ def publish_persisted_review(
         review_mode=review_mode,
         capped_lens_parts=capped_lens_parts,
         footer=footer,
+        findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -219,6 +223,7 @@ def publish_review(
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
     footer: str = "",
+    findings_footer: str = "",
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -234,6 +239,8 @@ def publish_review(
 
     `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. A Standard
     review then carries the large pull request note, and a clean Standard turn posts a short review with it.
+
+    `findings_footer` follows `footer` only on a review that posts findings, never on the clean-turn note.
     """
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
@@ -244,7 +251,6 @@ def publish_review(
     # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
     footer_block = f"{footer}\n\n" if footer else ""
     note_block = f"{large_pr_note(large_pr_parts)}\n\n" if large_pr_parts is not None else ""
-    body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)
@@ -283,6 +289,9 @@ def publish_review(
         return PublishOutcome(posted=False)
     # An earlier clean turn's 👍 would sit next to this turn's findings and contradict them.
     remove_own_pr_reactions(repository, pr_number, "+1", token=token, installation_id=installation_id)
+    if findings_footer:
+        footer_block = f"{footer_block}{findings_footer}\n\n"
+    body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
 
     # When every publishable finding has its own inline comment, the body's tally repeats what the
     # comments already show. A Deep review then posts only the hidden marker. A Standard review keeps

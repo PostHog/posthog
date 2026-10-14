@@ -28,6 +28,7 @@ from products.review_hog.backend.reviewer.persistence import (
 )
 from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 from products.review_hog.backend.temporal.activities import (
     FlashSessionStats,
@@ -370,6 +371,49 @@ class TestTrackReviewCompleted(BaseTest):
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
         # Each push reports the draft state of its own head.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
+
+    @parameterized.expand(
+        [
+            ("still_a_draft", [True], True, "draft"),
+            # The author marks the PR ready without a push: the ready turn re-fetches the same head.
+            ("marked_ready_at_the_same_head", [True, False], False, "compare_unavailable"),
+        ]
+    )
+    def test_the_gate_reads_the_draft_state_of_the_latest_fetch(
+        self, _name: str, fetched_drafts: list[bool], skip: bool, reason: str
+    ) -> None:
+        report_id = self._review_report()
+        for draft in fetched_drafts:
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha="sha1",
+                pr_metadata=_pr_metadata(draft=draft),
+                pr_comments=[],
+                pr_files=[],
+            )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch(
+                "products.review_hog.backend.reviewer.push_gate.github_api_request",
+                side_effect=GitHubAPIError("gone", status=404),
+            ),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture"),
+        ):
+            decision = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+
+        assert (decision.skip, decision.reason) == (skip, reason)
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any

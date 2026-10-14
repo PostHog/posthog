@@ -38,7 +38,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
-from products.review_hog.backend.label_reviews import comment_commands_enabled, label_commands_hint
+from products.review_hog.backend.label_reviews import comment_commands_enabled, draft_review_notice, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -2033,6 +2033,11 @@ def _publish(input: PublishInput) -> PublishResult:
     footer = ""
     if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
         footer = label_commands_hint(input.review_mode)
+    # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
+    # without automatic reviews too.
+    draft_notice = ""
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        draft_notice = draft_review_notice(comment_commands_enabled(input.team_id))
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2047,6 +2052,7 @@ def _publish(input: PublishInput) -> PublishResult:
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
+        draft_notice=draft_notice,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
@@ -2286,6 +2292,9 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
+            # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR
+            # marked ready at an unchanged head reads as ready here.
+            draft=current.pr_metadata.draft,
         )
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
