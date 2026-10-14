@@ -675,7 +675,7 @@ describe("setupProgress", () => {
 });
 
 describe("deliveryFailure", () => {
-  it("knows a 502 from the sandbox means nothing runs in it any more", () => {
+  it("knows a failed hand-over to the sandbox, a 502 or a credential rebind, means the run has to be brought back", () => {
     const failed = (detail: string): StoredLogEntry =>
       ({
         type: "notification",
@@ -695,8 +695,14 @@ describe("deliveryFailure", () => {
         ?.sandboxGone,
     ).toBe(true);
     expect(
-      deliveryFailure([failed("send_followup failed: refresh_session missing")])
-        ?.sandboxGone,
+      deliveryFailure([
+        failed(
+          "RuntimeError: send_followup failed: Could not rebind sandbox MCP credentials for the follow-up actor (refresh_session_failed)",
+        ),
+      ])?.sandboxGone,
+    ).toBe(true);
+    expect(
+      deliveryFailure([failed("ValueError: message too long")])?.sandboxGone,
     ).toBe(false);
   });
 

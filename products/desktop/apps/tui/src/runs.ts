@@ -273,7 +273,8 @@ export interface DeliveryFailure {
   // When the backend gave up on the message (epoch ms).
   at: number;
   text: string;
-  // The sandbox answered 502: nothing runs in it any more, though the server still counts the run as live.
+  // The backend could not hand the message to the sandbox (it answered 502, or its credentials could not be rebound):
+  // a send would fail the same way, so the run has to be brought back first, though the server still counts it as live.
   sandboxGone: boolean;
 }
 
@@ -309,7 +310,9 @@ export function deliveryFailure(
     return {
       at: Date.parse(entry.timestamp ?? "") || 0,
       text: detail ? `${label}: ${detail}` : label,
-      sandboxGone: /Sandbox returned 502/.test(detail ?? ""),
+      sandboxGone: /^send_followup failed/.test(
+        params.detail?.replace(/^\w*Error: /, "") ?? "",
+      ),
     };
   }
   return null;
