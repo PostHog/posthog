@@ -1,0 +1,145 @@
+import { type ReactElement } from 'react'
+
+import { Button, Card, CardContent } from '@posthog/quill'
+
+export interface WorkflowDataSuggestion {
+    id: string
+    name: string
+    description: string
+    reason: string
+    trigger_event: string
+    weekly_count: number
+}
+
+export interface WorkflowDataSuggestionsData {
+    status: 'ready' | 'generating' | 'ai_not_approved' | 'unavailable'
+    suggestions: WorkflowDataSuggestion[]
+}
+
+export interface WorkflowDataSuggestionMissingInput {
+    step_name: string
+    field: string
+}
+
+export type WorkflowDataSuggestionBuild =
+    | { status: 'building' }
+    | { status: 'ready'; editorUrl: string | null; missingInputs: WorkflowDataSuggestionMissingInput[] }
+    | { status: 'failed'; error: string }
+
+export interface WorkflowDataSuggestionsViewProps {
+    data: WorkflowDataSuggestionsData
+    builds: Record<string, WorkflowDataSuggestionBuild>
+    onCreate?: (suggestion: WorkflowDataSuggestion, retry: boolean) => void
+}
+
+const EMPTY_MESSAGES: Record<Exclude<WorkflowDataSuggestionsData['status'], 'ready'>, string> = {
+    generating: 'Suggesting workflows from the events your project sends. This takes a few seconds.',
+    ai_not_approved: 'Suggestions need AI data processing, which this organization has not approved.',
+    unavailable: 'There are no suggestions for this project right now.',
+}
+
+export function WorkflowDataSuggestionsView({
+    data,
+    builds,
+    onCreate,
+}: WorkflowDataSuggestionsViewProps): ReactElement {
+    if (data.status !== 'ready' || data.suggestions.length === 0) {
+        return (
+            <p className="p-4 text-sm text-muted-foreground">
+                {data.status === 'ready' ? EMPTY_MESSAGES.unavailable : EMPTY_MESSAGES[data.status]}
+            </p>
+        )
+    }
+    const building = Object.values(builds).some((build) => build.status === 'building')
+
+    return (
+        <div className="flex flex-col gap-3 p-4">
+            {data.suggestions.map((suggestion, index) => (
+                <SuggestionCard
+                    key={suggestion.id}
+                    suggestion={suggestion}
+                    // The top-ranked suggestion is the one primary action, like on the Workflows empty state.
+                    primary={index === 0}
+                    build={builds[suggestion.id]}
+                    disabled={building && builds[suggestion.id]?.status !== 'building'}
+                    onCreate={onCreate}
+                />
+            ))}
+        </div>
+    )
+}
+
+function SuggestionCard({
+    suggestion,
+    primary,
+    build,
+    disabled,
+    onCreate,
+}: {
+    suggestion: WorkflowDataSuggestion
+    primary: boolean
+    build: WorkflowDataSuggestionBuild | undefined
+    disabled: boolean
+    onCreate: WorkflowDataSuggestionsViewProps['onCreate']
+}): ReactElement {
+    return (
+        <Card>
+            <CardContent className="flex flex-col gap-2 p-4">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="font-semibold">{suggestion.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                        <code>{suggestion.trigger_event}</code> · {suggestion.weekly_count.toLocaleString()} this week
+                    </span>
+                </div>
+                <p className="m-0 text-sm">{suggestion.description}</p>
+                <p className="m-0 text-sm text-muted-foreground">{suggestion.reason}</p>
+                {build?.status === 'ready' ? (
+                    <ReadyBuild build={build} />
+                ) : (
+                    <div className="flex flex-wrap items-center gap-3">
+                        {onCreate ? (
+                            <Button
+                                variant={primary ? 'primary' : 'outline'}
+                                size="sm"
+                                disabled={disabled || build?.status === 'building'}
+                                onClick={() => onCreate(suggestion, build?.status === 'failed')}
+                            >
+                                {build?.status === 'building' ? 'Building your workflow…' : 'Create workflow'}
+                            </Button>
+                        ) : null}
+                        {build?.status === 'failed' ? (
+                            <span className="text-sm text-destructive">{build.error}</span>
+                        ) : null}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
+function ReadyBuild({ build }: { build: Extract<WorkflowDataSuggestionBuild, { status: 'ready' }> }): ReactElement {
+    return (
+        <div className="flex flex-col gap-1 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+                <span className="font-medium">Draft saved. It doesn't run until you enable it.</span>
+                {build.editorUrl ? (
+                    <a className="text-link underline" href={build.editorUrl} target="_blank" rel="noopener noreferrer">
+                        Open in PostHog
+                    </a>
+                ) : null}
+            </div>
+            {build.missingInputs.length > 0 ? (
+                <div className="text-muted-foreground">
+                    Still to set before you enable it:
+                    <ul className="m-0 pl-5">
+                        {build.missingInputs.map((input, index) => (
+                            <li key={index}>
+                                {input.field} in "{input.step_name}"
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+        </div>
+    )
+}
