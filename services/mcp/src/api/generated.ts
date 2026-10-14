@@ -54369,6 +54369,54 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type HeatmapCaptureRequestStateEnum = typeof HeatmapCaptureRequestStateEnum[keyof typeof HeatmapCaptureRequestStateEnum];
+
+
+    export const HeatmapCaptureRequestStateEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface HeatmapCaptureRequest {
+      /** Durable capture request identifier. */
+      request_id: string;
+      /** Queued, running, succeeded, failed, or cancelled.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      readonly state: HeatmapCaptureRequestStateEnum;
+      /** Deadline after which this request cannot publish an image. */
+      readonly deadline: string;
+      /**
+         * Reason this capture failed, when known.
+         * @nullable
+         */
+      readonly failure_cause: string | null;
+      /**
+         * HTTP status returned by the rendered page.
+         * @nullable
+         */
+      readonly page_status: number | null;
+      /**
+         * When this request finished.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    /**
      * * `all` - All URLs
      * * `url_allowlist` - Only listed URLs
      */
@@ -54474,6 +54522,98 @@ export namespace Schemas {
       pointer_y: number;
       pointer_relative_x: number;
       pointer_target_fixed: boolean;
+    }
+
+    export interface HeatmapScreenshotHistoryCaptureResponse {
+      /** Initial state of the durable capture request. */
+      status: string;
+      /** Request to poll for the capture outcome. */
+      request_id: string;
+      /** Time this request expires if it has not completed. */
+      deadline: string;
+      /** Requested viewport width in CSS pixels. */
+      width: number;
+    }
+
+    /**
+     * * `scheduled` - Daily capture
+     * * `manual` - Requested capture
+     */
+    export type HeatmapScreenshotHistoryTriggerEnum = typeof HeatmapScreenshotHistoryTriggerEnum[keyof typeof HeatmapScreenshotHistoryTriggerEnum];
+
+
+    export const HeatmapScreenshotHistoryTriggerEnum = {
+      Scheduled: 'scheduled',
+      Manual: 'manual',
+    } as const;
+
+    /**
+     * * `ok` - Captured
+     * * `pending` - Capture pending
+     * * `failed` - Capture failed
+     */
+    export type HeatmapScreenshotHistoryStatusEnum = typeof HeatmapScreenshotHistoryStatusEnum[keyof typeof HeatmapScreenshotHistoryStatusEnum];
+
+
+    export const HeatmapScreenshotHistoryStatusEnum = {
+      Ok: 'ok',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface HeatmapScreenshotHistoryItem {
+      readonly id: string;
+      /** Project-local calendar day of this capture. */
+      readonly captured_on: string;
+      /**
+         * Time of the last successful capture.
+         * @nullable
+         */
+      readonly captured_at: string | null;
+      /** Actual viewport width of the available image, in CSS pixels. */
+      readonly width: number;
+      /** Project timezone when this image was captured. */
+      readonly timezone: string;
+      /** Inclusive UTC start of the captured project day. */
+      readonly day_start: string;
+      /** Exclusive UTC end of the captured project day. */
+      readonly day_end: string;
+      /** Time this history item expires. */
+      readonly expires_at: string;
+      /**
+         * Successful request UUID identifying this image revision.
+         * @nullable
+         */
+      readonly revision: string | null;
+      readonly trigger: HeatmapScreenshotHistoryTriggerEnum;
+      readonly status: HeatmapScreenshotHistoryStatusEnum;
+      /** @nullable */
+      readonly failure_cause: string | null;
+      /** @nullable */
+      readonly page_status: number | null;
+      /**
+         * Authenticated, versioned URL of the available JPEG.
+         * @nullable
+         */
+      readonly content_url: string | null;
+      /**
+         * Preview URL, or null when no preview is available.
+         * @nullable
+         */
+      readonly thumbnail_url: string | null;
+      /** Latest attempt, independent of the available image. */
+      latest_request: HeatmapCaptureRequest | null;
+    }
+
+    export interface HeatmapScreenshotHistoryResponse {
+      /** Viewport width (CSS pixels) daily captures of this heatmap are rendered at. */
+      width: number;
+      /** Captures older than this many days are deleted together with their images. */
+      retention_days: number;
+      /** Whether object storage is configured on this installation. Captures are only kept when it is. */
+      storage_available: boolean;
+      /** Captures within the retention window, newest first. */
+      results: HeatmapScreenshotHistoryItem[];
     }
 
     /**
@@ -66678,6 +66818,26 @@ export namespace Schemas {
       error?: string | null;
     }
 
+    export interface NotebookCellVisualization {
+      /** Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'. */
+      display: string;
+      /**
+         * Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y series do not use when there is no date column.
+         * @nullable
+         */
+      x_axis: string | null;
+      /**
+         * Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list means the author removed every series, so the chart plots nothing.
+         * @nullable
+         */
+      y_axis: string[] | null;
+      /**
+         * Column that splits the Y series into one series per value, or null.
+         * @nullable
+         */
+      series_breakdown: string | null;
+    }
+
     export interface NotebookCellState {
       /** Durable cell identity, used by the cell run and edit endpoints. */
       node_id: string;
@@ -66699,6 +66859,8 @@ export namespace Schemas {
       dependents: string[];
       /** Summary of the most recent run; null when never run. */
       last_run?: NotebookCellLastRun | null;
+      /** SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of notebooks-add-cell. Null when the cell opens on its results table. */
+      visualization?: NotebookCellVisualization | null;
     }
 
     export interface NotebookCollabCursor {
@@ -128650,6 +128812,29 @@ export namespace Schemas {
      */
     type?: string;
     };
+
+    export type SavedScreenshotHistoryContentRetrieveParams = {
+    /**
+     * Successful request UUID; stale revisions return 404.
+     */
+    v: string;
+    /**
+     * Full JPEG or thumbnail. Missing thumbnails return 404.
+     *
+     * * `full` - Full page
+     * * `thumbnail` - Thumbnail
+     * @minLength 1
+     */
+    variant?: SavedScreenshotHistoryContentRetrieveVariant;
+    };
+
+    export type SavedScreenshotHistoryContentRetrieveVariant = typeof SavedScreenshotHistoryContentRetrieveVariant[keyof typeof SavedScreenshotHistoryContentRetrieveVariant];
+
+
+    export const SavedScreenshotHistoryContentRetrieveVariant = {
+      Full: 'full',
+      Thumbnail: 'thumbnail',
+    } as const;
 
     export type SavedQueryColumnAnnotationsListParams = {
     /**

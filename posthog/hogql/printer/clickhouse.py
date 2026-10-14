@@ -568,12 +568,10 @@ class ClickHousePrinter(BasePrinter):
             return self._maybe_apply_json_drop_keys(type, serialized)
         return self._maybe_apply_json_drop_keys(type, field_sql, mask_feature_flags=True)
 
-    def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
+    def _events_json_document_field(self, type: ast.FieldType) -> StringJSONDatabaseField | None:
+        """The field when it is a JSON document column of the native events table, otherwise None."""
         if not self.context.uses_new_events_schema():
             return None
-        if getattr(self, "_json_function_argument_depth", 0) > 0:
-            return None
-
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
             return None
@@ -581,8 +579,15 @@ class ClickHousePrinter(BasePrinter):
             return None
         if not isinstance(type.table_type, ast.BaseTableType):
             return None
-
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
+            return None
+        return resolved_field
+
+    def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
+        if getattr(self, "_json_function_argument_depth", 0) > 0:
+            return None
+        resolved_field = self._events_json_document_field(type)
+        if resolved_field is None:
             return None
 
         if resolved_field.name == "properties":
@@ -670,15 +675,14 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
+        is_events_json_document = self._events_json_document_field(type) is not None
         restricted_flags = restricted_feature_flag_names(keys_to_drop)
         mask_stored_feature_flags = (
             mask_feature_flags
             and bool(restricted_flags)
             and "$feature_flags" not in keys_to_drop
             and resolved_field.name == "properties"
-            and self.context.uses_new_events_schema()
-            and isinstance(type.table_type, ast.BaseTableType)
-            and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
+            and is_events_json_document
         )
         if mask_stored_feature_flags:
             keys_to_drop = {key for key in keys_to_drop if not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)} | {
@@ -687,6 +691,12 @@ class ClickHousePrinter(BasePrinter):
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         stripped = f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
+        if not is_events_json_document:
+            # A String JSON column holds '' when its producer omits the value.
+            # The v12 json_drop_keys_udf binary fails to parse ''. Cloud and CI call it as JSONDropKeys_v12.
+            # ClickHouse short-circuits `if`. The UDF therefore receives only the rows that are not empty.
+            # A native events document is a JSON column or a document that concat rebuilds, so it is never ''.
+            stripped = f"if(empty({field_sql}), '', {stripped})"
         if not mask_stored_feature_flags:
             return stripped
 
