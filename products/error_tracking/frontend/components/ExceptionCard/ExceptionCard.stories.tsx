@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel, NodeKind } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_get'
@@ -23,6 +24,18 @@ const meta: Meta = {
     parameters: {
         layout: 'centered',
         viewMode: 'story',
+    },
+    // The trace link hides without tracing access, and the default story context grants none.
+    beforeEach: () => {
+        const context = window.POSTHOG_APP_CONTEXT!
+        const previous = context.resource_access_control
+        context.resource_access_control = {
+            ...previous,
+            [AccessControlResourceType.Tracing]: AccessControlLevel.Viewer,
+        }
+        return () => {
+            context.resource_access_control = previous
+        }
     },
     decorators: [
         mswDecorator({

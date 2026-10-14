@@ -11,6 +11,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+import { ViewTraceButton } from 'products/tracing/frontend/components/ViewTraceButton'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -80,7 +81,7 @@ function ExceptionCardContent({
     label,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
-    const { sessionId } = useValues(errorPropertiesLogic)
+    const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
     const headerRef = useRef<HTMLDivElement>(null)
@@ -184,7 +185,14 @@ function ExceptionCardContent({
                                 </TabsTrigger>
                             )}
                         </TabsList>
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-1">
+                            <ViewTraceButton
+                                traceId={traceId}
+                                spanId={spanId}
+                                timestamp={timestamp}
+                                size="xsmall"
+                                data-attr="error-tracking-view-trace"
+                            />
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
                                 <ViewLogsButton
                                     sessionId={sessionId}
