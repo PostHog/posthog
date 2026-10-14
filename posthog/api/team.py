@@ -2239,7 +2239,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
         report_conversations_settings_changes(
-            cast(User, self.context["request"].user),
+            self.context["request"],
             before_update.get("conversations_settings"),
             updated_team,
         )
@@ -3021,7 +3021,7 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
-def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+def report_conversations_settings_changes(request: request.Request, before_settings: dict | None, team: Team) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
@@ -3038,7 +3038,7 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
         # Only non-string values are safe to report — the dict holds free text and the widget token.
         if isinstance(new_value, (bool, int, float, type(None))):
             properties["value"] = new_value
-        report_user_action(user, "support setting changed", properties, team=team)
+        report_user_action(cast(User, request.user), "support setting changed", properties, team=team, request=request)
 
 
 def handle_conversations_token_on_update(

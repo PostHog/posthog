@@ -44,7 +44,7 @@ from posthog.api.tagged_item import (
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
@@ -92,6 +92,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.signals import attribute_support_message_saves
 
 from .. import reply_dedupe
 
@@ -1031,6 +1032,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         try:
             queryset = self.filter_queryset(self.get_queryset())
             page = self.paginate_queryset(queryset)
+            # Non-web reads only: the web app also calls this for global search and setup checks.
+            if get_event_source(request) != EventSource.WEB:
+                report_user_action(request.user, "support tickets listed", {}, team=self.team, request=request)
 
             if page is not None:
                 self._attach_persons_to_tickets(page)
@@ -1154,7 +1158,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         self._log_update_activity(request, instance, diff)
 
         if diff.has_changes:
-            self._report_ticket_updated(request, instance)
+            self._report_ticket_action(request, instance, "support ticket updated")
 
     def _capture_update_events(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
         """Emit the analytics events that workflow triggers listen for."""
@@ -1193,11 +1197,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
-    def _report_ticket_updated(self, request, instance: Ticket) -> None:
+    def _report_ticket_action(self, request, instance: Ticket, event: str) -> None:
         try:
             report_user_action(
                 request.user,
-                "support ticket updated",
+                event,
                 _ticket_action_properties(instance),
                 team=self.team,
                 request=request,
@@ -1349,6 +1353,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def messages(self, request, *args, **kwargs):
         """Return the message thread for a ticket, ordered chronologically (paginated)."""
         ticket = self.get_object()
+        # Non-web reads only: the web app reads threads through the comments API and calls this only for previews.
+        if get_event_source(request) != EventSource.WEB:
+            self._report_ticket_action(request, ticket, "support ticket messages viewed")
 
         comments = (
             Comment.objects.filter(
@@ -1563,7 +1570,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         def create_comment() -> Comment:
             # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
-            with transaction.atomic():
+            with transaction.atomic(), attribute_support_message_saves(request):
                 return Comment.objects.create(
                     team=self.team,
                     created_by=request.user,
@@ -1659,6 +1666,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             locked.version = locked.version + 1
             locked.save(update_fields=["content", "rich_content", "version"])
 
+        self._report_ticket_action(request, ticket, "support note updated")
         return Response(TicketMessageSerializer(self._serialize_message(locked, ticket)).data)
 
     @extend_schema(
@@ -1701,6 +1709,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             locked.deleted = True
             locked.save(update_fields=["deleted"])
 
+        self._report_ticket_action(request, ticket, "support note deleted")
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -1863,7 +1872,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 )
 
         def create_ticket() -> Ticket:
-            with transaction.atomic():
+            with transaction.atomic(), attribute_support_message_saves(request):
                 ticket = Ticket.objects.create_with_number(
                     team=team,
                     channel_source=Channel.EMAIL,

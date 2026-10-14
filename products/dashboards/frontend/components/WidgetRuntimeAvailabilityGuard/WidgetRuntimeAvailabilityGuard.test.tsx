@@ -106,7 +106,8 @@ describe('WidgetRuntimeAvailabilityGuard', () => {
         fireEvent.click(screen.getByText('Enable'))
 
         expect(posthog.capture).toHaveBeenCalledWith('support activation started', {
-            source: 'dashboard_widget',
+            source: 'web',
+            entry_point: 'dashboard_widget',
             widget_type: 'conversations_recent_tickets',
             widget_id: 'widget-1',
             dashboard_id: 1,
