@@ -34,7 +34,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.data_warehouse.backend.logic.table_activity import log_table_activity, snapshot_table
+from products.data_warehouse.backend.presentation.table_activity import log_table_activity, snapshot_table
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,

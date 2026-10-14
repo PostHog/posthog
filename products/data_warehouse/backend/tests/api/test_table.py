@@ -17,7 +17,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.logic.table_activity import snapshot_table
+from products.data_warehouse.backend.presentation.table_activity import snapshot_table
 from products.data_warehouse.backend.presentation.views.table import (
     CreateTableFromUploadSerializer,
     SimpleTableSerializer,
