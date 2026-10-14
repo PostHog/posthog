@@ -267,8 +267,9 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         try {
                             built = await requestBuild(false)
                         } catch (error: any) {
-                            // The build keeps running when one status read fails, so the loop asks again until the deadline.
-                            if (isBreakpoint(error) || error?.status === 404) {
+                            // The build keeps running through a network failure or a server error, so the loop asks again until
+                            // the deadline. A 403 or 404 does not change, so it ends the loop.
+                            if (isBreakpoint(error) || (error?.status !== undefined && error.status < 500)) {
                                 throw error
                             }
                         }

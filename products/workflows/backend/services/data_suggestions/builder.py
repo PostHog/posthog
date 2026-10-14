@@ -306,7 +306,12 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
         template = context.email_templates.get(step.email_template_id)
         if template is None:
             return None
-        body = {key: template.email.get(key) for key in ("subject", "html", "text", "design")}
+        # The email sender rejects a null field, so a field the template does not have stays out.
+        body = {
+            key: template.email[key]
+            for key in ("subject", "html", "text", "design")
+            if template.email.get(key) is not None
+        }
         name = template.email.get("subject") or "Email"
     else:
         if not (step.email_subject and step.email_heading and step.email_paragraphs):

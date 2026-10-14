@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.utils import timezone
 
 from clickhouse_driver.errors import NetworkError
@@ -19,6 +20,7 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
+from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -310,6 +312,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("query timeout", ClickHouseQueryTimeOut()),
             ("query error", InternalCHQueryError("boom")),
             ("connection failure", NetworkError("Code: 209. (host:9440)")),
+            ("database error", OperationalError("server closed the connection")),
         ]
     )
     @patch(f"{EVENT_VOLUME}.execute_hogql_query")
@@ -603,6 +606,37 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         if build_status is not None:
             assert [response.json()["status"] for response in responses] == [build_status] * 3
         assert plan_steps.call_count == planner_calls
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_saved_template_offers_its_subject_and_copies_only_the_fields_it_has(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        saved_id = create_message_template_for_test(
+            team_id=self.team.id,
+            name="Trial welcome",
+            content={"email": {"subject": "Saved subject", "html": "<p>Saved</p>"}},
+        )
+        create_message_template_for_test(
+            team_id=self.team.id, name="Draft", content={"email": {"subject": "No body yet", "html": ""}}
+        )
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(
+            first_step="welcome", steps=[_step("welcome", "email", email_template_id=str(saved_id))]
+        )
+        suggestion_id = self._list()["suggestions"][0]["id"]
+
+        built = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/", {"suggestion_id": suggestion_id}
+        ).json()
+
+        offered = plan_steps.call_args.kwargs["context"].email_templates
+        assert [(template.id, template.subject) for template in offered] == [(saved_id, "Saved subject")]
+        assert built["status"] == "ready"
+        assert built["uses_saved_template"] is True
+        email = built["workflow"]["actions"][1]["config"]["inputs"]["email"]["value"]
+        assert email["html"] == "<p>Saved</p>"
+        assert "text" not in email
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

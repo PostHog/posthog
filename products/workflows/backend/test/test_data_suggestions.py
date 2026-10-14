@@ -238,7 +238,7 @@ class TestDataSuggestions(SimpleTestCase):
         saved = EmailTemplateContent(
             id=uuid.uuid4(),
             name="Trial welcome",
-            email={"subject": "Saved subject", "html": "<p>saved</p>", "text": "saved", "design": {"body": {}}},
+            email={"subject": "Saved subject", "html": "<p>saved</p>", "text": None, "design": {"body": {}}},
         )
         built = build_workflow(IDEA, plan(step(email_template_id="tpl-1")), context(email_templates={"tpl-1": saved}))
         assert built is not None
@@ -246,6 +246,7 @@ class TestDataSuggestions(SimpleTestCase):
         email = built.workflow["actions"][1]["config"]["inputs"]["email"]["value"]
         assert email["subject"] == "Saved subject"
         assert email["html"] == "<p>saved</p>"
+        assert "text" not in email
 
     def test_build_workflow_puts_a_wait_between_back_to_back_emails(self) -> None:
         built = build_workflow(
