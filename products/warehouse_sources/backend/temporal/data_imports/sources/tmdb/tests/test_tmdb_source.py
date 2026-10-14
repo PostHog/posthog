@@ -1,5 +1,5 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS, TMDB_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.source import TMDbSource
 
 
@@ -16,6 +16,8 @@ class TestTMDbSource:
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
+        # Per-title tables make one request per discover title, so a new source must not enable them.
+        assert all(s.should_sync_default is (TMDB_ENDPOINTS[s.name].parent is None) for s in schemas)
 
     def test_canonical_descriptions_keyed_by_known_endpoints(self) -> None:
         descriptions = self.source.get_canonical_descriptions()

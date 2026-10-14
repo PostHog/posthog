@@ -19,7 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.tmdb import (
     TMDbResumeConfig,
     tmdb_source,
@@ -84,7 +88,7 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
     ) -> list[SourceSchema]:
         # TMDB v3 list endpoints expose no server-side updated-after filter, so every endpoint has
         # empty incremental fields and is full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
