@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import time_machine
 from posthog.test.base import BaseTest
 from unittest import TestCase
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -191,6 +192,15 @@ class TestInsightCorrespondence(BaseTest):
                 datetime(2026, 3, 9, 7, 30, tzinfo=UTC),
                 SourceCoverage.BEHIND,
             ),
+            # Lord Howe springs forward 30 minutes, so its local 02:00 hour lasts from 02:30 to 03:00.
+            (
+                "a_half_hour_daylight_saving_hour",
+                AlertCalculationInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 10, 3, 15, 40, tzinfo=UTC),
+                datetime(2026, 10, 3, 16, 5, tzinfo=UTC),
+                SourceCoverage.BEHIND,
+            ),
         ]
     )
     def test_a_check_pairs_within_the_local_calendar_period_of_its_slot(
@@ -214,6 +224,38 @@ class TestInsightCorrespondence(BaseTest):
             verdict = self._verdict(check)
 
         assert verdict.coverage is coverage
+
+    def test_a_slot_the_schedule_skips_is_not_compared_against_an_earlier_production_check(self) -> None:
+        self._production((InsightAlertState.FIRING, timedelta(minutes=5)))
+        AlertConfiguration.objects.filter(id=self.alert.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "12:30", "end": "13:30"}]}
+        )
+        blocked_slot = SLOT + timedelta(minutes=35)
+
+        verdict = self._verdict(
+            self._check(evaluation_key=evaluation_key_for_slot(slot_of(blocked_slot, blocked_slot)))
+        )
+
+        assert verdict.coverage is SourceCoverage.UNKNOWN
+
+    def test_a_skipped_production_check_is_not_catching_up(self) -> None:
+        self._production((InsightAlertState.FIRING, timedelta(minutes=37)))
+        self._production((InsightAlertState.NOT_FIRING, timedelta(minutes=97)), skipped=True)
+
+        verdict = self._verdict(self._check(state="not_firing"))
+
+        assert (verdict.state, verdict.caught_up_at) == ("firing", None)
+
+    def test_production_checks_past_the_catch_up_horizon_are_not_read(self) -> None:
+        self._production(
+            (InsightAlertState.FIRING, timedelta(minutes=37)),
+            *[(InsightAlertState.FIRING, timedelta(days=3, minutes=n)) for n in range(5)],
+        )
+
+        with patch(f"{InsightCorrespondence.__module__}.MAX_CHECKS_PER_BATCH", 3):
+            verdict = self._verdict(self._check())
+
+        assert verdict.coverage is SourceCoverage.EVALUATED
 
     def test_a_snoozed_check_is_suppressed_on_both_stacks(self) -> None:
         verdict = self._verdict(self._check(state="snoozed"))

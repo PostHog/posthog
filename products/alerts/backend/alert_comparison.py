@@ -15,7 +15,7 @@ behind.
 
 from __future__ import annotations
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
@@ -23,6 +23,7 @@ from uuid import UUID
 
 from django.db.models import Q
 
+import pytz
 import structlog
 from dateutil.relativedelta import relativedelta
 
@@ -44,17 +45,18 @@ from products.alerts_platform.backend.facade.contracts import (
     SuppressionReason,
 )
 from products.alerts_platform.backend.facade.lifecycle import AlertState
-from products.alerts_platform.backend.facade.scheduling import is_weekend
+from products.alerts_platform.backend.facade.scheduling import is_weekend, local_period_start, next_local_period_start
 
 logger = structlog.get_logger(__name__)
 
 # The bound the retention does not give: an hourly alert holds 336 rows, and alerts add up.
 MAX_CHECKS_PER_BATCH = 100_000
 
-# Sub-day periods are fixed lengths, added in UTC so a repeated local hour is not counted twice.
-_FIXED_PERIOD: dict[str, timedelta] = {
-    AlertCalculationInterval.EVERY_15_MINUTES: timedelta(minutes=15),
-    AlertCalculationInterval.HOURLY: timedelta(hours=1),
+# Sub-day periods take their boundaries from the scheduler production uses, which finds them on the
+# local wall clock and so follows a 30-minute daylight-saving change.
+_SUB_DAY_PERIOD_MINUTES: dict[str, int] = {
+    AlertCalculationInterval.EVERY_15_MINUTES: 15,
+    AlertCalculationInterval.HOURLY: 60,
 }
 # Calendar periods follow the team's local calendar: a day across a daylight-saving change is 23 or
 # 25 hours, and a month is as long as it is.
@@ -63,6 +65,10 @@ _CALENDAR_PERIOD: dict[str, relativedelta] = {
     AlertCalculationInterval.WEEKLY: relativedelta(weeks=1),
     AlertCalculationInterval.MONTHLY: relativedelta(months=1),
 }
+
+# How far past a check's period the read reaches for when production next moved state. A catch-up
+# later than this reads as never, which the comparison's lag buckets already treat as the long tail.
+CATCH_UP_HORIZON = timedelta(days=1)
 
 
 def _refused_for_capacity(check: PlatformCheck, verdict: SourceVerdict) -> bool:
@@ -103,6 +109,34 @@ class _ProductionCheck:
     # None for a spelling the platform does not have, which is answered as unknown.
     state: str | None
     skipped: bool
+
+
+@frozen
+class _History:
+    """One alert's production checks, oldest first, indexed so each pairing is a few lookups."""
+
+    rows: list[_ProductionCheck]
+    times: list[datetime]
+    # For each row, the next row whose state differs, or None.
+    next_change: list[int | None]
+    # When production's evaluated checks held each state. A skipped check confirms nothing.
+    evaluated_times: dict[str, list[datetime]]
+
+    @classmethod
+    def of(cls, rows: list[_ProductionCheck]) -> _History:
+        next_change: list[int | None] = [None] * len(rows)
+        for i in range(len(rows) - 2, -1, -1):
+            next_change[i] = i + 1 if rows[i + 1].state != rows[i].state else next_change[i + 1]
+        evaluated_times: dict[str, list[datetime]] = defaultdict(list)
+        for row in rows:
+            if row.state is not None and not row.skipped:
+                evaluated_times[row.state].append(row.created_at)
+        return cls(
+            rows=rows,
+            times=[row.created_at for row in rows],
+            next_change=next_change,
+            evaluated_times=dict(evaluated_times),
+        )
 
 
 class InsightCorrespondence(SourceCorrespondence):
@@ -159,18 +193,23 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         for pairing in pairings
         if pairing.alert_id in alerts
     }
-    earliest: dict[UUID, datetime] = {}
+    bounds: dict[UUID, _Period] = {}
     for pairing in pairings:
         period = periods.get(pairing.check.ref)
         if period is not None:
-            earliest[pairing.alert_id] = min(period.start, earliest.get(pairing.alert_id, period.start))
+            known = bounds.get(pairing.alert_id, period)
+            bounds[pairing.alert_id] = _Period(start=min(known.start, period.start), end=max(known.end, period.end))
 
     rows = []
-    if earliest:
-        # Each alert from its own earliest period, so one old slot does not widen every alert's read.
+    if bounds:
+        # Each alert over its own periods, so one old slot does not widen every alert's read.
         since = Q()
-        for alert_id, start in earliest.items():
-            since |= Q(alert_configuration_id=alert_id, created_at__gte=start)
+        for alert_id, bound in bounds.items():
+            since |= Q(
+                alert_configuration_id=alert_id,
+                created_at__gte=bound.start,
+                created_at__lt=bound.end + CATCH_UP_HORIZON,
+            )
         rows = list(
             AlertCheck.objects.filter(since, alert_configuration__team_id=team_id)
             .order_by("alert_configuration_id", "created_at")
@@ -184,9 +223,9 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
             pairing.check.ref: _unknown("too many insight checks to pair this check against") for pairing in pairings
         }
 
-    history: dict[UUID, list[_ProductionCheck]] = defaultdict(list)
+    checks: dict[UUID, list[_ProductionCheck]] = defaultdict(list)
     for alert_id, check_id, created_at, state, metadata in rows:
-        history[alert_id].append(
+        checks[alert_id].append(
             _ProductionCheck(
                 id=check_id,
                 created_at=created_at,
@@ -195,7 +234,7 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
             )
         )
 
-    times = {alert_id: [row.created_at for row in checks] for alert_id, checks in history.items()}
+    history = {alert_id: _History.of(alert_rows) for alert_id, alert_rows in checks.items()}
     kept_since = datetime.now(UTC) - AlertCheck.RETENTION
     verdicts: dict[CheckRef, SourceVerdict] = {}
     for pairing in pairings:
@@ -211,9 +250,11 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         if period.start < kept_since:
             verdicts[pairing.check.ref] = _unknown("production no longer keeps its checks from this period")
             continue
-        verdicts[pairing.check.ref] = _verdict_at(
-            pairing, alert, period, history[pairing.alert_id], times.get(pairing.alert_id, [])
-        )
+        if _skipped_by_schedule(pairing.slot, alert):
+            # Both stacks skip the slot by the alert's schedule, so the platform has no verdict to compare.
+            verdicts[pairing.check.ref] = _unknown("the alert's schedule skips this slot")
+            continue
+        verdicts[pairing.check.ref] = _verdict_at(pairing, alert, period, history.get(pairing.alert_id, _EMPTY))
     return verdicts
 
 
@@ -224,14 +265,14 @@ def _period_of(slot: datetime, alert: AlertConfiguration) -> _Period | None:
     of the same period can come before the platform's slot as well as after it.
     """
     interval = alert.calculation_interval or ""
-    local = slot.astimezone(alert.team.timezone_info)
-    if interval in _FIXED_PERIOD:
-        minutes = int(_FIXED_PERIOD[interval].total_seconds() // 60)
-        start = local.replace(minute=local.minute - local.minute % minutes, second=0, microsecond=0)
-        start_utc = start.astimezone(UTC)
-        return _Period(start=start_utc, end=start_utc + _FIXED_PERIOD[interval])
+    if interval in _SUB_DAY_PERIOD_MINUTES:
+        minutes = _SUB_DAY_PERIOD_MINUTES[interval]
+        team_timezone = pytz.timezone(alert.team.timezone)
+        start = local_period_start(slot, team_timezone, minutes)
+        return _Period(start=start, end=next_local_period_start(start, team_timezone, minutes))
     if interval not in _CALENDAR_PERIOD:
         return None
+    local = slot.astimezone(alert.team.timezone_info)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
     if interval == AlertCalculationInterval.WEEKLY:
         midnight -= relativedelta(days=midnight.weekday())
@@ -251,41 +292,41 @@ def _unknown(detail: str) -> SourceVerdict:
     return SourceVerdict(caught_up_at=None, coverage=SourceCoverage.UNKNOWN, state=None, detail=detail)
 
 
-def _verdict_at(
-    pairing: _Pairing,
-    alert: AlertConfiguration,
-    period: _Period,
-    rows: Sequence[_ProductionCheck],
-    times: Sequence[datetime],
-) -> SourceVerdict:
-    """Production's first check of the slot's period, when it left that state, and when it reached
-    the platform's state."""
-    check = pairing.check
-    index = bisect_left(times, period.start)
-    if index == len(rows) or rows[index].created_at >= period.end:
-        return _no_check_in_period(pairing.slot, alert)
+_EMPTY = _History.of([])
 
-    matched = rows[index]
+
+def _verdict_at(pairing: _Pairing, alert: AlertConfiguration, period: _Period, history: _History) -> SourceVerdict:
+    """Production's first check of the slot's period, when it left that state, and when an evaluated
+    check of production's reached the platform's state."""
+    index = bisect_left(history.times, period.start)
+    if index == len(history.rows) or history.rows[index].created_at >= period.end:
+        return _no_check_in_period(alert)
+
+    matched = history.rows[index]
     if matched.skipped:
         return _unknown("production skipped this check without evaluating it")
     if matched.state is None:
         return _unknown("production recorded a state the platform does not spell")
-    left = next((row for row in rows[index + 1 :] if row.state != matched.state), None)
-    caught_up = next(
-        (row for row in rows[index:] if row.created_at > check.occurred_at and row.state == check.state), None
-    )
+    left = history.next_change[index]
+    reached = history.evaluated_times.get(pairing.check.state, [])
+    caught_up = bisect_right(reached, pairing.check.occurred_at)
     return SourceVerdict(
         coverage=SourceCoverage.EVALUATED,
         state=matched.state,
-        observed_at=left.created_at if left is not None else None,
-        caught_up_at=caught_up.created_at if caught_up is not None else None,
+        observed_at=history.times[left] if left is not None else None,
+        caught_up_at=reached[caught_up] if caught_up < len(reached) else None,
         evidence_id=str(matched.id),
     )
 
 
-def _no_check_in_period(slot: datetime, alert: AlertConfiguration) -> SourceVerdict:
-    """Why production made no check of the slot's period. The alert's current settings stand in for
-    its settings at the slot, because production keeps no history of them."""
+def _skipped_by_schedule(slot: datetime, alert: AlertConfiguration) -> bool:
+    """Whether the alert's schedule skips the slot. The alert's current settings stand in for its
+    settings at the slot, because production keeps no history of them."""
+    return (alert.skip_weekend and is_weekend(slot, alert.team.timezone)) or is_utc_datetime_blocked(alert, slot)
+
+
+def _no_check_in_period(alert: AlertConfiguration) -> SourceVerdict:
+    """Why production made no check of the slot's period."""
     if not alert.enabled:
         # The copy kept checking an alert production switched off, so the backfill is out of date.
         return SourceVerdict(
@@ -294,9 +335,6 @@ def _no_check_in_period(slot: datetime, alert: AlertConfiguration) -> SourceVerd
             state=None,
             suppressed_by=SuppressionReason.DISABLED,
         )
-    if (alert.skip_weekend and is_weekend(slot, alert.team.timezone)) or is_utc_datetime_blocked(alert, slot):
-        # Both stacks skip the slot by the alert's schedule, so neither has a verdict to compare.
-        return _unknown("production skips this slot by the alert's schedule")
     return SourceVerdict(
         caught_up_at=None,
         coverage=SourceCoverage.BEHIND,
