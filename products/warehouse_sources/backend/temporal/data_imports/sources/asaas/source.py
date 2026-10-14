@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaa
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PARTITION_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -101,13 +102,14 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
             if inputs.should_use_incremental_field
             else None,
         )
+        partition_key = PARTITION_KEYS.get(inputs.schema_name)
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
             primary_keys=["id"],
-            partition_mode="datetime",
-            partition_format="month",
-            partition_keys=["dateCreated"],
+            partition_mode="datetime" if partition_key else None,
+            partition_format="month" if partition_key else None,
+            partition_keys=[partition_key] if partition_key else None,
         )
 
     @property
@@ -118,7 +120,8 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
             label="Asaas",
             caption=(
                 "Connect your Asaas account using an API key to sync customers, payments, "
-                "subscriptions, transfers, and installments. Find your key in Asaas under "
+                "subscriptions, transfers, installments, invoices, received splits, Pix "
+                "transactions, and your account statement. Find your key in Asaas under "
                 "**Integrações** > **API**."
             ),
             keywords=["billing", "payments", "brazil"],
