@@ -153,7 +153,8 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
                 api_key_response = self._post_count_with_personal_api_key()
         finally:
             for slot in held_slots:
-                limiter.release(slot)
+                if slot is not None:
+                    limiter.release(slot)
 
         self.assertEqual(session_response.status_code, status.HTTP_200_OK)
         self.assertEqual(api_key_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
