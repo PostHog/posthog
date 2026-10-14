@@ -502,30 +502,39 @@ SETTINGS
 """
 
 
-# The `{{}}` literals below are not a typo. `ClickHouseClient.prepare_query` runs `str.format` over
-# the whole query, which turns `{{}}` back into `{}`. A bare `{}` would parse as a positional field
-# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object. The rebuilt document
-# gets the same doubling for the same reason.
+# `ClickHouseClient.prepare_query` runs `str.format` over the query, so the rebuilt documents double
+# their JSON braces to keep them from being interpreted as format fields.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
 # which is why the native query's SETTINGS carry it.
 _PROPERTIES_DOCUMENT = (
-    event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
+    event_document_sql(
+        "properties",
+        "properties_null_keys",
+        "temporary_properties",
+        "temporary_properties_null_keys",
+        "properties.`$feature_flags`",
+    )
     .replace("{", "{{")
     .replace("}", "}}")
 )
-_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties").replace("{", "{{").replace("}", "}}")
+_PERSON_PROPERTIES_DOCUMENT = (
+    person_document_sql("person_properties", "person_properties_null_keys").replace("{", "{{").replace("}", "}}")
+)
 SERIALIZED_EVENTS_JSON_SOURCE = """(
-    SELECT * REPLACE (
-        toString(uuid) AS uuid,
-        toString(person_id) AS person_id,
-        __PROPERTIES_DOCUMENT__ AS properties,
-        __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
-    ),
-        nullIf(toJSONString(temporary_properties.^`$set`), '{{}}') AS set,
-        nullIf(toJSONString(temporary_properties.^`$set_once`), '{{}}') AS set_once,
-        nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
-        nullIf(toJSONString(temporary_properties.^`$group_set`), '{{}}') AS group_set
-    FROM events_json
+    SELECT *,
+        nullIf(JSONExtractRaw(properties, '$set'), '') AS set,
+        nullIf(JSONExtractRaw(properties, '$set_once'), '') AS set_once,
+        nullIf(JSONExtractRaw(properties, '$unset'), '') AS unset,
+        nullIf(JSONExtractRaw(properties, '$group_set'), '') AS group_set
+    FROM (
+        SELECT * REPLACE (
+            toString(uuid) AS uuid,
+            toString(person_id) AS person_id,
+            __PROPERTIES_DOCUMENT__ AS properties,
+            __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
+        )
+        FROM events_json
+    )
 )""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT).replace(
     "__PERSON_PROPERTIES_DOCUMENT__", _PERSON_PROPERTIES_DOCUMENT
 )
