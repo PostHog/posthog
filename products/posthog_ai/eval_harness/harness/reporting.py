@@ -14,6 +14,7 @@ from typing import Literal
 from posthog.dataclasses import frozen
 
 from ..engines.types import EvalSummary
+from .transcript import write_console
 from .trial_stats import ScorerTrialStats
 
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
@@ -27,7 +28,7 @@ CaseStatus = Literal["ok", "timeout", "error"]
 
 
 def _emit(text: str) -> None:
-    print(text)  # noqa: T201 — this module is the single owner of harness terminal output
+    write_console(text + "\n")
 
 
 @dataclass

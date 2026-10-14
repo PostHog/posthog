@@ -202,7 +202,7 @@ class LongLivedSubprocessManager:
             self._remove_pid_file(port)
             return
 
-        logger.warning("Stopping stale sandboxed eval %s process group %s on port %s", name, pgid, port)
+        logger.info("Stopping stale sandboxed eval %s process group %s on port %s", name, pgid, port)
         self._terminate_process_group(pgid, port)
         self._remove_pid_file(port)
 

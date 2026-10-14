@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import sys
 import json
 import asyncio
 import logging
+import warnings
+import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
@@ -653,26 +656,84 @@ def test_console_detail_does_not_remove_transcript_logs(
     handler = transcript.logging_handler(verbose=verbose)
     handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     info = logging.LogRecord(
-        "eval", logging.INFO, "", 0, {"event": "agent detail"} if structured else "agent detail", (), None
+        "products.posthog_ai.eval_harness.example",
+        logging.INFO,
+        "",
+        0,
+        {"event": "agent detail"} if structured else "agent detail",
+        (),
+        None,
     )
     try:
         raise ValueError("service unavailable")
     except ValueError:
         error = logging.LogRecord(
-            "eval", logging.ERROR, "", 0, {"event": "case error"} if structured else "case error", (), sys.exc_info()
+            "products.posthog_ai.eval_harness.example",
+            logging.ERROR,
+            "",
+            0,
+            {"event": "case error"} if structured else "case error",
+            (),
+            sys.exc_info(),
         )
-    with transcript.capture():
+    dependency_warning = logging.LogRecord("dependency", logging.WARNING, "", 0, "optional dependency detail", (), None)
+    dependency_error = logging.LogRecord("dependency", logging.ERROR, "", 0, "optional service detail", (), None)
+    runner_warning = logging.LogRecord(
+        "products.posthog_ai.eval_harness.example", logging.WARNING, "", 0, "Setup will retry", (), None
+    )
+    with transcript.capture(verbose=verbose), warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.warn("optional Python dependency detail", UserWarning, stacklevel=1)
+        sys.stdout.write("SDK progress detail\n")
+        reporting._emit("CASE PHASE example :: case [trial 1] agent")
+        handler.handle(dependency_warning)
+        handler.handle(dependency_error)
+        handler.handle(runner_warning)
         handler.handle(info)
         handler.handle(error)
     handler.close()
     transcript.finish()
     output = capsys.readouterr()
     saved = transcript.path.read_text()
+    assert "CASE PHASE example :: case [trial 1] agent" in output.out
+    assert "Setup will retry" in output.err
+    assert "optional service detail" in saved
+    assert ("optional service detail" in output.err) is verbose
+    assert "optional dependency detail" in saved
+    assert "optional Python dependency detail" in saved
+    assert "SDK progress detail" in saved
+    assert ("SDK progress detail" in output.out) is verbose
+    assert ("optional Python dependency detail" in output.err) is verbose
+    assert ("optional dependency detail" in output.err) is verbose
     assert "agent detail" in saved
     assert "ValueError: service unavailable" in saved
     assert "case error" in output.err
     assert ("agent detail" in output.err) is verbose
     assert ("Traceback" in output.err) is verbose
+    assert output.out.splitlines()[-1] == saved.splitlines()[-1] == str(transcript.path)
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_native_child_output_stays_in_transcript_and_file_descriptors_restore(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], verbose: bool
+) -> None:
+    transcript = RunTranscript.create(tmp_path)
+    with transcript.capture(verbose=verbose):
+        subprocess.run(
+            [sys.executable, "-c", "import os; os.write(1, b'native stdout\\n'); os.write(2, b'native stderr')"],
+            check=True,
+        )
+        reporting._emit("SETUP START example service")
+    os.write(1, b"descriptors restored\n")
+    transcript.finish()
+    output = capfd.readouterr()
+    saved = transcript.path.read_text()
+    assert "native stdout" not in output.out
+    assert "native stderr" not in output.err
+    assert "SETUP START example service" in output.out
+    assert "descriptors restored" in output.out
+    assert "native stdout\nnative stderr" in saved
+    assert saved.count("SETUP START example service") == 1
     assert output.out.splitlines()[-1] == saved.splitlines()[-1] == str(transcript.path)
 
 

@@ -9,7 +9,9 @@ from .django_env import setup_django
 from .env_preflight import load_env_file
 from .ports import PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
-from .transcript import RunTranscript
+from .transcript import RunTranscript, write_console
+
+logger = logging.getLogger("products.posthog_ai.eval_harness")
 
 USAGE_ERROR_EXIT_CODE = 2
 
@@ -51,7 +53,7 @@ def _run(options: HarnessOptions, *, transcript: RunTranscript | None = None) ->
     except (PreflightError, SuiteDiscoveryError) as e:
         # A missing prerequisite or a typo'd selector is user error, not a harness
         # bug: say what's wrong without a traceback.
-        print(f"error: {e}", file=sys.stderr)  # noqa: T201
+        write_console(f"error: {e}\n", stream=sys.stderr)
         return USAGE_ERROR_EXIT_CODE
 
 
@@ -70,20 +72,18 @@ def main(argv: list[str] | None = None) -> int:
         _configure_logging()
         return _run(options)
 
-    if not options.verbose:
-        os.environ.setdefault("TQDM_DISABLE", "1")
     transcript = RunTranscript.create()
     exit_code = 1
     try:
-        with transcript.capture():
+        with transcript.capture(verbose=options.verbose):
             _configure_logging(transcript, verbose=options.verbose)
             try:
                 exit_code = _run(options, transcript=transcript)
             except KeyboardInterrupt:
-                logging.getLogger(__name__).warning("Interrupted")
+                logger.warning("Interrupted")
                 exit_code = 130
             except Exception:
-                logging.getLogger(__name__).exception("Sandboxed eval harness failed")
+                logger.exception("Sandboxed eval harness failed")
                 exit_code = 1
             finally:
                 logging.shutdown()

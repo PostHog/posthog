@@ -109,6 +109,10 @@ A timeout summary contains the failure reason. Its raw log file can be empty; th
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
+Normal console output shows runner progress, summaries, and short error messages.
+Dependency warnings, SDK progress bars, and direct setup prints stay in the transcript.
+`--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
+Native subprocess output always goes to the transcript.
 
 ### Comparing skill delivery
 

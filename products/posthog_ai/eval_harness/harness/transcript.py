@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import sys
 import uuid
 import logging
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, TextIO
@@ -19,7 +20,7 @@ class _TranscriptSink:
     def __init__(self, path: Path, stdout: TextIO) -> None:
         self.path = path
         self.stdout = stdout
-        self.file: IO[str] = path.open("w", encoding="utf-8", buffering=1)
+        self.file: IO[str] = path.open("a", encoding="utf-8", buffering=1)
         self.lock = threading.Lock()
         self.finished = False
         self.ends_with_newline = True
@@ -47,6 +48,11 @@ class _TranscriptSink:
         with self.lock:
             if self.finished:
                 return
+            self.file.flush()
+            with self.path.open("rb") as saved:
+                if saved.seek(0, os.SEEK_END):
+                    saved.seek(-1, os.SEEK_END)
+                    self.ends_with_newline = saved.read(1) == b"\n"
             prefix = "" if self.ends_with_newline else "\n"
             line = f"{prefix}Full run transcript (stdout and stderr):\n{self.path}\n"
             self.file.write(line)
@@ -70,7 +76,7 @@ class _TranscriptLogHandler(logging.Handler):
             terminal_text = ""
             if self._verbose:
                 terminal_text = detail
-            elif record.levelno >= logging.WARNING:
+            elif record.levelno >= logging.WARNING and record.name.startswith("products.posthog_ai.eval_harness"):
                 message = str(
                     record.msg.get("event", record.msg) if isinstance(record.msg, dict) else record.getMessage()
                 ).splitlines()
@@ -86,6 +92,7 @@ class _TeeStream:
     def __init__(self, terminal: TextIO, sink: _TranscriptSink) -> None:
         self._terminal = terminal
         self._sink = sink
+        self._verbose = True
 
     @property
     def encoding(self) -> str:
@@ -96,13 +103,16 @@ class _TeeStream:
         return self._terminal.errors
 
     def write(self, text: str) -> int:
+        return self._sink.write(self._terminal, text, terminal_text=None if self._verbose else "")
+
+    def write_console(self, text: str) -> int:
         return self._sink.write(self._terminal, text)
 
     def flush(self) -> None:
         self._sink.flush(self._terminal)
 
     def fileno(self) -> int:
-        return self._terminal.fileno()
+        return self._sink.file.fileno()
 
     def isatty(self) -> bool:
         # Static output is readable in terminals, redirected logs, and agent tools.
@@ -110,6 +120,15 @@ class _TeeStream:
 
     def writable(self) -> bool:
         return True
+
+
+def write_console(text: str, *, stream: TextIO | None = None) -> None:
+    target = sys.stdout if stream is None else stream
+    if isinstance(target, _TeeStream):
+        target.write_console(text)
+    else:
+        target.write(text)
+        target.flush()
 
 
 class RunTranscript:
@@ -135,8 +154,39 @@ class RunTranscript:
         return transcript
 
     @contextmanager
-    def capture(self) -> Iterator[None]:
-        with redirect_stdout(self._stdout), redirect_stderr(self._stderr):
+    def _capture_file_descriptor(self, stream: _TeeStream, descriptor: int) -> Iterator[None]:
+        terminal = stream._terminal
+        try:
+            terminal_descriptor = terminal.fileno()
+        except (AttributeError, OSError, ValueError):
+            yield
+            return
+        terminal.flush()
+        with os.fdopen(os.dup(terminal_descriptor), "w", encoding=stream.encoding, buffering=1) as console:
+            saved_descriptor = os.dup(descriptor)
+            stream._terminal = console
+            if stream is self._stdout:
+                self._sink.stdout = console
+            try:
+                # Native child processes inherit file descriptors and bypass Python stream redirection.
+                os.dup2(self._sink.file.fileno(), descriptor)
+                yield
+            finally:
+                os.dup2(saved_descriptor, descriptor)
+                os.close(saved_descriptor)
+                stream._terminal = terminal
+                if stream is self._stdout:
+                    self._sink.stdout = terminal
+
+    @contextmanager
+    def capture(self, *, verbose: bool = True) -> Iterator[None]:
+        self._stdout._verbose = verbose
+        self._stderr._verbose = verbose
+        with ExitStack() as stack:
+            stack.enter_context(self._capture_file_descriptor(self._stdout, 1))
+            stack.enter_context(self._capture_file_descriptor(self._stderr, 2))
+            stack.enter_context(redirect_stdout(self._stdout))
+            stack.enter_context(redirect_stderr(self._stderr))
             yield
 
     def finish(self) -> None:
