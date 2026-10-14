@@ -201,7 +201,7 @@ const filterLocal = (source: LocalSource, items: SearchItem[], query: string): S
     source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
 
 const nameStartsWith = (item: SearchItem, query: string): boolean =>
-    !item.matchedSearchKeyword && [item.displayName, item.name].some((name) => name?.toLowerCase().startsWith(query))
+    [item.displayName, item.name].some((name) => name?.toLowerCase().startsWith(query))
 
 /**
  * Sections keep a fixed order, so a keyword-only hit in an early section renders above an item
