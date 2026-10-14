@@ -498,13 +498,14 @@ export function useSend({
   };
 
   // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
-  const signOut = (): void => {
+  const signOut = (paneId: string): void => {
     track("signed out");
     logout();
     resetWork();
     setFresh(new Map());
     setPending(new Map());
     flashNotice("Signed out");
+    openLoginSheet(paneId, "Pick the PostHog you sign in to.");
   };
 
   const onSubmit = (
@@ -687,7 +688,7 @@ export function useSend({
       return;
     }
     if (slash?.command === "logout") {
-      signOut();
+      signOut(paneId);
       return;
     }
     const shell = parseShell(text);
@@ -866,16 +867,21 @@ export function useSend({
     flashNotice("Your message is back in the composer", { paneId, taskId });
   };
 
+  // Signed out, the sign-in sheet opens by itself. A first run goes on to who pays; a run that was welcomed before,
+  // or one that signed out, stops at the sign-in.
   const welcome = (paneId: string): void => {
-    savePrefs({ welcomed: true });
-    track("welcomed");
-    welcoming.current = true;
+    const first = !loadPrefs().welcomed;
+    if (first) {
+      savePrefs({ welcomed: true });
+      track("welcomed");
+      welcoming.current = true;
+    }
     // The welcome's sheets take the keys of this pane.
     setLayout((current) => focusPane(current, paneId));
     openLoginSheet(
       paneId,
       "Pick the PostHog you sign in to. Your chats run on it.",
-      openBillingSheet,
+      first ? openBillingSheet : undefined,
     );
   };
 
