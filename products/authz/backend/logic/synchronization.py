@@ -13,6 +13,7 @@ from posthog.models import Organization, OrganizationMembership, SharingConfigur
 from products.access_control.backend.facade.authorization import authorization_roles, authorization_rules
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.dashboards.backend.facade.authorization import authorization_dashboards
+from products.notebooks.backend.facade.authorization import authorization_notebooks
 
 from ..client import get_openfga_client
 from . import sync_state
@@ -91,6 +92,10 @@ class OrganizationProjection:
             self.add(user, "user", member_key)
             self.add(self.organization_key, "organization", member_key)
             self.add(self.organization_key, "organization", user)
+            if membership.level == OrganizationMembership.Level.GUEST:
+                # A guest is never an organization member, so no member or default rule reaches them.
+                self.add(f"{member_key}#user", "guest", self.organization_key)
+                continue
             level = (
                 "owner"
                 if membership.level >= OrganizationMembership.Level.OWNER
@@ -172,6 +177,33 @@ class OrganizationProjection:
                 if insight.dashboard_ids:
                     self.add("user:*", "has_dashboard", object_key)
 
+            insight_ids_by_short_id = {insight.short_id: str(insight.id) for insight in insights if not insight.deleted}
+            notebooks = authorization_notebooks(team.id)
+            notebook_ids = {str(notebook.id) for notebook in notebooks}
+            for notebook in notebooks:
+                object_key = self.key("notebook", f"{team.id}/{notebook.id}")
+                policy_key = self.key("access_policy", f"{team.id}/notebook/{notebook.id}")
+                self.add(project_key, "project", object_key)
+                self.add(resource_keys["notebook"], "resource", object_key)
+                self.add(policy_key, "policy", object_key)
+                self.add(self.organization_key, "organization", policy_key)
+                creator_membership = (
+                    membership_by_user.get(notebook.created_by_id) if notebook.created_by_id is not None else None
+                )
+                if creator_membership is not None:
+                    self.add(
+                        f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
+                    )
+                # A notebook lets its guests view the insights and recordings it embeds.
+                for short_id in notebook.insight_short_ids:
+                    embedded_insight_id = insight_ids_by_short_id.get(short_id)
+                    if embedded_insight_id is not None:
+                        self.add(object_key, "notebook", self.key("insight", f"{team.id}/{embedded_insight_id}"))
+                for session_id in notebook.recording_ids:
+                    recording_key = self.key("session_recording", f"{team.id}/{session_id}")
+                    self.add(project_key, "project", recording_key)
+                    self.add(object_key, "notebook", recording_key)
+
             for rule in authorization_rules(team.id, self.organization_id):
                 if rule.resource == "project":
                     if rule.resource_id != str(team.id):
@@ -181,7 +213,11 @@ class OrganizationProjection:
                 else:
                     resource_type = rule.resource
                     if rule.resource_id is not None:
-                        resource_ids = {"dashboard": dashboard_ids, "insight": insight_ids}.get(resource_type, set())
+                        resource_ids = {
+                            "dashboard": dashboard_ids,
+                            "insight": insight_ids,
+                            "notebook": notebook_ids,
+                        }.get(resource_type, set())
                         if rule.resource_id not in resource_ids:
                             continue
                     elif resource_type not in resource_keys:

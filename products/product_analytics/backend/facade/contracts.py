@@ -54,6 +54,7 @@ class SavedInsightDefinition:
 @dataclass(frozen=True)
 class AuthorizationInsight:
     id: int
+    short_id: str
     created_by_id: int | None
     deleted: bool
     dashboard_ids: tuple[int, ...]

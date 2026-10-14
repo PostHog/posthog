@@ -24,6 +24,9 @@ QUERY_NODE_TYPE = "ph-query"
 # QuerySchema kind that points at a saved insight by its short_id.
 SAVED_INSIGHT_NODE_KIND = "SavedInsightNode"
 MARKDOWN_QUERY_TAG = "Query"
+# ProseMirror node type used by NotebookNodeRecording on the frontend.
+# Keep in sync with `NotebookNodeType.Recording` in frontend/src/scenes/notebooks/types.ts.
+RECORDING_NODE_TYPE = "ph-recording"
 
 # Keep in sync with `SHARED_NOTEBOOK_SUPPORTED_NODE_TYPES` in
 # `frontend/src/scenes/notebooks/Nodes/sharedNodeSupport.tsx`.
@@ -254,6 +257,19 @@ def iter_prosemirror_nodes(doc: Any) -> Iterator[TipTapNode]:
         return
     for child in children:
         yield from iter_prosemirror_nodes(child)
+
+
+def extract_referenced_recording_ids(content: Any) -> set[str]:
+    """Return the session ids of the recordings that a notebook's ProseMirror document embeds."""
+    recording_ids: set[str] = set()
+    for node in iter_prosemirror_nodes(content):
+        if node.get("type") != RECORDING_NODE_TYPE:
+            continue
+        attrs = node.get("attrs")
+        session_id = attrs.get("id") if isinstance(attrs, dict) else None
+        if isinstance(session_id, str) and session_id:
+            recording_ids.add(session_id)
+    return recording_ids
 
 
 def extract_referenced_insight_short_ids(content: Any) -> set[str]:

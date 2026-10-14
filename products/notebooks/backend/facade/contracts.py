@@ -193,3 +193,13 @@ class AccountNotebook:
     last_modified_at: datetime
     created_by: NotebookUserInfo | None = None
     last_modified_by: NotebookUserInfo | None = None
+
+
+@dataclass(frozen=True)
+class AuthorizationNotebook:
+    """A notebook as the authorization sync sees it: its creator and the items it embeds."""
+
+    id: UUID
+    created_by_id: int | None
+    insight_short_ids: frozenset[str]
+    recording_ids: frozenset[str]
