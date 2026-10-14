@@ -198,6 +198,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsBarValue',
     'ActionsPie',
     'ActionsDonut',
+    'ActionsProportionBar',
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
@@ -219,7 +220,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),

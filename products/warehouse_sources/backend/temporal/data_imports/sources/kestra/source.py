@@ -29,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.kes
 from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.settings import (
     AUTH_ERROR,
     ENDPOINTS,
-    EXECUTION_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS,
+    LOOKBACK_SECONDS,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -73,11 +73,15 @@ class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"executions"})
-        for schema in schemas:
-            if schema.name == "executions":
-                schema.default_incremental_lookback_seconds = EXECUTION_LOOKBACK_SECONDS
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            # Logs hold every debug line of every task, so a user turns them on deliberately.
+            should_sync_default={"logs": False},
+            default_incremental_lookback_seconds=LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,

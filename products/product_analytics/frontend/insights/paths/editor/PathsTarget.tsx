@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, encodeParams, router } from 'kea-router'
 
 import { IconX } from '@posthog/icons'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { urls } from 'scenes/urls'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, PathsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelPathType } from '~/types'
 
 import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
@@ -35,6 +34,11 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
     const overrideStartInput = funnelPathType && [FunnelPathType.between, FunnelPathType.after].includes(funnelPathType)
     const overrideEndInput = funnelPathType && [FunnelPathType.between, FunnelPathType.before].includes(funnelPathType)
     const overrideInputs = overrideStartInput || overrideEndInput
+
+    const funnelSourceQuery: InsightVizNode | undefined = funnelSource
+        ? { kind: NodeKind.InsightVizNode, source: funnelSource }
+        : undefined
+    const funnelSourceUrl = funnelSourceQuery ? urls.insightNew({ query: funnelSourceQuery }) : undefined
 
     const key = position === 'start' ? 'startPoint' : 'endPoint'
     const onChange = (item: string): void => {
@@ -107,7 +111,7 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             pathItem: startPoint,
             closeButtonEnabled: startPoint || overrideStartInput,
             disabled: overrideEndInput && !overrideStartInput,
-            funnelFilterLink: funnelSource && overrideStartInput,
+            funnelSourceLink: overrideStartInput ? funnelSourceUrl : undefined,
         },
         end: {
             index: 1,
@@ -115,7 +119,7 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             pathItem: endPoint,
             closeButtonEnabled: endPoint || overrideEndInput,
             disabled: overrideStartInput && !overrideEndInput,
-            funnelFilterLink: funnelSource && overrideEndInput,
+            funnelSourceLink: overrideEndInput ? funnelSourceUrl : undefined,
         },
     }[position]
 
@@ -135,18 +139,7 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
                 type="secondary"
                 active={overrideInputs}
                 disabled={positionOptions.disabled}
-                onClick={
-                    positionOptions.funnelFilterLink
-                        ? () => {
-                              router.actions.push(
-                                  combineUrl(
-                                      '/insights',
-                                      encodeParams(queryNodeToFilter(funnelSource as FunnelsQuery), '?')
-                                  ).url
-                              )
-                          }
-                        : () => {}
-                }
+                to={positionOptions.funnelSourceLink}
                 sideAction={
                     positionOptions.closeButtonEnabled
                         ? {
