@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconMegaphone, IconX } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
@@ -14,18 +14,12 @@ import {
 
 export function MarketingAnalyticsCrossSellCard({
     breakdown,
-    onDismiss,
     ...props
 }: MarketingAnalyticsCrossSellLogicProps & {
     breakdown: WebStatsBreakdown
-    onDismiss: () => void
 }): JSX.Element | null {
-    const { hasPaidTraffic, hasConnectedSources, hasConnectedSourcesLoading, destination } = useValues(
-        marketingAnalyticsCrossSellLogic(props)
-    )
-    if (!hasPaidTraffic || hasConnectedSources === null || hasConnectedSourcesLoading) {
-        return null
-    }
+    const { hasConnectedSources, destination } = useValues(marketingAnalyticsCrossSellLogic(props))
+    const { dismissCard } = useActions(marketingAnalyticsCrossSellLogic(props))
     const description = hasConnectedSources
         ? 'Compare campaign spend with website conversions in Marketing analytics.'
         : 'Connect your ad sources in Marketing analytics to compare campaign spend with website conversions.'
@@ -40,7 +34,7 @@ export function MarketingAnalyticsCrossSellCard({
                     icon={<IconX />}
                     aria-label="Dismiss Marketing analytics suggestion"
                     data-attr="web-analytics-marketing-cross-sell-dismiss"
-                    onClick={onDismiss}
+                    onClick={dismissCard}
                 />
                 <div className="flex items-center gap-2 font-semibold pr-6 mb-2">
                     <IconMegaphone className="shrink-0" />

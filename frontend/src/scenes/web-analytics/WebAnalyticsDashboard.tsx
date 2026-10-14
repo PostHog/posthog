@@ -63,6 +63,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/AgentAnalytics'
 import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
 import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilot'
+import { MarketingAnalyticsFilterHint } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsFilterHint'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
@@ -867,6 +868,7 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
+    const { currentTeamId } = useValues(teamLogic)
     useOnMountEffect(() => {
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
     })
@@ -887,6 +889,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <WebAnalyticsShareColleagueBanner />
                         <WebAnalyticsSavePresetNudge />
                         <ShareNudgePrompt />
+                        {currentTeamId ? <MarketingAnalyticsFilterHint teamId={currentTeamId} /> : null}
                         <WebAnalyticsHealthCheck />
                         <MainContent />
                     </>
