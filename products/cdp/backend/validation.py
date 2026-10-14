@@ -19,6 +19,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
