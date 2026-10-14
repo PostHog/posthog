@@ -350,7 +350,8 @@ The finding budget (`reviewer/finding_budget.py`) caps what Standard reviews pos
 every valid finding that published turns let through their urgency threshold, Deep turns included. Once the pull request
 has `FINDING_BUDGET` (20) posted findings, `compose_flash_findings` keeps only must-fix findings, which count toward the
 budget but always post. A finding that fits under the turn's cap but not under the budget drops as `budget`, and the
-review ends with one line that says how many it left out. Fixing or resolving a finding gives no budget back, because a
+review ends with one line that says how many it left out. A Standard turn that keeps nothing posts that line on its own,
+once per pull request: every review with the line carries a `reviewhog:budget-note` marker without a head. Fixing or resolving a finding gives no budget back, because a
 coding agent that fixes and resolves everything would otherwise refill it. Pull requests split into two arms by a hash of
 the repository and number (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on
 `reviewhog_review_completed` and `reviewhog_finding_outcome` splits the measurement.
