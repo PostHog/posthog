@@ -187,7 +187,7 @@ export interface taskRunArtifactsLogicActions {
     ensureSelectedText: (source?: boolean) => {
         source: boolean
     }
-    fetchHtmlPreview: (request: HtmlPreviewRequest) => HtmlPreviewRequest
+    fetchHtmlPreview: ({ artifact, scripts }: HtmlPreviewRequest) => HtmlPreviewRequest
     fetchHtmlPreviewFailure: (
         error: string,
         errorObject?: any
@@ -373,7 +373,8 @@ export interface taskRunArtifactsLogicMeta {
         editDisabledReason: (
             selectedEditableKind: EditableArtifactKind | null,
             selectedVersionIndex: number,
-            selectedText: ArtifactText | null
+            selectedText: ArtifactText | null,
+            artifactTextLoading: boolean
         ) => string | null
         selectedText: (
             selectedArtifact: RunArtifact | null,
@@ -903,11 +904,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
         /** Why the open file can't be edited now, or null when it can. */
         editDisabledReason: [
-            (s) => [s.selectedEditableKind, s.selectedVersionIndex, s.selectedText],
+            (s) => [s.selectedEditableKind, s.selectedVersionIndex, s.selectedText, s.artifactTextLoading],
             (
                 selectedEditableKind: EditableArtifactKind | null,
                 selectedVersionIndex: number,
-                selectedText: ArtifactText | null
+                selectedText: ArtifactText | null,
+                artifactTextLoading: boolean
             ): string | null => {
                 if (!selectedEditableKind) {
                     return "This file type can't be edited here"
@@ -918,6 +920,9 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 }
                 if ((!selectedText || selectedText.text === null) && selectedEditableKind !== 'html') {
                     return 'The file has not loaded yet'
+                }
+                if (selectedEditableKind === 'html' && artifactTextLoading) {
+                    return 'The file is loading'
                 }
                 return null
             },
@@ -1053,10 +1058,18 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             },
             ensureSelectedText: loadSelectedText,
             loadArtifactTextSuccess: ({ artifactText }) => {
-                if (artifactText && cache.editAfterTextLoads === artifactText.artifactId) {
-                    cache.editAfterTextLoads = null
-                    actions.startEditing()
+                if (!artifactText || cache.editAfterTextLoads !== artifactText.artifactId) {
+                    return
                 }
+                cache.editAfterTextLoads = null
+                if (values.selectedArtifact?.id !== artifactText.artifactId) {
+                    return
+                }
+                if (artifactText.text === null) {
+                    toast.error({ title: "Couldn't load this file for editing. Try again." })
+                    return
+                }
+                actions.startEditing()
             },
             loadHtmlPreview: (artifact) => {
                 actions.fetchHtmlPreview({ artifact, scripts: false })
@@ -1160,7 +1173,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     return
                 }
                 if (typeof text !== 'string') {
-                    if (kind === 'html' && !values.selectedText) {
+                    if (kind === 'html' && !values.artifactTextLoading) {
                         cache.editAfterTextLoads = artifact.id
                         actions.loadArtifactText(artifact)
                     }

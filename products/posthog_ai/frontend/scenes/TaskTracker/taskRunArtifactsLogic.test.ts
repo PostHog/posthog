@@ -164,7 +164,21 @@ describe('taskRunArtifactsLogic', () => {
             expect.anything()
         )
 
-        await expectLogic(logic, () => logic.actions.startEditing()).toFinishAllListeners()
+        const fetch = global.fetch
+        let finishDownload: (response: Response) => void = () => {}
+        global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) =>
+            String(input).includes('/artifacts/download/')
+                ? new Promise<Response>((resolve) => (finishDownload = resolve))
+                : fetch(input, init)
+        )
+        logic.actions.startEditing()
+        logic.actions.startEditing()
+        expect(logic.values.editDisabledReason).toBe('The file is loading')
+        expect(
+            jest.mocked(global.fetch).mock.calls.filter(([input]) => String(input).includes('/artifacts/download/'))
+        ).toHaveLength(1)
+
+        await expectLogic(logic, () => finishDownload(new Response('# Report'))).toFinishAllListeners()
 
         expect(logic.values.editSession).toMatchObject({ baseArtifactId: 'html-1', original: '# Report' })
     })
