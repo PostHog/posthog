@@ -204,8 +204,9 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert self._classify() == (DestinationHoldBack.UNTRACKED_EDIT,)
 
-    def test_a_plain_http_webhook_is_held_back(self) -> None:
-        self._function("template-webhook", _with(WEBHOOK_INPUTS, "url", "http://hooks.example.com/hook"))
+    @parameterized.expand([("plain_http", "http://hooks.example.com/hook"), ("malformed", "https://[invalid/hook")])
+    def test_a_webhook_url_native_delivery_refuses_is_held_back(self, _name: str, url: str) -> None:
+        self._function("template-webhook", _with(WEBHOOK_INPUTS, "url", url))
 
         assert self._classify() == (DestinationHoldBack.REFUSED_ADDRESS,)
 
