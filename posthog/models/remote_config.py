@@ -480,7 +480,8 @@ class RemoteConfig(UUIDTModel):
         """
         evicted = True
         try:
-            RemoteConfig.get_hypercache().delete_cache_entry(old_token)
+            # hypercache-server reads the secondary Redis, so a failed delete there must fail the sync.
+            RemoteConfig.get_hypercache().delete_cache_entry(old_token, strict_mirror=True)
         except Exception as e:
             # A failed eviction leaves the revoked token serving. The new token still needs
             # its object-storage copy, so the forced sync runs before the failure is raised.

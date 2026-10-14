@@ -6,11 +6,13 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.core.cache import caches
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import (
@@ -909,6 +911,23 @@ class TestRemoteConfigTokenChange(_RemoteConfigBase):
                 self.remote_config.sync_after_token_change(self.old_token)
 
         assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "token-change-shared-cache",
+            },
+            FLAGS_DEDICATED_CACHE_ALIAS: {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "token-change-flags-cache",
+            },
+        }
+    )
+    def test_token_change_raises_when_the_shared_redis_delete_fails(self):
+        with patch.object(caches["default"], "delete", side_effect=ConnectionError("shared redis down")):
+            with pytest.raises(RemoteConfigTokenChangeSyncError):
+                self.remote_config.sync_after_token_change(self.old_token)
 
 
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):

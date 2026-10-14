@@ -606,13 +606,17 @@ class HyperCache:
         """Test helper alias for delete_cache_entry."""
         return self.delete_cache_entry(key, kinds)
 
-    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None, *, strict_mirror: bool = False):
         """Hard-delete an entry from the given tiers (default redis + s3).
 
         Production-safe: the gateway credential projection uses this to revoke a
         credential's blob immediately — a missing key fails closed at the gateway.
+
+        With strict_mirror, a failed delete on the secondary cache raises after every other
+        tier was attempted. Otherwise the secondary delete is best-effort.
         """
         kinds = kinds or ["redis", "s3"]
+        mirror_error: Exception | None = None
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
@@ -634,17 +638,19 @@ class HyperCache:
                         raise first_error
 
                 # Mirror first so a primary failure cannot block the secondary.
-                self._mirror_to_secondary(delete_each)
+                mirror_error = self._mirror_to_secondary(delete_each)
                 delete_each(self.cache_client)
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
+            if strict_mirror and mirror_error is not None:
+                raise mirror_error
         finally:
             self._remove_expiry_tracking(key)
 
-    def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """Best-effort mirror op; failures are logged and captured, never propagated."""
+    def _mirror_to_secondary(self, op: Callable[..., None]) -> Exception | None:
+        """Best-effort mirror op; failures are logged, captured and returned, never raised."""
         if self.secondary_cache_client is None:
-            return
+            return None
         try:
             op(self.secondary_cache_client)
         except Exception as e:
@@ -658,6 +664,8 @@ class HyperCache:
                 exc_info=True,
             )
             capture_exception(e)
+            return e
+        return None
 
     def _set_cache_value_redis(
         self,
