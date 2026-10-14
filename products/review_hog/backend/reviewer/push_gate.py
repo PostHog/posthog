@@ -35,11 +35,13 @@ import logging
 from typing import Any, Literal
 
 import requests
+from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
+from posthog.redis import get_client
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.review_hog.backend.app_identity import posthog_app_login
@@ -59,6 +61,8 @@ SKIP_THROTTLED = True
 
 # Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
 PUSH_BUDGET = Budget(burst=2, per_hour=2)
+# Longer than a turn and its retry take, so a retried turn finds that its head paid already.
+_PAID_HEAD_TTL_SECONDS = 6 * 3600
 
 # The JevK5 build PostHog hosts on the ai-gateway. The study calibrated the threshold on TypeSafe's
 # `jev-latest`, so the shadow decisions must confirm it holds for this model before SKIP_SYSTEM_ONE goes on.
@@ -397,13 +401,26 @@ def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDeci
     )
 
 
-def apply_throttle(decision: PushGateDecision, *, report_id: str) -> PushGateDecision:
-    """Rule 7, last: a push that the rules before it skip takes no token. Without Redis the push runs."""
+def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str) -> PushGateDecision:
+    """Rule 7, last: a push that the rules before it skip takes no token. Without Redis the push runs.
+
+    A head pays once. A failed turn runs again as a new activity or a new child workflow, and a
+    retry that charged again could find the bucket empty and drop a review that passed the budget.
+    """
     if decision.skip:
+        return decision
+    paid_key = f"reviewhog_push_budget_paid:{report_id}:{head_sha}"
+    client = get_client()
+    try:
+        first_charge = client.set(paid_key, 1, nx=True, ex=_PAID_HEAD_TTL_SECONDS)
+    except RedisError:
+        return decision
+    if not first_charge:
         return decision
     bucket = consume(f"reviewhog_push_budget:{report_id}", PUSH_BUDGET)
     if isinstance(bucket, BucketUnavailable) or bucket.allowed:
         return decision
+    client.delete(paid_key)
     return _matched(
         "throttled",
         own_commits=decision.own_commits,
