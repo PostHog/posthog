@@ -12,10 +12,11 @@ Every command passes the same checks, in this order, before its handler runs:
    The webhook's `author_association` only filtered noise; organization members can lack write
    access to a given repository.
 5. The comment holds exactly one command, the command exists, and its arguments match its grammar.
-6. The commenter's GitHub account is linked to exactly one active PostHog user, and that user is a
-   member of a rolled-out project whose GitHub integration uses this installation.
+6. The commenter's GitHub account is linked to an active PostHog account that is a member of a
+   rolled-out project whose GitHub integration uses this installation. With several linked
+   accounts, the handler picks the project, and the account that is a member of it acts there.
 7. The pull request is open, and the command allows forks if the head is a fork.
-8. The user has the access the command declares on the project, in PostHog access control.
+8. The account has the access the command declares on the project, in PostHog access control.
 
 People who fail checks 1 to 4 get no answer at all, so the bot gives outsiders nothing to probe and
 no way to make it post. Everyone past them gets a reply that says what happened.
@@ -39,7 +40,7 @@ from posthog.models.user import User
 from posthog.permissions import UserAccessControl, posthog_feature_flag_enabled
 from posthog.token_bucket import BucketDecision, Budget, consume
 
-from .commands import CommandContext
+from .commands import CommandContext, ProjectMember
 from .github import CommandGitHub, GitHubCallFailed, InstallationGitHub, UnsupportedPullRequest
 from .identity import Commenter, resolve_commenter
 from .intake import CommentCommandRequest
@@ -201,8 +202,8 @@ def _command_context(
     if not isinstance(commenter, Commenter):
         outcome: DispatchOutcome = "account_refused" if commenter.reason == "refused" else "unlinked"
         return _Answer(outcome=outcome, message=_UNRESOLVED_MESSAGES[commenter.reason])
-    team_ids = tuple(team_id for team_id in commenter.team_ids if team_id in rolled_out_team_ids)
-    if not team_ids:
+    members = tuple(member for member in commenter.members if member.team_id in rolled_out_team_ids)
+    if not members:
         return _Answer(
             outcome="no_project",
             message="You aren't a member of a PostHog project that uses pull request commands on this repository.",
@@ -231,20 +232,18 @@ def _command_context(
 
     access = declaration.access
     if access is not None:
-        team_ids = _teams_with_access(User.objects.get(id=commenter.user_id), team_ids, access)
-        if not team_ids:
+        members = _members_with_access(members, access)
+        if not members:
             return _Answer(
                 outcome="access_denied",
                 message=f"You need {access.level} access to {access.resource} in PostHog to use `{declaration.verb}`.",
             )
-    return CommandContext(request=request, pull_request=pull_request, user_id=commenter.user_id, team_ids=team_ids)
+    return CommandContext(request=request, pull_request=pull_request, members=members)
 
 
 _UNRESOLVED_MESSAGES = {
     "unlinked": "Your GitHub account is not linked to a PostHog account, so I can't tell who to run this as. "
     "Connect GitHub in your PostHog personal settings, then comment again.",
-    "ambiguous": "Your GitHub account is linked to more than one PostHog account, so I can't tell which to run this "
-    "as. Disconnect GitHub from the accounts you don't use, then comment again.",
     "refused": "I can't run commands for your PostHog account.",
 }
 
@@ -324,12 +323,18 @@ def _rolled_out_team_ids(installation_id: str) -> frozenset[int]:
     )
 
 
-def _teams_with_access(user: User, team_ids: tuple[int, ...], access: ResourceAccess) -> tuple[int, ...]:
+def _members_with_access(members: tuple[ProjectMember, ...], access: ResourceAccess) -> tuple[ProjectMember, ...]:
     # Products keep their rows, and their access rules, on the parent project.
-    effective_team_ids = {team_id: resolve_effective_team_id(team_id) for team_id in team_ids}
+    effective_team_ids = {member.team_id: resolve_effective_team_id(member.team_id) for member in members}
     teams = Team.objects.in_bulk(set(effective_team_ids.values()))
-    has_access: dict[int, bool] = {}
-    for effective_team_id, team in teams.items():
+    users = User.objects.in_bulk({member.user_id for member in members})
+
+    def has_access(member: ProjectMember) -> bool:
+        team = teams.get(effective_team_ids[member.team_id])
+        if team is None:
+            return False
+        user = users[member.user_id]
         access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        has_access[effective_team_id] = access_control.check_access_level_for_resource(access.resource, access.level)
-    return tuple(team_id for team_id in team_ids if has_access.get(effective_team_ids[team_id], False))
+        return access_control.check_access_level_for_resource(access.resource, access.level)
+
+    return tuple(member for member in members if has_access(member))

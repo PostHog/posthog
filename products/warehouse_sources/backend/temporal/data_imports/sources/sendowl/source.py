@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SendowlSource(ResumableSource[SendowlSourceConfig, SendowlResumeConfig]):
+    codebase_detection = detect(env=("^SENDOWL_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://www.sendowl.com/developers"

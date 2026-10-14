@@ -628,6 +628,12 @@ pub struct Config {
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
     pub maxmind_db_path: String,
 
+    // A server-side SDK that doesn't forward the end user's IP resolves its own server's
+    // region, and that value replaces the stored person property that a region flag would
+    // otherwise match on.
+    #[envconfig(from = "GEOIP_SUBDIVISIONS_EXCLUDED_TEAM_IDS", default = "none")]
+    pub geoip_subdivisions_excluded_team_ids: TeamIdCollection,
+
     #[envconfig(default = "false")]
     pub enable_metrics: bool,
 
@@ -952,6 +958,14 @@ pub struct Config {
     #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
     pub skip_pg_team_fallback: FlexBool,
 
+    // Kill switch for legacy Team.secret_api_token auth (PostHog/posthog#66179).
+    // When false, phs_ bearer lookups skip posthog_team and validate against
+    // ProjectSecretAPIKey only; migrated legacy tokens then match their backfilled
+    // mirror rows. Cached legacy entries survive until AUTH_TOKEN_CACHE_TTL_SECONDS,
+    // so a flip (either direction) settles within that window.
+    #[envconfig(from = "ACCEPT_TEAM_SECRET_TOKENS", default = "true")]
+    pub accept_team_secret_tokens: FlexBool,
+
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
 
@@ -1181,6 +1195,7 @@ impl Config {
             billing_limiter_cache_ttl_secs: 5,
             otel_export_timeout_secs: 3,
             maxmind_db_path: "".to_string(),
+            geoip_subdivisions_excluded_team_ids: TeamIdCollection::None,
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
@@ -1241,6 +1256,7 @@ impl Config {
             team_negative_cache_ttl_seconds: 30,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
+            accept_team_secret_tokens: FlexBool(true),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
@@ -1270,6 +1286,12 @@ impl Config {
         } else {
             PathBuf::from(&self.maxmind_db_path)
         }
+    }
+
+    pub fn geoip_subdivisions_enabled_for(&self, team_id: i32) -> bool {
+        !self
+            .geoip_subdivisions_excluded_team_ids
+            .includes_team(team_id)
     }
 
     pub fn get_redis_reader_url(&self) -> &str {
@@ -1414,6 +1436,11 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
+        // Legacy tokens must stay accepted by default: a default of false would 401
+        // every legacy token without a mirror row while CI stays green, because the
+        // integration tests build their config from default_test_config() instead.
+        assert_eq!(config.accept_team_secret_tokens, FlexBool(true));
+        assert!(config.geoip_subdivisions_enabled_for(1));
     }
 
     #[test]

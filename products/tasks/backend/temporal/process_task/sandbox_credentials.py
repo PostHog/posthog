@@ -158,11 +158,7 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
-    """Post-resolution eligibility gate for every path that injects a GitHub token into a LOOP
-    sandbox, mirroring `get_sandbox_github_token`: a loop run alive during or after its owner's
-    deactivation or team-access revocation must not receive a fresh token, whichever refresh path
-    resolved it (user-integration refresh, installation fallback, read-only re-mint, or sibling
-    propagation). Non-loop runs are unaffected."""
+    """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
         return False
     with transaction.atomic():
@@ -401,7 +397,7 @@ class GitHubSandboxCredential:
         # repositories decide what the sandbox can read, never what it can write. Re-mint the same
         # read-only grant instead; best-effort like the original.
         if ctx.github_read_access:
-            token = get_readonly_github_token(ctx.team_id)
+            token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories)
             if token and _loop_owner_credentials_revoked(task, ctx.state):
                 token = None
             if token:
@@ -537,7 +533,7 @@ class GitHubSandboxCredential:
                 cause=cause,
             )
         try:
-            return get_github_token(task.github_integration_id)
+            return get_github_token(task.github_integration_id, repositories=ctx.repositories)
         except Integration.DoesNotExist as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",
