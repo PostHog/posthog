@@ -345,4 +345,21 @@ describe('DiscussReportButton', () => {
         )
         logic.unmount()
     })
+
+    it('reloads artefacts before it derives linked runs', () => {
+        const report = makeReport()
+        const logic = inboxReportDetailLogic({ reportId: report.id, report })
+        logic.mount()
+        logic.actions.loadReportArtefactsFailure('failed')
+        const loadReportArtefacts = jest.spyOn(logic.actions, 'loadReportArtefacts')
+        const loadReportTasks = jest.spyOn(logic.actions, 'loadReportTasks')
+        render(<ReportNextAction report={report} />)
+
+        fireEvent.click(screen.getByText('Reload runs'))
+
+        expect(loadReportArtefacts).toHaveBeenCalledTimes(1)
+        expect(loadReportTasks).not.toHaveBeenCalled()
+        expect(screen.getByText('Checking runs')).toBeInTheDocument()
+        logic.unmount()
+    })
 })

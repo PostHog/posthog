@@ -1,5 +1,10 @@
 import { fromMarkdown } from 'mdast-util-from-markdown'
 
+import { isObject } from 'lib/utils/guards'
+import { urls } from 'scenes/urls'
+
+import type { InsightShortId } from '~/types'
+
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { conversationsTicketUrl, genericSignalLink, signalEntityUrl } from './signalLinks'
@@ -54,6 +59,24 @@ function evidenceUrl(href: string, projectUrl: string, entityLink: boolean = fal
     }
 }
 
+function signalSpecificUrls(signal: SignalNodeApi): string[] {
+    const extra: Record<string, unknown> = isObject(signal.extra) ? signal.extra : {}
+    const alertId = typeof extra.alert_id === 'string' ? extra.alert_id : null
+    if (signal.source_product === 'logs') {
+        return alertId ? [urls.logsAlertDetail(alertId)] : []
+    }
+    if (signal.source_product === 'analytics') {
+        const notebookShortId = typeof extra.notebook_short_id === 'string' ? extra.notebook_short_id : null
+        const insightShortId = typeof extra.insight_short_id === 'string' ? extra.insight_short_id : null
+        return [
+            alertId ? urls.alert(alertId) : null,
+            notebookShortId ? urls.notebook(notebookShortId) : null,
+            insightShortId ? urls.insightView(insightShortId as InsightShortId) : null,
+        ].filter((url): url is string => url !== null)
+    }
+    return []
+}
+
 export function citedReportEvidence(markdown: string, signals: SignalNodeApi[], projectUrl: string): SignalNodeApi[] {
     const tree = fromMarkdown(markdown)
     const definitions = new Map(
@@ -75,8 +98,11 @@ export function citedReportEvidence(markdown: string, signals: SignalNodeApi[], 
     }
     tree.children.forEach(visit)
     const cited = signals.filter((signal) => {
-        // A product landing page cannot identify the evidence for a claim.
-        if (signal.source_product === 'logs') {
+        const specificUrls = signalSpecificUrls(signal)
+        if (specificUrls.some((href) => links.has(evidenceUrl(href, projectUrl)!))) {
+            return true
+        }
+        if (signal.source_product === 'logs' || signal.source_product === 'analytics') {
             return false
         }
         const entityUrls = [signalEntityUrl(signal.source_product, signal.source_id)]

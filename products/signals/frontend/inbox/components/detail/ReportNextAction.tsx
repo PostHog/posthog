@@ -15,8 +15,9 @@ import { ImplementButton } from './ImplementButton'
 
 export function ReportNextAction({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { reportTasks, reportTasksLoading, implementationSlotClaim, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest, setDetailTab, loadReportTasks } = useActions(logic)
+    const { reportArtefactsLoading, reportTasks, reportTasksLoading, implementationSlotClaim, selectedPullRequest } =
+        useValues(logic)
+    const { selectPullRequest, setDetailTab, loadReportArtefacts } = useActions(logic)
     const { isCreatingPr, isDiscussing, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { openReportDiscussion, discussReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const step = reportNextStep(report, reportTasks, implementationSlotClaim, selectedPullRequest.url)
@@ -28,9 +29,10 @@ export function ReportNextAction({ report }: { report: SignalReport }): JSX.Elem
         return <ImplementButton report={report} />
     }
     if (step.kind === 'load') {
+        const isLoading = reportArtefactsLoading || reportTasksLoading
         return (
-            <LemonButton size="small" loading={reportTasksLoading} onClick={loadReportTasks} tooltip={step.reason}>
-                {reportTasksLoading ? 'Checking runs' : 'Reload runs'}
+            <LemonButton size="small" loading={isLoading} onClick={loadReportArtefacts} tooltip={step.reason}>
+                {isLoading ? 'Checking runs' : 'Reload runs'}
             </LemonButton>
         )
     }

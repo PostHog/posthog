@@ -40,11 +40,11 @@ describe('report evidence', () => {
     })
 
     it.each([
-        '[Errors](/project/2/error_tracking/report-src-0)',
-        '[Errors](https://us.posthog.com/project/2/error_tracking/report-src-0)',
-        '[Errors](/project/2/error_tracking/report-src-0?fingerprint=abc)',
+        '[Errors](/project/2/error-tracking/report-src-0)',
+        '[Errors](https://us.posthog.com/project/2/error-tracking/report-src-0)',
+        '[Errors](/project/2/error-tracking/report-src-0?fingerprint=abc)',
         '[Replay](/project/2/replay/report-src-1?t=12)',
-        '[Errors][source]\n\n[source]: /project/2/error_tracking/report-src-0',
+        '[Errors][source]\n\n[source]: /project/2/error-tracking/report-src-0',
     ])('finds evidence explicitly linked by the text: %s', (markdown) => {
         expect(citedReportEvidence(markdown, signals, projectUrl)).toEqual([
             signals[markdown.includes('/replay/') ? 1 : 0],
@@ -52,10 +52,10 @@ describe('report evidence', () => {
     })
 
     it.each([
-        '[Other project](/project/3/error_tracking/report-src-0)',
-        '[Other host](https://other.example/project/2/error_tracking/report-src-0)',
-        '`[Errors](/project/2/error_tracking/report-src-0)`',
-        '[Unused definition]\n\n[source]: /project/2/error_tracking/report-src-0',
+        '[Other project](/project/3/error-tracking/report-src-0)',
+        '[Other host](https://other.example/project/2/error-tracking/report-src-0)',
+        '`[Errors](/project/2/error-tracking/report-src-0)`',
+        '[Unused definition]\n\n[source]: /project/2/error-tracking/report-src-0',
         'The report mentions report-src-0 without a source link.',
     ])('does not infer a citation from %s', (markdown) => {
         expect(citedReportEvidence(markdown, signals, projectUrl)).toEqual([])
@@ -64,7 +64,51 @@ describe('report evidence', () => {
     it('shows the newest evidence when a cited source emitted several signals', () => {
         const repeated = { ...signals[0], signal_id: 'repeat', timestamp: '2026-06-12T12:00:00Z' }
         expect(
-            citedReportEvidence('[Errors](/error_tracking/report-src-0)', [...signals, repeated], projectUrl)
+            citedReportEvidence('[Errors](/error-tracking/report-src-0)', [...signals, repeated], projectUrl)
         ).toEqual([repeated])
+    })
+
+    it.each([
+        [
+            'an analytics landing page',
+            {
+                ...signals[0],
+                source_product: 'analytics',
+                extra: {
+                    alert_id: 'alert-1',
+                    alert_name: 'Error alert',
+                    alert_check_id: 'check-1',
+                    insight_id: 'insight-1',
+                    detector_type: 'z_score',
+                    verdict: 'true_positive',
+                    url: 'https://us.posthog.com/project/2/alerts',
+                },
+            } satisfies SignalNodeApi,
+            '[Alerts](/alerts)',
+            false,
+        ],
+        [
+            'a logs alert deep link',
+            {
+                ...signals[0],
+                source_product: 'logs',
+                extra: {
+                    alert_id: 'alert-1',
+                    alert_name: 'Error alert',
+                    action: 'firing',
+                    threshold_count: 1,
+                    threshold_operator: 'above',
+                    window_minutes: 5,
+                    result_count: 2,
+                    consecutive_failures: 0,
+                    filters: {},
+                    url: '/logs/alerts/alert-1',
+                },
+            } satisfies SignalNodeApi,
+            '[Logs alert](/logs/alerts/alert-1)',
+            true,
+        ],
+    ])('matches only source-specific evidence for %s', (_name, signal, markdown, isCited) => {
+        expect(citedReportEvidence(markdown, [signal], projectUrl)).toEqual(isCited ? [signal] : [])
     })
 })
