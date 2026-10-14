@@ -159,7 +159,11 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 // Returns the cached cards, or starts a background run and answers with status generating.
                 loadAiResult: async (): Promise<DataSuggestionsResponseApi | null> => {
                     try {
-                        return await workflowDataSuggestionsGenerate(String(values.currentProjectId), {})
+                        return await workflowDataSuggestionsGenerate(
+                            String(values.currentProjectId),
+                            {},
+                            { signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS) }
+                        )
                     } catch {
                         // Suggestions are optional, so a failed call shows nothing rather than an error.
                         return null

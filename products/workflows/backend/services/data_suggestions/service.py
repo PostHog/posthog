@@ -106,8 +106,9 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
     return _GENERATING
 
 
-def has_cached_data_suggestions(*, team: Team) -> bool:
-    return _read_cache(team) is not None
+def needs_new_generation(*, team: Team, refresh: bool) -> bool:
+    """Whether a generate call would start a run, the only case that costs model time."""
+    return (refresh or _read_cache(team) is None) and cache.get(_generation_lock_key(team)) is None
 
 
 def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None:
@@ -132,37 +133,41 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
         _release_lock(team_id, lock_token)
 
 
-def start_build(*, team: Team, suggestion_id: str, retry: bool, enqueue: Callable[[str], None]) -> BuiltSuggestion:
+def start_build(
+    *, team: Team, suggestion_id: str, caller: str, retry: bool, enqueue: Callable[[str], None]
+) -> BuiltSuggestion:
     """The built draft, or a background build through `enqueue`. Ask again while the status is building.
+
+    Each `caller` checks drafts the way its own create request does, so builds are stored per caller.
 
     A failed result stays until `retry` asks for a new build, so every tab that polls the build reads the failure.
     """
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
-    stored = _read_build(team.id, suggestion_id)
+    stored = _read_build(team.id, suggestion_id, caller)
     if stored is not None and not (retry and stored.status == "failed"):
         return stored
     # A second click or tab while a build runs would pay for another plan.
     lock_token = str(uuid.uuid4())
-    if not cache.add(_build_lock_key(team.id, suggestion_id), lock_token, _GENERATION_LOCK_SECONDS):
+    if not cache.add(_build_lock_key(team.id, suggestion_id, caller), lock_token, _GENERATION_LOCK_SECONDS):
         return _BUILDING
     # Cleared once the lock is held, so the polls of this retry read building instead of the old failure.
-    cache.delete(_build_key(team.id, suggestion_id))
+    cache.delete(_build_key(team.id, suggestion_id, caller))
     try:
         enqueue(lock_token)
     except Exception:
-        _release(_build_lock_key(team.id, suggestion_id), lock_token)
+        _release(_build_lock_key(team.id, suggestion_id, caller), lock_token)
         logger.exception("workflows.data_suggestions.build_enqueue_failed", team_id=team.id)
         return _BUILD_FAILED
     # A worker that ran inline, like in tests, has already stored the result.
-    return _read_build(team.id, suggestion_id) or _BUILDING
+    return _read_build(team.id, suggestion_id, caller) or _BUILDING
 
 
-def needs_new_build(*, team: Team, suggestion_id: str, retry: bool) -> bool:
+def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
-    stored = _read_build(team.id, suggestion_id)
+    stored = _read_build(team.id, suggestion_id, caller)
     reusable = stored is not None and not (retry and stored.status == "failed")
-    return not reusable and cache.get(_build_lock_key(team.id, suggestion_id)) is None
+    return not reusable and cache.get(_build_lock_key(team.id, suggestion_id, caller)) is None
 
 
 def run_build(
@@ -170,6 +175,7 @@ def run_build(
     team_id: int,
     user_id: int,
     suggestion_id: str,
+    caller: str,
     lock_token: str,
     is_valid_draft: Callable[[Team, dict[str, Any]], bool],
 ) -> None:
@@ -190,9 +196,9 @@ def run_build(
             capture_exception(error, {"team_id": team_id})
             result = _BUILD_FAILED
         ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
-        cache.set(_build_key(team_id, suggestion_id), dataclasses.asdict(result), ttl)
+        cache.set(_build_key(team_id, suggestion_id, caller), dataclasses.asdict(result), ttl)
     finally:
-        _release(_build_lock_key(team_id, suggestion_id), lock_token)
+        _release(_build_lock_key(team_id, suggestion_id, caller), lock_token)
 
 
 def _plan_and_build(
@@ -279,16 +285,16 @@ def _release(key: str, lock_token: str) -> None:
         cache.delete(key)
 
 
-def _build_key(team_id: int, suggestion_id: str) -> str:
-    return f"workflows:data_suggestions:build:{team_id}:{suggestion_id}"
+def _build_key(team_id: int, suggestion_id: str, caller: str) -> str:
+    return f"workflows:data_suggestions:build:{team_id}:{suggestion_id}:{caller}"
 
 
-def _build_lock_key(team_id: int, suggestion_id: str) -> str:
-    return f"workflows:data_suggestions:building:{team_id}:{suggestion_id}"
+def _build_lock_key(team_id: int, suggestion_id: str, caller: str) -> str:
+    return f"workflows:data_suggestions:building:{team_id}:{suggestion_id}:{caller}"
 
 
-def _read_build(team_id: int, suggestion_id: str) -> BuiltSuggestion | None:
-    stored = cache.get(_build_key(team_id, suggestion_id))
+def _read_build(team_id: int, suggestion_id: str, caller: str) -> BuiltSuggestion | None:
+    stored = cache.get(_build_key(team_id, suggestion_id, caller))
     if not isinstance(stored, dict):
         return None
     try:

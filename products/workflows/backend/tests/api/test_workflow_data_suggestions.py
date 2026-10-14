@@ -257,10 +257,14 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock, _flag) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         suggestion_id = self._list()["suggestions"][0]["id"]
-        cache.set(_build_key(self.team.id, suggestion_id), {"status": "failed"}, 60)
+        cache.set(_build_key(self.team.id, suggestion_id, "web"), {"status": "failed"}, 60)
 
-        retry = start_build(team=self.team, suggestion_id=suggestion_id, retry=True, enqueue=lambda _token: None)
-        poll = start_build(team=self.team, suggestion_id=suggestion_id, retry=False, enqueue=lambda _token: None)
+        retry = start_build(
+            team=self.team, suggestion_id=suggestion_id, caller="web", retry=True, enqueue=lambda _token: None
+        )
+        poll = start_build(
+            team=self.team, suggestion_id=suggestion_id, caller="web", retry=False, enqueue=lambda _token: None
+        )
 
         assert retry.status == poll.status == "building"
 
@@ -312,12 +316,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read", "current", {}, False, 200),
-            ("generate answered from the cache", "generate", {}, True, 200),
-            ("generate that has to run", "generate", {}, False, 429),
-            ("refresh", "generate", {"refresh": True}, True, 429),
-            ("refresh sent as 1", "generate", {"refresh": "1"}, True, 429),
-            ("build", "build", {"suggestion_id": "missing"}, True, 429),
+            ("read", "current", {}, "cached", 200),
+            ("generate answered from the cache", "generate", {}, "cached", 200),
+            ("generate that has to run", "generate", {}, "empty", 429),
+            ("generate that joins a running run", "generate", {}, "running", 200),
+            ("refresh", "generate", {"refresh": True}, "cached", 429),
+            ("refresh sent as 1", "generate", {"refresh": "1"}, "cached", 429),
+            ("build", "build", {"suggestion_id": "missing"}, "cached", 429),
         ]
     )
     @patch(f"{VIEW}.AIBurstRateThrottle.wait", return_value=None)
@@ -328,15 +333,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         endpoint: str,
         params: dict,
-        cached: bool,
+        state: str,
         status: int,
         _suggest_ideas: MagicMock,
         _allow: MagicMock,
         _wait: MagicMock,
         _flag,
     ) -> None:
-        if cached:
+        if state == "cached":
             cache.set(_cache_key(self.team), _to_cache(DataSuggestionsResult(status="ready", suggestions=())), 60)
+        elif state == "running":
+            cache.set(_generation_lock_key(self.team), "other-run", 60)
         url = f"/api/projects/{self.team.id}/workflow_data_suggestions/{endpoint}/"
         if endpoint == "current":
             response = self.client.get(url)
@@ -576,7 +583,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         suggestion_id = self._list()["suggestions"][0]["id"]
-        cache.add(f"workflows:data_suggestions:building:{self.team.id}:{suggestion_id}", "first-click", 60)
+        cache.add(f"workflows:data_suggestions:building:{self.team.id}:{suggestion_id}:web", "first-click", 60)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
@@ -597,21 +604,21 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             first_step="notify", steps=[_step("notify", "function", template_id="template-webhook")]
         )
         suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="writer", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
         )
-        self.client.logout()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
-            {"suggestion_id": suggestion_id},
-            format="json",
-            headers={"authorization": f"Bearer {key}"},
+        web = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
+        self.client.logout()
+        api = self.client.post(
+            build_url, {"suggestion_id": suggestion_id}, format="json", headers={"authorization": f"Bearer {key}"}
         )
 
-        # The webhook URL stays blank, which an API client's strict draft create would reject.
-        assert response.json()["status"] == "failed"
+        # The webhook URL stays blank, which the web editor saves as a draft and an API client's create rejects.
+        assert web.json()["status"] == "ready"
+        assert api.json()["status"] == "failed"
 
     @parameterized.expand(
         [

@@ -18,8 +18,8 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from products.workflows.backend.facade.contracts import DataSuggestionNotFound
 from products.workflows.backend.facade.data_suggestions import (
     get_data_suggestions,
-    has_cached_data_suggestions,
     needs_new_build,
+    needs_new_generation,
     start_build,
     start_data_suggestions,
 )
@@ -139,7 +139,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
         # against it. A generate call answered from the cache does not.
         if (self.action == "build" and self._starts_build()) or (
-            self.action == "generate" and (self._wants_refresh() or not has_cached_data_suggestions(team=self.team))
+            self.action == "generate" and self._starts_generation()
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
@@ -150,14 +150,14 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return not payload.is_valid() or needs_new_build(
             team=self.team,
             suggestion_id=payload.validated_data["suggestion_id"],
+            caller=get_event_source(self.request).value,
             retry=payload.validated_data["retry"],
         )
 
-    def _wants_refresh(self) -> bool:
-        # Parsed like the endpoint parses it, so every value it accepts as true is throttled. Invalid input counts
-        # as a refresh, so it is throttled too.
+    def _starts_generation(self) -> bool:
+        # Joining a run that is already going costs no model time, so it is not throttled. Invalid input is throttled.
         payload = DataSuggestionGenerateRequestSerializer(data=self.request.data)
-        return not payload.is_valid() or payload.validated_data["refresh"]
+        return not payload.is_valid() or needs_new_generation(team=self.team, refresh=payload.validated_data["refresh"])
 
     @extend_schema(operation_id="workflow_data_suggestions_current", responses={200: DataSuggestionsResponseSerializer})
     @action(detail=False, methods=["get"])
