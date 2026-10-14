@@ -1681,6 +1681,7 @@ const visionScannersWatchFeed = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
             query: {
+                created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,
