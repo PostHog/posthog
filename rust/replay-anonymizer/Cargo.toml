@@ -32,6 +32,7 @@ percent-encoding = { workspace = true }
 public-suffix = { workspace = true }
 # No text or embedded raster images: SVG text never renders, and nothing beyond the document is read.
 resvg = { version = "0.48", default-features = false }
+roxmltree = "0.21"
 url = { workspace = true }
 zstd = { workspace = true }
 

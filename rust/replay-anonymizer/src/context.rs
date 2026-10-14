@@ -123,8 +123,12 @@ impl<'a> Ctx<'a> {
     /// to the caller for the out-of-band scrub. An image the lane cannot take is replaced by
     /// `fallback` and counted, never passed through or scrubbed here.
     pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
-        // This anonymizer's own placeholders, met again on a re-scrub: they carry no page content.
-        if original == PLACEHOLDER_SRC || is_numbered_placeholder(original) {
+        // This anonymizer's own stand-ins, met again on a re-scrub, carry no page content. A numbered
+        // placeholder's digits are free text a page could forge, so it is trusted only on a re-scrub.
+        if original == PLACEHOLDER_SRC
+            || original == blank_image_data_uri()
+            || (self.keeps_image_refs() && is_numbered_placeholder(original))
+        {
             return original.to_string();
         }
         match self.collect_image(original) {
@@ -413,18 +417,35 @@ mod tests {
     }
 
     #[test]
-    fn this_anonymizers_own_placeholder_is_never_collected() {
+    fn this_anonymizers_own_stand_ins_are_never_collected() {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-        let ctx = Ctx::with_image_collection(
-            &allow,
-            Some(ImageCollection::new("42".to_string(), "k".repeat(32))),
-        );
-        assert_eq!(
-            ctx.scrub_image(PLACEHOLDER_SRC, ImageFallback::Placeholder),
-            PLACEHOLDER_SRC
-        );
-        assert!(ctx.take_scrub_drops().is_empty());
-        assert!(ctx.into_collected_images().is_empty());
+        let lane = || Some(ImageCollection::new("42".to_string(), "k".repeat(32)));
+        let numbered = crate::assets::numbered_placeholder(7);
+        let cases = [
+            (
+                Ctx::with_image_collection(&allow, lane()),
+                PLACEHOLDER_SRC.to_string(),
+                true,
+            ),
+            (
+                Ctx::with_image_collection(&allow, lane()),
+                blank_image_data_uri(),
+                true,
+            ),
+            (
+                Ctx::with_image_collection(&allow, lane()).preserving_image_refs(),
+                numbered.clone(),
+                true,
+            ),
+            // Untrusted input: the digits could carry anything, so it goes through the scrub.
+            (Ctx::with_image_collection(&allow, lane()), numbered, false),
+        ];
+        for (ctx, original, kept) in cases {
+            let scrubbed = ctx.scrub_image(&original, ImageFallback::Placeholder);
+            assert_eq!(scrubbed == original, kept, "{original}");
+            assert!(ctx.take_scrub_drops().is_empty());
+            assert_eq!(ctx.into_collected_images().is_empty(), kept);
+        }
     }
 
     #[test]

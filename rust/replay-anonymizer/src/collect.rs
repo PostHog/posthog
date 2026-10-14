@@ -131,6 +131,7 @@ pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 64 * 1024 * 1024;
 pub(crate) const DROP_COLLECTION_OFF: &str = "image_collection_off";
 pub(crate) const DROP_NOT_RASTER: &str = "image_not_base64_raster";
 pub(crate) const DROP_SVG: &str = "image_svg";
+pub(crate) const DROP_SVG_TOO_COMPLEX: &str = "image_svg_too_complex";
 pub(crate) const DROP_BMP: &str = "image_bmp";
 pub(crate) const DROP_AVIF: &str = "image_avif";
 pub(crate) const DROP_TOO_LARGE: &str = "image_too_large";
