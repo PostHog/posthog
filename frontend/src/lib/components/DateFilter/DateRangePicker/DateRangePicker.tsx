@@ -251,7 +251,6 @@ export const DateRangePicker = ({
                 icon={<IconCalendar />}
                 onClick={() => setPopoverOpen(!popoverOpen)}
                 truncate
-                className="min-w-0"
             >
                 {currentLabel}
             </LemonButton>
