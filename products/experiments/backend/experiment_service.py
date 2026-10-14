@@ -4581,19 +4581,24 @@ class ExperimentService:
     def _active_timeseries_backfill(
         experiment: Experiment, calculation_config: MetricCalculationConfig
     ) -> ExperimentTimeseriesRecalculation | None:
-        """The pending or running backfill of the metric that `calculation_config` describes.
+        """The pending or running backfill of the metric that `calculation_config` describes, under any key.
 
-        A backfill requested before calculation key version 2 carries the legacy key and writes the same days. It
-        counts as the active backfill, so that a second backfill does not race it for the rows of those days.
+        A backfill requested before a settings edit or before calculation key version 2 carries another key but
+        writes the same days. It counts as the active backfill, so that a second backfill does not race it for the
+        rows of those days.
         """
-        return ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint__in=[calculation_config.calculation_key(), calculation_config.legacy_key()],
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        return (
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=calculation_config.metric_id,
+                status__in=[
+                    ExperimentTimeseriesRecalculation.Status.PENDING,
+                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+                ],
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
     # ------------------------------------------------------------------
     # Velocity stats
