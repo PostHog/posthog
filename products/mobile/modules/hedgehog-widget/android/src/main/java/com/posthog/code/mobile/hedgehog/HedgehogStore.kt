@@ -2,12 +2,14 @@ package com.posthog.code.mobile.hedgehog
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** The SharedPreferences contract shared with the app's JavaScript, see modules/hedgehog-widget/README.md. */
 object HedgehogStore {
     private const val FILE = "hedgehog_widget"
     private const val KEY_CHOREOGRAPHY = "choreography"
-    private const val KEY_POKED_AT = "pokedAt"
+
 
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -21,9 +23,36 @@ object HedgehogStore {
         editor.commit()
     }
 
-    fun pokedAt(context: Context): Long = prefs(context).getLong(KEY_POKED_AT, 0L)
+    private val characters = listOf("coffee_cup", "party", "wizard", "explorer", "asleep", "superhero", "reading", "float")
 
-    fun setPokedAt(context: Context, epochMs: Long) {
-        prefs(context).edit().putLong(KEY_POKED_AT, epochMs).apply()
+    fun selected(context: Context, id: Int): String? = prefs(context).getString("selectedHog.$id", null)
+
+    fun selectNext(context: Context, id: Int) {
+        val next = (characters.indexOf(selected(context, id)) + 1) % characters.size
+        prefs(context).edit().putString("selectedHog.$id", characters[next]).commit()
+    }
+
+    // Pin the loop while a widget is placed. Daily sync and launcher refreshes must not restart a ViewFlipper.
+    fun loop(context: Context, id: Int): List<Tick>? = runCatching {
+        val json = prefs(context).getString("loop.$id", null) ?: return null
+        val array = JSONArray(json)
+        (0 until array.length()).map { index ->
+            val tick = array.getJSONObject(index)
+            Tick(tick.getString("pose"), tick.getInt("frame"), tick.getDouble("x").toFloat(),
+                tick.getDouble("y").toFloat(), Facing.valueOf(tick.getString("facing")))
+        }.takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
+    fun saveLoop(context: Context, id: Int, ticks: List<Tick>) {
+        val array = JSONArray()
+        ticks.forEach { tick ->
+            array.put(JSONObject().put("pose", tick.pose).put("frame", tick.frame)
+                .put("x", tick.x).put("y", tick.y).put("facing", tick.facing.name))
+        }
+        prefs(context).edit().putString("loop.$id", array.toString()).commit()
+    }
+
+    fun remove(context: Context, id: Int) {
+        prefs(context).edit().remove("loop.$id").remove("selectedHog.$id").commit()
     }
 }

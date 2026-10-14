@@ -78,13 +78,9 @@ describe('choreography', () => {
         expect(idleLoops).toEqual([])
     })
 
-    it.each(SEEDS)('visits the whole cast without changing characters mid-loop for seed %i', (seed) => {
+    it.each(SEEDS)('reserves character changes for taps for seed %i', (seed) => {
         const { keyframes, loops, surprises } = build(seed)
-        expect(new Set(keyframes.flatMap((tick) => (tick.hoggie ? [tick.hoggie] : [])))).toEqual(new Set(HOGGIES))
-        expect(new Set(loops.flatMap((loop) => (loop[0]?.hoggie ? [loop[0].hoggie] : [])))).toEqual(new Set(HOGGIES))
-        for (const loop of loops) {
-            expect(new Set(loop.map((tick) => tick.hoggie)).size).toBe(1)
-        }
+        expect([...keyframes, ...loops.flat()].every((tick) => tick.hoggie === undefined)).toBe(true)
         expect(new Set(surprises.map((reaction) => reaction.keyframes[0]?.hoggie))).toEqual(new Set(HOGGIES))
         for (const reaction of surprises) {
             expect(reaction.keyframes.every((tick) => tick.x === 0.5 && tick.facing === 'right')).toBe(true)

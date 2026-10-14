@@ -8,11 +8,17 @@ struct HedgehogWidget: Widget {
         StaticConfiguration(kind: kind, provider: HedgehogTimelineProvider()) { entry in
             HedgehogView(entry: entry)
                 .containerBackground(for: .widget) {
-                    Palette.background
+                    GeometryReader { geometry in
+                        Image("hoglet_garden")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    }
                 }
         }
         .configurationDisplayName("Hedgehog")
-        .description("A roaming hedgehog with visiting hoggies. Tap one for a surprise.")
+        .description("Your own little garden hedgehog. Tap to change its character.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
     }

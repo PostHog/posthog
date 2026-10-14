@@ -205,11 +205,8 @@ class KeyframePlanner {
     private x: number
     private facing: Facing
     private readonly frameCursors: Record<Pose, number> = { idle: 0, walk: 0, jump: 0, wave: 0, action: 0, fall: 0 }
-    private readonly visitors: Hoggie[]
-    private sceneCount = 0
 
     constructor(private readonly random: Random) {
-        this.visitors = shuffled(random, HOGGIES)
         this.startX = roundTo3(between(random, 0.3, 0.7))
         this.x = this.startX
         this.facing = chance(random, 0.5) ? 'left' : 'right'
@@ -258,10 +255,6 @@ class KeyframePlanner {
     ]
 
     private scene(): void {
-        if (this.sceneCount++ % 3 === 0) {
-            this.visit()
-            return
-        }
         const moves = intBetween(this.random, 2, 4)
         for (let index = 0; index < moves; index++) {
             pickWeighted(this.random, this.moves)()
@@ -277,40 +270,6 @@ class KeyframePlanner {
         } else {
             this.rest(intBetween(this.random, 0, 2))
         }
-    }
-
-    private visit(): void {
-        const hoggie = this.visitors.shift() as Hoggie
-        this.visitors.push(hoggie)
-        const start = this.keyframes.length
-        this.say(HOGGIE_LINES[hoggie])
-        switch (hoggie) {
-            case 'party':
-                this.dance()
-                break
-            case 'wizard':
-                this.hop()
-                this.wave()
-                break
-            case 'superhero':
-                this.zoom()
-                this.hop()
-                break
-            case 'explorer':
-                this.stroll(4)
-                this.lookAround()
-                break
-            case 'float':
-                this.stroll(3)
-                break
-            default:
-                this.rest(3)
-        }
-        this.say(HOGGIE_LINES[hoggie])
-        for (const tick of this.keyframes.slice(start)) {
-            tick.hoggie = hoggie
-        }
-        this.push('idle')
     }
 
     private push(pose: Pose, options: { y?: number; frame?: number; bubble?: string; turn?: number } = {}): void {
@@ -711,17 +670,14 @@ function planLoops(random: Random): Tick[][] {
         }
         return queue.shift() as LoopRoutine
     }
-    const visitors = shuffled(random, HOGGIES)
-    return Array.from({ length: LOOP_COUNT }, (_, index) => {
+    return Array.from({ length: LOOP_COUNT }, () => {
         const loop = new LoopBuilder(random)
         // Chain routines until the next one does not fit, so the hedgehog stays busy for the whole loop.
         let fits = true
         while (fits) {
             fits = loop.append(nextRoutine(), random)
         }
-        const ticks = loop.finish()
-        const hoggie = visitors[Math.floor(index / 2)] as Hoggie
-        return index % 2 === 0 ? ticks : illustratedLoop(hoggie, ticks[0] as Tick)
+        return loop.finish()
     })
 }
 

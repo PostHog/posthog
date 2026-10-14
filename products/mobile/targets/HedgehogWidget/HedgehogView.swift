@@ -5,8 +5,6 @@ import WidgetKit
 /// Colors from src/ui/tokens.ts, so the widget matches the app.
 enum Palette {
     static let background = Color(hex: 0xF6F6F3)
-    static let ground = Color(hex: 0xF0F0ED)
-    static let floorLine = Color(hex: 0xD6D6D1)
     static let bubbleFill = Color(hex: 0xFFFFFF)
     static let bubbleBorder = Color(hex: 0xE4E4E0)
     static let ink = Color(hex: 0x1F1F1C)
@@ -31,7 +29,6 @@ struct HedgehogView: View {
     // In the square 160px cell the opaque body spans x 28...130 and y 36...156. The cell's bottom edge
     // sits on the floor line, and these fractions keep the body (not the empty cell) inside the widget.
     private static let artTopInset: CGFloat = 36 / 160
-    private static let artHalfWidth: CGFloat = 51 / 160
     // The middle of the body, so a flip turns around the hedgehog and not around the empty corner of the cell.
     private static let spinAnchor = UnitPoint(x: 79.0 / 160, y: 96.0 / 160)
     private static let bubbleFont = Font.system(size: 12, weight: .semibold)
@@ -40,7 +37,8 @@ struct HedgehogView: View {
     private var illustrated: Bool { hoggieImage != nil }
     private var spriteSize: CGFloat { illustrated ? (family == .systemSmall ? 76 : 88) : (family == .systemSmall ? 56 : 64) }
     private var artTopInset: CGFloat { illustrated ? 0.125 : Self.artTopInset }
-    private var artHalfWidth: CGFloat { illustrated ? 0.375 : Self.artHalfWidth }
+    // Keep the travel envelope fixed when a tap changes the artwork size.
+    private var travelMargin: CGFloat { (family == .systemSmall ? 76.0 : 88.0) * 0.375 + edgePadding }
     private var floorInset: CGFloat { family == .systemSmall ? 18 : 20 }
     private var edgePadding: CGFloat { 8 }
 
@@ -52,13 +50,6 @@ struct HedgehogView: View {
             let lift = lift(floorY: floorY)
 
             ZStack(alignment: .topLeading) {
-                Palette.ground
-                    .frame(width: size.width, height: floorInset)
-                    .offset(y: floorY)
-                Palette.floorLine
-                    .frame(width: size.width, height: 1)
-                    .offset(y: floorY)
-
                 // Each move has its own animation, so a jump travels at an even speed while it rises fast and
                 // falls faster. The innermost animation wins for the values it watches.
                 // Only the hedgehog is a button. A tap anywhere else falls through to the widget, which opens the app.
@@ -67,7 +58,7 @@ struct HedgehogView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(entry.tick.bubble.map { "Hedgehog. \($0)" } ?? "Hedgehog")
-                .accessibilityHint("Tap for a surprise hoggie")
+                .accessibilityHint("Tap to change hedgehog")
                 .rotationEffect(.degrees(reduceMotion ? 0 : entry.spin), anchor: illustrated ? .center : Self.spinAnchor)
                 .animation(spinAnimation, value: entry.spin)
                 .offset(y: floorY - spriteSize - lift)
@@ -105,7 +96,7 @@ struct HedgehogView: View {
         guard !reduceMotion else { return nil }
         switch entry.motion {
         case .settle:
-            return .spring(duration: 0.6, bounce: 0.3)
+            return .easeInOut(duration: 0.6)
         case let .glide(duration), let .rise(duration), let .drop(duration):
             return .linear(duration: duration)
         }
@@ -119,7 +110,7 @@ struct HedgehogView: View {
         case let .drop(duration):
             return .easeIn(duration: duration)
         case .settle, .glide:
-            return .spring(duration: 0.5, bounce: 0.3)
+            return .easeInOut(duration: 0.5)
         }
     }
 
@@ -143,12 +134,12 @@ struct HedgehogView: View {
     }
 
     private func feetX(width: CGFloat) -> CGFloat {
-        let margin = spriteSize * artHalfWidth + edgePadding
+        let margin = travelMargin
         return margin + clamp(entry.tick.x) * max(width - 2 * margin, 0)
     }
 
     private func lift(floorY: CGFloat) -> CGFloat {
-        let artHeight = spriteSize * (1 - artTopInset)
+        let artHeight: CGFloat = (family == .systemSmall ? 76 : 88) * 0.875
         let rise = max(floorY - artHeight - edgePadding, 0)
         return clamp(entry.tick.y) * rise
     }

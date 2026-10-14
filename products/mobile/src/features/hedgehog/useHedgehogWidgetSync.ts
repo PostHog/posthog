@@ -12,7 +12,7 @@ import { createChoreography, dailySeed } from './choreography'
 const SEED_KEY = 'hedgehog_widget_seed'
 // Stored with the seed. Bump it when createChoreography writes a different script, so that a device that synced
 // today with the old app writes the new script after the update instead of the next day.
-const SCRIPT_REVISION = 3
+const SCRIPT_REVISION = 4
 
 let inFlight: Promise<void> | null = null
 

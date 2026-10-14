@@ -135,12 +135,14 @@ Type checks alone do not validate WebView messages, native appearance, or cloud 
 
 ## Hedgehog widget
 
+- Confirm the Keyboard Garden grass fills both widget sizes, including the gallery preview. Check that the hog remains visible at the edges and the top of a jump.
+- Watch through several walks, jumps and a timeline refresh. Tap during movement; the hog must continue in place. If iOS delays a refresh, it should rest where it stopped and resume from there, without jumping across the garden.
 - Install a new native build to include the bundled visitor illustrations. Open the app once to update the widget's script, even if it was already opened today.
 - Place small and medium iOS widgets, or resize the Android widget. Check visitor art near both edges and bubbles with long dialogue. Artwork and text must stay inside the widget.
-- Watch roaming and visitor scenes. Coffee, reading and sleeping visitors rest; the party, wizard, explorer, superhero and floating visitors have matching movements. Android keeps the same visitor throughout each animation loop.
-- Tap the hog several times. A surprise visitor appears where the hog stands, then the regular routine resumes. A background tap opens the app. On iOS the other widget family must not react.
+- Watch the same selected character walk, jump and turn throughout the routine. It must never switch artwork without a tap. On Android 12+, also verify that launcher refreshes and resizing preserve the displayed frame.
+- Tap the hog several times. Each tap selects a different character at the same position; it stays selected through movement, app launches and daily script updates. A background tap opens the app. On iOS the other widget family must not react.
 - Turn on Reduce Motion on iOS. Visitor artwork and dialogue remain visible without travel, flip or spring animations.
-- Place a widget before launching the app and test a tap. Its built-in routine and illustrated surprises must work offline. Keep an older saved script and confirm that its original reaction still plays.
+- Place a widget before launching the app and test a tap. Its built-in routine, garden background and character switching must work offline. Keep an older saved script and confirm that it cannot change the selected character automatically.
 
 ## Rich content, dictation, and report controls
 

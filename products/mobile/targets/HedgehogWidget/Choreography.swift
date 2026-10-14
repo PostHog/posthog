@@ -90,15 +90,21 @@ enum SharedStore {
 
     static var defaults: UserDefaults? { UserDefaults(suiteName: suiteName) }
 
-    static func pokedAtKey(family: String) -> String { "pokedAt.\(family)" }
-    static func reactionStartKey(family: String) -> String { "reactionStart.\(family)" }
-    static func reactionPokeKey(family: String) -> String { "reactionPoke.\(family)" }
+    static func selectedHogKey(family: String) -> String { "selectedHog.\(family)" }
+    static func timelineKey(family: String) -> String { "timeline.v2.\(family)" }
 }
 
-/// A tap on the widget, and the moment its reaction was scheduled to start once a timeline has played it.
-struct Poke {
-    let at: Date
-    let reactionStart: Date?
+enum HogSelection {
+    static let characters = ["coffee_cup", "party", "wizard", "explorer", "asleep", "superhero", "reading", "float"]
+
+    static func next(after current: String?) -> String {
+        guard let current, let index = characters.firstIndex(of: current) else { return characters[0] }
+        return characters[(index + 1) % characters.count]
+    }
+
+    static func selected(family: String) -> String? {
+        SharedStore.defaults?.string(forKey: SharedStore.selectedHogKey(family: family))
+    }
 }
 
 enum ChoreographyLoader {
@@ -122,26 +128,6 @@ enum ChoreographyLoader {
             logger.error("Choreography does not decode: \(String(describing: error), privacy: .public)")
             return FallbackChoreography.value
         }
-    }
-
-    static func poke(family: String) -> Poke? {
-        guard let defaults = SharedStore.defaults,
-              let pokedAt = defaults.object(forKey: SharedStore.pokedAtKey(family: family)) as? Double
-        else {
-            return nil
-        }
-        let reactionPoke = defaults.object(forKey: SharedStore.reactionPokeKey(family: family)) as? Double
-        let reactionStart = defaults.object(forKey: SharedStore.reactionStartKey(family: family)) as? Double
-        return Poke(
-            at: Date(timeIntervalSince1970: pokedAt),
-            reactionStart: reactionPoke == pokedAt ? reactionStart.map { Date(timeIntervalSince1970: $0) } : nil
-        )
-    }
-
-    static func recordReactionStart(_ start: Date, for poke: Poke, family: String) {
-        guard let defaults = SharedStore.defaults else { return }
-        defaults.set(poke.at.timeIntervalSince1970, forKey: SharedStore.reactionPokeKey(family: family))
-        defaults.set(start.timeIntervalSince1970, forKey: SharedStore.reactionStartKey(family: family))
     }
 
     private static let decoder: JSONDecoder = {
