@@ -136,10 +136,6 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
-   Use Flox 1.18.2 or newer, which includes the Nix fixes in the [October 2026 security advisory](https://discourse.flox.dev/t/october-13th-2026-nix-security-advisory-addressed-by-flox-1-18-2/1280). Check your version with `flox --version`. For an existing Homebrew installation, run `brew upgrade flox`. For package installations on macOS or Linux, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install).
-
-   The repository's minimum CLI version only warns about older installations. It does not upgrade Flox or the Nix daemon on your machine.
-
 2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
 
    ```bash
