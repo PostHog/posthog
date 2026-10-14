@@ -132,7 +132,8 @@ export function TraceDialog(): JSX.Element | null {
                                 {(missingParentSpanId || selectedSpan) && (
                                     <div
                                         ref={inspectorRef}
-                                        className="relative flex-1 min-h-0 border-t pt-4 @min-[56rem]/trace-dialog:flex-none @min-[56rem]/trace-dialog:w-(--trace-dialog-inspector-width) @min-[56rem]/trace-dialog:max-w-[70%] @min-[56rem]/trace-dialog:border-t-0 @min-[56rem]/trace-dialog:border-l @min-[56rem]/trace-dialog:pt-0"
+                                        // Half the body at most side by side, so the span tree keeps room for its timeline bars.
+                                        className="relative flex-1 min-h-0 border-t pt-4 @min-[56rem]/trace-dialog:flex-none @min-[56rem]/trace-dialog:w-(--trace-dialog-inspector-width) @min-[56rem]/trace-dialog:max-w-1/2 @min-[56rem]/trace-dialog:border-t-0 @min-[56rem]/trace-dialog:border-l @min-[56rem]/trace-dialog:pt-0"
                                         // The dragged width applies only side by side; stacked, the inspector is full width.
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={
