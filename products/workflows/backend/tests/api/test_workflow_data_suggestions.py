@@ -361,15 +361,20 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status
 
-    @parameterized.expand([("read", "get", "current", 200), ("generate", "post", "generate", 403)])
+    @parameterized.expand(
+        [
+            ("read", ["hog_flow:read", "query:read"], "get", "current", 200),
+            ("read without query access", ["hog_flow:read"], "get", "current", 403),
+            ("generate with a read-only key", ["hog_flow:read", "query:read"], "post", "generate", 403),
+            ("generate without query access", ["hog_flow:write"], "post", "generate", 403),
+        ]
+    )
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
-    def test_a_read_only_key_cannot_start_a_run(
-        self, _name: str, method: str, endpoint: str, status: int, suggest_ideas: MagicMock, _flag
+    def test_a_key_needs_workflow_and_query_scopes(
+        self, _name: str, scopes: list[str], method: str, endpoint: str, status: int, suggest_ideas: MagicMock, _flag
     ) -> None:
         key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="read only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
-        )
+        PersonalAPIKey.objects.create(label="key", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
         self.client.logout()
 
         response = getattr(self.client, method)(
@@ -630,7 +635,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="writer", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
+            label="writer", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write", "query:read"]
         )
 
         web = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")

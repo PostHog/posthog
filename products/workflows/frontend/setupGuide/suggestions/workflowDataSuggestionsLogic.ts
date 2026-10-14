@@ -264,7 +264,14 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                             throw new Error(BUILD_FAILED_MESSAGE)
                         }
                         await breakpoint(POLL_INTERVAL_MS)
-                        built = await requestBuild(false)
+                        try {
+                            built = await requestBuild(false)
+                        } catch (error: any) {
+                            // The build keeps running when one status read fails, so the loop asks again until the deadline.
+                            if (isBreakpoint(error) || error?.status === 404) {
+                                throw error
+                            }
+                        }
                         breakpoint()
                     }
                     if (built.status !== 'ready') {
