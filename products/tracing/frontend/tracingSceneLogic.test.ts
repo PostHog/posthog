@@ -72,6 +72,27 @@ describe('tracingSceneLogic', () => {
         expect(router.values.lastMethod).toBe('REPLACE')
     })
 
+    it.each([
+        [
+            'a lowercase span id with the trace',
+            null,
+            { trace: LOWER_TRACE_ID, span: '00f067aa0ba902b7' },
+            '00F067AA0BA902B7',
+        ],
+        [
+            'a lowercase span id in an open trace',
+            UPPER_TRACE_ID,
+            { trace: UPPER_TRACE_ID, span: '00f067aa0ba902b7' },
+            '00F067AA0BA902B7',
+        ],
+        ['an AI span id', null, { trace: LOWER_TRACE_ID, span: 'ai:AbC-123' }, 'ai:AbC-123'],
+    ])('selects %s from the URL in the case the trace API returns', (_name, openTraceId, urlParams, expected) => {
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt(openTraceId ? { trace: openTraceId } : {})
+        router.actions.push('/tracing', urlParams)
+        expect(logic.values.selectedSpanId).toBe(expected)
+    })
+
     it('opens a lowercase trace id from code only once', () => {
         const getTrace = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
         mountAt({})
