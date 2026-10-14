@@ -32,7 +32,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.slack.formatting import channel_id_from_target
-from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import (
     MAX_REPORT_LINK_REASON_LENGTH,
@@ -3307,14 +3307,16 @@ def validate_scout_repositories(value: list[str], context: dict, *, current: lis
 GRANTABLE_WRITE_SCOPES: list[str] = sorted(SCOUT_GRANTABLE_WRITE_SCOPES)
 
 _WRITE_SCOPES_HELP = (
-    "Extra write access granted to this one scout, as scope strings. The grantable set is "
-    f"{', '.join(f'`{scope}`' for scope in GRANTABLE_WRITE_SCOPES)}. Empty (the default) means the "
-    "scout reads the project and writes only what every scout may write: notebooks, its findings, "
-    "and its own memory. Each scope is project-wide and object-level, so a scout holding "
+    "Write access granted to this one scout, as scope strings. The grantable set is "
+    f"{', '.join(f'`{scope}`' for scope in GRANTABLE_WRITE_SCOPES)}. A new scout starts with "
+    f"{', '.join(f'`{scope}`' for scope in sorted(SCOUT_DEFAULT_WRITE_SCOPES))} when this field is "
+    "omitted. Empty means the scout reads the project and writes only its findings and its own "
+    "memory. Each scope is project-wide and object-level, so a scout holding "
     "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
-    "it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+    "it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project "
+    "member other than the author holds only the default scopes. Applies from the scout's next run."
 )
 
 
