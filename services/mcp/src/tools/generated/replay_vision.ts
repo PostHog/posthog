@@ -934,6 +934,9 @@ const visionScannersCreate = (): ToolBase<
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
         }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -1609,6 +1612,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
+        }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
         }
         if (params.provider !== undefined) {
             body['provider'] = params.provider

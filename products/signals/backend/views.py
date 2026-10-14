@@ -72,12 +72,19 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, PullRe
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.permissions import (
+    APIScopePermission,
+    TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
+from products.signals.backend.agent_instructions import STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
@@ -574,6 +581,20 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
+class SignalSteeringPermission(TeamMemberStrictManagementPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if (
+            request.method in ("GET", "HEAD", "OPTIONS")
+            or not isinstance(request.data, dict)
+            or not any(field in request.data for field in STEERING_FIELDS.values())
+        ):
+            return True
+        if is_sandbox_oauth_request(request):
+            self.message = "Task agents cannot modify steering instructions."
+            return False
+        return super().has_permission(request, view)
+
+
 class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Team-level signal autonomy config (singleton per team).
 
@@ -582,7 +603,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, SignalSteeringPermission]
     serializer_class = SignalTeamConfigSerializer
     queryset = SignalTeamConfig.objects.all()
     scope_object = "task"
@@ -612,9 +633,12 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
-        serializer = self.get_serializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            # Independent settings editors share this row; refetch under lock to keep concurrent edits.
+            config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team.pk)
+            serializer = self.get_serializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
         return Response(serializer.data)
 
 
