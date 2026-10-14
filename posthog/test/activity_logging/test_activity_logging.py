@@ -20,6 +20,7 @@ from parameterized import parameterized
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -473,6 +474,28 @@ class TestActivityLogModel(BaseTest):
                             detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
                             strict=True,
                         )
+
+    @parameterized.expand([("immediate", False), ("deferred", True)])
+    def test_temporal_cancellation_escapes_and_is_not_reported(self, _name: str, deferred: bool) -> None:
+        with (
+            self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=deferred),
+            patch.object(ActivityLog.objects, "create", side_effect=TemporalCancelledError("Cancelled")),
+            patch("posthog.models.activity_logging.activity_log.capture_exception") as mock_capture,
+            self.assertRaises(TemporalCancelledError),
+            self.captureOnCommitCallbacks(execute=True) as callbacks,
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id="12345",
+                scope="FeatureFlag",
+                activity="updated",
+                detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+            )
+        self.assertEqual(len(callbacks), 1 if deferred else 0)
+        mock_capture.assert_not_called()
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at

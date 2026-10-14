@@ -1,3 +1,4 @@
+import sys
 import json
 import dataclasses
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
@@ -1320,6 +1321,14 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
     ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
 
 
+def _is_temporal_cancellation(e: Exception) -> bool:
+    # Temporal cancels a sync activity by raising its CancelledError, an Exception subclass, inside
+    # the activity thread. It must reach Temporal, so it is not an audit write failure. Read the class
+    # from sys.modules because a models module must not put temporalio on the django.setup() path.
+    temporal_exceptions = sys.modules.get("temporalio.exceptions")
+    return temporal_exceptions is not None and isinstance(e, temporal_exceptions.CancelledError)
+
+
 def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None, strict: bool = False):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
@@ -1334,6 +1343,8 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
                 try:
                     create_fn()
                 except Exception as e:
+                    if _is_temporal_cancellation(e):
+                        raise
                     _report_activity_log_write_failure(e, error_context, deferred=True)
                     if settings.TEST:
                         raise
@@ -1344,7 +1355,7 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
             return create_fn()
 
     except Exception as e:
-        if strict:
+        if strict or _is_temporal_cancellation(e):
             raise
         _report_activity_log_write_failure(e, error_context, deferred=False)
         if settings.TEST:
@@ -1473,6 +1484,8 @@ def log_activity(
         )
 
     except Exception as e:
+        if _is_temporal_cancellation(e):
+            raise
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
             team=team_id,
