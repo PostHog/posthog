@@ -84,7 +84,7 @@ def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
     )
 
 
-def _artifact_origin() -> str:
+def artifact_delivery_origin() -> str:
     """The origin artifacts are linked from and served on.
 
     DEBUG/TEST with no CANVAS_ARTIFACT_ORIGIN falls back to the application
@@ -102,7 +102,7 @@ def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | 
     token = create_canvas_artifact_token(build)
     if token is None:
         return None
-    return f"{_artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
+    return f"{artifact_delivery_origin()}/canvas-artifacts/{token}/{artifact_path}"
 
 
 def _read_token(token: str) -> dict[str, Any]:
@@ -117,7 +117,7 @@ def _read_token(token: str) -> dict[str, Any]:
     raise Http404
 
 
-def _require_artifact_host(host: str) -> None:
+def require_artifact_host(host: str) -> None:
     configured_host = _configured_artifact_host()
     if settings.CANVAS_ARTIFACT_ORIGIN and (configured_host is None or host.lower() != configured_host):
         raise Http404
@@ -183,7 +183,7 @@ def create_canvas_sandbox_document_url() -> str | None:
         _publish_sandbox_document(document)
     except ObjectStorageError:
         return None
-    return f"{_artifact_origin()}/canvas-artifacts/sandbox/{document.content_hash}/index.html"
+    return f"{artifact_delivery_origin()}/canvas-artifacts/sandbox/{document.content_hash}/index.html"
 
 
 @xframe_options_exempt
@@ -194,7 +194,7 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
     which refuses the CDNs the document transpiles and resolves imports from. It holds no
     credentials: the canvas code arrives later by postMessage.
     """
-    _require_artifact_host(request.get_host())
+    require_artifact_host(request.get_host())
     document = _sandbox_document()
     if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
         raise Http404
@@ -215,7 +215,7 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
 
 @xframe_options_exempt
 def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
-    _require_artifact_host(request.get_host())
+    require_artifact_host(request.get_host())
     claims = _read_token(token)
     token_expires_at = (claims["bucket"] + 2) * ARTIFACT_TOKEN_BUCKET_SECONDS
     team_id = claims.get("team_id")
