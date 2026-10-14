@@ -425,11 +425,9 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 </div>
                 {overBudget ? (
                     <LemonBanner type="warning">
-                        This is already at the lowest sampling rate, so it will watch about{' '}
-                        {monthlyObservations?.toLocaleString()} recordings a month,{' '}
-                        {scanner.free_only && scanner.credit_limit == null
-                            ? 'more than your free monthly credits cover, so it stops when they run out. To watch the whole month, narrow which recordings are eligible above, for example by device type or country.'
-                            : 'more than your budget covers. To watch fewer, narrow which recordings are eligible above, for example by device type or country.'}
+                        {scanner.free_only && scanner.credit_limit == null ? 'Free credits' : 'Your budget'} won't last
+                        the month at about <span>{monthlyObservations?.toLocaleString()}</span> recordings a month.
+                        Narrow the eligible recordings above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
