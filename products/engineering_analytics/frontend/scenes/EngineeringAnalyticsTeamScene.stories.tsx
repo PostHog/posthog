@@ -155,7 +155,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-07-03T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
-        pageUrl: urls.engineeringAnalyticsTeam(TEAM),
+        pageUrl: urls.engineeringAnalyticsTeam(TEAM, 'PostHog/posthog'),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-team-tests-table"]',
         },

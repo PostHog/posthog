@@ -134,6 +134,10 @@ class CustomPromptSandboxContext:
     codex_max_subagents: int | None = None
     """Codex sub-agents one session may run at once, not counting the main agent. Codex-only.
     ``None`` keeps the Codex default of 3."""
+    codex_shared_prompt_cache: bool = False
+    """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
+    agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
+    sub-agents included."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -336,6 +340,8 @@ async def _create_task_and_trigger(
         extra_run_state["caller_ends_run"] = True
     if context.codex_max_subagents is not None:
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
+    if context.codex_shared_prompt_cache:
+        extra_run_state["codex_shared_prompt_cache"] = True
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
