@@ -261,6 +261,20 @@ def delete_node(team_id: int, node_id: UUID) -> None:
     delete_nodes(team_id, Node.objects.filter(team_id=team_id, pk=node_id))
 
 
+def deleted_saved_query_nodes() -> QuerySet[Node]:
+    return Node.objects.filter(saved_query__deleted=True)
+
+
+def delete_nodes_and_reconcile(team_id: int, nodes: QuerySet[Node]) -> None:
+    dags = sorted(DAG.objects.filter(team_id=team_id, id__in=nodes.values("dag_id")), key=lambda dag: str(dag.id))
+    with transaction.atomic():
+        for dag in dags:
+            lock_dag(team_id, dag.id)
+        delete_nodes(team_id, nodes)
+    for dag in dags:
+        maybe_reconcile_dag(dag)
+
+
 def replace_incoming_edges(
     target: Node,
     dependency_names: Iterable[str],
