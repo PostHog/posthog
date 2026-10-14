@@ -108,6 +108,10 @@ _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
     person_properties_default=" DEFAULT '{}'", ts_default=" DEFAULT timestamp"
 )
 
+# A DEFAULT fills only a column the insert omits. A writer that copies person_properties
+# from a source that can hold '' maps it to '{}' with this expression.
+FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR = "if(empty(person_properties), '{}', person_properties)"
+
 # Typed copies of properties the hot path cannot afford to parse per row. A
 # property earns one only when queries filter or group on it across many rows
 # (flag_key, response) or a skip index needs a real column to sit on (session_id,
@@ -300,7 +304,7 @@ FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
     created_at,
     person_id,
     -- The Kafka engine rejects DEFAULT, so an omitted person_properties arrives as ''.
-    if(empty(person_properties), '{{}}', person_properties) AS person_properties,
+    {FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR} AS person_properties,
     person_created_at,
     -- inserted_at is the time this view processes the row, as in the native-JSON
     -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
