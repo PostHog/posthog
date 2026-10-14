@@ -2,8 +2,8 @@
 
 from celery import shared_task
 
-from ..logic.dispatch import dispatch_comment_command
-from ..logic.intake import CommentCommandRequest
+from ..channels.github.comments import dispatch_comment_command
+from ..channels.github.intake import CommentCommandRequest
 
 
 # No retries: a command that fails tells the commenter so in a reply, and a silent second attempt

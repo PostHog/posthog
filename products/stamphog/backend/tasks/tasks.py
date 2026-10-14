@@ -7,12 +7,13 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 """
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, cast
 
 from django.core.cache import cache
 from django.db import IntegrityError, router, transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -1369,21 +1370,31 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
-def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
-    """The team's enabled config for ``repository`` that was bound through the verified sync flow.
+def _reviewable(configs: QuerySet[StamphogRepoConfig], repository: str) -> QuerySet[StamphogRepoConfig]:
+    """The enabled configs for ``repository`` that were bound through the verified sync flow.
 
     Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
     case-insensitively because callers pass repository names in whatever casing they hold, while
     configs keep GitHub's casing.
     """
     return (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(router.db_for_write(StamphogRepoConfig))
+        configs.using(router.db_for_write(StamphogRepoConfig))
         .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
         .exclude(installation_id="")
-        .order_by("created_at", "id")
-        .first()
     )
+
+
+def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
+    """The team's reviewable config for ``repository``."""
+    return _reviewable(StamphogRepoConfig.objects.for_team(team_id), repository).order_by("created_at", "id").first()
+
+
+def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
+    """The projects among ``team_ids`` where a manual review of ``repository`` would find its config."""
+    # One query for every candidate project, so the caller's choice of project costs no loop.
+    configs = StamphogRepoConfig.objects.unscoped().filter(team_id__in=team_ids)
+    reviewing = set(_reviewable(configs, repository).values_list("team_id", flat=True))
+    return [team_id for team_id in team_ids if team_id in reviewing]
 
 
 def _reviewed_base_ref(run: ReviewRun) -> str:

@@ -26,9 +26,11 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 from posthog.dataclasses import frozen
 from posthog.scopes import APIScopeObject
 
-from .parsing import HELP_VERB, MENTION
-
 SCHEMA_VERSION = 1
+
+MENTION = "@posthog"
+# A line with the bare mention asks for help, so the grammar owns this verb.
+HELP_VERB = "help"
 
 AccessLevel = Literal["viewer", "editor", "manager"]
 OptionKind = Literal["flag", "value"]

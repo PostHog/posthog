@@ -3,8 +3,8 @@ from typing import Any
 
 import pytest
 
-from products.commands.backend.logic.intake import CommentCommandRequest, Dropped, read_comment_command
-from products.commands.backend.logic.parsing import (
+from products.commands.backend.channels.github.intake import CommentCommandRequest, Dropped, read_comment_command
+from products.commands.backend.channels.github.parsing import (
     MAX_ARGUMENT_LENGTH,
     MAX_BODY_LENGTH,
     AmbiguousCommand,

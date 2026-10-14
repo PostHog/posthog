@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 import structlog
 
-from ..logic.intake import CommentCommandRequest, Dropped, read_comment_command
+from ..channels.github.intake import CommentCommandRequest, Dropped, read_comment_command
 
 logger = structlog.get_logger(__name__)
 

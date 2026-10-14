@@ -16,9 +16,8 @@ from markdown_it.token import Token
 
 from posthog.dataclasses import frozen
 
-MENTION = "@posthog"
-# A line with the bare mention asks for help, so the parser owns this verb.
-HELP_VERB = "help"
+from ...logic.schema import HELP_VERB, MENTION
+
 MAX_ARGUMENT_LENGTH = 200
 # A command comment is short, and the CommonMark parse of the largest comment GitHub allows costs
 # most of a second inside the webhook request.
