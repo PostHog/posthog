@@ -772,16 +772,31 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand(
         [
-            ("optimized_shape_descending", False, "DESC"),
-            ("optimized_shape_ascending", False, "ASC"),
-            ("legacy_shape_descending", True, "DESC"),
-            ("legacy_shape_ascending", True, "ASC"),
+            (f"{order_by}_{shape}_{direction.lower()}", order_by, primary, legacy_shape, direction, tiebreakers)
+            for order_by, primary, tiebreakers in (
+                ("severity", "indexOf(['low', 'medium', 'high', 'critical'], severity)", ["last_seen", "id"]),
+                ("occurrences", "occurrences", ["last_seen", "id"]),
+                ("users", "users", ["last_seen", "id"]),
+                ("sessions", "sessions", ["last_seen", "id"]),
+                ("first_seen", "first_seen", ["last_seen", "id"]),
+                ("last_seen", "last_seen", ["id"]),
+            )
+            for shape, legacy_shape in (("optimized_shape", False), ("legacy_shape", True))
+            for direction in ("DESC", "ASC")
         ]
     )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_severity_ordering_is_total(self, _name: str, legacy_shape: bool, direction: str):
-        # Most rows share a severity, and the paginator pages with LIMIT/OFFSET, so rows repeat and
-        # drop between pages unless the tiebreakers make the order total in both directions.
+    def test_ordering_is_total(
+        self,
+        _name: str,
+        order_by: str,
+        primary: str,
+        legacy_shape: bool,
+        direction: str,
+        tiebreakers: list[str],
+    ):
+        # Rows share sort values, and the paginator pages with LIMIT/OFFSET, so rows repeat and drop
+        # between pages unless the tiebreakers make the order total in both shapes and directions.
         filter_group = self._severity_is_set_filter() if legacy_shape else None
 
         builder = ErrorTrackingQueryBuilder(
@@ -789,7 +804,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 kind="ErrorTrackingQuery",
                 dateRange=DateRange(date_from="-7d"),
                 filterGroup=filter_group,
-                orderBy="severity",
+                orderBy=order_by,  # pyright: ignore[reportArgumentType]
                 orderDirection=direction,  # pyright: ignore[reportArgumentType]
                 volumeResolution=1,
             ),
@@ -801,11 +816,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual(
             [(order.expr.to_hogql(), order.order) for order in builder.build_query().order_by or []],
-            [
-                ("indexOf(['low', 'medium', 'high', 'critical'], severity)", direction),
-                ("last_seen", "DESC"),
-                ("id", "DESC"),
-            ],
+            [(primary, direction), *((key, "DESC") for key in tiebreakers)],
         )
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
