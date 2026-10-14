@@ -65,7 +65,6 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { getRetainedResponse, responseCacheKey } from '~/queries/nodes/DataNode/responseCache'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
@@ -2402,19 +2401,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     cache.umountDataNode = dataNodeLogic(dataProps).mount()
                 }
 
-                const dataLogic = dataNodeLogic(dataProps)
-                const retainedResponse =
-                    reuseResults &&
-                    getRetainedResponse(responseCacheKey(dataProps, values.user?.id, teamLogic.values.currentTeamId))
-                if (retainedResponse) {
-                    dataLogic.actions.setResponse(retainedResponse)
-                } else {
-                    dataLogic.actions.loadData(
-                        reuseResults || switchTab ? 'async' : 'force_async',
-                        undefined,
-                        executedSource
-                    )
-                }
+                dataNodeLogic(dataProps).actions.loadData(
+                    reuseResults || switchTab ? 'async' : 'force_async',
+                    undefined,
+                    executedSource
+                )
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)

@@ -984,7 +984,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (hasQueryChanged || props.retainResponseOnUnmount !== oldProps.retainResponseOnUnmount) &&
             getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
         if (retainedResponse) {
-            actions.setResponse(retainedResponse)
+            actions.loadData()
             return
         }
 
@@ -1067,6 +1067,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
+                    actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
+                    const key = responseCacheKey(
+                        overrideQuery ? { ...props, query: overrideQuery } : props,
+                        values.user?.id,
+                        values.currentTeamId
+                    )
+                    const retainedResponse = !pollOnly && !refreshArg?.startsWith('force_') && getRetainedResponse(key)
+                    // Do not extend the retained response's lifetime when displaying it again.
+                    cache.responseCacheKey = retainedResponse ? null : key
+                    if (retainedResponse) {
+                        await Promise.resolve()
+                        breakpoint()
+                        return retainedResponse
+                    }
+                    forgetRetainedResponse(key)
                     const rawQuery = overrideQuery ?? props.query
                     if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
                         return null
@@ -1116,8 +1132,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    actions.abortAnyRunningQuery()
-                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
                     const methodOptions: ApiMethodOptions = {
@@ -2141,12 +2155,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadData: ({ overrideQuery }) => {
-            cache.responseCacheKey = responseCacheKey(
-                overrideQuery ? { ...props, query: overrideQuery } : props,
-                values.user?.id,
-                values.currentTeamId
-            )
-            forgetRetainedResponse(cache.responseCacheKey)
             actions.collectionNodeLoadData(props.key, (overrideQuery ?? props.query)?.kind)
             actions.resetLoadingTimer()
         },
@@ -2258,7 +2266,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
         const retainedResponse = getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
         if (retainedResponse) {
-            actions.setResponse(retainedResponse)
+            actions.loadData()
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount

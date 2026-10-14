@@ -350,7 +350,7 @@ describe('sqlEditorLogic', () => {
             querySpy.mockClear()
             logic.actions.runQuery('SELECT 42', undefined, true)
             dataLogic = dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!
-            expect(dataLogic.values.response).toEqual(response)
+            await expectLogic(dataLogic).toFinishAllListeners().toMatchValues({ response })
             expect(querySpy).not.toHaveBeenCalled()
 
             await expectLogic(dataLogic, () => logic.actions.runQuery('SELECT 42')).toDispatchActions([
