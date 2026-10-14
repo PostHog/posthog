@@ -1356,6 +1356,7 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+    _logs_api_slot: ConcurrencySlot | None = None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
@@ -1377,9 +1378,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
         # DRF calls finalize_response also when the handler raises, so the slot is released on every path.
-        slot: ConcurrencySlot | None = getattr(self, "_logs_api_slot", None)
-        if slot is not None:
-            get_logs_api_team_rate_limiter().release(slot)
+        if self._logs_api_slot is not None:
+            get_logs_api_team_rate_limiter().release(self._logs_api_slot)
             self._logs_api_slot = None
         return super().finalize_response(request, response, *args, **kwargs)
 

@@ -11,8 +11,6 @@ from rest_framework import status
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -130,54 +128,40 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         sparkline_sum = sum(bucket["count"] for bucket in sparkline_response.json())
         self.assertEqual(count_result["count"], sparkline_sum)
 
-    def _personal_api_key_headers(self) -> dict[str, str]:
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="script", user=self.user, secure_value=hash_key_value(token), scopes=["logs:read"]
-        )
-        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
-
-    def _post_count(self, headers: dict[str, str]):
+    def _post_count_with_personal_api_key(self):
+        token = self.create_personal_api_key_with_scopes(["logs:read"])
+        self.client.logout()
         return self.client.post(
             f"/api/projects/{self.team.id}/logs/count",
             data={"query": {"dateRange": _FIXTURE_WINDOW}},
             content_type="application/json",
-            **headers,
+            HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
-    @parameterized.expand(
-        [
-            ("personal_api_key", True, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("session", False, status.HTTP_200_OK),
-        ]
-    )
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
-    def test_full_team_concurrency_limit_refuses_only_personal_api_key_requests(
-        self, _name, use_personal_api_key, expected_status
-    ):
-        headers = self._personal_api_key_headers() if use_personal_api_key else {}
-        if use_personal_api_key:
-            self.client.logout()
+    def test_full_team_concurrency_limit_refuses_personal_api_key_requests_but_not_sessions(self):
         limiter = get_logs_api_team_rate_limiter()
         held_slots = [limiter.use(team_id=self.team.id) for _ in range(limiter.max_concurrency)]
         try:
             with patch.object(limiter, "retry_timeout", 0):
-                response = self._post_count(headers)
+                session_response = self.client.post(
+                    f"/api/projects/{self.team.id}/logs/count",
+                    data={"query": {"dateRange": _FIXTURE_WINDOW}},
+                    content_type="application/json",
+                )
+                api_key_response = self._post_count_with_personal_api_key()
         finally:
             for slot in held_slots:
                 limiter.release(slot)
 
-        self.assertEqual(response.status_code, expected_status)
-        if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
-            self.assertEqual(response.json()["detail"], CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertEqual(session_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(api_key_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(api_key_response.json()["detail"], CONCURRENCY_LIMIT_USER_MESSAGE)
 
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_personal_api_key_requests_release_their_concurrency_slot(self):
-        headers = self._personal_api_key_headers()
-        self.client.logout()
         limiter = get_logs_api_team_rate_limiter()
 
-        with patch.object(limiter, "retry_timeout", 0):
-            statuses = [self._post_count(headers).status_code for _ in range(limiter.max_concurrency + 1)]
+        statuses = [self._post_count_with_personal_api_key().status_code for _ in range(limiter.max_concurrency + 1)]
 
         self.assertEqual(statuses, [status.HTTP_200_OK] * (limiter.max_concurrency + 1))
