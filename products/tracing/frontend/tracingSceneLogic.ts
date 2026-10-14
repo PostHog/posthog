@@ -584,7 +584,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         '/tracing': (_, searchParams) => {
             const filtersFromUrl: Record<string, any> = {}
             let hasChanges = false
@@ -715,17 +715,22 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // loop back through here, and so back/forward opens/closes the drawer correctly.
             const traceFromUrl = traceIdFromUrl(searchParams)
             const spanFromUrl = typeof searchParams.span === 'string' ? searchParams.span : null
-            if (traceFromUrl && traceFromUrl !== values.selectedTraceId) {
-                actions.openTrace(traceFromUrl, {
-                    spanId: spanFromUrl,
-                    ts: typeof searchParams.ts === 'string' ? searchParams.ts : null,
-                })
-            } else if (traceFromUrl && spanFromUrl !== values.selectedSpanId) {
-                // Same trace already open, but the URL's span anchor changed (e.g. a shared span
-                // link to a trace the user already has open) — move the selection, don't reopen.
-                actions.selectSpan(spanFromUrl)
-            } else if (!traceFromUrl && values.selectedTraceId) {
-                actions.closeTrace()
+            cache.drawerChangeFromUrl = true
+            try {
+                if (traceFromUrl && traceFromUrl !== values.selectedTraceId) {
+                    actions.openTrace(traceFromUrl, {
+                        spanId: spanFromUrl,
+                        ts: typeof searchParams.ts === 'string' ? searchParams.ts : null,
+                    })
+                } else if (traceFromUrl && spanFromUrl !== values.selectedSpanId) {
+                    // Same trace already open, but the URL's span anchor changed (e.g. a shared span
+                    // link to a trace the user already has open) — move the selection, don't reopen.
+                    actions.selectSpan(spanFromUrl)
+                } else if (!traceFromUrl && values.selectedTraceId) {
+                    actions.closeTrace()
+                }
+            } finally {
+                cache.drawerChangeFromUrl = false
             }
 
             if (sceneTabsDisabled && searchParams.tab !== undefined) {
@@ -734,7 +739,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values, cache }) => {
         // The drawer params (trace/span/ts) live alongside the filter params. They're written by
         // their own handlers below (which must NOT re-run the list query), and preserved by
         // buildUrl so a filter change doesn't silently strip an open drawer from the URL.
@@ -801,16 +806,15 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             ]
         }
 
-        // When the URL already shows this drawer state, the write only cleans up the trace param,
-        // so it replaces: Back must not stop on a lowercase or malformed spelling of the same state.
-        const urlShowsTrace = (traceId: string | null): boolean =>
-            traceIdFromUrl(router.values.searchParams) === traceId
+        // A drawer change that the URL started only cleans up the trace param, so it replaces: Back must
+        // not stop on a lowercase or malformed spelling, or on a URL a filter restore already rewrote.
+        const drawerChangeUrl = (): ReturnType<typeof drawerUrl> => drawerUrl(!!cache.drawerChangeFromUrl)
 
         return {
             syncUrl: () => buildUrl(),
-            openTrace: ({ traceId }) => drawerUrl(urlShowsTrace(traceId)),
+            openTrace: () => drawerChangeUrl(),
             selectSpan: () => drawerUrl(true),
-            closeTrace: () => drawerUrl(urlShowsTrace(null)),
+            closeTrace: () => drawerChangeUrl(),
         }
     }),
 ])

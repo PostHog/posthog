@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { inApiCase } from 'lib/components/ViewTraceButton/traceUrl'
+
 import type { ErrorScope } from './errorCorrelation'
 import {
     EMPTY_TRACE_IDENTITY,
@@ -189,7 +191,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 errorsScope?: ErrorScope | null
             }
         ) => ({
-            traceId,
+            traceId: inApiCase(traceId),
             spanId: options?.spanId ?? null,
             ts: options?.ts ?? null,
             tab: options?.tab ?? null,

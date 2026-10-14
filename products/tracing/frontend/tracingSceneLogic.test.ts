@@ -52,15 +52,32 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.selectedTraceId).toBe(expected)
     })
 
+    const LOWER_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
+    const UPPER_TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
+
     it.each([
-        ['a lowercase trace id', null, '4bf92f3577b34da6a3ce929d0e0e4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
-        ['a trace id with path characters', '4BF92F3577B34DA6A3CE929D0E0E4736', 'a/b', undefined],
-    ])('cleans up %s in the URL without adding a back step', (_name, openTraceId, urlTraceId, expected) => {
+        ['a lowercase trace id', null, { trace: LOWER_TRACE_ID }, UPPER_TRACE_ID],
+        [
+            'a lowercase trace id next to a filter',
+            null,
+            { trace: LOWER_TRACE_ID, dateRange: JSON.stringify({ date_from: '-7d', date_to: null }) },
+            UPPER_TRACE_ID,
+        ],
+        ['a trace id with path characters', UPPER_TRACE_ID, { trace: 'a/b' }, undefined],
+    ])('cleans up %s in the URL without adding a back step', (_name, openTraceId, urlParams, expected) => {
         jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
         mountAt(openTraceId ? { trace: openTraceId } : {})
-        router.actions.push('/tracing', { trace: urlTraceId })
+        router.actions.push('/tracing', urlParams)
         expect(router.values.searchParams.trace).toBe(expected)
         expect(router.values.lastMethod).toBe('REPLACE')
+    })
+
+    it('opens a lowercase trace id from code only once', () => {
+        const getTrace = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt({})
+        logic.actions.openTrace(LOWER_TRACE_ID)
+        expect(router.values.searchParams.trace).toBe(UPPER_TRACE_ID)
+        expect(getTrace).toHaveBeenCalledTimes(1)
     })
 
     it('migrates legacy compare=true links to the custom time comparison', () => {
