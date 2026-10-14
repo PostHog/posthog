@@ -126,7 +126,7 @@ class TestHelper(SimpleTestCase):
                 KEY: {
                     "state": "rotating",
                     "value": "live",
-                    "previous": "staged",
+                    "incoming": "staged",
                     "version_id": "v2",
                     "fetched_at": "now",
                 }
