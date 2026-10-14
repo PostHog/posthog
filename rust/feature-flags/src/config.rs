@@ -628,12 +628,6 @@ pub struct Config {
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
     pub maxmind_db_path: String,
 
-    // A server-side SDK that doesn't forward the end user's IP resolves its own server's
-    // region, and that value replaces the stored person property that a region flag would
-    // otherwise match on.
-    #[envconfig(from = "GEOIP_SUBDIVISIONS_EXCLUDED_TEAM_IDS", default = "none")]
-    pub geoip_subdivisions_excluded_team_ids: TeamIdCollection,
-
     #[envconfig(default = "false")]
     pub enable_metrics: bool,
 
@@ -1195,7 +1189,6 @@ impl Config {
             billing_limiter_cache_ttl_secs: 5,
             otel_export_timeout_secs: 3,
             maxmind_db_path: "".to_string(),
-            geoip_subdivisions_excluded_team_ids: TeamIdCollection::None,
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
@@ -1286,12 +1279,6 @@ impl Config {
         } else {
             PathBuf::from(&self.maxmind_db_path)
         }
-    }
-
-    pub fn geoip_subdivisions_enabled_for(&self, team_id: i32) -> bool {
-        !self
-            .geoip_subdivisions_excluded_team_ids
-            .includes_team(team_id)
     }
 
     pub fn get_redis_reader_url(&self) -> &str {
@@ -1440,7 +1427,6 @@ mod tests {
         // every legacy token without a mirror row while CI stays green, because the
         // integration tests build their config from default_test_config() instead.
         assert_eq!(config.accept_team_secret_tokens, FlexBool(true));
-        assert!(config.geoip_subdivisions_enabled_for(1));
     }
 
     #[test]
