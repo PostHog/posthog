@@ -725,8 +725,8 @@ The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` us
 Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 
 Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
-Autonomous continuations, CI and peer follow-ups, steering, and slash commands do not trigger selection.
-Follow-up delivery carries `userOriginated: false` for autonomous messages; older commands default to human origin.
+Follow-ups delivered through the user-message command, including automated CI and peer messages, can trigger selection.
+Internal retry continuations, steering, and slash commands do not trigger selection.
 Shadow and treatment require the organization's existing AI data processing consent before retrieval or model calls.
 Sandbox OAuth requests share project rate limits of 30 preparations per minute and 300 per hour.
 

@@ -1,4 +1,5 @@
 import time
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, NoReturn
 
@@ -104,7 +105,7 @@ STEER_DECLINE_REASON_UNREPORTED = "unreported"
 STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
 
 
-@frozen
+@dataclass
 class SendFollowupToSandboxInput:
     run_id: str
     message: str | None = None
@@ -117,7 +118,6 @@ class SendFollowupToSandboxInput:
     # Signal context, passed through from PendingFollowup.
     context: dict[str, Any] | None = None
     steer: bool = False
-    user_originated: bool = True
     max_attempts: int = SEND_FOLLOWUP_MAX_ATTEMPTS
 
 
@@ -453,7 +453,6 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
         message_id=input.message_id,
         steer=input.steer,
-        user_originated=input.user_originated,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
@@ -669,7 +668,6 @@ def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, 
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
         message_id=input.message_id,
         steer=False,
-        user_originated=False,
     )
     logger.info(
         "peer_message_delivery_attempted",

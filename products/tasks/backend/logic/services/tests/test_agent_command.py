@@ -399,29 +399,26 @@ class TestSendAgentCommand:
 class TestSendUserMessage:
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
     @pytest.mark.parametrize(
-        "message,artifacts,expected_params,user_originated",
+        "message,artifacts,expected_params",
         [
-            ("hello world", None, {"content": "hello world"}, True),
-            ("check CI", None, {"content": "check CI", "userOriginated": False}, False),
+            ("hello world", None, {"content": "hello world"}),
             (
                 None,
                 [{"id": "artifact-1", "name": "notes.txt"}],
                 {"artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
-                True,
             ),
             (
                 "hello world",
                 [{"id": "artifact-1", "name": "notes.txt"}],
                 {"content": "hello world", "artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
-                True,
             ),
         ],
-        ids=["message_only", "autonomous", "artifacts_only", "message_and_artifacts"],
+        ids=["message_only", "artifacts_only", "message_and_artifacts"],
     )
-    def test_sends_user_message_method(self, mock_send, message, artifacts, expected_params, user_originated):
+    def test_sends_user_message_method(self, mock_send, message, artifacts, expected_params):
         mock_send.return_value = CommandResult(success=True, status_code=200)
         task_run = MagicMock()
-        result = send_user_message(task_run, message, artifacts=artifacts, user_originated=user_originated)
+        result = send_user_message(task_run, message, artifacts=artifacts)
         mock_send.assert_called_once_with(
             task_run,
             method="user_message",

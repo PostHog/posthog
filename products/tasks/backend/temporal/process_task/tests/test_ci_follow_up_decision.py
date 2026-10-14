@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 from products.tasks.backend.temporal.babysit_pr.snapshot import (
     BabysitJournal,
@@ -330,23 +330,16 @@ class TestBabysitFollowUpDecision:
 
     async def test_dispatch_message_carries_the_attention_items_and_extra_instructions(self, monkeypatch):
         wf = _babysit_workflow(ci_prompt="Update the changelog entry too.")
+        sent = _capture_dispatched_messages(monkeypatch)
         _patch_snapshot(
             monkeypatch,
             _babysit_snapshot(failing_checks=[BABYSIT_CHECK], unresolved_threads=[BABYSIT_THREAD]),
         )
 
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.FIRE
-        execute = AsyncMock(return_value=None)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: False)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: datetime(2026, 8, 18, tzinfo=UTC))
         await wf._dispatch_ci_follow_up()
 
-        delivered = execute.call_args.args[1]
-        assert delivered.user_originated is False
-        assert delivered.message_id
-        message = delivered.message
+        message = sent[0]
         assert BABYSIT_PR_URL in message
         assert "CI/backend" in message
         assert "https://ci.example.com/1" in message

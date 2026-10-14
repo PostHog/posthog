@@ -3883,7 +3883,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     actor_user_id=actor_user_id,
                     context=context,
                     steer=steer,
-                    user_originated=user_originated,
                     max_attempts=max_attempts,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),

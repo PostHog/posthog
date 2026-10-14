@@ -55,7 +55,6 @@ export const userMessageParamsSchema = z
       .optional(),
     artifacts: z.array(z.record(z.string(), z.unknown())).optional(),
     messageId: z.string().min(1).optional(),
-    userOriginated: z.boolean().default(true),
     steer: z.boolean().optional(),
   })
   .refine(
