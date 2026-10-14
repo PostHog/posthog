@@ -176,7 +176,7 @@ pub struct FlagRequest {
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
 
-The lookup also fills `$geoip_subdivision_1_code`, `$geoip_subdivision_1_name`, `$geoip_subdivision_2_code` and `$geoip_subdivision_2_name`. A team listed in `GEOIP_SUBDIVISIONS_EXCLUDED_TEAM_IDS` gets no subdivision values from the lookup.
+The lookup also fills `$geoip_subdivision_1_code`, `$geoip_subdivision_1_name`, `$geoip_subdivision_2_code` and `$geoip_subdivision_2_name`.
 
 GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone, and a JSON null counts as absent, since callers clear a property with `$unset`, so a null is a gap to fill.
 This matters for server-side evaluation: the IP we geolocate is whoever made the HTTP request, so a call from a backend or an SSR render resolves the server's own location, not the end user's.
@@ -335,12 +335,11 @@ See [Behavioral cohorts](#behavioral-cohorts) for cohort membership cache settin
 
 ### Other
 
-| Variable                                 | Default                    | Purpose                                                            |
-| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------ |
-| `MAXMIND_DB_PATH`                        | `share/GeoLite2-City.mmdb` | GeoIP database path                                                |
-| `GEOIP_SUBDIVISIONS_EXCLUDED_TEAM_IDS`   | `none`                     | Teams that get no `$geoip_subdivision_*` values from the IP lookup |
-| `OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS` | `true`                     | Skip DB lookups for 100%-rollout flags                             |
-| `FLAGS_SESSION_REPLAY_QUOTA_CHECK`       | `false`                    | Check session replay quota                                         |
+| Variable                                 | Default                    | Purpose                                |
+| ---------------------------------------- | -------------------------- | -------------------------------------- |
+| `MAXMIND_DB_PATH`                        | `share/GeoLite2-City.mmdb` | GeoIP database path                    |
+| `OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS` | `true`                     | Skip DB lookups for 100%-rollout flags |
+| `FLAGS_SESSION_REPLAY_QUOTA_CHECK`       | `false`                    | Check session replay quota             |
 
 ## Cache invalidation
 
