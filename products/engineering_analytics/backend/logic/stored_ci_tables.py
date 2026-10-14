@@ -95,6 +95,8 @@ class EngineeringAnalyticsCIRunsPrecomputedTable(_EngineeringAnalyticsCIPrecompu
         "repo_name": StringDatabaseField(name="repo_name"),
         "native_run_id": StringDatabaseField(name="native_run_id", nullable=True),
         "native_workflow_run_id": StringDatabaseField(name="native_workflow_run_id", nullable=True),
+        "workflow_id": IntegerDatabaseField(name="workflow_id", nullable=True),
+        "event": StringDatabaseField(name="event", nullable=True),
         "is_handoff_shell": BooleanDatabaseField(
             name="is_handoff_shell",
             description="The run only handed its tests to the other CI engine, or only waited for that hand-off.",

@@ -5,6 +5,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import OperationalError
 from django.utils import timezone
 
@@ -44,10 +45,10 @@ class TestStoredReads(BaseTest):
 
     @parameterized.expand(
         [
-            ("every_day_is_stored", True, True, None, [_STORED_READ, _STORED_READ], True),
-            ("flag_off", False, True, None, [_RAW_READ, _RAW_READ], True),
-            ("a_day_is_not_stored", True, False, None, [_RAW_READ, _RAW_READ], True),
-            ("the_stored_days_lookup_fails", True, OperationalError("down"), None, [_RAW_READ, _RAW_READ], True),
+            ("every_day_is_stored", True, True, None, [_STORED_READ, _STORED_READ], True, 1),
+            ("flag_off", False, True, None, [_RAW_READ, _RAW_READ], True, 0),
+            ("a_day_is_not_stored", True, False, None, [_RAW_READ, _RAW_READ], True, 1),
+            ("the_stored_days_lookup_fails", True, OperationalError("down"), None, [_RAW_READ, _RAW_READ], True, 1),
             (
                 "stored_rows_reject_the_query",
                 True,
@@ -55,9 +56,10 @@ class TestStoredReads(BaseTest):
                 QueryError("no such column"),
                 [_STORED_READ, _RAW_READ, _RAW_READ],
                 True,
+                1,
             ),
-            ("stored_read_lacks_capacity", True, True, ClickHouseAtCapacity(), [_STORED_READ], False),
-            ("stored_read_loses_its_connection", True, True, SocketTimeoutError(), [_STORED_READ], False),
+            ("stored_read_lacks_capacity", True, True, ClickHouseAtCapacity(), [_STORED_READ], False, 1),
+            ("stored_read_loses_its_connection", True, True, SocketTimeoutError(), [_STORED_READ], False, 1),
         ]
     )
     def test_two_floored_reads_take_the_stored_rows_only_while_they_answer(
@@ -68,6 +70,7 @@ class TestStoredReads(BaseTest):
         stored_error: Exception | None,
         expected_reads: list[str],
         answered: bool,
+        refreshes: int,
     ) -> None:
         curated = CuratedGitHubSource.for_team(self.team)
         sql = f"SELECT count() FROM {curated.run_source(started_floor=True)} AS r"
@@ -89,6 +92,8 @@ class TestStoredReads(BaseTest):
         )
 
         with (
+            patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
+            patch(f"{_CURATED}.refresh_ci_precompute") as mock_refresh,
             patch(f"{_CURATED}.team_flag", return_value=flag),
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", **lookup),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute) as mock_execute,
@@ -101,3 +106,6 @@ class TestStoredReads(BaseTest):
                     read()
 
         assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
+        # The first read that can take the stored rows starts a refresh, because no load refreshed them
+        # while the team was not in use.
+        assert mock_refresh.delay.call_count == refreshes

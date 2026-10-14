@@ -330,6 +330,7 @@ class _StoredCiRowsMixin(_WarehouseMixin):
 
         for patcher in (
             patch(f"{_CURATED}.team_flag", return_value=True),
+            patch(f"{_CURATED}.refresh_ci_precompute"),
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", side_effect=store_then_check),
             # One insert for the whole span of a read, in place of one insert for each day.
             patch(f"{_CI_PRECOMPUTE}._max_age_schedule", return_value=TtlSchedule.from_seconds(3600)),

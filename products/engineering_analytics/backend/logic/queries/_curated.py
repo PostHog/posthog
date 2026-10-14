@@ -51,7 +51,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIDataFreshness,
     QueryWorkLimitExceededError,
 )
-from products.engineering_analytics.backend.logic.ci_precompute import StoredCiReader
+from products.engineering_analytics.backend.logic.ci_precompute import StoredCiReader, mark_in_use
 from products.engineering_analytics.backend.logic.feature_flags import team_flag
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
@@ -78,6 +78,7 @@ from products.engineering_analytics.backend.logic.views import (
     workflow_jobs,
     workflow_runs,
 )
+from products.engineering_analytics.backend.tasks.tasks import refresh_ci_precompute
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -612,6 +613,8 @@ class CuratedGitHubSource:
             )
             if depot != self._depot_job_attempts() or not self._may_read(filter(None, raw_tables)):
                 return None
+        if mark_in_use(self._team):
+            refresh_ci_precompute.delay(team_id=self._team.pk)
         return StoredCiReader(self._team, source)
 
     def runs_cte(self) -> str:
