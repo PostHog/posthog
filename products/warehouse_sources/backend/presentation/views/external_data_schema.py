@@ -2352,20 +2352,27 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
-        # A stored resource id can outlive the stored name after an upstream rename, so discover every
-        # schema and match by id. Without an id, the name filter keeps discovery cheap: a SharePoint
-        # endpoint table, for example, then skips the file crawl.
-        match_by_resource_id = (
-            new_source.uses_stable_schema_resource_ids
-            and (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None
+        stored_resource_id = (
+            (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+            if new_source.uses_stable_schema_resource_ids
+            else None
         )
         try:
             schemas = new_source.get_schemas(
-                config,
-                self.team_id,
-                names=None if match_by_resource_id else [instance.name],
-                api_version=effective_api_version,
+                config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
+            # A stored resource id can outlive the stored name after an upstream rename. Discover every
+            # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
+            # filtered discovery.
+            if stored_resource_id is not None:
+                found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
+                found_resource_id = (
+                    (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+                )
+                if str(found_resource_id) != str(stored_resource_id):
+                    schemas = new_source.get_schemas(
+                        config, self.team_id, names=None, api_version=effective_api_version
+                    )
         except Exception as e:
             # `validate_credentials` above just probed the same connection successfully, so a
             # failure here that the source itself classifies is an expected customer or upstream

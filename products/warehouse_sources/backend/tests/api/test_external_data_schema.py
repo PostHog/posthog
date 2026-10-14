@@ -511,7 +511,8 @@ class TestExternalDataSchema(APIBaseTest):
                 StripeSource,
                 {"stripe_secret_key": "test_key"},
                 None,
-                ["C123"],
+                False,
+                [["C123"]],
                 [
                     SourceSchema(name="$channels", supports_incremental=False, supports_append=False),
                     SourceSchema(
@@ -524,7 +525,8 @@ class TestExternalDataSchema(APIBaseTest):
                 GoogleSheetsSource,
                 {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
                 {"schema_metadata": {"source_resource_id": "123"}},
-                None,
+                True,
+                [["C123"], None],
                 [
                     SourceSchema(
                         name="other_sheet",
@@ -542,13 +544,37 @@ class TestExternalDataSchema(APIBaseTest):
                 ],
             ),
             (
+                "name_filter_kept_when_name_still_matches_resource_id",
+                GoogleSheetsSource,
+                {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
+                {"schema_metadata": {"source_resource_id": "123"}},
+                True,
+                [["C123"]],
+                [
+                    SourceSchema(
+                        name="other_sheet",
+                        supports_incremental=False,
+                        supports_append=False,
+                        schema_metadata={"source_resource_id": "456"},
+                    ),
+                    SourceSchema(
+                        name="C123",
+                        supports_incremental=False,
+                        supports_append=False,
+                        supports_webhooks=True,
+                        schema_metadata={"source_resource_id": "123"},
+                    ),
+                ],
+            ),
+            (
                 # A SharePoint endpoint table has no resource id, so discovery keeps the name filter
                 # and skips the file crawl.
                 "name_filter_kept_without_stored_resource_id",
                 SharePointSource,
                 {"tenant_id": "tenant", "client_id": "client", "client_secret": "secret"},
                 None,
-                ["C123"],
+                True,
+                [["C123"]],
                 [
                     SourceSchema(
                         name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True
@@ -558,7 +584,14 @@ class TestExternalDataSchema(APIBaseTest):
         ]
     )
     def test_incremental_fields_matches_discovered_schema(
-        self, _name, source_class, job_inputs, sync_type_config, expected_names, discovered_schemas
+        self,
+        _name,
+        source_class,
+        job_inputs,
+        sync_type_config,
+        honors_names_filter,
+        expected_names_per_call,
+        discovered_schemas,
     ):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=source_class().source_type, job_inputs=job_inputs
@@ -573,9 +606,14 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config=sync_type_config or {},
         )
 
+        def get_schemas(*args, names=None, **kwargs):
+            if names is None or not honors_names_filter:
+                return discovered_schemas
+            return [s for s in discovered_schemas if s.name in names]
+
         with (
             mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(source_class, "get_schemas", return_value=discovered_schemas) as get_schemas,
+            mock.patch.object(source_class, "get_schemas", side_effect=get_schemas) as mock_get_schemas,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -583,7 +621,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["supports_webhooks"] is True
-        assert get_schemas.call_args.kwargs["names"] == expected_names
+        assert [call.kwargs["names"] for call in mock_get_schemas.call_args_list] == expected_names_per_call
 
     @parameterized.expand(
         [
