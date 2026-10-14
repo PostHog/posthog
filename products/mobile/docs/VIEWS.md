@@ -115,10 +115,11 @@ The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views
 | Dashboard | `/views/dashboard/{ref}?from={entry}[&mode={display mode}]` |
 | Insight | `/views/insight/{short_id}?from={entry}[&mode={display mode}]` |
 | Web analytics | `/views/web-analytics?from={entry}` |
+| Full-screen chart | `/views/chart/{short_id}[?key={cache key}]` |
 | Browse lists | `/views/browse/dashboards`, `/views/browse/insights` |
 
 `from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search` or `dashboard`) for `mobile_view_opened`; `mode` is the pin's display mode.
-Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`), never by hand.
+Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `chartHref`), never by hand.
 An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
 Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`.
 
@@ -134,13 +135,13 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 
 | Screen | Content |
 | --- | --- |
-| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). A tile is a number, a chart, a card that opens on the web, or a text card. Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
-| Insight | The big number with its change pill, the inline chart and its legend, ⓘ for "About this chart" (`view-about`). |
+| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
+| Insight | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`). |
 | Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does. |
 
 A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and every series value, "Watch recordings", "View people", "Open on web", "About this chart" and "Copy value".
 People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet aborts it. In demo, rows that open the web say "Not available in the demo".
-An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides.
+An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides; see [Kinds that still open the web](#kinds-that-still-open-the-web).
 
 ## Date range control
 
@@ -158,4 +159,68 @@ Dashboard rows count as visible by tile id, because a range change gives every t
 Number and Chart pins in the list keep the saved range. Ranges last for the session, per view, in memory.
 `useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`.
 
-The smoke flow `.argent/flows/views-smoke.yaml` opens Product KPIs, picks 7 days, steps back, resets, opens the Daily active users tile, turns on compare and opens the Point sheet from the chart.
+## Charts beyond line and bar
+
+`insightDisplay(snapshot)` returns `number`, `chart`, `funnel`, `retention`, `bars` or `web`. `InsightVisual` (`src/features/views/InsightVisual.tsx`) renders every display except a big number, in tiles and on the insight screen.
+
+| Display | When | Renderer |
+| --- | --- | --- |
+| `number` | Big number insights that have one value | `NumberBody` on tiles, the hero on the insight screen |
+| `chart` | Trends line and bar displays, with any number of series and breakdowns | `MetricChart` with a legend |
+| `funnel` | `FunnelsQuery` in the steps layout. A breakdown adds its values step by step and says so under the steps | `FunnelSteps` |
+| `retention` | `RetentionQuery` that counts people, without a breakdown | `RetentionGrid` |
+| `bars` | Trends value bars, tables, pies, donuts and proportion bars | `BarList` |
+| `web` | Everything else | `OpensOnWeb` |
+
+- `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
+- Pins keep one series: `capabilities.chart` still means one series without a breakdown, and `pinChartSeries` draws the first current series only.
+- A breakdown insight has no big number, because no one value stands for it. A trends insight with a breakdown, or a ranking with several values, has `capabilities.number = false`.
+- A tap on a funnel step, bar row or retention cell selects it (`useItemSelection`), under the same one-selected-chart rule as a line chart tooltip: an outside tap, a scroll away, Android back or new data clears it. A funnel step shows the median time from the previous step, a bar row its share of the total (or its rank when the values do not add up), and a retention cell a callout under the grid.
+- A tile ranks six values; "+N more" opens the bar list full screen.
+- Every chart kind is one adjustable VoiceOver element: a summary label, the selected item as its value, and a swipe up or down to move. Its actions are "About this chart" and "Open full screen".
+- These charts have no Point sheet: the API inventory has no actors query for funnels, retention or bars.
+
+## Full screen
+
+`app/views/chart/[shortId].tsx` renders `FullScreenChart`. Open it with `useOpenFullScreen()`, which sends `mobile_chart_fullscreen_opened` (`entry`: `button`, `legend_more`, `rows_more` or `accessibility`; `display`: `chart`, `funnel`, `retention` or `bars`) and pushes `chartHref(shortId, queryKey)`.
+
+- Entries: the tile head button, the insight screen's caption row, the legend "+N" pill, the bar list "+N more" row, and the VoiceOver action "Open full screen".
+- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. Without `key`, it reads the insight's own entry.
+- It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
+- A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods) and bar lists (all rows) show in a card.
+- Charts on this screen send the usual chart events with `context: fullscreen`.
+- Portrait only: the app has no `expo-screen-orientation`, and landscape needs that native module in a new binary. There is no "Zoom to range" or "Show as table" yet.
+
+## Kinds that still open the web
+
+These show the "This chart opens on the web." card, on tiles and on the insight screen:
+
+- Paths (`PathsQuery`), stickiness (`StickinessQuery`: its x axis is "Day N", not dates) and lifecycle (`LifecycleQuery`: stacked bars with negative dormant values).
+- SQL insights (`HogQLQuery`, `DataVisualizationNode`) that are not a big number. The phone has no table renderer.
+- Trends world maps, calendar heatmaps and box plots.
+- Funnels in the trends or time-to-convert layout, and funnels broken down by cohort: one person can be in several cohorts, so a sum would count them twice.
+- Retention with a breakdown, or with a sum or average aggregation (amounts, not people).
+- Web analytics query tiles on a dashboard, and any other query kind.
+
+The web analytics screen shows the overview numbers only. Its top lists open on the web, because the data layer reads only the overview query.
+
+## What waits on the backend
+
+The tab makes no backend change. [`VIEWS_BACKEND_FOLLOWUPS.md`](VIEWS_BACKEND_FOLLOWUPS.md) lists the server work that would unlock more, ranked by user value, with the app change that follows each item. The main ones:
+
+- Server-side refresh protection for OAuth callers, so focus can refresh safely.
+- Display mode and chosen tile on the server, so pins keep their mode on a new phone.
+- Insights viewed on the web in Recent, and phone views in the web's "Recently viewed".
+- Compare on dashboards: `DASHBOARD_COMPARE_SUPPORTED` stays false until US and EU run a build that accepts `compareFilter` in a dashboard override (the deploy check at the end of that file).
+
+## Smoke flow
+
+`.argent/flows/views-smoke.yaml` starts on sign-in with demo mode off and:
+
+1. pins Signups as a number in Edit pins;
+2. opens Product KPIs, picks 7 days, steps back and resets;
+3. opens the Daily active users tile, turns on compare, opens the Point sheet from the chart tooltip (`chart-tooltip`), and opens the chart full screen with the previous period in the legend;
+4. back on the dashboard, pins a tooltip on the first tile, selects a bar list row and a funnel step, opens the funnel full screen, and selects a retention cell;
+5. opens the Dashboards list from Browse, goes home and exits the demo.
+
+After an edit, restart Metro with `--clear` before you replay the flow: the watcher can serve stale modules.
