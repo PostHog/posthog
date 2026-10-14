@@ -734,6 +734,7 @@ class SignalReportState(models.TextChoices):
     SUPPRESSED = "suppressed", "suppressed"
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
+    MONITORING = "monitoring", "monitoring"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -741,11 +742,14 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. "
+            "Resolving is allowed from ready, pending_input, failed, or monitoring, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
-            "Dismissing or resolving closes the report's open implementation PR, if it has one."
+            "Dismissing or resolving closes the report's open implementation PR, if it has one. "
+            "Use 'monitoring' when implementation is complete and outcome verification is pending. "
+            "Monitoring is allowed from ready, pending_input, or failed, requires the organization "
+            "rollout, and leaves pull requests unchanged."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -3407,6 +3411,8 @@ class SignalReportViewSet(
         `_apply_wrong_repo_selection`.
         """
         target_status = SignalReport.Status(target)
+        if target_status == SignalReport.Status.MONITORING and not self._report_monitoring_enabled:
+            return SignalReportBulkStateOutcome.SKIPPED, "Monitoring is unavailable for this organization."
 
         with transaction.atomic():
             # Lock the report row for the whole guard + transition so it serializes with the refund
@@ -3500,7 +3506,13 @@ class SignalReportViewSet(
 
             if not already_holds_verdict:
                 try:
-                    updated_fields = report.transition_to(effective_target, snooze_for=effective_snooze_for)
+                    updated_fields = report.transition_to(
+                        effective_target,
+                        snooze_for=effective_snooze_for,
+                        monitoring_started_at=timezone.now()
+                        if target_status == SignalReport.Status.MONITORING
+                        else None,
+                    )
                 except InvalidStatusTransition as e:
                     logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
                     return SignalReportBulkStateOutcome.SKIPPED, None

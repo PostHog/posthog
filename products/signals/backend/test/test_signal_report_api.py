@@ -1179,20 +1179,28 @@ class TestSignalReportListAPI(APIBaseTest):
         other_organization.members.add(self.user)
         other_team = Team.objects.create(organization=other_organization)
         monitoring = self._create_report(status=SignalReport.Status.MONITORING)
-        other_monitoring = self._create_report(team=other_team, status=SignalReport.Status.MONITORING)
+        other_monitoring = self._create_report(team=other_team, status=SignalReport.Status.READY)
 
         def evaluate(flag: str, distinct_id: str, **kwargs: object) -> bool:
             return distinct_id == str(other_organization.id)
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", side_effect=evaluate):
+            entered = self.client.post(
+                f"/api/projects/{other_team.id}/signals/reports/{other_monitoring.id}/state/",
+                {"state": "monitoring"},
+            )
+            assert entered.status_code == status.HTTP_200_OK, entered.json()
+            rejected = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{monitoring.id}/state/",
+                {"state": "monitoring"},
+            )
+            assert rejected.status_code == status.HTTP_409_CONFLICT
             disabled = self.client.get(self._list_url(status="resolved"))
             enabled = self.client.get(f"/api/projects/{other_team.id}/signals/reports/?status=resolved")
-            enabled_detail = self.client.get(f"/api/projects/{other_team.id}/signals/reports/{other_monitoring.id}/")
 
         assert disabled.status_code == enabled.status_code == status.HTTP_200_OK
         assert [row["id"] for row in disabled.json()["results"]] == [str(monitoring.id)]
         assert enabled.json()["results"] == []
-        assert enabled_detail.json()["status"] == "monitoring"
 
     @parameterized.expand(
         [
@@ -2781,16 +2789,57 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
+    @parameterized.expand(
+        [(SignalReport.Status.READY,), (SignalReport.Status.PENDING_INPUT,), (SignalReport.Status.FAILED,)]
+    )
+    def test_manual_monitoring_preserves_pr_state_and_restores_original_start(self, initial_status: str) -> None:
+        report = self._create_report(report_status=initial_status)
+        pr = SignalReportPullRequest.objects.create(
+            team_id=self.team.id,
+            repository="example/repo",
+            number=1,
+            url="https://github.com/example/repo/pull/1",
+            state=SignalReportPullRequest.State.OPEN,
+        )
+        link = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PullRequestLink(url=pr.url),
+            attribution=ArtefactAttribution.system(),
+        )
+        link.pull_request = pr
+        link.save(update_fields=["pull_request"])
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            with patch("products.signals.backend.tasks.close_dismissed_report_pr.delay") as close_pr:
+                with self.captureOnCommitCallbacks(execute=True):
+                    entered = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
+                assert entered.status_code == status.HTTP_200_OK, entered.json()
+                close_pr.assert_not_called()
+            report.refresh_from_db()
+            original_start = report.monitoring_started_at
+            assert original_start is not None
+            assert report.status == SignalReport.Status.MONITORING
+            pr.refresh_from_db()
+            assert pr.state == SignalReportPullRequest.State.OPEN
+            for target in ("monitoring", "suppressed", "potential"):
+                response = self.client.post(self._state_url(str(report.id)), {"state": target})
+                assert response.status_code == status.HTTP_200_OK, response.json()
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.MONITORING
+            assert report.monitoring_started_at == original_start
+            finished = self.client.post(self._state_url(str(report.id)), {"state": "resolved"})
+            assert finished.status_code == status.HTTP_200_OK, finished.json()
+            assert finished.json()["status"] == "resolved"
+
     @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
     def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(
         self, _name: str, flag_result: bool | Exception
     ) -> None:
         report = self._create_report()
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
-            rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
-            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
-            report.save(
-                update_fields=report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
+            assert (
+                self.client.post(self._state_url(str(report.id)), {"state": "monitoring"}).status_code
+                == status.HTTP_200_OK
             )
         report.refresh_from_db()
         original_start = report.monitoring_started_at
@@ -2800,7 +2849,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
             rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
-            assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+            assert rejected.status_code == status.HTTP_409_CONFLICT
             repeated = self.client.post(self._state_url(str(report.id)), {"state": "resolved"})
             assert repeated.status_code == status.HTTP_200_OK
             assert repeated.json()["status"] == "resolved"
@@ -3862,6 +3911,32 @@ class TestAvailableReviewersAPI(APIBaseTest):
 
 
 class TestSignalReportBulkStateAPI(APIBaseTest):
+    @parameterized.expand(
+        [("enabled", True), ("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))]
+    )
+    def test_bulk_monitoring_respects_the_gate_and_individual_transition_guards(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        ready = self._create_report()
+        researching = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            response = self.client.post(
+                self._bulk_url(), {"ids": [str(ready.id), str(researching.id)], "state": "monitoring"}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["outcome"] for row in response.json()["results"]] == [
+            "transitioned" if flag_result is True else "skipped",
+            "skipped",
+        ]
+        ready.refresh_from_db()
+        researching.refresh_from_db()
+        assert ready.status == (SignalReport.Status.MONITORING if flag_result is True else SignalReport.Status.READY)
+        assert researching.status == SignalReport.Status.IN_PROGRESS
+
     def _bulk_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
 
@@ -4022,7 +4097,6 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
                 {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "suppressed", "dismissal_reason": "made_up"},
             ),
             ("invalid_state", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "ready"}),
-            ("monitoring_not_available", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "monitoring"}),
             ("non_uuid_id", {"ids": ["not-a-uuid"], "state": "suppressed"}),
         ]
     )

@@ -17,6 +17,7 @@ import { SignalReport, SignalReportPriority, SignalReportStatus } from 'products
 import { DismissalFeedback, suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
 
 import type { UserType } from '../../../../../frontend/src/types'
+import type { SignalReportStatusEnumApi } from '../../../../signals/frontend/generated/api.schemas'
 
 // Matches every scout in the customer analytics family — new scouts only need a name
 // starting with this prefix to show up in the feed.
@@ -107,7 +108,7 @@ export interface feedLogicActions {
         field: InboxSortField
     }
     setStatusFilter: (status: SignalReportStatus | null) => {
-        status: SignalReportStatus | null
+        status: SignalReportStatusEnumApi | null
     }
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
@@ -124,7 +125,7 @@ export interface feedLogicMeta {
         scoutNames: (scoutConfigs: SignalScoutConfigApi[] | null, scoutFilter: string[]) => string[]
         hasActiveFilters: (
             searchQuery: string,
-            statusFilter: SignalReportStatus | null,
+            statusFilter: SignalReportStatusEnumApi | null,
             priorityFilter: SignalReportPriority[],
             scoutFilter: string[],
             myReportsOnly: boolean

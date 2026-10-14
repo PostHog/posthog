@@ -33,6 +33,12 @@ export const PR_BADGE_STATE = {
 
 export type PrBadgeState = keyof typeof PR_BADGE_STATE
 
+const TERMINAL_REPORT_STATUSES = new Set<string>([
+    SignalReportStatus.FAILED,
+    SignalReportStatus.SUPPRESSED,
+    SignalReportStatus.RESOLVED,
+])
+
 export function derivePrState(
     status: SignalReportStatus | string,
     prMerged: boolean,
@@ -44,12 +50,7 @@ export function derivePrState(
     if (prState === 'open' || prState === 'draft' || prState === 'closed') {
         return prState
     }
-    if (
-        !prState &&
-        [SignalReportStatus.FAILED, SignalReportStatus.SUPPRESSED, SignalReportStatus.RESOLVED].includes(
-            status as SignalReportStatus
-        )
-    ) {
+    if (!prState && TERMINAL_REPORT_STATUSES.has(status)) {
         return 'closed'
     }
     return 'open'

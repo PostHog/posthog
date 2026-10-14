@@ -6,6 +6,7 @@ import {
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
     type SignalReportPullRequestApi,
+    type SignalReportApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
@@ -14,6 +15,7 @@ import {
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
+    SignalReportStatusEnumApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -94,6 +96,7 @@ export interface SignalReport {
     /** The opening of `summary` as plain text, before its first section heading. */
     summary_lead?: string
     status: SignalReportStatus
+    monitoring_started_at?: SignalReportApi['monitoring_started_at']
     total_weight: number
     signal_count: number
     created_at: string
@@ -152,18 +155,21 @@ export interface SignalReport {
     ranking?: ReportRankingApi | null
 }
 
-export enum SignalReportStatus {
-    POTENTIAL = 'potential',
-    CANDIDATE = 'candidate',
-    IN_PROGRESS = 'in_progress',
-    PENDING_INPUT = 'pending_input',
-    READY = 'ready',
-    RESOLVED = 'resolved',
-    FAILED = 'failed',
+export type SignalReportStatus = SignalReportApi['status']
+
+export const SignalReportStatus = {
+    POTENTIAL: SignalReportStatusEnumApi.Potential,
+    CANDIDATE: SignalReportStatusEnumApi.Candidate,
+    IN_PROGRESS: SignalReportStatusEnumApi.InProgress,
+    PENDING_INPUT: SignalReportStatusEnumApi.PendingInput,
+    READY: SignalReportStatusEnumApi.Ready,
+    MONITORING: SignalReportStatusEnumApi.Monitoring,
+    RESOLVED: SignalReportStatusEnumApi.Resolved,
+    FAILED: SignalReportStatusEnumApi.Failed,
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
-    DELETED = 'deleted',
-    SUPPRESSED = 'suppressed',
-}
+    DELETED: SignalReportStatusEnumApi.Deleted,
+    SUPPRESSED: SignalReportStatusEnumApi.Suppressed,
+} as const
 
 export interface SignalReportArtefact {
     id: string
