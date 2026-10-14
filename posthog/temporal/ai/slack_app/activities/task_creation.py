@@ -961,9 +961,6 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
-    # Any message to the agent answers or overtakes its last question, so the buttons under it are stale.
-    clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
-
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
     # pre-rollout runs); the actor stamped at delivery normally wins.
     if slack_user_id != mapping.latest_actor_slack_user_id:
@@ -971,7 +968,7 @@ def forward_posthog_code_followup_activity(
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
 
     if task_run.is_terminal:
-        return _resume_task_with_new_run(
+        handled = _resume_task_with_new_run(
             mapping,
             task_run,
             slack,
@@ -985,6 +982,8 @@ def forward_posthog_code_followup_activity(
             user_text_prefix=followup_user_text_prefix,
             model_override=model_override,
         )
+        clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
+        return handled
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         collect_thread_messages,
@@ -1147,6 +1146,9 @@ def forward_posthog_code_followup_activity(
                 thread_ts=thread_ts,
             )
 
+    # Last, so the message reaches the agent before Slack is asked to tidy up. Any message to the
+    # agent answers or overtakes its last question, so the buttons under it are stale.
+    clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
     logger.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
 
