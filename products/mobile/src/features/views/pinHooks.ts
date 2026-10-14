@@ -4,7 +4,7 @@ import type { ViewToken } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
 
 import { fetchRecentDashboards } from '@/api/dashboards'
-import { type PaginatedApi, type ProjectScope, retryUnlessMissing } from '@/api/reports'
+import type { PaginatedApi, ProjectScope } from '@/api/reports'
 import {
     createShortcut,
     deleteShortcut,
@@ -38,9 +38,11 @@ import {
 } from './analytics'
 import { READ_FLOOR_MS } from './freshness'
 import { type InsightTarget, insightItem, insightItemKey, insightQueryKey, pinTarget } from './items'
+import { listRead, retryListRead } from './listReads'
 import { movedOrder, usePinPrefs } from './pinPrefsStore'
 import { rangeLabel } from './rangePresets'
 import { useDeviceRecent } from './recentStore'
+import { viewsQueue } from './refreshQueue'
 import { type PinTarget, pinTargetKey, shortcutInputFor } from './shortcutInput'
 import { type RefreshList, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError } from './useViewsAccess'
@@ -52,13 +54,8 @@ type ShortcutPage = PaginatedApi<FileSystemShortcutApi>
 const EMPTY_ROWS: FileSystemShortcutApi[] = []
 const EMPTY_RECENT: DeviceRecentEntry[] = []
 
-async function readShortcuts(signal?: AbortSignal): Promise<ShortcutPage> {
-    try {
-        return await fetchShortcuts(signal)
-    } catch (error) {
-        reportScopeError(error)
-        throw error
-    }
+function readShortcuts(signal?: AbortSignal): Promise<ShortcutPage> {
+    return listRead('dashboards', signal, () => fetchShortcuts(signal))
 }
 
 function projectKey(scope: ProjectScope): string {
@@ -91,7 +88,7 @@ export function usePins(): PinsState {
         queryFn: ({ signal }) => readShortcuts(signal),
         enabled: context.ready && !demo,
         staleTime: READ_FLOOR_MS,
-        retry: retryUnlessMissing,
+        retry: retryListRead,
     })
     const livePrefs = usePinPrefs(useShallow((state) => ({ rank: state.rank, display: state.display })))
     const demoState = useDemoViews(
@@ -238,6 +235,7 @@ export function usePinActions(): PinActions {
                 )
             )
             reportScopeError(error)
+            viewsQueue.notePause('dashboards', error)
             throw new Error("Couldn't pin this view. Try again.")
         }
     })
@@ -263,6 +261,7 @@ export function usePinActions(): PinActions {
             trackViewUnpinned({ viewType, from, rowsDeleted: ids.length })
         } catch (error) {
             reportScopeError(error)
+            viewsQueue.notePause('dashboards', error)
             void client.invalidateQueries({ queryKey: listKey })
             throw new Error("Couldn't unpin this view. Try again.")
         }
@@ -362,17 +361,10 @@ export function useRecentViews(pinnedKeys: ReadonlySet<string>): RecentState {
     const scope = context.scope
     const server = useQuery({
         queryKey: viewsKeys.recentDashboards(scope),
-        queryFn: async ({ signal }) => {
-            try {
-                return await fetchRecentDashboards(signal)
-            } catch (error) {
-                reportScopeError(error)
-                throw error
-            }
-        },
+        queryFn: ({ signal }) => listRead('dashboards', signal, () => fetchRecentDashboards(signal)),
         enabled: context.ready && !demo,
         staleTime: READ_FLOOR_MS,
-        retry: retryUnlessMissing,
+        retry: retryListRead,
     })
     const liveDevice =
         useDeviceRecent((state) => (scope ? state.entries[projectKey(scope)] : undefined)) ?? EMPTY_RECENT

@@ -1,9 +1,8 @@
 import { type InfiniteData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { DASHBOARD_PAGE_SIZE, type DashboardBasicApi, fetchDashboardPage, searchDashboards } from '@/api/dashboards'
 import { fetchInsightPage, INSIGHT_PAGE_SIZE, type InsightBasicApi, searchInsights } from '@/api/insights'
-import { type PaginatedApi, retryUnlessMissing } from '@/api/reports'
+import type { PaginatedApi } from '@/api/reports'
 import { demoDashboardRefFor, demoDashboardRows, demoInsightRows } from '@/demo/views'
 import { toError } from '@/lib/errors'
 import { dashboardRows, insightRows } from '@/model/adapters/viewPins'
@@ -12,7 +11,7 @@ import type { QueryState } from '@/model/types'
 import type { BrowseRow, PinView, RecentView } from '@/model/views'
 
 import { trackViewsSearched } from './analytics'
-import { reportScopeError } from './useViewsAccess'
+import { listRead, retryListRead } from './listReads'
 import { useViewsContext } from './useViewsContext'
 import { viewsKeys } from './viewsCache'
 
@@ -38,13 +37,6 @@ function demoDashboardBrowseRows(): BrowseRow[] {
     })
 }
 
-function withScopeReport<T>(read: () => Promise<T>): Promise<T> {
-    return read().catch((error: unknown) => {
-        reportScopeError(error)
-        throw error
-    })
-}
-
 function useBrowseList<T extends DashboardBasicApi | InsightBasicApi>(
     kind: 'dashboards' | 'insights',
     fetchPage: (offset: number, signal: AbortSignal) => Promise<PaginatedApi<T>>,
@@ -58,13 +50,13 @@ function useBrowseList<T extends DashboardBasicApi | InsightBasicApi>(
         kind === 'dashboards' ? viewsKeys.browseDashboards(context.scope) : viewsKeys.browseInsights(context.scope)
     const list = useInfiniteQuery({
         queryKey,
-        queryFn: ({ pageParam, signal }) => withScopeReport(() => fetchPage(pageParam, signal)),
+        queryFn: ({ pageParam, signal }) => listRead(kind, signal, () => fetchPage(pageParam, signal)),
         initialPageParam: 0,
         // A short page is the last one, so the list never asks for a page past the end.
         getNextPageParam: (lastPage: PaginatedApi<T>, _pages: PaginatedApi<T>[], lastOffset: number) =>
             lastPage.results.length < pageSize ? undefined : lastOffset + pageSize,
         enabled: context.ready && !demo,
-        retry: retryUnlessMissing,
+        retry: retryListRead,
     })
     const data = list.data as InfiniteData<PaginatedApi<T>, number> | undefined
     const rows = useMemo(() => {
@@ -152,7 +144,7 @@ function useServerSearch(kind: 'dashboards' | 'insights', query: string, active:
     const search = useQuery({
         queryKey,
         queryFn: ({ signal }) =>
-            withScopeReport(async () =>
+            listRead(kind, signal, async () =>
                 kind === 'dashboards'
                     ? dashboardRows((await searchDashboards(query, signal)).results)
                     : insightRows((await searchInsights(query, signal)).results)

@@ -1,6 +1,7 @@
 import { BudgetExceededError, type BudgetFamily, canSpend } from '@/api/budget'
 import { ApiError } from '@/api/client'
 import type { InsightRefresh } from '@/api/insights'
+import { sleep } from '@/lib/sleep'
 
 import { READ_FLOOR_MS } from './freshness'
 
@@ -180,6 +181,22 @@ export class RefreshQueue {
         return until !== undefined && until > this.now() ? until : null
     }
 
+    /** Pauses the family after a 429 or 503, for `Retry-After` or 30 s. Other errors change nothing. */
+    notePause(family: BudgetFamily, error: unknown): void {
+        if (error instanceof ApiError && (error.status === 429 || error.status === 503)) {
+            const pauseMs = error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : this.defaultPauseMs
+            this.pausedUntil.set(family, Math.max(this.pausedUntil.get(family) ?? 0, this.now() + pauseMs))
+            this.notify()
+        }
+    }
+
+    /** Resolves once the family is not paused. Rejects with an `AbortError` when the signal aborts first. */
+    async whenFamilyReady(family: BudgetFamily, signal?: AbortSignal): Promise<void> {
+        for (let until = this.familyPausedUntil(family); until !== null; until = this.familyPausedUntil(family)) {
+            await sleep(until - this.now(), signal)
+        }
+    }
+
     /** Aborts everything and forgets every floor and pause, for the end of a session. */
     reset(): void {
         for (const job of [...this.jobs.values()]) {
@@ -305,10 +322,7 @@ export class RefreshQueue {
         if (error instanceof BudgetExceededError) {
             return 'capped'
         }
-        if (error instanceof ApiError && (error.status === 429 || error.status === 503)) {
-            const pauseMs = error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : this.defaultPauseMs
-            this.pausedUntil.set(job.family, this.now() + pauseMs)
-        }
+        this.notePause(job.family, error)
         return 'failed'
     }
 }
