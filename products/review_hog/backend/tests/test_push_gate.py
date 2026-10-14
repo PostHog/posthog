@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.llm.system_one import NoulAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 
-from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, PushGate, PushGateDecision
+from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, PushGate, PushGateDecision, apply_draft_rule
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _MODULE = "products.review_hog.backend.reviewer.push_gate"
@@ -70,15 +70,18 @@ def _github(responses: dict[str, dict[str, Any] | None]):
     return request
 
 
-def _decide(responses: dict[str, dict[str, Any] | None], system_one: MagicMock | None = None) -> PushGateDecision:
+def _decide(
+    responses: dict[str, dict[str, Any] | None], system_one: MagicMock | None = None, *, draft: bool = False
+) -> PushGateDecision:
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
         patch(f"{_MODULE}.posthog_app_login", return_value="reviewhog[bot]"),
     ):
-        return PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
+        decision = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
             previous_head_sha="old", head_sha="new", base_branch="master"
         )
+        return apply_draft_rule(decision, draft=draft)
 
 
 def _system_one(probability: float) -> MagicMock:
@@ -282,3 +285,40 @@ def test_push_gate_reviews_a_push_it_cannot_see(
         decision = _decide(responses, system_one)
     assert (decision.skip, decision.reason) == (False, reason)
     system_one.decide.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("code_push", _CODE_PUSH, (True, True, "draft", 0.8, PUSH_GATE_MODEL, 2)),
+        # A shadow match does not skip, so the draft rule decides the push.
+        (
+            "docs_only_shadow",
+            _push(
+                new_commits=[_commit("a"), _commit("c")],
+                pr_files=[_file("posthog/billing.py", _BILLING), _file("README.md")],
+                own_commit_files=[_file("README.md")],
+            ),
+            (True, True, "draft", None, None, 0),
+        ),
+        # A rule that skips on its own is more specific than the draft state.
+        (
+            "force_push_back",
+            _push(new_commits=[_commit("a")], pr_files=[_file("posthog/billing.py", _BILLING)]),
+            (True, True, "no_new_commits", None, None, None),
+        ),
+    ]
+)
+def test_push_gate_skips_a_draft_push_and_keeps_the_system_one_answer(
+    _name: str,
+    responses: dict[str, dict[str, Any] | None],
+    expected: tuple[bool, bool, str, float | None, str | None, int | None],
+) -> None:
+    decision = _decide(responses, _system_one(0.8), draft=True)
+    assert (
+        decision.skip,
+        decision.would_skip,
+        decision.reason,
+        decision.probability,
+        decision.model,
+        decision.own_code_lines,
+    ) == expected

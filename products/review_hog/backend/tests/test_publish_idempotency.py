@@ -17,6 +17,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
@@ -247,6 +248,48 @@ class TestPublishIdempotency(BaseTest):
         _publish(_publish_input(self.team.id, report_id, "sha2"))
         assert mock_publish.call_count == 1
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
+
+    @parameterized.expand(
+        [
+            ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review"),
+            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to"),
+            ("automatic_ready", "automatic", False, True, None),
+            # A label review also runs for authors without automatic reviews, so it cannot promise one on ready.
+            ("label_draft", "label", True, True, None),
+        ]
+    )
+    @patch(_PUBLISH)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_an_automatic_review_of_a_draft_says_when_the_next_review_runs(
+        self,
+        _name: str,
+        trigger_source: str,
+        draft: bool,
+        commands_on: bool,
+        expected_trigger: str | None,
+        _auth,
+        mock_publish,
+    ) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        snapshot = PRSnapshotArtefact(
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1").model_copy(update={"draft": draft}),
+            pr_comments=[],
+            pr_files=[],
+        )
+        with (
+            patch(_SNAPSHOT, return_value=snapshot),
+            patch(f"{_ACTIVITIES}.comment_commands_enabled", return_value=commands_on),
+        ):
+            _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source=trigger_source))
+
+        findings_footer = mock_publish.call_args.kwargs["findings_footer"]
+        if expected_trigger is None:
+            assert findings_footer == ""
+        else:
+            assert findings_footer.startswith("This is the only automatic review while this pull request is a draft.")
+            assert expected_trigger in findings_footer
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
