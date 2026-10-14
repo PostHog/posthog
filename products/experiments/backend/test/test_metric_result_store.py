@@ -525,7 +525,7 @@ class TestMetricResultStore(BaseTest):
                 ExperimentMetricResult.Status.COMPLETED,
                 [1],
             )
-            assert self._read("for_run", experiment, calculation_config) == [1]
+            assert self._read("for_run", experiment, calculation_config) == ([1], False)
         else:
             assert (row.fingerprint, row.status, row.result, row.error_message) == (
                 key,
