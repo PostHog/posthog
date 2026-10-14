@@ -95,6 +95,56 @@ def test_requests_and_pagination(
     ]
 
 
+@pytest.mark.parametrize("endpoint", ["users", "job_status_workflows", "job_status_workflow_statuses"])
+@pytest.mark.parametrize(
+    "pages,expected_items,expected_pages",
+    [
+        pytest.param(
+            [[{"id": 1}, {"id": 2}], [{"id": 1}, {"id": 2}]],
+            [[{"id": 1}, {"id": 2}]],
+            ["1", "2"],
+            id="page_parameter_ignored",
+        ),
+        pytest.param(
+            [[{"id": 1}], [{"id": 2}], []],
+            [[{"id": 1}], [{"id": 2}]],
+            ["1", "2", "3"],
+            id="page_parameter_honored",
+        ),
+        pytest.param(
+            [[{"id": 1}], [{"id": 2}], [{"id": 2}]],
+            [[{"id": 1}], [{"id": 2}]],
+            ["1", "2", "3"],
+            id="last_page_repeats",
+        ),
+        pytest.param(
+            [{"id": 1, "name": "Default"}, {"id": 1, "name": "Default"}],
+            [[{"id": 1, "name": "Default"}]],
+            ["1", "2"],
+            id="single_record_response",
+        ),
+        pytest.param([[]], [], ["1"], id="no_rows"),
+    ],
+)
+def test_endpoints_without_documented_paging_stop_on_a_repeated_page(
+    endpoint: str,
+    pages: list[Any],
+    expected_items: list[list[dict[str, Any]]],
+    expected_pages: list[str],
+) -> None:
+    result = driver().run(
+        endpoint,
+        [ScriptedResponse(json={"error": False, "response": page}) for page in pages],
+    )
+
+    assert result.raised is None
+    assert result.items == expected_items
+    assert result.params("page") == expected_pages
+    for request in result.requests:
+        assert request.param("sort[0][attribute]") == "id"
+        assert not any(key.startswith("filter[") for key in request.query)
+
+
 @pytest.mark.parametrize("saved_bound", [None, "2026-01-01T00:00:00+00:00"])
 def test_resume_preserves_original_filter(saved_bound: str | None) -> None:
     result = driver().run(
