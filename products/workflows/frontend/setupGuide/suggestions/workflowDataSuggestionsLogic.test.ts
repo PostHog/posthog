@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import {
     workflowDataSuggestionsAccept,
     workflowDataSuggestionsBuild,
     workflowDataSuggestionsCurrent,
+    workflowDataSuggestionsDismiss,
     workflowDataSuggestionsGenerate,
 } from '../../generated/api'
 import { workflowsOnboardingWizardLogic } from '../wizard/workflowsOnboardingWizardLogic'
@@ -22,6 +24,7 @@ jest.mock('../../generated/api', () => ({
     workflowDataSuggestionsAccept: jest.fn(() => Promise.resolve()),
     workflowDataSuggestionsBuild: jest.fn(),
     workflowDataSuggestionsCurrent: jest.fn(),
+    workflowDataSuggestionsDismiss: jest.fn(),
     workflowDataSuggestionsGenerate: jest.fn(),
 }))
 
@@ -178,5 +181,41 @@ describe('workflowDataSuggestionsLogic', () => {
         expect(toast).toHaveBeenCalledWith('This suggestion has expired.')
         expect(hogFlowsCreate).not.toHaveBeenCalled()
         expect(logic.values.buildingKey).toBeNull()
+    })
+
+    it.each([
+        ['dismissed', () => Promise.resolve(), 0],
+        ['already used or dismissed elsewhere', () => Promise.reject({ status: 409 }), 0],
+        ['a server error', () => Promise.reject({ status: 500 }), 1],
+    ])('removes the card only when the suggestion is gone: %s', async (_name, dismiss, cardsLeft) => {
+        jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({
+            status: 'ready',
+            suggestions: [
+                {
+                    id: 'suggestion-1',
+                    name: 'Welcome new users',
+                    description: 'Send a welcome email after sign-up.',
+                    reason: 'Sign-ups are frequent.',
+                    trigger_event: 'user_registered',
+                    weekly_count: 42,
+                    stage: 'signup',
+                    step_outline: ['email'],
+                },
+            ],
+            email_sender_ready: true,
+        })
+        jest.mocked(workflowDataSuggestionsDismiss).mockImplementation(dismiss as any)
+        const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await logic.asyncActions.dismissSuggestion(card, 'We send this already')
+
+        expect(workflowDataSuggestionsDismiss).toHaveBeenCalledWith(expect.any(String), {
+            suggestion_id: 'suggestion-1',
+            reason: 'We send this already',
+        })
+        expect(logic.values.cards).toHaveLength(cardsLeft)
+        expect(logic.values.dismissingKey).toBeNull()
     })
 })
