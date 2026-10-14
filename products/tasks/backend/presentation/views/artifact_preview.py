@@ -115,6 +115,18 @@ SHIM_CHUNK_BYTES = 1024 * 1024
 _HTML_ATTRIBUTE_ESCAPES = ((b"&", b"&amp;"), (b"<", b"&lt;"), (b">", b"&gt;"), (b'"', b"&quot;"), (b"'", b"&#x27;"))
 
 
+_NETWORK_HINT_TAGS = re.compile(rb"<(link|meta)(?=[\t\n\f\r />])", re.IGNORECASE)
+_LEADING_DOCTYPE = re.compile(rb"^(?:\xef\xbb\xbf)?(?:\s|<!--.*?-->)*<!doctype[^>]*>", re.IGNORECASE | re.DOTALL)
+_DNS_PREFETCH_OFF = b'<meta http-equiv="x-dns-prefetch-control" content="off">'
+
+
+def _without_network_hints(content: bytes) -> bytes:
+    content = _NETWORK_HINT_TAGS.sub(rb"<x-\1", content)
+    doctype = _LEADING_DOCTYPE.match(content)
+    split = doctype.end() if doctype else 0
+    return content[:split] + _DNS_PREFETCH_OFF + content[split:]
+
+
 def _escape_html_attribute(chunk: bytes) -> bytes:
     for raw, entity in _HTML_ATTRIBUTE_ESCAPES:
         chunk = chunk.replace(raw, entity)
@@ -127,6 +139,8 @@ async def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> AsyncIte
         "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}</style>"
         f'</head><body><iframe sandbox="{"allow-scripts" if scripts else ""}" title="Artifact" srcdoc="'
     ).encode()
+    if not scripts:
+        content = _without_network_hints(content)
     for start in range(0, len(content), SHIM_CHUNK_BYTES):
         yield _escape_html_attribute(content[start : start + SHIM_CHUNK_BYTES])
     yield b'"></iframe></body></html>'
@@ -139,16 +153,10 @@ def task_artifact_preview(request: HttpRequest, token: str) -> StreamingHttpResp
     require_artifact_host(request.get_host())
     claims = _preview_claims(token)
     if claims.version is None:
-        artifact = tasks_facade.task_run_artifact_entry(
+        content = tasks_facade.read_task_run_html_artifact(
             claims.run_id, claims.task_id, claims.team_id, artifact_id=claims.artifact_id
         )
-        if artifact is None or not tasks_facade.is_html_artifact(
-            str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
-        ):
-            raise Http404
-        content, _, error = tasks_facade.read_task_run_artifact(
-            claims.run_id, claims.task_id, claims.team_id, storage_path=str(artifact["storage_path"])
-        )
+        error = None
     else:
         living_content, error = tasks_facade.read_task_run_living_artifact_version(
             claims.run_id, claims.task_id, claims.team_id, artifact_id=claims.artifact_id, version=claims.version

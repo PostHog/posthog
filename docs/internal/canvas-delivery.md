@@ -61,7 +61,8 @@ A preview opens with scripts off.
 The CSP sandbox has no `allow-scripts` flag, and the inner frame has an empty `sandbox` attribute, so the file cannot run code.
 The user must select "Run scripts" to get a URL with a CSP that allows inline JavaScript.
 
-CSP does not cover every channel: WebRTC and DNS prefetch are not blocked by this policy.
+CSP does not cover every channel, such as WebRTC, DNS prefetch and preconnect.
+A static preview renames every `<link>` and `<meta>` tag of the file to an unknown element, and adds `x-dns-prefetch-control: off` after its doctype, so the file cannot ask the browser for a DNS lookup or a connection.
 For this reason, the API gives a script URL only when whoever wrote that artifact version had full network access.
 The server records this on the manifest entry or the living artifact version at write time, from the authenticated writer, never from the request body.
 A sandbox agent gets the network access of the run that its token belongs to.

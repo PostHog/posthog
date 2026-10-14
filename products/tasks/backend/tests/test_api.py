@@ -10230,7 +10230,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     )
     @patch(
         "posthog.storage.object_storage.read_bytes",
-        return_value=b"<button onclick=\"this.textContent='ready'\">Run</button>",
+        return_value=b'<link rel="preconnect" href="https://example.com"><button onclick="this.textContent=\'ready\'">Run</button>',
     )
     def test_html_artifact_preview_runs_from_isolated_origin(self, mock_read_bytes):
         task = self.create_task()
@@ -10273,7 +10273,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertTrue(static.json()["scripts_available"])
         static_preview = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")
         static_csp = static_preview["Content-Security-Policy"]
-        self.assertIn('<iframe sandbox="" ', b"".join(static_preview).decode())
+        static_page = b"".join(static_preview).decode()
+        self.assertIn('<iframe sandbox="" ', static_page)
+        self.assertIn(escape('<meta http-equiv="x-dns-prefetch-control" content="off"><x-link rel='), static_page)
+        self.assertNotIn(escape("<link"), static_page)
         self.assertIn("sandbox;", static_csp)
         self.assertIn("script-src 'none'", static_csp)
         self.assertNotIn("allow-scripts", static_csp)

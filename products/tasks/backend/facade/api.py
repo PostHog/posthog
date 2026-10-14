@@ -94,6 +94,7 @@ from products.tasks.backend.constants import (
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
     is_blocked_sandbox_env_key,
+    is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -339,6 +340,7 @@ __all__ = [
     "presign_task_run_artifact_download",
     "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
+    "read_task_run_html_artifact",
     "read_task_run_living_artifact_version",
     "sandbox_token_has_open_network",
     "is_html_artifact",
@@ -4913,11 +4915,6 @@ def sandbox_token_has_open_network(
     return checked
 
 
-def is_html_artifact(name: str, content_type: str) -> bool:
-    mime_type = content_type.split(";", 1)[0].strip().lower()
-    return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
-
-
 def task_run_artifact_entry(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
 ) -> dict[str, Any] | None:
@@ -4938,6 +4935,21 @@ def task_run_artifact_entry(
         ),
         None,
     )
+
+
+def read_task_run_html_artifact(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> bytes | None:
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    entry = task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
+    if entry is None or not is_html_artifact(str(entry.get("name") or ""), str(entry.get("content_type") or "")):
+        return None
+    try:
+        return object_storage.read_bytes(str(entry["storage_path"]), missing_ok=True)
+    except Exception:
+        logger.exception("task_run.artifact_preview_read_failed", extra={"task_run_id": str(run_id)})
+        return None
 
 
 def read_task_run_artifact(

@@ -36,7 +36,11 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
-from products.tasks.backend.constants import ARTIFACT_OPEN_NETWORK_WRITER_KEY, ARTIFACT_SCRIPT_SHA256_KEY
+from products.tasks.backend.constants import (
+    ARTIFACT_OPEN_NETWORK_WRITER_KEY,
+    ARTIFACT_SCRIPT_SHA256_KEY,
+    is_html_artifact,
+)
 from products.tasks.backend.facade.contracts import LivingArtifactVersionContent, LivingArtifactVersionPreview
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
@@ -188,12 +192,14 @@ def stored_bytes_match_digest(storage_path: object, digest: object) -> bool:
     return stored is not None and hashlib.sha256(stored).hexdigest() == digest
 
 
-def _version_may_keep_scripts(artifact: TaskArtifact, version: int) -> bool:
+def _version_may_keep_scripts(artifact: TaskArtifact, version: int, *, verify_bytes: bool) -> bool:
     resolved = resolve_living_artifact_version(artifact, version)
     if resolved is None or resolved.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is not True:
         return False
-    return not resolved.storage_path or stored_bytes_match_digest(
-        resolved.storage_path, resolved.record.get("content_sha256")
+    return (
+        not verify_bytes
+        or not resolved.storage_path
+        or stored_bytes_match_digest(resolved.storage_path, resolved.record.get("content_sha256"))
     )
 
 
@@ -243,7 +249,9 @@ def edit_living_artifact(
         content=content_payload,
     )
     base_version_number = int(artifact.current_version or 0)
-    base_keeps_scripts = written_with_open_network and _version_may_keep_scripts(artifact, base_version_number)
+    base_keeps_scripts = written_with_open_network and _version_may_keep_scripts(
+        artifact, base_version_number, verify_bytes=is_html_artifact(next_name, content_payload.content_type)
+    )
     existing_content = selected_adapter.open(artifact)
     next_content = selected_adapter.apply_edit(existing_content, content_payload.body)
     commit = selected_adapter.commit(
