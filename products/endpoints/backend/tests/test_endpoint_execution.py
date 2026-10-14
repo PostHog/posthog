@@ -2525,7 +2525,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         inline_response = Response({"results": [[1]], "columns": ["count()"]})
         outcomes: list[Response | Exception] = [RuntimeError("materialized table exploded"), inline_response]
-        workloads_seen: list[Workload | None] = []
+        workloads_seen: list[str | None] = []
 
         def run_query(*args, **kwargs) -> Response:
             workloads_seen.append(get_query_tags().workload)

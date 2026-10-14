@@ -569,18 +569,15 @@ class EndpointExecutionService(PydanticModelMixin):
             materialized_failed = False
             if use_materialized:
                 try:
-                    # The materialized path tags its query for the endpoints cluster. That cluster
-                    # has no events table, so the tag must not reach the inline fallback.
-                    with tags_context():
-                        result = self._execute_materialized_endpoint(
-                            endpoint,
-                            data,
-                            version=version_obj,
-                            materialized_at=materialized_at,
-                            debug=debug,
-                            limit=limit,
-                            offset=offset,
-                        )
+                    result = self._execute_materialized_endpoint(
+                        endpoint,
+                        data,
+                        version=version_obj,
+                        materialized_at=materialized_at,
+                        debug=debug,
+                        limit=limit,
+                        offset=offset,
+                    )
                 except (ConcurrencyLimitExceeded, APIQueriesBudgetExceeded):
                     # A refusal is not a broken table. The inline path meets the same limiter
                     # with the same balance, so falling back cannot succeed.
@@ -805,52 +802,51 @@ class EndpointExecutionService(PydanticModelMixin):
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": materialized_at.isoformat() if materialized_at else None,
             }
-            tag_queries(
+            with tags_context(
                 workload=Workload.ENDPOINTS,
                 warehouse_query=True,
                 endpoint_version=version.version,
-            )
+            ):
+                # Compute dynamic cache TTL: time remaining until data_freshness window expires
+                cache_ttl = None
+                if materialized_at and version.data_freshness_seconds:
+                    remaining = (
+                        materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                    ).total_seconds()
+                    if remaining <= 0:
+                        logger.warning(
+                            "endpoint_materialization_behind_sla",
+                            endpoint_name=endpoint.name,
+                            team_id=self.team.pk,
+                            data_freshness_seconds=version.data_freshness_seconds,
+                            last_run_at=materialized_at.isoformat(),
+                            remaining_seconds=remaining,
+                        )
+                        tag_queries(endpoint_materialization_behind=True)
+                    cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
 
-            # Compute dynamic cache TTL: time remaining until data_freshness window expires
-            cache_ttl = None
-            if materialized_at and version.data_freshness_seconds:
-                remaining = (
-                    materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
-                ).total_seconds()
-                if remaining <= 0:
-                    logger.warning(
-                        "endpoint_materialization_behind_sla",
-                        endpoint_name=endpoint.name,
-                        team_id=self.team.pk,
-                        data_freshness_seconds=version.data_freshness_seconds,
-                        last_run_at=materialized_at.isoformat(),
-                        remaining_seconds=remaining,
-                    )
-                    tag_queries(endpoint_materialization_behind=True)
-                cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
-
-            result = self._execute_query_and_respond(
-                query_request_data,
-                data.client_query_id,
-                cache_age_seconds=cache_ttl,
-                extra_result_fields=extra_fields,
-                debug=debug,
-                headers=deprecation_headers,
-                pagination=pagination,
-                limit_context=strategy.materialized_limit_context,
-            )
-
-            if self._is_cache_stale(result, materialized_at):
-                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
                     query_request_data,
                     data.client_query_id,
+                    cache_age_seconds=cache_ttl,
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
                     pagination=pagination,
                     limit_context=strategy.materialized_limit_context,
                 )
+
+                if self._is_cache_stale(result, materialized_at):
+                    query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                    result = self._execute_query_and_respond(
+                        query_request_data,
+                        data.client_query_id,
+                        extra_result_fields=extra_fields,
+                        debug=debug,
+                        headers=deprecation_headers,
+                        pagination=pagination,
+                        limit_context=strategy.materialized_limit_context,
+                    )
 
             if isinstance(result.data, dict):
                 strategy.clean_response_sentinels(result.data)
