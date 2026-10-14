@@ -1,9 +1,13 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
 
+import psycopg
 import psycopg.errors
+import temporalio.exceptions
 from parameterized import parameterized
 from temporalio.worker import ExecuteActivityInput
 
@@ -98,5 +102,45 @@ class TestTransientDatabaseErrorReporting:
         ]
     )
     async def test_other_database_errors_are_still_reported(self, _name, error):
+        mock_capture = await _run_and_capture(error)
+        mock_capture.assert_called_once()
+
+
+def _wrapped_context(error: Exception, context: BaseException) -> Exception:
+    error.__context__ = context
+    return error
+
+
+def _autocommit_restore_error(context: BaseException) -> ProgrammingError:
+    driver_error = psycopg.ProgrammingError("can't change 'autocommit' now: connection in transaction status ACTIVE")
+    driver_error.__context__ = context
+    error = ProgrammingError(str(driver_error))
+    error.__cause__ = driver_error
+    error.__context__ = driver_error
+    return error
+
+
+@pytest.mark.asyncio
+class TestCancelledAutocommitRestoreReporting:
+    @parameterized.expand(
+        [
+            ("thread_cancellation", temporalio.exceptions.CancelledError("Cancelled")),
+            ("asyncio_cancellation", asyncio.CancelledError()),
+        ]
+    )
+    async def test_cancellation_hidden_by_autocommit_restore_is_not_reported(self, _name, cancellation):
+        mock_capture = await _run_and_capture(_autocommit_restore_error(cancellation))
+        mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("autocommit_restore_without_cancellation", _autocommit_restore_error(ValueError("bad row"))),
+            (
+                "other_error_after_cancellation",
+                _wrapped_context(RuntimeError("cleanup failed"), asyncio.CancelledError()),
+            ),
+        ]
+    )
+    async def test_other_errors_are_still_reported(self, _name, error):
         mock_capture = await _run_and_capture(error)
         mock_capture.assert_called_once()
