@@ -6192,6 +6192,31 @@
                     },
                     "type": "array"
                 },
+                "hierarchyDrillPath": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "filterIds": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "hierarchyId": {
+                                "type": "string"
+                            },
+                            "nextField": {
+                                "$ref": "#/definitions/BIField"
+                            },
+                            "previousField": {
+                                "$ref": "#/definitions/BIField"
+                            }
+                        },
+                        "required": ["hierarchyId", "previousField", "nextField", "filterIds"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
                 },
@@ -6199,6 +6224,35 @@
                     "description": "Reusable expressions owned by this worksheet only.",
                     "items": {
                         "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "memberAliases": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "aliases": {
+                                "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "label": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "type": ["string", "null"]
+                                        }
+                                    },
+                                    "required": ["value", "label"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "field": {
+                                "$ref": "#/definitions/BIField"
+                            }
+                        },
+                        "required": ["field", "aliases"],
+                        "type": "object"
                     },
                     "type": "array"
                 },
@@ -6329,6 +6383,9 @@
                 "field": {
                     "$ref": "#/definitions/BIField"
                 },
+                "label": {
+                    "type": "string"
+                },
                 "operator": {
                     "$ref": "#/definitions/BIFilterOperator"
                 },
@@ -6422,6 +6479,9 @@
                         },
                         "other": {
                             "type": "string"
+                        },
+                        "preserveUngrouped": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["kind", "expression", "groups", "other"],
@@ -6460,6 +6520,9 @@
                     "type": "boolean"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "label": {
                     "type": "string"
                 },
                 "measureIndex": {

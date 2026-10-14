@@ -984,6 +984,14 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class Alias(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str | None = None
+
+
 class BIDataSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1009,6 +1017,7 @@ class BILocalFieldDefinition2(BaseModel):
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
+    preserveUngrouped: bool | None = None
 
 
 class BILocalFieldDefinition3(BaseModel):
@@ -5162,6 +5171,7 @@ class BIFilter(BaseModel):
     customExpression: str | None = None
     enabled: bool | None = None
     field: BIField
+    label: str | None = None
     operator: BIFilterOperator
     value: str
     valueTo: str | None = None
@@ -5183,6 +5193,7 @@ class BIResultFilter(BaseModel):
     )
     enabled: bool | None = None
     id: str
+    label: str | None = None
     measureIndex: conint(ge=0)
     operator: Operator2
     value: str
@@ -11395,6 +11406,24 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
     )
 
 
+class HierarchyDrillPathItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterIds: list[str]
+    hierarchyId: str
+    nextField: BIField
+    previousField: BIField
+
+
+class MemberAliase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aliases: list[Alias]
+    field: BIField
+
+
 class BIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11417,10 +11446,12 @@ class BIConfig(BaseModel):
         default=None,
         description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
     )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."
     )
+    memberAliases: list[MemberAliase] | None = None
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),

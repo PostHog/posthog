@@ -60,3 +60,19 @@ it.each([
 ] as BILocalFieldDefinition[])('rejects invalid or ambiguous local definitions: %j', (definition) => {
     expect(localFieldError(definition)).toBeTruthy()
 })
+
+it('can preserve ungrouped members including null and empty, while legacy groups keep Other', () => {
+    const definition: BILocalFieldDefinition = {
+        kind: 'groups',
+        expression: 'country',
+        groups: [{ name: 'Combined', values: ['A', 'B'] }],
+        other: 'Other',
+    }
+    const preserved = { ...definition, preserveUngrouped: true }
+    expect(localFieldError(preserved)).toBeUndefined()
+    expect(localFieldExpression(preserved)).toContain('(country) IS NULL, NULL')
+    expect(localFieldExpression(preserved)).toContain('toString((country))))')
+    expect(localFieldExpression(definition)).toContain("'Other'))")
+    expect(localFieldError({ ...preserved, other: '' })).toBeUndefined()
+    expect(localFieldError({ ...definition, other: '' })).toBeTruthy()
+})
