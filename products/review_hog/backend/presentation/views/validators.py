@@ -1,9 +1,6 @@
 import logging
 from typing import cast
 
-from django.db import transaction
-from django.utils import timezone
-
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -11,18 +8,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.models import ReviewSkillConfig
-from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_validation
-from products.review_hog.backend.reviewer.skill_loader import (
-    CANONICAL_VALIDATION_SKILL_NAMES,
-    REVIEW_HOG_VALIDATION_PREFIX,
-    register_missing_validation_config,
-    visible_skill_names,
-)
-from products.skills.backend.models.skills import LLMSkill
+from products.review_hog.backend.facade.api import get_review_skill, list_review_skill_choices, select_review_skill
+from products.review_hog.backend.facade.contracts import ReviewSkillNameError, ReviewSkillNotFoundError
+from products.review_hog.backend.facade.enums import ReviewSkillKind
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +22,8 @@ class ReviewValidatorConfigSerializer(serializers.Serializer):
         help_text="Name of the `review-hog-validation-*` skill this row represents (the validator's identity)."
     )
     active = serializers.BooleanField(
-        help_text="Whether this validator is the one that validates the requesting user's PR reviews on this project."
+        source="enabled",
+        help_text="Whether this validator is the one that validates the requesting user's PR reviews on this project.",
     )
     description = serializers.CharField(
         allow_blank=True, help_text="The validator skill's description, for display in the config UI."
@@ -71,8 +62,6 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     scope_object = "llm_skill"
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "review-hog"
-    # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
-    queryset = ReviewSkillConfig.objects.unscoped()
     serializer_class = ReviewValidatorConfigSerializer
     lookup_field = "skill_name"
     pagination_class = None
@@ -93,37 +82,9 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         ),
     )
     def list(self, request: Request, **kwargs) -> Response:
-        # Resolve a raw environment URL id to its root team once — the skills and config rows all
-        # live on the canonical team, so an unresolved id would render an empty menu.
-        team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
-        # A team that never ran a review has no LLMSkill rows yet — seed the canonical or the
-        # menu renders empty until the first run.
-        seed_canonicals_tolerantly(team_id, sync_canonical_validation)
-        register_missing_validation_config(team_id, user_id)
-        active_by_name = dict(
-            ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-            .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_VALIDATION_PREFIX)
-            .values_list("skill_name", "enabled")
-        )
-        # Per-user visibility: the menu advertises the canonical plus this user's own customs —
-        # never a teammate's.
-        visible = visible_skill_names(
-            team_id, user_id, prefix=REVIEW_HOG_VALIDATION_PREFIX, canonical_names=CANONICAL_VALIDATION_SKILL_NAMES
-        )
-        skills = LLMSkill.objects.filter(team_id=team_id, name__in=visible, is_latest=True, deleted=False).order_by(
-            "name"
-        )
-        items = [
-            {
-                "skill_name": s.name,
-                "active": active_by_name.get(s.name, False),
-                "description": s.description,
-                "body": s.body,
-            }
-            for s in skills
-        ]
-        return Response(ReviewValidatorConfigSerializer(items, many=True).data)
+        choices = list_review_skill_choices(self.team_id, user_id, ReviewSkillKind.VALIDATION)
+        return Response(ReviewValidatorConfigSerializer(choices, many=True).data)
 
     @extend_schema(
         request=ReviewValidatorConfigSelectSerializer,
@@ -144,22 +105,12 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         ),
     )
     def partial_update(self, request: Request, skill_name: str, **kwargs) -> Response:
-        if not skill_name.startswith(REVIEW_HOG_VALIDATION_PREFIX):
-            raise ValidationError(f"'{skill_name}' is not a review validator skill")
-        # Resolve a raw environment URL id to its root team once: `for_team` canonicalizes its
-        # filter but not the create kwargs, and mismatched ids mean a never-matching get plus
-        # 500s on the unique constraint from the second call on.
-        team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
-        # Same cold-team seed as list(): selecting the canonical before the team's first review
-        # would 404 without it.
-        seed_canonicals_tolerantly(team_id, sync_canonical_validation)
-        skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
-        # A teammate's custom 404s exactly like a missing skill — visibility is author-only, and a
-        # distinct error would leak that the name exists.
-        if skill is None or skill_name not in visible_skill_names(
-            team_id, user_id, prefix=REVIEW_HOG_VALIDATION_PREFIX, canonical_names=CANONICAL_VALIDATION_SKILL_NAMES
-        ):
+        try:
+            skill = get_review_skill(self.team_id, user_id, ReviewSkillKind.VALIDATION, skill_name)
+        except ReviewSkillNameError:
+            raise ValidationError(f"'{skill_name}' is not a review validator skill")
+        except ReviewSkillNotFoundError:
             raise NotFound(f"No validator skill '{skill_name}' on this project")
 
         select = ReviewValidatorConfigSelectSerializer(data=request.data)
@@ -167,23 +118,5 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if not select.validated_data["active"]:
             raise ValidationError("Validators are single-active — select a different validator instead of deactivating")
 
-        register_missing_validation_config(team_id, user_id)
-        configs = ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-        # Single-active: deactivate-others + activate-this must land together, or a crash between them
-        # leaves the user with no active validator (the loader's canonical fallback would heal it).
-        with transaction.atomic():
-            configs.filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_VALIDATION_PREFIX, enabled=True).exclude(
-                skill_name=skill_name
-            ).update(enabled=False, updated_at=timezone.now())
-            # `team_id` / `user_id` stay in the create kwargs — the fail-closed filter doesn't propagate.
-            config, _created = configs.get_or_create(
-                team_id=team_id, user_id=user_id, skill_name=skill_name, defaults={"enabled": True}
-            )
-            if not config.enabled:
-                config.enabled = True
-                config.save(update_fields=["enabled", "updated_at"])
-        return Response(
-            ReviewValidatorConfigSerializer(
-                {"skill_name": skill_name, "active": True, "description": skill.description, "body": skill.body}
-            ).data
-        )
+        choice = select_review_skill(self.team_id, user_id, ReviewSkillKind.VALIDATION, skill)
+        return Response(ReviewValidatorConfigSerializer(choice).data)
