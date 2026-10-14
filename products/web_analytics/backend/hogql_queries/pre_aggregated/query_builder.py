@@ -2,8 +2,6 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from django.conf import settings
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
@@ -54,10 +52,11 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         return self._dimensional_job_ids[which]
 
     def use_dimensional_tables(self) -> bool:
-        """Serve enrolled teams from the dimensional precompute tables when both
+        """Serve opted-in queries from the dimensional precompute tables when both
         stats and bounces have READY data for the window; otherwise fall back to v2.
         """
-        if self.runner.team.id not in settings.WEB_DIMENSIONAL_READ_TEAM_IDS:
+        modifiers = self.runner.modifiers
+        if not (modifiers and modifiers.useWebAnalyticsDimensionalTables):
             return False
         return bool(self._job_ids_for("stats")) and bool(self._job_ids_for("bounces"))
 

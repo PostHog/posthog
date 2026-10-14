@@ -256,14 +256,14 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         return combined
 
     def get_pre_aggregated_response(self):
-        should_use_preaggregated = (
-            self.modifiers
-            and self.modifiers.useWebAnalyticsPreAggregatedTables
-            and self.preaggregated_query_builder.can_use_preaggregated_tables()
-            and not self.query.conversionGoal
-        )
-
-        if not should_use_preaggregated:
+        if not self.modifiers or self.query.conversionGoal:
+            return None
+        builder = self.preaggregated_query_builder
+        if not builder.can_use_preaggregated_tables():
+            return None
+        # The dimensional check reads READY jobs from Postgres, so it runs last.
+        use_dimensional = builder.use_dimensional_tables()
+        if not (self.modifiers.useWebAnalyticsPreAggregatedTables or use_dimensional):
             return None
 
         try:
@@ -275,7 +275,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             pre_agg_modifiers.convertToProjectTimezone = False
 
             response = execute_hogql_query(
-                query_type="web_overview_preaggregated_query",
+                query_type="web_overview_dimensional_query" if use_dimensional else "web_overview_preaggregated_query",
                 query=self.preaggregated_query_builder.get_query(),
                 team=self.team,
                 user=self.user,

@@ -117,30 +117,35 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def _can_serve_preaggregated(self) -> bool:
-        return bool(
-            self.modifiers
-            and self.modifiers.useWebAnalyticsPreAggregatedTables
-            and self.preaggregated_query_builder.can_use_preaggregated_tables()
-            and not self.query.includeAvgTimeOnPage
-            and not self.query.conversionGoal
-        )
+        if not self.modifiers or self.query.includeAvgTimeOnPage or self.query.conversionGoal:
+            return False
+        builder = self.preaggregated_query_builder
+        if not builder.can_use_preaggregated_tables():
+            return False
+        # The dimensional check reads READY jobs from Postgres, so it runs last.
+        return bool(self.modifiers.useWebAnalyticsPreAggregatedTables) or builder.use_dimensional_tables()
 
     def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
         if self._can_serve_preaggregated():
+            prefix = (
+                "stats_table_dimensional"
+                if self.preaggregated_query_builder.use_dimensional_tables()
+                else "stats_table_preaggregated"
+            )
             if self.query.breakdownBy == WebStatsBreakdown.PAGE:
                 return ResolvedStatsTableStrategy(
-                    strategy="stats_table_preaggregated_path_breakdown",
+                    strategy=f"{prefix}_path_breakdown",
                     build_query=self.preaggregated_query_builder.get_query,
                     uses_preaggregated_tables=True,
                 )
             if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
                 return ResolvedStatsTableStrategy(
-                    strategy="stats_table_preaggregated_entry_bounce",
+                    strategy=f"{prefix}_entry_bounce",
                     build_query=self.preaggregated_query_builder.get_query,
                     uses_preaggregated_tables=True,
                 )
             return ResolvedStatsTableStrategy(
-                strategy="stats_table_preaggregated",
+                strategy=prefix,
                 build_query=self.preaggregated_query_builder.get_query,
                 uses_preaggregated_tables=True,
             )

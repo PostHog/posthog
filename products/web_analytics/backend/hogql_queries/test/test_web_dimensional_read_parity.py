@@ -1,5 +1,5 @@
 """Read-path parity: routing the web-analytics query runner to the dimensional
-precompute tables (for enrolled teams) must produce the same results as the v2
+precompute tables (for opted-in queries) must produce the same results as the v2
 pre-aggregated tables — including under multi-dimension filters, the capability
 the fixed-dimension tables exist to provide.
 
@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
-
-from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -32,7 +30,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
-from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import WEB_STATS_DIMENSIONAL_READ_TABLE
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
@@ -50,6 +47,9 @@ DATE_TO = "2024-01-02"
 # (events only land on 01-01; the 01-02 window precomputes to an empty, still-READY job).
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
+
+LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
+DIMENSIONAL = HogQLQueryModifiers(useWebAnalyticsDimensionalTables=True)
 
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
@@ -144,28 +144,21 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             limit=100,
         )
 
-    def _run(self, breakdown: WebStatsBreakdown, properties=None) -> list:
-        query = self._query(breakdown, properties)
+    def _run(self, breakdown: WebStatsBreakdown, modifiers: HogQLQueryModifiers, properties=None) -> tuple[str, list]:
         runner = WebStatsTableQueryRunner(
-            query=query,
+            query=self._query(breakdown, properties),
             team=self.team,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=modifiers,
         )
         response = runner.calculate()
         assert runner.used_preaggregated_tables, "expected the pre-aggregated path, not a live fallback"
-        return self._sort_results(response.results)
+        return runner.query_strategy(), self._sort_results(response.results)
 
     @staticmethod
     def _counts(results: list) -> dict:
         # {breakdown_value: (visitors, views)} — anchors values so a both-routes-broken
         # case can't pass on equality alone.
         return {row[0]: (row[1][0], row[2][0]) for row in results}
-
-    def _assert_routes_to_dimensional(self, breakdown: WebStatsBreakdown, properties=None) -> None:
-        runner = WebStatsTableQueryRunner(team=self.team, query=self._query(breakdown, properties))
-        builder = StatsTablePreAggregatedQueryBuilder(runner)
-        assert builder.use_dimensional_tables(), "enrolled team with READY data should route to dimensional"
-        assert builder.stats_table == WEB_STATS_DIMENSIONAL_READ_TABLE
 
     @parameterized.expand(
         [
@@ -181,19 +174,29 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
     )
     def test_dimensional_matches_v2(self, _name, properties, expected_counts):
-        with override_settings(WEB_DIMENSIONAL_READ_TEAM_IDS=[]):
-            v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, properties=properties)
-        with override_settings(WEB_DIMENSIONAL_READ_TEAM_IDS=[self.team.pk]):
-            self._assert_routes_to_dimensional(WebStatsBreakdown.DEVICE_TYPE, properties=properties)
-            dimensional = self._run(WebStatsBreakdown.DEVICE_TYPE, properties=properties)
+        v2_strategy, v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, LEGACY, properties=properties)
+        # Only the dimensional modifier: the legacy one must not be needed to reach this path.
+        dimensional_strategy, dimensional = self._run(WebStatsBreakdown.DEVICE_TYPE, DIMENSIONAL, properties=properties)
 
+        assert v2_strategy == "stats_table_preaggregated"
+        assert dimensional_strategy == "stats_table_dimensional"
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
 
-    def test_partial_coverage_falls_back_to_v2(self):
-        # Dimensional is precomputed for 2024-01-01 only (setUp). A window that also
-        # spans 2024-01-02 is only partially covered, so the runner must fall back to
-        # v2 rather than silently drop the uncovered day via the job_id filter.
+    @parameterized.expand(
+        [
+            (
+                "legacy_on_falls_back_to_v2",
+                HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, useWebAnalyticsDimensionalTables=True),
+                True,
+            ),
+            ("legacy_off_falls_back_to_live", DIMENSIONAL, False),
+        ]
+    )
+    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2):
+        # Dimensional is precomputed for 2024-01-01 and 01-02 only (setUp). A window that
+        # also spans 2024-01-03 is only partially covered, so the job_id filter would
+        # silently drop the uncovered day. The runner must skip dimensional instead.
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=WebStatsTableQuery(
@@ -202,8 +205,12 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
                 limit=100,
             ),
+            modifiers=modifiers,
         )
         builder = StatsTablePreAggregatedQueryBuilder(runner)
-        with override_settings(WEB_DIMENSIONAL_READ_TEAM_IDS=[self.team.pk]):
-            assert not builder.use_dimensional_tables(), "partial coverage must not route to dimensional"
-            assert builder.stats_table == "web_pre_aggregated_stats"
+        assert not builder.use_dimensional_tables(), "partial coverage must not route to dimensional"
+
+        runner.calculate()
+        assert runner.used_preaggregated_tables is expect_v2
+        if expect_v2:
+            assert runner.query_strategy() == "stats_table_preaggregated"

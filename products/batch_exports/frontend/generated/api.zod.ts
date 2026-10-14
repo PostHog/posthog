@@ -670,6 +670,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -1621,6 +1627,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -2331,6 +2343,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -3025,6 +3043,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                        ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
                         ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
@@ -3740,6 +3764,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -4171,6 +4201,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -4422,6 +4458,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                    ),
+                useWebAnalyticsDimensionalTables: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.'
                     ),
                 useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                 webAnalyticsFirstPageviewFilters: zod

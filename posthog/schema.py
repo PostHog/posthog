@@ -6302,6 +6302,14 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
+    useWebAnalyticsDimensionalTables: bool | None = Field(
+        default=None,
+        description=(
+            "Serve web overview and stats table queries from the dimensional precompute"
+            " tables when they hold ready data for the whole date range. Falls back to"
+            " the normal path otherwise."
+        ),
+    )
     useWebAnalyticsPreAggregatedTables: bool | None = None
     webAnalyticsFirstPageviewFilters: bool | None = Field(
         default=None,
